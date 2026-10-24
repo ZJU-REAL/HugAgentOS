@@ -1,6 +1,7 @@
 @import './chat/shell.css';
 @import './chat/messages.css';
 @import './chat/turn-status.css';
+@import './chat/agent-activity.css';
 @import './chat/attachments.css';
 @import './chat/toolbar-controls.css';
 @import './chat/toolbar-popovers.css';

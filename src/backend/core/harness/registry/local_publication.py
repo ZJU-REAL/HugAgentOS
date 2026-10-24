@@ -1,5 +1,6 @@
 """Host-owned publication of local skill views and installation revisions."""
 from __future__ import annotations
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 class LocalPublication(Protocol):
@@ -30,7 +31,6 @@ class LocalPublication(Protocol):
     def claim_revision(self, db: Any, install_id: str, expected_revision: str) -> int: ...
 
 
-
 def register_local_publication(provider: LocalPublication) -> None:
     pass
     registration_state().provider = provider
@@ -57,19 +57,13 @@ async def ensure_native_servers(configs):
     return await local_publication().ensure_native_servers(configs)
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-
-@state_dataclass
+@dataclass
 class RegistrationState:
-    """Process-owned registrations; replace only while the host is quiescent."""
     provider: LocalPublication | None = None
 
 
-@state_cache(maxsize=1)
-def registration_state() -> RegistrationState:
-    return RegistrationState()
+_REGISTRATIONS = RegistrationState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-registration_state()
+
+def registration_state() -> RegistrationState:
+    return _REGISTRATIONS

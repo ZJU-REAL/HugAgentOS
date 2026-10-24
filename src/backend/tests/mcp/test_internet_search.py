@@ -3,7 +3,7 @@
 from __future__ import annotations
 from core.config.store import config_keys
 from core.config.store import system_config
-from core.config.store import system_config_state
+from core.config.store import system_config_constants
 
 import asyncio
 
@@ -110,7 +110,7 @@ def test_service_group_uses_only_selected_engine_key(monkeypatch) -> None:
 
 
 def test_langsearch_has_an_independent_system_config_key() -> None:
-    seed_keys = {item[0] for item in system_config_state.SEED_CONFIGS}
+    seed_keys = {item[0] for item in system_config_constants.SEED_CONFIGS}
 
     assert "internet_search.langsearch_api_key" in seed_keys
     assert (

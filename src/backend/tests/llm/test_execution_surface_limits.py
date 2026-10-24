@@ -6,7 +6,7 @@ import pytest
 from agentscope.message import UserMsg
 from agentscope.tool import FunctionTool, ToolChunk
 from core.llm.context.rendering import next_request_sequence, render_context_item
-from core.llm.context.ir_state import KIND_USER_INPUT, POLICY_NEVER
+from core.llm.context.ir_constants import KIND_USER_INPUT, POLICY_NEVER
 from core.llm.context.items import make_text_context_item
 from core.models.constants import IMAGE_TOKEN_RESERVE
 from core.llm.runtime.manifest_agent import ManifestBoundAgent

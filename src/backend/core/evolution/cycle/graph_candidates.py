@@ -1,15 +1,16 @@
-"""graph candidates responsibilities."""
+"""L3 graph evolution candidates and the dispatcher for the other engines."""
 from __future__ import annotations
 import hashlib
 from typing import Any, Dict, List
 from core.evolution.evidence.credit import T_MEMORY, aggregate_finding, confidence_from_evidence
 from core.evolution.ir import RISK_MEDIUM, EvolutionIR, InvariantViolation, Rollback, validate_ir
 import logging
+from core.evolution.cycle import candidate_records
+from core.evolution.cycle import composition_candidates
+from core.evolution.cycle import memory_candidates
+from core.evolution.cycle import prompt_candidates
+
 logger = logging.getLogger(__name__)
-from core.evolution.cycle import candidate_records as candidate_records_module
-from core.evolution.cycle import composition_candidates as composition_candidates_module
-from core.evolution.cycle import memory_candidates as memory_candidates_module
-from core.evolution.cycle import prompt_candidates as prompt_candidates_module
 
 def graph_evolution_candidates(
     views: List[Dict[str, Any]], *, dry_run: bool
@@ -42,7 +43,7 @@ def graph_evolution_candidates(
         try:
             from core.memory.graph import list_graph_relations
 
-            relations = candidate_records_module.run_async(list_graph_relations(user_id, limit=200))
+            relations = candidate_records.run_async(list_graph_relations(user_id, limit=200))
         except Exception as exc:  # noqa: BLE001
             logger.debug("[evolution-loop] graph listing failed for %s: %s", user_id, exc)
             continue
@@ -104,7 +105,7 @@ def graph_evolution_candidates(
                         "[evolution-loop] graph candidate rejected: %s", violation.code
                     )
                 else:
-                    candidate_id = candidate_records_module.persist_candidate(
+                    candidate_id = candidate_records.persist_candidate(
                         ir,
                         credit=decision.to_dict(),
                         proposer="graph_engine",
@@ -125,16 +126,16 @@ def run_other_engines(views: List[Dict[str, Any]], *, dry_run: bool) -> Dict[str
     """
     from core.evolution.cycle.cycle_extras import run_extras
 
-    scan_findings = memory_candidates_module.memory_scan_findings(views)
+    scan_findings = memory_candidates.memory_scan_findings(views)
     extras = run_extras(views, scan_findings=scan_findings)
 
     produced: List[Dict[str, Any]] = []
     for name, fn in (
-        ("memory", lambda: memory_candidates_module.memory_candidates(extras, views, dry_run=dry_run)),
-        ("intent", lambda: memory_candidates_module.intent_skill_candidates(extras, views, dry_run=dry_run)),
-        ("decremental", lambda: composition_candidates_module.decremental_candidates(extras, dry_run=dry_run)),
-        ("orchestration", lambda: composition_candidates_module.orchestration_candidates(views, dry_run=dry_run)),
-        ("prompt", lambda: prompt_candidates_module.prompt_candidates(views, dry_run=dry_run)),
+        ("memory", lambda: memory_candidates.memory_candidates(extras, views, dry_run=dry_run)),
+        ("intent", lambda: memory_candidates.intent_skill_candidates(extras, views, dry_run=dry_run)),
+        ("decremental", lambda: composition_candidates.decremental_candidates(extras, dry_run=dry_run)),
+        ("orchestration", lambda: composition_candidates.orchestration_candidates(views, dry_run=dry_run)),
+        ("prompt", lambda: prompt_candidates.prompt_candidates(views, dry_run=dry_run)),
         ("graph", lambda: graph_evolution_candidates(views, dry_run=dry_run)),
     ):
         try:

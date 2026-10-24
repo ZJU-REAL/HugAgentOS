@@ -30,7 +30,13 @@ def test_ce_has_no_enterprise_modules_or_model_exports():
         "core.services.team_service",
         "core.db.repository.team",
     ):
-        assert importlib.util.find_spec(module_name) is None
+        try:
+            spec = importlib.util.find_spec(module_name)
+        except ModuleNotFoundError as exc:
+            # A removed parent package also makes this enterprise path unavailable.
+            assert exc.name and (module_name == exc.name or module_name.startswith(exc.name + "."))
+            spec = None
+        assert spec is None
     for model_name in (
         "Team",
         "TeamMember",
@@ -116,8 +122,8 @@ def test_ce_user_router_exposes_self_service_password_change():
 
 
 def test_dingtalk_status_env_does_not_import_ee_sandbox_module(monkeypatch, tmp_path):
-    import core.sandbox.providers.account_env as _common_account_env
-    import core.sandbox.workspace.credentials as _common_credentials
+    import integrations.dingtalk.environment as _common_account_env
+    import integrations.dingtalk.storage as _common_credentials
     from integrations.dingtalk.service import _dws_env
 
     monkeypatch.setattr(_common_credentials, "dws_home_dir", lambda _user_id: tmp_path / "dws-home")
@@ -184,7 +190,7 @@ def test_ce_local_launcher_covers_default_plugin_mcp_servers():
     from extensions.mcp_servers._launcher import PORTS as LAUNCHER_PORTS
     from extensions.mcp_servers._ports import PORTS, package_name
 
-    assert _default_plugins() == ["automation", "skill-manager", "sites"]
+    assert _default_plugins() == ["automation", "skill-manager", "sites", "visualize"]
     assert {
         "automation_task": 9108,
         "skill_manager": 9112,
@@ -196,7 +202,7 @@ def test_ce_local_launcher_covers_default_plugin_mcp_servers():
 
 def test_ce_fresh_database_bootstraps_default_plugins(db_session):
     from core.db.models import AdminMcpServer, ContentBlock, InstalledPlugin
-    from core.capabilities.plugins import service as plugin_service
+    from core.capabilities.plugins import management as plugin_service
 
     assert plugin_service.ensure_default_plugins_bootstrapped(db_session) is True
     installs = db_session.query(InstalledPlugin).filter(InstalledPlugin.owner_user_id.is_(None))
@@ -204,6 +210,7 @@ def test_ce_fresh_database_bootstraps_default_plugins(db_session):
         "automation",
         "skill-manager",
         "sites",
+        "visualize",
     }
     assert {
         row.source_plugin
@@ -212,7 +219,7 @@ def test_ce_fresh_database_bootstraps_default_plugins(db_session):
         .all()
     } == {"automation", "skill-manager", "sites"}
     marker = db_session.get(ContentBlock, plugin_service.DEFAULT_BOOTSTRAP_MARKER_ID)
-    assert marker.payload["plugins"] == ["automation", "skill-manager", "sites"]
+    assert marker.payload["plugins"] == ["automation", "skill-manager", "sites", "visualize"]
     assert plugin_service.ensure_default_plugins_bootstrapped(db_session) is False
 
 
@@ -271,7 +278,6 @@ def test_serve_cli_accepts_explicit_public_bind():
 
 def test_configure_chat_model_persists_context_window(monkeypatch):
     from core.db import engine
-    from core.models.config import ModelConfigService
 
     class FakeDb:
         closed = False
@@ -281,7 +287,6 @@ def test_configure_chat_model_persists_context_window(monkeypatch):
 
     db = FakeDb()
     captured = {}
-    invalidated = []
 
     def fake_create_provider(_db, **kwargs):
         captured.update(kwargs)
@@ -290,11 +295,6 @@ def test_configure_chat_model_persists_context_window(monkeypatch):
     monkeypatch.setattr(engine, "SessionLocal", lambda: db)
     monkeypatch.setattr(model_repository, "create_provider", fake_create_provider)
     monkeypatch.setattr(model_repository, "assign_role", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        ModelConfigService,
-        "get_instance",
-        classmethod(lambda cls: SimpleNamespace(invalidate_cache=lambda: invalidated.append(True))),
-    )
 
     configure_model(
         "http://model.example/v1",
@@ -306,7 +306,6 @@ def test_configure_chat_model_persists_context_window(monkeypatch):
 
     assert captured["extra_config"] == {"context_length": 65536}
     assert db.closed is True
-    assert invalidated == [True]
 
 
 def test_ce_schema_keeps_ontology_control_plane_tables():

@@ -1,24 +1,22 @@
 """Assemble a directly selected agent and its contextual input."""
 
 from __future__ import annotations
-from core.agent_runtime.integrations import memory_identity as memory_identity_module
-from core.agent_runtime.integrations import memory_session as memory_session_module
-from core.llm.runtime import streaming as streaming_module
-from core.llm.citations import allocator as allocator_module
+from core.agent_runtime.integrations import memory_identity
+from core.agent_runtime.integrations import memory_session
+from core.llm.runtime import streaming
+from core.llm.citations import allocator
 
 import logging
 import typing as _typing
 
 import core.agent_runtime.budget as budget
-import core.agent_runtime.integrations.memory as memory
 import core.agent_runtime.targets as targets
-import core.llm.citations.anchor as citation_anchor
 import core.llm.factory as factory
-import core.llm.runtime.streaming as streaming
 from core.agent_runtime.direct_state import DirectTurn
 
-logger = logging.getLogger(__name__)
 import time as _time
+
+logger = logging.getLogger(__name__)
 
 
 async def prepare_direct(turn: DirectTurn):
@@ -87,24 +85,24 @@ async def prepare_direct(turn: DirectTurn):
     # 证据锚点：把发号器绑到 agent 上（中间件与本函数由此共享同一个计数器；
     # 仅靠 ContextVar 不行——本函数是 async generator，与 agent 执行所在的
     # task 上下文不互通）
-    allocator_module.attach_allocator(turn.agent, turn.anchor_allocator)
+    allocator.attach_allocator(turn.agent, turn.anchor_allocator)
 
     # ── Session-constant blocks: user identity + the chat's frozen memory
     # snapshot (built on the first turn, replayed byte-for-byte after). ──
-    turn.session_messages = await memory_session_module.inject_session_blocks(
+    turn.session_messages = await memory_session.inject_session_blocks(
         turn.session_messages,
         identity_block=(
             ""
             if turn.context.get("agent_api_scope") or turn.context.get("evaluation_session")
-            else await memory_identity_module.build_user_identity_block(turn.memory_user_id)
+            else await memory_identity.build_user_identity_block(turn.memory_user_id)
         ),
-        memory_block=await memory_session_module.resolve_session_memory(turn.session_memory),
+        memory_block=await memory_session.resolve_session_memory(turn.session_memory),
     )
 
     # The canonical ContextAssembler owns selection and truncation.  Feed
     # it the complete candidate set so every exclusion is visible in the
     # request manifest rather than silently pre-trimming shared history.
-    turn.streaming_agent = streaming_module.StreamingAgent(turn.agent, turn.mcp_clients)
+    turn.streaming_agent = streaming.StreamingAgent(turn.agent, turn.mcp_clients)
     turn.skill_load_ids: set = set()
     # tool_id → skill_id (parsed from the tool_call's file_path; looked up at tool_result time to replace the SSE payload with the curated detail, avoiding sending the full SKILL.md text to the frontend)
     turn.skill_id_by_tool_id: _typing.Dict[str, str] = {}

@@ -6,9 +6,9 @@ import inspect
 import logging
 from typing import Any, Callable, Optional
 
-from agentscope.agent import Agent
+from agentscope.agent import Agent, InjectionConfig
 from core.llm.context.adapter import AgentScopeContextAdapter
-from core.llm.context.ir_state import VISIBILITY_MANIFEST_ONLY
+from core.llm.context.ir_constants import VISIBILITY_MANIFEST_ONLY
 from core.llm.context.ir import ContextAssembler
 from core.llm.context.content import estimate_context_tokens
 from core.models.context_window import FALLBACK_CONTEXT_WINDOW, usable_context_window
@@ -23,6 +23,7 @@ class ManifestBoundAgent(Agent):
     def __init__(
         self, *args, context_adapter_factory=None, **kwargs
     ) -> None:  # noqa: ANN002,ANN003
+        kwargs.setdefault("injection_config", InjectionConfig(inject_runtime_state=False))
         super().__init__(*args, **kwargs)
         self._context_adapter_factory = context_adapter_factory or AgentScopeContextAdapter
         self._tool_reserve_memo: Optional[tuple[int, int]] = None
@@ -31,7 +32,7 @@ class ManifestBoundAgent(Agent):
     def context_adapter_factory(self):  # noqa: ANN201
         return self._context_adapter_factory
 
-    async def compress_context(self, context_config=None) -> None:  # noqa: ANN001
+    async def compress_context(self, context_config=None, instructions=None) -> None:  # noqa: ANN001
         """Disable AgentScope's second, opaque context selector.
 
         Durable pre-turn compaction may replace history with an explicit
@@ -40,7 +41,7 @@ class ManifestBoundAgent(Agent):
         candidate decision.  Running AgentScope compression here would delete
         candidates before the final manifest and make exclusions unauditable.
         """
-        del context_config
+        del context_config, instructions
 
     @property
     def request_context_manifest(self) -> dict[str, Any]:

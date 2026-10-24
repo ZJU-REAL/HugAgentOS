@@ -1,4 +1,4 @@
-"""service responsibilities."""
+"""Manage ontology packs, drafts and versions, and resolve asset tags."""
 from __future__ import annotations
 from core.infra.time import utc_now
 import hashlib
@@ -14,7 +14,17 @@ from core.ontology.validator import DomainPackValidator
 from core.ontology.runtime_pack import build_runtime_payload
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
-from core.ontology import asset_tags
+
+
+def normalize_ontology_tags(value: Any) -> list[str]:
+    if isinstance(value, str):
+        items = value.replace("，", ",").split(",")
+    elif isinstance(value, (list, tuple, set)):
+        items = value
+    else:
+        return []
+    return sorted({str(item).strip() for item in items if str(item).strip()})
+
 
 class OntologyService:
     def __init__(self, db: Session):
@@ -355,7 +365,7 @@ class OntologyService:
                 .one_or_none()
             )
             if row:
-                return asset_tags.normalize_ontology_tags(row.tags)
+                return normalize_ontology_tags(row.tags)
             # A DB row that exists but is outside this user's scope must never
             # fall through to the process-global loader (which indexes private
             # skills for materialization). Only true filesystem/built-in skills
@@ -369,7 +379,7 @@ class OntologyService:
             from core.capabilities.skills.loader_factory import get_skill_loader
 
             metadata = get_skill_loader().load_all_metadata().get(asset_id)
-            return asset_tags.normalize_ontology_tags(getattr(metadata, "tags", []))
+            return normalize_ontology_tags(getattr(metadata, "tags", []))
 
         if kind == "tool":
             owner_filter = (
@@ -398,10 +408,10 @@ class OntologyService:
                 for tool in row.tools_json or []:
                     if not isinstance(tool, dict) or str(tool.get("name") or "") != asset_id:
                         continue
-                    tags.update(asset_tags.normalize_ontology_tags(extra.get("ontology_tags")))
-                    tags.update(asset_tags.normalize_ontology_tags(tool.get("tags")))
-                    tags.update(asset_tags.normalize_ontology_tags(tool.get("ontology_tags")))
-                    tags.update(asset_tags.normalize_ontology_tags(tool_tag_map.get(asset_id)))
+                    tags.update(normalize_ontology_tags(extra.get("ontology_tags")))
+                    tags.update(normalize_ontology_tags(tool.get("tags")))
+                    tags.update(normalize_ontology_tags(tool.get("ontology_tags")))
+                    tags.update(normalize_ontology_tags(tool_tag_map.get(asset_id)))
             return sorted(tags)
 
         if kind == "subagent":
@@ -411,7 +421,7 @@ class OntologyService:
                 agent = UserAgentService(self.db).get_by_id(asset_id, user_id=user_id or None)
             except (LookupError, PermissionError):
                 return []
-            return asset_tags.normalize_ontology_tags(agent.get("ontology_tags"))
+            return normalize_ontology_tags(agent.get("ontology_tags"))
 
         return []
 

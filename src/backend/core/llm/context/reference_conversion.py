@@ -1,7 +1,7 @@
-"""reference conversion operations."""
+"""Context items for the references listed in an execution manifest."""
 from __future__ import annotations
 from typing import Any, Mapping
-from core.llm.context.ir_state import KIND_PROJECT, KIND_SYSTEM_RULE, POLICY_HEAD_TAIL, POLICY_NEVER, VISIBILITY_MANIFEST_ONLY, VISIBILITY_MODEL
+from core.llm.context.ir_constants import KIND_PROJECT, KIND_SYSTEM_RULE, POLICY_HEAD_TAIL, POLICY_NEVER, VISIBILITY_MANIFEST_ONLY, VISIBILITY_MODEL
 from core.llm.context.items import ContextItem
 
 def reference_items_from_execution_manifest(self, manifest: Any) -> list[ContextItem]:

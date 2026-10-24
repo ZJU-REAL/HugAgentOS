@@ -30,7 +30,7 @@ from core.models.admission import check_request_admission
 from core.models.providers._image_tokens import ImageTokenCountingMixin
 from core.models.reasoning_replay import ReasoningReplayMixin
 from core.models.tool_call_identity import ToolCallIdentityMixin
-from core.models.tool_result_media import ResponsesToolMediaMixin
+from core.models.tool_result_media import NoDiskToolMediaMixin
 
 logger = logging.getLogger(__name__)
 
@@ -41,14 +41,6 @@ REASONING_ITEMS_ATTR = "reasoning_items"
 
 # 只有这两个终态事件会带上完整的 response 对象（含 output 数组）。
 _TERMINAL_EVENTS = ("response.completed", "response.incomplete")
-
-# Responses 有两条思考通道：``reasoning_summary_text`` 是经过删减的摘要（OpenAI 返回
-# 的那一条），``reasoning_text`` 是模型的思考原文（自建推理服务返回的那一条）。
-# AgentScope 的解析器只认前者，后者整条被丢掉——实测自建 deepseekv4-flash-vision 一轮
-# 发 144 帧 reasoning_text.delta，界面上就是一个空的思考块。两条通道对界面是同一件东西，
-# 所以在事件入口把后者翻成前者，流式逐字、累积、进历史全部照旧由父类处理。
-_REASONING_TEXT_DELTA = "response.reasoning_text.delta"
-_REASONING_SUMMARY_DELTA = "response.reasoning_summary_text.delta"
 
 # 对齐 codex：让上游把思考加密串交还给我们自己保管，服务端不留会话状态。
 _REASONING_INCLUDE = ["reasoning.encrypted_content"]
@@ -103,24 +95,10 @@ def _as_dict(item: Any) -> dict[str, Any]:
     return {}
 
 
-class _ReasoningTextDelta:
-    """把思考原文增量伪装成解析器认得的摘要增量。
-
-    父类只读 ``type`` 和 ``delta`` 两个字段（``response`` 用于取 response_id，这类事件
-    本来就没有），所以一个同形的小对象足够，不必构造 SDK 的类型。
-    """
-
-    __slots__ = ("type", "delta", "response", "summary_index")
-
-    def __init__(self, delta: str) -> None:
-        self.type = _REASONING_SUMMARY_DELTA
-        self.delta = delta
-        self.response = None
-        self.summary_index = 0
-
-
 class _ReasoningItemCapture:
-    """透传上游 SSE，旁路留下完整 reasoning 条目，并接上思考原文通道。
+    """透传上游 SSE，旁路留下完整 reasoning 条目。
+
+    AgentScope 原生解析思考原文与摘要；保留事件身份及分段索引，避免合并不同条目。
 
     旁路而非重写解析器：那 130 行逐事件拼装跟着 SDK 版本走，抄过来就得跟着维护。
     """
@@ -128,6 +106,13 @@ class _ReasoningItemCapture:
     def __init__(self, stream: Any) -> None:
         self._stream = stream
         self.items: list[dict[str, Any]] = []
+
+    async def __aenter__(self):
+        await self._stream.__aenter__()
+        return self
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        return await self._stream.__aexit__(exc_type, exc_value, traceback)
 
     def __aiter__(self):  # noqa: ANN204
         return self._iter()
@@ -137,11 +122,6 @@ class _ReasoningItemCapture:
             kind = getattr(event, "type", None)
             if kind in _TERMINAL_EVENTS:
                 self._collect(getattr(event, "response", None))
-            elif kind == _REASONING_TEXT_DELTA:
-                delta = getattr(event, "delta", None)
-                if delta:
-                    yield _ReasoningTextDelta(delta)
-                continue
             yield event
 
     def _collect(self, response: Any) -> None:
@@ -216,39 +196,8 @@ def _restore_reasoning_items(msgs: list[Msg], items: list[dict[str, Any]]) -> li
     return restored
 
 
-def _repair_tool_output_call_ids(
-    msgs: list[Msg], items: list[dict[str, Any]]
-) -> list[dict[str, Any]]:
-    """把工具结果的 ``call_id`` 换回发起那次调用时上游给的那一个。
-
-    Responses 线上一次函数调用有**两个**互不相同的 id：条目 id（``function_call.id``）
-    与调用 id（``function_call.call_id``），回传结果时必须按后者配对。AgentScope 建
-    ``ToolResultBlock`` 时只带上了条目 id（``id=tool_call.id``），格式化又直接拿它当
-    ``function_call_output.call_id`` 发出去，于是两边对不上。
-
-    DeepSeek 官方端点正是两者不同（条目 id 是 uuid，调用 id 形如 ``call_00_…``），整轮
-    请求会被打回 ``No tool call found for tool output with call_id …``；只要模型调了工具，
-    这一轮就必然失败。调用块自己同时带着这两个 id，这里按它把结果侧改正。
-
-    历史回放时旧块只剩条目 id，两侧都退回同一个值，配对依然自洽。
-    """
-    call_ids = {
-        block.id: str(getattr(block, "call_id", None) or "")
-        for msg in msgs
-        for block in msg.content or []
-        if isinstance(block, ToolCallBlock)
-    }
-    for item in items:
-        if not isinstance(item, dict) or item.get("type") != "function_call_output":
-            continue
-        call_id = call_ids.get(str(item.get("call_id") or ""))
-        if call_id:
-            item["call_id"] = call_id
-    return items
-
-
 class ResponsesReplayFormatter(
-    ReasoningReplayMixin, ResponsesToolMediaMixin, OpenAIResponseFormatter
+    ReasoningReplayMixin, NoDiskToolMediaMixin, OpenAIResponseFormatter
 ):
     """Responses 线格式化：思考按上游原样回传，工具媒体绝不落盘。
 
@@ -257,7 +206,7 @@ class ResponsesReplayFormatter(
     造成当前模型的推理。
     """
 
-    def _format_response_data_block(self, block: Any, role: str = "user") -> Any:
+    def _format_response_data_block(self, block: Any) -> Any:
         """给每个 ``input_image`` 补上 ``detail``——严格实现少了它直接 400。
 
         AgentScope 只产出 ``type`` + ``image_url``，而 OpenAI 的
@@ -269,7 +218,7 @@ class ResponsesReplayFormatter(
         管这条线上的每张图，不只工具返回的：用户上传的图走的是同一个方法。
         ``setdefault`` 是为了不覆盖上游将来自己给出的值。
         """
-        item = super()._format_response_data_block(block, role)  # type: ignore[misc]
+        item = super()._format_response_data_block(block)  # type: ignore[misc]
         if isinstance(item, dict) and item.get("type") == "input_image":
             item.setdefault("detail", "auto")
         return item
@@ -280,7 +229,7 @@ class ResponsesReplayFormatter(
         for item in items:
             if "role" in item and "content" in item:
                 item.setdefault("type", "message")
-        return _restore_reasoning_items(msgs, _repair_tool_output_call_ids(msgs, items))
+        return _restore_reasoning_items(msgs, items)
 
 
 class OpenAICompatResponsesModel(

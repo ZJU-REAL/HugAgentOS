@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import List
 
-from core.capabilities.skills.backends.protocol import SkillBackendProtocol, SkillFileInfo
+from core.capabilities.skills.backends.protocol import SkillFileInfo
 
 
 class FilesystemBackend:

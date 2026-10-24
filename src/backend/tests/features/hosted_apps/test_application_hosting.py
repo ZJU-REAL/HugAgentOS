@@ -8,6 +8,7 @@ from core.auth.backend import get_current_user
 from fastapi import FastAPI
 from sqlalchemy import create_engine, inspect, text
 from tests.features.hosted_apps.application_hosting_support import hosted
+from tests.db_support import share_factory
 
 
 def data(response):
@@ -121,7 +122,7 @@ def test_mcp_publish_projection_and_revoke(hosted):
 
 @pytest.mark.asyncio
 async def test_external_mcp_protocol_field_allowlist_and_revocation(hosted):
-    import httpx
+    import httpx2
     from features.hosted_apps.mcp import ApplicationMCPGateway
     from mcp import ClientSession
     from mcp.client.streamable_http import streamable_http_client
@@ -155,26 +156,26 @@ async def test_external_mcp_protocol_field_allowlist_and_revocation(hosted):
     )
     gateway = FastAPI()
     gateway.mount("/applications-mcp", ApplicationMCPGateway())
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=gateway), base_url="http://testserver"
+    async with httpx2.AsyncClient(
+        transport=httpx2.ASGITransport(app=gateway), base_url="http://testserver"
     ) as anonymous:
         assert (await anonymous.post(published["url"], json={})).status_code == 401
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=gateway),
+    async with httpx2.AsyncClient(
+        transport=httpx2.ASGITransport(app=gateway),
         headers={"Authorization": "Bearer " + published["token"]},
     ) as http:
         async with streamable_http_client(
             "http://testserver" + published["url"], http_client=http
-        ) as (read, write, _):
+        ) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 tools = await session.list_tools()
                 assert [tool.name for tool in tools.tools] == ["query_entries"]
                 result = await session.call_tool("query_entries", {"name": "Aaron"})
-                assert not result.isError
-                assert result.structuredContent["items"] == [{"name": "Aaron"}]
+                assert not result.is_error
+                assert result.structured_content["items"] == [{"name": "Aaron"}]
                 result = await session.call_tool("query_entries", {"email": "private@example.test"})
-                assert result.isError
+                assert result.is_error
         data(client.delete(f"/v1/applications/{app_id}/mcp"))
         assert (await http.post("http://testserver" + published["url"], json={})).status_code == 401
 
@@ -223,6 +224,7 @@ def hosted_sites(hosted, tmp_path, monkeypatch):
             yield db
 
     client.app.dependency_overrides[get_db] = database
+    share_factory(monkeypatch, factory)
     client.app.include_router(application_transports.public_router)
     client.app.include_router(sites_serve.router)
     yield client, ids

@@ -1,5 +1,6 @@
 """Frozen capability authorization supplied by the execution host."""
 from __future__ import annotations
+from dataclasses import dataclass
 from typing import Any, Protocol
 from core.harness.capability_errors import ViewUnavailable
 
@@ -13,9 +14,6 @@ class CapabilityRuntime(Protocol):
     def validate_activation(self, run: Any, nodes: Any, *, available_mcp=()) -> None: ...
     def require_root_tool_scope(self, run_id: str, user_id: str, tool_call_id: str, tool_name: str) -> None: ...
     def child_scope(self, parent_scope: str, kind: str, *identities: str) -> str: ...
-
-
-
 
 
 def register_capability_runtime(provider: CapabilityRuntime) -> None:
@@ -64,19 +62,13 @@ def view_for_execution(run_id, user_id, *, scope_id=""):
     return require_runtime().view_for_execution(run_id, user_id, scope_id=scope_id)
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-
-@state_dataclass
+@dataclass
 class RegistrationState:
-    """Process-owned registrations; replace only while the host is quiescent."""
     provider: CapabilityRuntime | None = None
 
 
-@state_cache(maxsize=1)
-def registration_state() -> RegistrationState:
-    return RegistrationState()
+_REGISTRATIONS = RegistrationState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-registration_state()
+
+def registration_state() -> RegistrationState:
+    return _REGISTRATIONS

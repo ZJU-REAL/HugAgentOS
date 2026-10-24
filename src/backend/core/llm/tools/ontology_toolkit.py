@@ -48,6 +48,7 @@ class OntologyFilteredToolkit(Toolkit):
 
     def __init__(self, *args, hidden_tools: set[str] | None = None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.capability_guard = None
         self._ontology_hidden_tools = set(hidden_tools or ())
         self._execution_surface: Optional[ExecutionSurfaceSnapshot] = None
         self._execution_surface_generation = 0
@@ -69,6 +70,17 @@ class OntologyFilteredToolkit(Toolkit):
         self._tool_permission_service = service
 
     async def call_tool(self, tool_call, state):  # noqa: ANN001
+        if self.capability_guard is not None:
+            tools = await self._get_available_tools(state.tool_context.activated_groups)
+            registered = tools.get(tool_call.name)
+            tool = registered.tool if registered is not None else None
+            if tool is not None and tool.is_mcp:
+                allowed = await asyncio.to_thread(self.capability_guard, tool.mcp_name)
+                if not allowed:
+                    chunk = ToolChunk(content=[TextBlock(text="该连接器已停用或当前不可用，本次调用未执行。")], state=ToolResultState.ERROR)
+                    yield chunk
+                    yield ToolResponse(id=tool_call.id).append_chunk(chunk)
+                    return
         service = self._tool_permission_service
         if service is not None and service.registry.contains(tool_call.name):
             ticket = CURRENT_PERMISSION_TICKET.get()
@@ -113,11 +125,9 @@ class OntologyFilteredToolkit(Toolkit):
         snapshot = await self.freeze_execution_surface(groups)
         return snapshot.tool_schemas
 
-    async def get_skill_instructions(self) -> Optional[str]:
-        """Return the skill prompt from the same frozen execution surface."""
-        snapshot = self._execution_surface
-        if snapshot is None:
-            snapshot = await self.freeze_execution_surface()
+    async def get_skill_instructions(self, activated_groups=None) -> Optional[str]:
+        """Use the same group-scoped snapshot as the model's tool schemas."""
+        snapshot = await self.freeze_execution_surface(activated_groups)
         return snapshot.skill_instructions
 
     @staticmethod
@@ -151,8 +161,6 @@ class OntologyFilteredToolkit(Toolkit):
                 self._capture_surface_skills = False
             skills = self._captured_surface_skills
             if skills is None:
-                # Compatibility fallback if a future AgentScope version stops
-                # consulting skills while constructing the tool surface.
                 skills = await self._get_available_skills(groups)
             skill_instructions = None
             if skills:

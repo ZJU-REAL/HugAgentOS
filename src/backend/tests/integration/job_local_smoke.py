@@ -77,7 +77,7 @@ async def acceptance(root, backend_socket, runner_socket):
     from api.routes.v1 import internal_jobs
     from core.db.engine import Base, SessionLocal, engine
     from core.db.models import UserShadow
-    from core.llm.runtime.tool_collector import ToolCollector
+    from core.llm.factory.tools.definitions import ToolAssembly
     from core.llm.tools.job_tool import register_run_job
     from core.sandbox import get_sandbox_provider
     from core.sandbox.runner import server as runner
@@ -141,14 +141,14 @@ async def acceptance(root, backend_socket, runner_socket):
         user_id = "acceptance-user"
         await provider.put_file(session_id, "acceptance.py", SCRIPT.encode(), user_id=user_id)
 
-        collector = ToolCollector()
+        collector = ToolAssembly()
         register_run_job(
             collector,
             user_id=user_id,
             chat_id=None,
             sandbox_session_id=session_id,
         )
-        tool = collector.get_tool("run_job")
+        tool = next(t for t in collector if t.name == "run_job")
         assert tool is not None, "run_job registration failed"
         run_job = tool._func
         started = payload(

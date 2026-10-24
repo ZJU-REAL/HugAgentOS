@@ -249,6 +249,8 @@ async def test_public_worker_keeps_ambiguous_agent_tool_call_recoverable(recover
         raise DeveloperOrientedException("adapter response was lost")
 
     class ToolModel:
+        from agentscope.formatter import OpenAIChatFormatter
+        formatter = OpenAIChatFormatter()
         model = "ambiguous-tool"
         context_size = 32768
 

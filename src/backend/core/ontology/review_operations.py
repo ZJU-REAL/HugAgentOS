@@ -1,19 +1,20 @@
-"""review operations responsibilities."""
+"""Run one ontology review and revise the answer when it fails."""
 from __future__ import annotations
 from typing import Any
 from core.harness.registry.capability_runtime import child_scope
 from core.harness.registry.model_services import run_text_agent as _run_text_agent
 from core.infra.json_output import parse_json_lenient as _parse_json_lenient
 from core.infra.logging import get_logger
+from core.ontology import review_prompt
+from core.ontology import reviewer_state
+
 logger = get_logger(__name__)
-from core.ontology import review_prompt as review_prompt_module
-from core.ontology import reviewer_state as reviewer_state_module
 
 async def review_once(
     perspective: str,
     **kwargs,
 ) -> dict[str, Any]:
-    prompt = review_prompt_module.review_prompt(
+    prompt = review_prompt.review_prompt(
         perspective=perspective,
         task=kwargs["task"],
         answer=kwargs["answer"],
@@ -34,7 +35,7 @@ async def review_once(
             ),
         )
         obj = _parse_json_lenient(text)
-        if not isinstance(obj, dict) or obj.get("verdict") not in reviewer_state_module.VALID_VERDICTS:
+        if not isinstance(obj, dict) or obj.get("verdict") not in reviewer_state.VALID_VERDICTS:
             return {
                 "verdict": "escalate",
                 "evidence": [],

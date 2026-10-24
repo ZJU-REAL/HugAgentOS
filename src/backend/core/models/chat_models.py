@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import httpx
@@ -466,17 +467,13 @@ __all__ = [
 ]
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class ChatModelsState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    HTTP_CLIENTS: dict[tuple[int, float], httpx.AsyncClient] = state_field(default_factory=lambda: {})
+    HTTP_CLIENTS: dict[tuple[int, float], httpx.AsyncClient] = field(default_factory=lambda: {})
 
-@state_cache(maxsize=1)
+
+_STATE = ChatModelsState()
+
+
 def process_state() -> ChatModelsState:
-    return ChatModelsState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

@@ -1,4 +1,5 @@
 from tests.features.desktop.observability_support import (bridge_identity, pytest, create_engine, sessionmaker)
+from tests.db_support import share_factory
 
 def test_duplicate_and_stale_delivery_keep_newest_chat(store):
     from features.desktop.observability.projection import ingest, list_records
@@ -156,6 +157,7 @@ def test_real_upload_endpoint_authorization_and_size_limit(store, monkeypatch):
     app.include_router(route.router, prefix="/api")
     app.include_router(route.admin_router, prefix="/api")
     app.dependency_overrides[get_db] = database
+    share_factory(monkeypatch, store)
     client = TestClient(app)
     assert (
         client.post("/api/v1/desktop/observability/batch", json={"events": []}).status_code == 401

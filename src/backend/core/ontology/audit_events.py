@@ -1,4 +1,4 @@
-"""audit events responsibilities."""
+"""Persist ontology enforcement, activation and review events."""
 from __future__ import annotations
 from core.infra.time import utc_now
 import uuid

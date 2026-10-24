@@ -1,1 +1,1 @@
-"""profiles domain package."""
+"""Agent profiles and per-user evolution settings and reviews."""

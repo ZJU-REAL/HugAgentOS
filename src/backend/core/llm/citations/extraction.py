@@ -1,11 +1,11 @@
-"""extraction responsibilities."""
+"""Extract citation items from tool results and inject their ids."""
 from __future__ import annotations
 import json
 import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple
-from core.llm.citations import allocator as allocator_module
-from core.llm.citations import anchor_state as anchor_state_module
-from core.llm.citations import types as types_module
+from core.llm.citations.allocator import AnchorAllocator
+from core.llm.citations import anchor_state
+from core.llm.citations import types
 
 def first_str(item: Dict[str, Any], keys: Sequence[str]) -> str:
     for key in keys:
@@ -59,7 +59,7 @@ def dig(data: Dict[str, Any], path: Sequence[str]) -> Any:
     return cur
 
 
-def display_title(tool_name: str, spec: Optional[types_module.CitationSpec]) -> str:
+def display_title(tool_name: str, spec: Optional[types.CitationSpec]) -> str:
     if spec and spec.title:
         return spec.title
     return f"{tool_name} 结果"
@@ -69,23 +69,23 @@ def item_citation(
     aid: str,
     tool_name: str,
     tool_id: Optional[str],
-    spec: types_module.CitationSpec,
+    spec: types.CitationSpec,
     item: Dict[str, Any],
     index: int,
-) -> types_module.AnchorCitation:
-    title = first_str(item, spec.title_keys)[:anchor_state_module.TITLE_MAX] or display_title(tool_name, spec)
+) -> types.AnchorCitation:
+    title = first_str(item, spec.title_keys)[:anchor_state.TITLE_MAX] or display_title(tool_name, spec)
     if spec.snippet_join:
         parts = [first_str(item, (k,)) for k in spec.snippet_join]
         snippet = " · ".join(p for p in parts if p)
     else:
         snippet = first_str(item, spec.snippet_keys)
-    return types_module.AnchorCitation(
+    return types.AnchorCitation(
         id=aid,
         tool_name=tool_name,
         tool_id=tool_id,
         title=title,
         url=normalize_citation_url(first_str(item, spec.url_keys)),
-        snippet=snippet[:anchor_state_module.SNIPPET_MAX],
+        snippet=snippet[:anchor_state.SNIPPET_MAX],
         source_type=spec.source_type,
         item_index=index,
     )
@@ -95,7 +95,7 @@ def looks_like_error(data: Dict[str, Any]) -> bool:
     if not data.get("error"):
         return False
     # 列表字段仍有内容时不算整体失败（部分工具 error+items 并存）
-    for key in anchor_state_module.LIST_FIELD_ALIASES:
+    for key in anchor_state.LIST_FIELD_ALIASES:
         val = data.get(key)
         if isinstance(val, list) and val:
             return False
@@ -109,7 +109,7 @@ def heuristic_list_field(data: Dict[str, Any]) -> Optional[Tuple[Tuple[str, ...]
     if isinstance(inner, dict):
         scopes.append((("result",), inner))
     for prefix, scope in scopes:
-        for alias in anchor_state_module.LIST_FIELD_ALIASES:
+        for alias in anchor_state.LIST_FIELD_ALIASES:
             val = scope.get(alias)
             if isinstance(val, list) and val and all(isinstance(x, dict) for x in val):
                 return prefix + (alias,), val
@@ -129,27 +129,27 @@ def extract_and_inject(
     tool_name: str,
     tool_id: Optional[str],
     data: Dict[str, Any],
-    allocator: allocator_module.AnchorAllocator,
-) -> List[types_module.AnchorCitation]:
+    allocator: AnchorAllocator,
+) -> List[types.AnchorCitation]:
     """在 data 上就地注入 cite_id，返回登记的引用条目。"""
-    spec = anchor_state_module.TOOL_SPECS.get(tool_name)
+    spec = anchor_state.TOOL_SPECS.get(tool_name)
 
     # L1：工具自声明 __citations__（优先级最高，条目顺序即 item_index）
     declared = data.get("__citations__")
     if isinstance(declared, list) and declared and all(isinstance(x, dict) for x in declared):
-        base = spec or types_module.CitationSpec(source_type="unknown")
-        out: List[types_module.AnchorCitation] = []
+        base = spec or types.CitationSpec(source_type="unknown")
+        out: List[types.AnchorCitation] = []
         for idx, entry in enumerate(declared):
             aid = allocator.next_id()
             entry["cite_id"] = aid
             out.append(
-                types_module.AnchorCitation(
+                types.AnchorCitation(
                     id=aid,
                     tool_name=tool_name,
                     tool_id=tool_id,
-                    title=str(entry.get("title") or display_title(tool_name, spec))[:anchor_state_module.TITLE_MAX],
+                    title=str(entry.get("title") or display_title(tool_name, spec))[:anchor_state.TITLE_MAX],
                     url=normalize_citation_url(str(entry.get("url") or "")),
-                    snippet=str(entry.get("snippet") or "")[:anchor_state_module.SNIPPET_MAX],
+                    snippet=str(entry.get("snippet") or "")[:anchor_state.SNIPPET_MAX],
                     source_type=str(entry.get("source_type") or base.source_type),
                     item_index=idx,
                 )
@@ -179,7 +179,7 @@ def extract_and_inject(
         found = heuristic_list_field(data)
         if found is not None:
             _path, items = found
-            generic = types_module.CitationSpec(mode="list", source_type="unknown")
+            generic = types.CitationSpec(mode="list", source_type="unknown")
             out = []
             for item in items:
                 if item.get("error"):
@@ -193,14 +193,14 @@ def extract_and_inject(
     # L4：整份 1 条（显式 whole spec 或彻底认不出）
     aid = allocator.next_id()
     data["cite_id"] = aid
-    snippet = json.dumps(data, ensure_ascii=False)[:anchor_state_module.WHOLE_SNIPPET_MAX]
+    snippet = json.dumps(data, ensure_ascii=False)[:anchor_state.WHOLE_SNIPPET_MAX]
     return [
-        types_module.AnchorCitation(
+        types.AnchorCitation(
             id=aid,
             tool_name=tool_name,
             tool_id=tool_id,
             title=display_title(tool_name, spec),
-            url=normalize_citation_url(first_str(data, (spec or types_module.CitationSpec()).url_keys)),
+            url=normalize_citation_url(first_str(data, (spec or types.CitationSpec()).url_keys)),
             snippet=snippet,
             source_type=(spec.source_type if spec else "unknown"),
             item_index=-1,

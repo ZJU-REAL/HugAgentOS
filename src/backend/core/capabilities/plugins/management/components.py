@@ -1,4 +1,4 @@
-"""Plugin components responsibilities."""
+"""Upsert a plugin's skills and MCP servers as admin catalog rows."""
 
 from __future__ import annotations
 

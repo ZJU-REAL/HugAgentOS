@@ -36,6 +36,7 @@ import base64
 import hashlib
 import logging
 from collections import OrderedDict
+from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from core.db.engine import SessionLocal
@@ -54,7 +55,6 @@ MEDIA_UNAVAILABLE = (
 # 命中率本就有限，而这份缓存是每进程一份，调大等于按 worker 数翻倍占用常驻内存。
 _CACHE_MAX_BYTES = 32 * 1024 * 1024
 _cache: "OrderedDict[str, str]" = OrderedDict()
-
 
 
 def _cache_get(digest: str) -> Optional[str]:
@@ -239,17 +239,13 @@ def reset_cache() -> None:
     process_state().cache_bytes = 0
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class ToolMediaStoreState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
     cache_bytes: object = 0
 
-@state_cache(maxsize=1)
-def process_state() -> ToolMediaStoreState:
-    return ToolMediaStoreState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+_STATE = ToolMediaStoreState()
+
+
+def process_state() -> ToolMediaStoreState:
+    return _STATE

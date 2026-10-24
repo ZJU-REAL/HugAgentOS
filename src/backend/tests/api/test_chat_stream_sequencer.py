@@ -100,7 +100,7 @@ def test_regenerate_busy_does_not_delete_existing_history(monkeypatch, tmp_path)
         with pytest.raises(HTTPException) as raised:
             asyncio.run(
                 chat_reruns.regenerate_message(
-                    "chat-1", chat_models.RegenerateRequest(message_index=1), user=_user(), db=db
+                    "chat-1", chat_models.RegenerateRequest(message_index=1), user=_user()
                 )
             )
 
@@ -153,7 +153,7 @@ def test_regenerate_admits_then_deletes_tail_and_launches_reserved_run(monkeypat
     with Session() as db:
         asyncio.run(
             chat_reruns.regenerate_message(
-                "chat-1", chat_models.RegenerateRequest(message_index=1), user=_user(), db=db
+                "chat-1", chat_models.RegenerateRequest(message_index=1), user=_user()
             )
         )
 
@@ -196,7 +196,6 @@ def test_edit_busy_does_not_delete_existing_history(monkeypatch, tmp_path):
                     "chat-1",
                     chat_models.EditAndResendRequest(message_index=2, new_content="new wording"),
                     user=_user(),
-                    db=db,
                 )
             )
 
@@ -256,7 +255,6 @@ def test_edit_replays_original_turn_invocation(monkeypatch, tmp_path):
 
     monkeypatch.setattr(chat_request_context, 'build_ctx', capture_ctx)
     monkeypatch.setattr(chat_session_context, 'load_session_messages', lambda *_args: [])
-    monkeypatch.setattr(chat_session_context, 'release_request_session', lambda _db: None)
     monkeypatch.setattr(responses, "sse_response", lambda stream: stream)
     monkeypatch.setattr(run_sse, "follow_run_as_sse", lambda *_a, **_k: None)
 
@@ -272,7 +270,6 @@ def test_edit_replays_original_turn_invocation(monkeypatch, tmp_path):
                 "chat-1",
                 chat_models.EditAndResendRequest(message_index=0, new_content="new wording"),
                 user=_user(),
-                db=db,
             )
         )
 

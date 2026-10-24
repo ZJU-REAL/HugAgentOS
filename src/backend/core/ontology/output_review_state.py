@@ -1,4 +1,4 @@
-"""output review state responsibilities."""
+"""Claim and complete the single final-answer review of a governance run."""
 from __future__ import annotations
 from typing import Any
 

@@ -10,6 +10,7 @@ import core.runs.runtime as runtime
 import orchestration.loops.admission as admission
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
+from core.db.threads import run_in_session
 from core.infra.logging import get_logger
 from core.infra.responses import sse_response, success_response
 from core.chat.service import ChatService
@@ -159,7 +160,8 @@ def get_iterations(
     ])
 
 
-async def _launch_loop(loop_id: str, req: StartLoopReq, db: Session, user: UserContext, is_resume: bool = False):
+def _launch_params(db: Session, loop_id: str, req: StartLoopReq, user: UserContext, is_resume: bool) -> dict:
+    """Bind the loop's chat and resolve its launch parameters (one session)."""
     _require_loop_cap(db, user.user_id)
     loop = LoopService(db).get_loop(loop_id, user_id=user.user_id)
     if not loop:
@@ -206,7 +208,7 @@ async def _launch_loop(loop_id: str, req: StartLoopReq, db: Session, user: UserC
     # The project the loop is bound to (stored in metadata at creation) — the
     # worker/reviewer scope to the project folder based on it.
     project_id = (loop.extra_data or {}).get("project_id") if loop.extra_data else None
-    run = await admission.start_autonomous_loop_run(
+    return dict(
         loop_id=loop_id,
         chat_id=chat_id,
         user_id=user.user_id,
@@ -222,6 +224,12 @@ async def _launch_loop(loop_id: str, req: StartLoopReq, db: Session, user: UserC
         is_resume=is_resume,
         project_id=project_id,
     )
+
+
+async def _launch_loop(loop_id: str, req: StartLoopReq, user: UserContext, is_resume: bool = False):
+    params = await run_in_session(_launch_params, loop_id, req, user, is_resume)
+    chat_id = params["chat_id"]
+    run = await admission.start_autonomous_loop_run(**params)
     return sse_response(
         run_sse.follow_run_as_sse(
             run.run_id,
@@ -237,24 +245,22 @@ async def _launch_loop(loop_id: str, req: StartLoopReq, db: Session, user: UserC
 async def start_loop(
     loop_id: str,
     req: StartLoopReq,
-    db: Session = Depends(get_db),
     user: UserContext = Depends(get_current_user),
 ):
-    return await _launch_loop(loop_id, req, db, user)
+    return await _launch_loop(loop_id, req, user)
 
 
 @router.post("/{loop_id}/resume", summary="续跑循环（HITL 批准后 / 崩溃后，从 feature_list.json 断点续跑）")
 async def resume_loop(
     loop_id: str,
     req: StartLoopReq,
-    db: Session = Depends(get_db),
     user: UserContext = Depends(get_current_user),
 ):
     # Same entry point as start: when the driver detects a persisted
     # feature_list.json it automatically resumes from the checkpoint.
     # is_resume=True → don't re-record the objective as a user message again
     # (it was already recorded on first start).
-    return await _launch_loop(loop_id, req, db, user, is_resume=True)
+    return await _launch_loop(loop_id, req, user, is_resume=True)
 
 
 class SteerLoopReq(BaseModel):
@@ -281,27 +287,34 @@ def steer_loop(
     return success_response({"queued": True})
 
 
-@router.post("/{loop_id}/cancel", summary="取消循环")
-async def cancel_loop(
-    loop_id: str,
-    db: Session = Depends(get_db),
-    user: UserContext = Depends(get_current_user),
-):
+def _cancel_target(db: Session, loop_id: str, user_id: str):
+    """The loop's active run id, or the settled response when there is none to cancel."""
     # Normalize chat_id consistently with _launch_loop: prefer loop.chat_id,
     # otherwise loopchat_{id}.
     svc = LoopService(db)
-    loop = svc.get_loop(loop_id, user_id=user.user_id)
+    loop = svc.get_loop(loop_id, user_id=user_id)
     if not loop:
         raise HTTPException(status_code=404, detail="loop not found")
     chat_id = loop.chat_id or f"loopchat_{loop_id}"
-    run = runtime.get_active_run_for_chat(chat_id, user_id=user.user_id)
-    if not run:
-        # 无活跃 run（崩溃遗留/已中断）：把 loop 状态归位而不是 404——历史缺陷是
-        # 僵尸 running 行永远取消不掉。
-        if loop.status in ("running", "interrupted", "created", "awaiting_human"):
-            loop.status = "cancelled"
-            db.commit()
-            return success_response({"cancelled": True, "note": "无活跃任务，已直接归位为 cancelled"})
-        return success_response({"cancelled": False, "status": loop.status})
-    ok = await runtime.cancel_run(run.run_id, user_id=user.user_id)
+    run = runtime.get_active_run_for_chat(chat_id, user_id=user_id)
+    if run:
+        return run.run_id, None
+    # 无活跃 run（崩溃遗留/已中断）：把 loop 状态归位而不是 404——历史缺陷是
+    # 僵尸 running 行永远取消不掉。
+    if loop.status in ("running", "interrupted", "created", "awaiting_human"):
+        loop.status = "cancelled"
+        db.commit()
+        return None, {"cancelled": True, "note": "无活跃任务，已直接归位为 cancelled"}
+    return None, {"cancelled": False, "status": loop.status}
+
+
+@router.post("/{loop_id}/cancel", summary="取消循环")
+async def cancel_loop(
+    loop_id: str,
+    user: UserContext = Depends(get_current_user),
+):
+    run_id, settled = await run_in_session(_cancel_target, loop_id, user.user_id)
+    if settled is not None:
+        return success_response(settled)
+    ok = await runtime.cancel_run(run_id, user_id=user.user_id)
     return success_response({"cancelled": ok})

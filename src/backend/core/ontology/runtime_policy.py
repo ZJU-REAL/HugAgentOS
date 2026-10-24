@@ -1,4 +1,4 @@
-"""runtime policy responsibilities."""
+"""Resolve a user's ontology preference into a runtime policy and asset tags."""
 from __future__ import annotations
 from core.ontology import service as ontology_service
 from typing import Any

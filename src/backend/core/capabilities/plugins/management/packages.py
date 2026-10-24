@@ -7,7 +7,6 @@ import logging
 from typing import Any, Dict, Optional
 
 from core.harness.registry.marketplace_catalog import marketplace_catalog
-from core.infra.exceptions import ResourceNotFoundError
 from core.infra.time import utc_now
 from core.capabilities.plugins.packaging.archive import extract_plugin_zip
 from core.capabilities.plugins.packaging.importer import normalize_plugin_dir

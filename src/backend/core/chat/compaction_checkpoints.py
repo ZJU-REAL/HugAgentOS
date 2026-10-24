@@ -1,11 +1,11 @@
-"""compaction checkpoints operations."""
+"""Publish and read compaction checkpoints with lease and compare-and-swap fencing."""
 from __future__ import annotations
 import uuid
 from dataclasses import replace
 from typing import Any, Dict, List, Optional
 from core.db.models import ChatCompactionState, ChatMessage
-from core.chat import compaction_types as compaction_types_module
-from core.chat import service_time as service_time_module
+from core.chat import compaction_types
+from core.infra.time import utc_now
 
 def invalidate_compaction_lineage_for_rewrite(
     self,
@@ -37,7 +37,7 @@ def invalidate_compaction_lineage_for_rewrite(
     state.covered_seq = 0
     state.lease_owner = None
     state.lease_expires_at = None
-    state.updated_at = service_time_module.utc_now()
+    state.updated_at = utc_now()
 
     from core.llm.context.compaction import COMPACTION_CHECKPOINT_KIND
 
@@ -73,7 +73,7 @@ def add_compaction_checkpoint(
         chat_id, owner=owner, lease_seconds=60
     )
     if snapshot is None:
-        raise compaction_types_module.CompactionCASConflict(
+        raise compaction_types.CompactionCASConflict(
             "no uncompacted source or compaction lease is busy"
         )
     if (
@@ -81,7 +81,7 @@ def add_compaction_checkpoint(
         and snapshot.base_checkpoint_version != int(base_checkpoint_version)
     ):
         self.release_compaction_lease(chat_id, owner=owner)
-        raise compaction_types_module.CompactionCASConflict("checkpoint base changed")
+        raise compaction_types.CompactionCASConflict("checkpoint base changed")
     if covered_seq is not None and int(covered_seq) != snapshot.covered_seq:
         self.release_compaction_lease(chat_id, owner=owner)
         raise ValueError("covered_seq must equal the acquired source watermark")
@@ -143,7 +143,7 @@ def checkpoint_covered_seq(checkpoint: Optional[ChatMessage]) -> int:
 
 def commit_compaction_checkpoint(
     self,
-    snapshot: compaction_types_module.CompactionSnapshot,
+    snapshot: compaction_types.CompactionSnapshot,
     *,
     owner: str,
     summary_text: str,
@@ -154,7 +154,7 @@ def commit_compaction_checkpoint(
     from core.llm.context.compaction import COMPACTION_CHECKPOINT_KIND
 
     if owner != snapshot.owner:
-        raise compaction_types_module.CompactionCASConflict("snapshot owner mismatch")
+        raise compaction_types.CompactionCASConflict("snapshot owner mismatch")
     message_id = f"cmpct_{uuid.uuid4().hex[:16]}"
     next_version = snapshot.base_checkpoint_version + 1
     manifest = dict(replacement_manifest)
@@ -192,7 +192,7 @@ def commit_compaction_checkpoint(
         },
         commit=False,
     )
-    now = service_time_module.utc_now()
+    now = utc_now()
     updated = (
         self.db.query(ChatCompactionState)
         .filter(
@@ -216,7 +216,7 @@ def commit_compaction_checkpoint(
     )
     if updated != 1:
         self.db.rollback()
-        raise compaction_types_module.CompactionCASConflict("checkpoint base or lease changed")
+        raise compaction_types.CompactionCASConflict("checkpoint base or lease changed")
 
     if snapshot.base_checkpoint_id:
         previous = self.db.get(ChatMessage, snapshot.base_checkpoint_id)

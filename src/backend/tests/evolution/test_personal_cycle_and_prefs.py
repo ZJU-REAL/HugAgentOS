@@ -74,7 +74,7 @@ def test_an_unknown_user_gets_nothing(db):
 
 
 def test_personal_support_threshold_is_lower_than_fleet_wide():
-    from core.evolution.cycle.promotion_state import MIN_SUPPORT
+    from core.evolution.cycle.promotion_constants import MIN_SUPPORT
 
     # One person's blast radius is one person; demanding fleet-scale evidence
     # would mean personal evolution never fires.

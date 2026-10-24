@@ -1,4 +1,4 @@
-"""core agent_runtime events responsibilities."""
+"""Helpers for the agent event stream: synthesized tool calls, scoped log context, live-job checks."""
 
 from __future__ import annotations
 from core.harness import log_context
@@ -49,7 +49,6 @@ def _synthesize_missing_tool_call(
 
 async def _anext_in_subagent_log_scope(iterator, subagent_log_id: str):  # noqa: ANN001
     """Advance one agent-stream item without leaking log tokens across SSE yields."""
-    from core.harness import log_writer as log_writer
 
     with log_context.subagent_scope(subagent_log_id, source="subagent"):
         return await anext(iterator)

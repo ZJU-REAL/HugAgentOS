@@ -17,7 +17,9 @@ class _CapturingToolkit:
     def __init__(self) -> None:
         self.functions: dict = {}
 
-    def register_tool_function(self, fn, **_kwargs) -> None:
+    def append(self, tool):
+        fn = tool._func
+        _kwargs = {"func_description": tool.description, "permission": getattr(tool, "dispatch_spec", None)}
         self.functions[fn.__name__] = fn
 
 

@@ -1,6 +1,5 @@
 """Plugin catalog views over authorized device installations."""
 from typing import Any, Dict, List, Optional
-from features.desktop.capabilities import device_catalog as catalog
 from features.desktop.capabilities.local_plugin_runtime import enabled_for
 from core.capabilities.identity_rules import KIND_PLUGIN, KIND_SKILL
 from features.desktop.capabilities.paths import capabilities_enabled
@@ -191,3 +190,8 @@ def resolve_resource_plugin(slug, user_id, *, install_id=None):
             package,
         )
     return None
+
+
+# device_catalog re-exports this module's functions at import time, so it is
+# bound last: by then those names exist whichever module was imported first.
+from features.desktop.capabilities import device_catalog as catalog  # noqa: E402

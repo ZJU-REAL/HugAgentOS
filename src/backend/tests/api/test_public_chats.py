@@ -31,6 +31,7 @@ from fastapi import HTTPException, Response
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
+from tests.db_support import share_session
 
 
 @pytest.fixture
@@ -83,6 +84,7 @@ def db(tmp_path, monkeypatch):
             module, "decrypt_secret", lambda value: value.removeprefix("encrypted:")
         )
     monkeypatch.setattr("core.auth.public_identity.decrypt_secret", lambda value: value.removeprefix("encrypted:"))
+    share_session(monkeypatch, session)
     yield session
     session.close()
     engine.dispose()
@@ -138,13 +140,13 @@ def test_link_lifecycle_and_visitor_isolation(db, kind, resource):
         with pytest.raises(HTTPException):
             authenticate_public_chat(request(link["token"], "b" * 48, path), db)
     # Supplying the public credential must beat even an existing owner cookie.
-    resolved = asyncio.run(get_current_user(allowed, None, db))
+    resolved = asyncio.run(get_current_user(allowed, None))
     assert resolved.public_chat_visitor == first.public_chat_visitor
-    optional = asyncio.run(require_auth(False)(allowed, db))
+    optional = asyncio.run(require_auth(False)(allowed))
     assert optional.public_chat_visitor == first.public_chat_visitor
     service.set_enabled(db, "owner", kind, resource, False)
     with pytest.raises(HTTPException):
-        asyncio.run(get_current_user(allowed, None, db))
+        asyncio.run(get_current_user(allowed, None))
     assert service.get_link(db, "owner", kind, resource)["enabled"] is False
     service.set_enabled(db, "owner", kind, resource, True)
     assert resolve_public_user(db, link["token"], "a" * 48)

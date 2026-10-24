@@ -1,0 +1,223 @@
+{
+  "name": "HugAgentOS",
+  "version": "2.0.0",
+  "color": {
+    "light": {
+      "color-primary": "#126DFF",
+      "color-on-primary": "#FFFFFF",
+      "color-primary-text": "#0F62E6",
+      "color-primary-bg": "#DBE9FF",
+      "color-primary-light": "#EBF2FF",
+      "state-hover": "rgba(16,24,40,.04)",
+      "state-press": "rgba(16,24,40,.08)",
+      "state-on-fill-hover": "rgba(0,0,0,.08)",
+      "state-on-fill-press": "rgba(0,0,0,.16)",
+      "color-success": "#02B589",
+      "color-success-text": "#067A5E",
+      "color-success-bg": "#E6FFF9",
+      "color-warning": "#F8AB42",
+      "color-warning-text": "#B45309",
+      "color-warning-bg": "#FFF5E8",
+      "color-error": "#FC5D5D",
+      "color-error-text": "#D92D20",
+      "color-error-bg": "#FFF0F0",
+      "color-danger-fill": "#D92D20",
+      "color-text": "#101828",
+      "color-text-secondary": "#475467",
+      "color-text-tertiary": "#667085",
+      "color-text-placeholder": "#667085",
+      "color-separator": "#E3E8EF",
+      "color-control-border": "#C5CCD8",
+      "color-fill-quiet": "#F2F4F7",
+      "color-bg-base": "#FFFFFF",
+      "color-bg-container": "#FFFFFF",
+      "color-bg-elevated": "#FFFFFF",
+      "color-bg-layout": "#F5F7FB",
+      "color-bg-chat": "#FDFDFC",
+      "color-brand-spark": "#19D3A7",
+      "material": "rgba(255,255,255,.82)",
+      "scrim": "rgba(16,24,40,.32)",
+      "color-tint-blue-bg": "#DBEAFE",
+      "color-tint-blue": "#1E40AF",
+      "color-tint-purple-bg": "#EDE9FE",
+      "color-tint-purple": "#6D28D9",
+      "color-tint-teal-bg": "#CCFBF1",
+      "color-tint-teal": "#0F766E",
+      "color-tint-amber-bg": "#FEF3C7",
+      "color-tint-amber": "#B45309",
+      "shadow-raised": "0 1px 2px rgba(16,24,40,.05), 0 8px 24px rgba(16,24,40,.06)",
+      "shadow-floating": "0 2px 8px rgba(16,24,40,.06), 0 20px 48px rgba(16,24,40,.14)"
+    },
+    "dark": {
+      "color-primary": "#126DFF",
+      "color-on-primary": "#FFFFFF",
+      "color-primary-text": "#5C9BFF",
+      "color-primary-bg": "rgba(62,139,255,.20)",
+      "color-primary-light": "rgba(62,139,255,.12)",
+      "state-hover": "rgba(255,255,255,.06)",
+      "state-press": "rgba(255,255,255,.10)",
+      "state-on-fill-hover": "rgba(0,0,0,.12)",
+      "state-on-fill-press": "rgba(0,0,0,.22)",
+      "color-success": "#22C79D",
+      "color-success-text": "#3DDBB0",
+      "color-success-bg": "rgba(34,199,157,.12)",
+      "color-warning": "#F8AB42",
+      "color-warning-text": "#FFC26B",
+      "color-warning-bg": "rgba(248,171,66,.12)",
+      "color-error": "#FF6B6B",
+      "color-error-text": "#FF8A80",
+      "color-error-bg": "rgba(255,107,107,.12)",
+      "color-danger-fill": "#D92D20",
+      "color-text": "#E8ECF4",
+      "color-text-secondary": "#B3BDCD",
+      "color-text-tertiary": "#8792A4",
+      "color-text-placeholder": "#8792A4",
+      "color-separator": "#2B3442",
+      "color-control-border": "#3A4556",
+      "color-fill-quiet": "#1F2631",
+      "color-bg-base": "#0F141B",
+      "color-bg-container": "#161C25",
+      "color-bg-elevated": "#1C2330",
+      "color-bg-layout": "#12171F",
+      "color-bg-chat": "#111720",
+      "color-brand-spark": "#19D3A7",
+      "material": "rgba(28,35,48,.80)",
+      "scrim": "rgba(0,0,0,.56)",
+      "color-tint-blue-bg": "rgba(62,139,255,.20)",
+      "color-tint-blue": "#8FB9FF",
+      "color-tint-purple-bg": "rgba(149,120,255,.18)",
+      "color-tint-purple": "#B9A5FF",
+      "color-tint-teal-bg": "rgba(45,212,191,.18)",
+      "color-tint-teal": "#5EE7D5",
+      "color-tint-amber-bg": "rgba(248,171,66,.18)",
+      "color-tint-amber": "#FFC97A",
+      "shadow-raised": "0 1px 2px rgba(0,0,0,.40), 0 8px 24px rgba(0,0,0,.32)",
+      "shadow-floating": "0 2px 8px rgba(0,0,0,.45), 0 20px 48px rgba(0,0,0,.55)"
+    }
+  },
+  "space": {
+    "space-1": 4,
+    "space-2": 8,
+    "space-3": 12,
+    "space-4": 16,
+    "space-6": 24,
+    "space-8": 32,
+    "space-12": 48,
+    "space-16": 64
+  },
+  "radius": {
+    "radius-xs": 6,
+    "radius-sm": 10,
+    "radius-md": 16,
+    "radius-lg": 24,
+    "radius-full": 999
+  },
+  "type": {
+    "display": {
+      "fontSize": 40,
+      "lineHeight": 48,
+      "fontWeight": 600,
+      "letterSpacing": "-0.02em"
+    },
+    "title-1": {
+      "fontSize": 28,
+      "lineHeight": 36,
+      "fontWeight": 600,
+      "letterSpacing": "-0.01em"
+    },
+    "title-2": {
+      "fontSize": 22,
+      "lineHeight": 30,
+      "fontWeight": 600,
+      "letterSpacing": "0"
+    },
+    "title-3": {
+      "fontSize": 18,
+      "lineHeight": 26,
+      "fontWeight": 600,
+      "letterSpacing": "0"
+    },
+    "headline": {
+      "fontSize": 15,
+      "lineHeight": 22,
+      "fontWeight": 600,
+      "letterSpacing": "0"
+    },
+    "body-lg": {
+      "fontSize": 16,
+      "lineHeight": 28,
+      "fontWeight": 400,
+      "letterSpacing": "0"
+    },
+    "body": {
+      "fontSize": 14,
+      "lineHeight": 22,
+      "fontWeight": 400,
+      "letterSpacing": "0"
+    },
+    "footnote": {
+      "fontSize": 13,
+      "lineHeight": 20,
+      "fontWeight": 400,
+      "letterSpacing": "0"
+    },
+    "caption": {
+      "fontSize": 12,
+      "lineHeight": 18,
+      "fontWeight": 400,
+      "letterSpacing": "0"
+    }
+  },
+  "font": {
+    "ui": "PingFang SC / Microsoft YaHei UI / Noto Sans CJK SC (system)",
+    "number": "DingTalk Sans",
+    "mono": "ui-monospace, SF Mono, Menlo, Consolas",
+    "marketing": "Source Han Sans SC / Noto Sans SC"
+  },
+  "motion": {
+    "duration": {
+      "instant": 100,
+      "fast": 160,
+      "normal": 240,
+      "slow": 320
+    },
+    "easing": {
+      "brand-out": [
+        0.16,
+        1,
+        0.3,
+        1
+      ],
+      "standard": [
+        0.4,
+        0,
+        0.2,
+        1
+      ],
+      "exit": [
+        0.4,
+        0,
+        1,
+        1
+      ]
+    },
+    "spring": {
+      "smooth": {
+        "visualDuration": 0.35,
+        "bounce": 0,
+        "stiffness": 322,
+        "damping": 36
+      },
+      "snappy": {
+        "visualDuration": 0.25,
+        "bounce": 0.15,
+        "stiffness": 632,
+        "damping": 43
+      }
+    },
+    "staggerStep": 60,
+    "staggerCap": 8,
+    "layoutAnimMaxItems": 20,
+    "freshEnterWindowMs": 2000
+  }
+}

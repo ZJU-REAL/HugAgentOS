@@ -1,12 +1,13 @@
-"""profile release responsibilities."""
+"""Publish approved agent profiles and sub-agents."""
 from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from core.db.engine import SessionLocal
 import logging
+from core.evolution.cycle import activation_policy
+from core.evolution.cycle import activation_types
+
 logger = logging.getLogger(__name__)
-from core.evolution.cycle import activation_policy as activation_policy_module
-from core.evolution.cycle import activation_types as activation_types_module
 
 def materialise_profile_candidate(
     candidate_id: str, *, approver: str, tenant_id: str = "default"
@@ -23,26 +24,28 @@ def materialise_profile_candidate(
     Rolling back is switching ``is_active`` off, which restores the built-in
     assembly on the next run — no restart, because profiles are read per run.
     """
+    from core.db.models.evolution import EvolutionCandidate, EvolutionRelease
+
     from core.db.models.evolution import EvolutionAgentProfile
     from core.evolution.profiles.agent_profile import AgentProfile, validate_profile
-    from core.evolution.profiles.agent_profile_state import TARGET_KIND
+    from core.evolution.profiles.agent_profile_constants import TARGET_KIND
     from core.evolution.cycle.release import ACTIVE as _ACTIVE, new_release_id
 
     if not approver:
-        raise activation_types_module.ActivationError("approver_required", "激活必须署名")
+        raise activation_types.ActivationError("approver_required", "激活必须署名")
 
     with SessionLocal() as db:
         candidate = db.get(EvolutionCandidate, candidate_id)
         if candidate is None:
-            raise activation_types_module.ActivationError("candidate_not_found", f"候选不存在: {candidate_id}")
+            raise activation_types.ActivationError("candidate_not_found", f"候选不存在: {candidate_id}")
         if candidate.target_kind != TARGET_KIND:
-            raise activation_types_module.ActivationError(
+            raise activation_types.ActivationError(
                 "unsupported_kind", f"该入口只处理编排候选，收到 {candidate.target_kind}"
             )
         if approver == (candidate.proposer or ""):
-            raise activation_types_module.ActivationError("self_approval_forbidden", "生成者不能激活自己提出的候选")
-        if activation_policy_module.is_frozen(db):
-            raise activation_types_module.ActivationError("layer_frozen", "进化已被全局冻结")
+            raise activation_types.ActivationError("self_approval_forbidden", "生成者不能激活自己提出的候选")
+        if activation_policy.is_frozen(db):
+            raise activation_types.ActivationError("layer_frozen", "进化已被全局冻结")
 
         payload: Dict[str, Any] = {}
         for change in candidate.ir.get("changes") or []:
@@ -50,7 +53,7 @@ def materialise_profile_candidate(
                 payload = change["profile"]
                 break
         if not payload:
-            raise activation_types_module.ActivationError("no_profile_payload", "候选未携带 profile 定义")
+            raise activation_types.ActivationError("no_profile_payload", "候选未携带 profile 定义")
 
         profile = AgentProfile.from_dict(payload)
         profile.scope = {**(profile.scope or {}), "tenant_id": tenant_id or "default"}
@@ -65,7 +68,7 @@ def materialise_profile_candidate(
         ]
         ok, problems = validate_profile(profile, base_tools=base_tools)
         if not ok:
-            raise activation_types_module.ActivationError("profile_invalid", f"编排定义未通过校验: {problems}")
+            raise activation_types.ActivationError("profile_invalid", f"编排定义未通过校验: {problems}")
 
         previous = db.get(EvolutionAgentProfile, profile.profile_id)
         previous_payload = dict(previous.payload) if previous is not None else None
@@ -168,24 +171,26 @@ def materialise_subagent_candidate(
     does nothing, and one that is enabled before its route is reviewed is a
     capability sitting in the product that no reviewer has seen used.
     """
+    from core.db.models.evolution import EvolutionCandidate, EvolutionRelease
+
     from core.db.models import UserAgent
-    from core.evolution.cycle.release import ACTIVE as _ACTIVE, SHADOW, new_release_id
+    from core.evolution.cycle.release import SHADOW, new_release_id
 
     if not approver:
-        raise activation_types_module.ActivationError("approver_required", "激活必须署名")
+        raise activation_types.ActivationError("approver_required", "激活必须署名")
 
     with SessionLocal() as db:
         candidate = db.get(EvolutionCandidate, candidate_id)
         if candidate is None:
-            raise activation_types_module.ActivationError("candidate_not_found", f"候选不存在: {candidate_id}")
+            raise activation_types.ActivationError("candidate_not_found", f"候选不存在: {candidate_id}")
         if candidate.target_kind != "subagent":
-            raise activation_types_module.ActivationError(
+            raise activation_types.ActivationError(
                 "unsupported_kind", f"该入口只处理子智能体候选，收到 {candidate.target_kind}"
             )
         if approver == (candidate.proposer or ""):
-            raise activation_types_module.ActivationError("self_approval_forbidden", "生成者不能激活自己提出的候选")
-        if activation_policy_module.is_frozen(db):
-            raise activation_types_module.ActivationError("layer_frozen", "进化已被全局冻结")
+            raise activation_types.ActivationError("self_approval_forbidden", "生成者不能激活自己提出的候选")
+        if activation_policy.is_frozen(db):
+            raise activation_types.ActivationError("layer_frozen", "进化已被全局冻结")
 
         spec: Dict[str, Any] = {}
         for change in candidate.ir.get("changes") or []:
@@ -193,7 +198,7 @@ def materialise_subagent_candidate(
                 spec = change
                 break
         if not spec:
-            raise activation_types_module.ActivationError("no_subagent_payload", "候选未携带子智能体定义")
+            raise activation_types.ActivationError("no_subagent_payload", "候选未携带子智能体定义")
 
         # The subset check runs again at activation against the current grant.
         from core.capabilities.catalog.api import get_enabled_ids
@@ -204,16 +209,16 @@ def materialise_subagent_candidate(
         requested = {str(t) for t in (spec.get("tools_allowlist") or [])}
         widened = sorted(requested - base_tools)
         if widened:
-            raise activation_types_module.ActivationError(
+            raise activation_types.ActivationError(
                 "tool_escalation", f"子智能体工具集超出主体授权: {widened}"
             )
         if spec.get("may_delegate"):
-            raise activation_types_module.ActivationError("subagent_nesting", "子智能体不得再派生子智能体")
+            raise activation_types.ActivationError("subagent_nesting", "子智能体不得再派生子智能体")
 
         agent_id = str(spec.get("agent_id"))
         existing = db.get(UserAgent, agent_id)
         if existing is not None:
-            raise activation_types_module.ActivationError("agent_exists", f"子智能体已存在: {agent_id}")
+            raise activation_types.ActivationError("agent_exists", f"子智能体已存在: {agent_id}")
 
         agent = UserAgent(
             agent_id=agent_id,

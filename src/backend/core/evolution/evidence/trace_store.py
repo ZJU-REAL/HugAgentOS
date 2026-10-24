@@ -12,7 +12,7 @@ flush must be a no-op, not an error.
 from __future__ import annotations
 
 import logging
-from typing import Iterable, List, Optional, Sequence
+from typing import List, Sequence
 
 from core.db.engine import SessionLocal
 from core.db.models.evolution import EvolutionTraceEvent

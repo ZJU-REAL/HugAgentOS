@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass, field
 from threading import Lock
 from typing import Optional
 
@@ -28,10 +29,6 @@ logger = logging.getLogger(__name__)
 
 
 # ─── Global semaphore (lazy init) ──────────────────────────────────────────
-
-
-
-
 
 
 def get_background_semaphore() -> asyncio.Semaphore:
@@ -159,18 +156,14 @@ def _report_settlement(
         logger.debug("[memory_pipeline] settlement report skipped: %s", exc)
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class PipelineState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
     bg_semaphore: Optional[asyncio.Semaphore] = None
-    sem_lock: object = state_field(default_factory=lambda: Lock())
+    sem_lock: object = field(default_factory=lambda: Lock())
 
-@state_cache(maxsize=1)
+
+_STATE = PipelineState()
+
+
 def process_state() -> PipelineState:
-    return PipelineState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

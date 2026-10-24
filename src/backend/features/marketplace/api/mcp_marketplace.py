@@ -12,6 +12,7 @@ from typing import Dict, List, Optional
 from core.auth.backend import UserContext, get_current_user
 from core.auth.capabilities import resolve_user_capabilities
 from core.db.engine import get_db
+from core.db.threads import run_in_session
 from core.infra.exceptions import AccessDeniedError
 from core.infra.responses import created_response, success_response
 
@@ -82,19 +83,16 @@ async def start_oauth(
     body: OAuthStartRequest,
     request: Request,
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
     user_id = str(user.user_id)
-    _require_can_add_mcp(user_id, db)
-    mcp_listing.get_market_item(
-        db,
-        body.slug,
-        owner_user_id=user_id,
-        viewer_user_id=user_id,
-    )
+
+    def admit(db: Session) -> None:
+        _require_can_add_mcp(user_id, db)
+        mcp_listing.get_market_item(db, body.slug, owner_user_id=user_id, viewer_user_id=user_id)
+
+    await run_in_session(admit)
     return success_response(
         data=await oauth_module.start_oauth_install(
-            db,
             slug=body.slug,
             owner_user_id=user_id,
             installed_by=user_id,
@@ -140,6 +138,7 @@ async def oauth_callback(
     flow_id: str = Query(...),
     code: str = Query(""),
     state: Optional[str] = Query(None),
+    iss: Optional[str] = Query(None),
     error: str = Query(""),
     error_description: str = Query(""),
 ):
@@ -147,6 +146,7 @@ async def oauth_callback(
         flow_id,
         code=code,
         state=state,
+        iss=iss,
         error=error_description or error,
     )
     return HTMLResponse(
@@ -160,12 +160,10 @@ async def oauth_callback(
 async def install_item(
     body: InstallRequest,
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
     user_id = str(user.user_id)
-    _require_can_add_mcp(user_id, db)
+    await run_in_session(lambda db: _require_can_add_mcp(user_id, db))
     result = await mcp_installation.install_market_item(
-        db,
         body.slug,
         owner_user_id=user_id,
         installed_by=user_id,
@@ -188,12 +186,10 @@ class SubmissionRequest(BaseModel):
 async def submit_item(
     body: SubmissionRequest,
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
     user_id = str(user.user_id)
-    _require_can_add_mcp(user_id, db)
+    await run_in_session(lambda db: _require_can_add_mcp(user_id, db))
     result = await mcp_submissions.submit_to_marketplace(
-        db,
         body.source_server_id,
         owner_user_id=user_id,
         submitter_name=user.username or "",

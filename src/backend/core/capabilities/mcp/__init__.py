@@ -1,1 +1,1 @@
-"""mcp domain package."""
+"""MCP server installation, management and OAuth connections."""

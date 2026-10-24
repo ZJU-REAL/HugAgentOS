@@ -1,12 +1,13 @@
-"""skill release responsibilities."""
+"""Ramp, roll back and retire skill releases."""
 from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from core.db.engine import SessionLocal
 import logging
+from core.evolution.cycle import activation_policy
+from core.evolution.cycle import activation_types
+
 logger = logging.getLogger(__name__)
-from core.evolution.cycle import activation_policy as activation_policy_module
-from core.evolution.cycle import activation_types as activation_types_module
 
 def advance_skill_release(
     release_id: str,
@@ -29,14 +30,14 @@ def advance_skill_release(
     from core.evolution.cycle.release import ACTIVE, CANARY, CANARY_STEPS, SHADOW, can_promote, evaluate_guardrails, next_traffic, should_auto_rollback
 
     if not actor:
-        raise activation_types_module.ActivationError("actor_required", "推进发布必须署名")
+        raise activation_types.ActivationError("actor_required", "推进发布必须署名")
 
     with SessionLocal() as db:
         release = db.get(EvolutionRelease, release_id)
         if release is None:
-            raise activation_types_module.ActivationError("release_not_found", f"发布记录不存在: {release_id}")
-        if activation_policy_module.is_frozen(db):
-            raise activation_types_module.ActivationError("globally_frozen", "全局冻结开关已打开，禁止推进发布")
+            raise activation_types.ActivationError("release_not_found", f"发布记录不存在: {release_id}")
+        if activation_policy.is_frozen(db):
+            raise activation_types.ActivationError("globally_frozen", "全局冻结开关已打开，禁止推进发布")
 
         candidate = db.get(EvolutionCandidate, release.candidate_id)
         risk = str(getattr(candidate, "risk_tier", "") or "low")
@@ -76,7 +77,7 @@ def advance_skill_release(
             target_stage, target_traffic = ACTIVE, 100
             completed = sorted(set(completed) | {"canary"})
         else:
-            raise activation_types_module.ActivationError(
+            raise activation_types.ActivationError(
                 "not_rampable", f"当前阶段 {stage} 无法继续放量"
             )
 
@@ -96,17 +97,17 @@ def advance_skill_release(
         # A same-stage traffic bump is not a transition; can_promote would reject
         # canary→canary, which is correct for stages and wrong for ramp steps.
         if not allowed and not (stage == target_stage == CANARY):
-            raise activation_types_module.ActivationError("promotion_refused", reason)
+            raise activation_types.ActivationError("promotion_refused", reason)
 
         if target_stage == ACTIVE:
             # 冲突的 L3 证据在 shadow/canary 里观测没问题，但升到全量必须先由
             # 人裁决冲突本身——适用条件不可信的技能不配自动放大到所有人。
-            if activation_policy_module.has_graph_conflict(candidate):
-                raise activation_types_module.ActivationError(
+            if activation_policy.has_graph_conflict(candidate):
+                raise activation_types.ActivationError(
                     "graph_conflict_requires_review",
                     "候选的 L3 图谱证据存在未裁决的冲突，禁止放量到 active",
                 )
-            activation_policy_module.check_pace(db, tenant_id=str((release.scope_filter or {}).get("tenant_id") or "default"))
+            activation_policy.check_pace(db, tenant_id=str((release.scope_filter or {}).get("tenant_id") or "default"))
 
         release.stage = target_stage
         release.traffic_percent = target_traffic
@@ -161,12 +162,12 @@ def rollback_skill_activation(
     from core.evolution.cycle.release import ROLLBACK_GUARDRAIL, ROLLBACK_MANUAL, ROLLED_BACK
 
     if not actor or not reason:
-        raise activation_types_module.ActivationError("audit_required", "回滚必须署名并填写理由")
+        raise activation_types.ActivationError("audit_required", "回滚必须署名并填写理由")
 
     with SessionLocal() as db:
         release = db.get(EvolutionRelease, release_id)
         if release is None:
-            raise activation_types_module.ActivationError("release_not_found", f"发布记录不存在: {release_id}")
+            raise activation_types.ActivationError("release_not_found", f"发布记录不存在: {release_id}")
 
         previous = (release.guardrails or {}).get("previous")
         skill_id = release.target_asset_id
@@ -270,26 +271,28 @@ def retire_skill_candidate(candidate_id: str, *, approver: str) -> Dict[str, Any
     anything built on top of it — a profile naming it, a sub-agent requiring it
     — can be found and invalidated rather than silently pointing at nothing.
     """
+    from core.db.models.evolution import EvolutionCandidate, EvolutionRelease
+
     from core.db.models import AdminSkill
     from core.db.models.evolution import EvolutionAgentProfile
     from core.evolution.cycle.release import RETIRED, new_release_id
 
     if not approver:
-        raise activation_types_module.ActivationError("approver_required", "退役必须署名")
+        raise activation_types.ActivationError("approver_required", "退役必须署名")
 
     with SessionLocal() as db:
         candidate = db.get(EvolutionCandidate, candidate_id)
         if candidate is None:
-            raise activation_types_module.ActivationError("candidate_not_found", f"候选不存在: {candidate_id}")
+            raise activation_types.ActivationError("candidate_not_found", f"候选不存在: {candidate_id}")
         if candidate.operation != "deprecate":
-            raise activation_types_module.ActivationError("not_a_retirement", "该候选不是退役候选")
+            raise activation_types.ActivationError("not_a_retirement", "该候选不是退役候选")
         if approver == (candidate.proposer or ""):
-            raise activation_types_module.ActivationError("self_approval_forbidden", "生成者不能批准自己提出的退役")
+            raise activation_types.ActivationError("self_approval_forbidden", "生成者不能批准自己提出的退役")
 
         skill_id = candidate.target_asset_id
         row = db.query(AdminSkill).filter(AdminSkill.skill_id == skill_id).first()
         if row is None:
-            raise activation_types_module.ActivationError("skill_not_found", f"技能不存在: {skill_id}")
+            raise activation_types.ActivationError("skill_not_found", f"技能不存在: {skill_id}")
 
         previous_enabled = bool(row.is_enabled)
         row.is_enabled = False
@@ -335,7 +338,7 @@ def retire_skill_candidate(candidate_id: str, *, approver: str) -> Dict[str, Any
         # its cheaper carrier, so it goes back to being paid for by retrieval.
         from core.evolution.generators.memory_apply import revert_memory_ops
 
-        source_candidate = activation_policy_module.source_candidate_for(db, skill_id)
+        source_candidate = activation_policy.source_candidate_for(db, skill_id)
         restored = revert_memory_ops(candidate_id=source_candidate) if source_candidate else {}
 
         logger.info(

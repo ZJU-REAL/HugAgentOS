@@ -1,7 +1,7 @@
 """Translate neutral context additions at the framework boundary."""
 from core.harness.events import thaw_value
 from core.llm.context.items import ContextItem
-from core.llm.context.ir_state import POLICY_HEAD_TAIL
+from core.llm.context.ir_constants import POLICY_HEAD_TAIL
 from core.llm.context.rendering import append_state_context_item, next_context_sequence
 from core.llm.runtime.turn_state import reset_artifact_read_state, reset_pin_hint_state
 

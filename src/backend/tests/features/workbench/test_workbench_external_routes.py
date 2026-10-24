@@ -5,6 +5,7 @@ from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
 from core.db.models import UserShadow
 from fastapi.testclient import TestClient
+from tests.db_support import share_factory, share_session
 
 BASE = "/v1/workbench"
 ADMIN = BASE + "/admin/external-applications"
@@ -29,6 +30,7 @@ def client(db_session, monkeypatch):
         yield db_session
 
     app.dependency_overrides[get_db] = database
+    share_session(monkeypatch, db_session)
     app.dependency_overrides[get_current_user] = lambda: UserContext(
         user_id="wb-user", user_center_id="wb-user", username="Reader", email="reader@example.org"
     )
@@ -240,7 +242,7 @@ def test_all_legacy_writes_reject_normalized_duplicate_ids(client, monkeypatch, 
     assert response.status_code == 409, response.text
 
 
-def test_concurrent_new_and_legacy_definitions_never_share_effective_id(client, db_session):
+def test_concurrent_new_and_legacy_definitions_never_share_effective_id(client, db_session, monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier
 
@@ -254,6 +256,7 @@ def test_concurrent_new_and_legacy_definitions_never_share_effective_id(client, 
             yield session
 
     app.dependency_overrides[get_db] = database
+    share_factory(monkeypatch, factory)
     # Both HTTP operations start together. Their independent DB sessions must
     # serialize the namespace decision even when app_config does not yet exist.
     for n in range(8):

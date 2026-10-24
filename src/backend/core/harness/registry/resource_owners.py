@@ -25,9 +25,6 @@ class ResourceOwner:
     revoke_session: Callable[..., Any]
 
 
-
-
-
 def register_resource_owner(owner: ResourceOwner) -> None:
     pass
     registration_state().owner = owner
@@ -39,19 +36,13 @@ def resource_owner() -> ResourceOwner:
     return registration_state().owner
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-
-@state_dataclass
+@dataclass
 class RegistrationState:
-    """Process-owned registrations; replace only while the host is quiescent."""
     owner: ResourceOwner | None = None
 
 
-@state_cache(maxsize=1)
-def registration_state() -> RegistrationState:
-    return RegistrationState()
+_REGISTRATIONS = RegistrationState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-registration_state()
+
+def registration_state() -> RegistrationState:
+    return _REGISTRATIONS

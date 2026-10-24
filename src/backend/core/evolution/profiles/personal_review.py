@@ -1,11 +1,12 @@
-"""personal review responsibilities."""
+"""Let users review, approve and activate candidates for themselves."""
 from __future__ import annotations
 from typing import Any, Dict, List, Optional
 from core.db.engine import SessionLocal
 import logging
+from core.evolution.profiles import change_preview
+from core.evolution.profiles import user_settings_constants
+
 logger = logging.getLogger(__name__)
-from core.evolution.profiles import change_preview as change_preview_module
-from core.evolution.profiles import user_settings_state as user_settings_state_module
 
 def personal_action(candidate) -> Optional[Dict[str, str]]:
     """What this user can actually do with a candidate, or ``None``.
@@ -156,12 +157,12 @@ def pending_for_user(user_id: str, *, limit: int = 20) -> List[Dict[str, Any]]:
                     continue
                 mine = refs & own_ids
                 share = len(mine) / len(refs)
-                if share < user_settings_state_module.OWN_EVIDENCE_THRESHOLD:
+                if share < user_settings_constants.OWN_EVIDENCE_THRESHOLD:
                     continue
                 action = personal_action(candidate)
                 if action is None:
                     continue
-                change_preview = change_preview_module.change_preview(candidate)
+                preview = change_preview.change_preview(candidate)
                 if str(candidate.target_kind or "") == "skill":
                     # Legacy personal cycles could promote a single repeated
                     # tool call as a "sequence".  Such a candidate has neither
@@ -169,12 +170,12 @@ def pending_for_user(user_id: str, *, limit: int = 20) -> List[Dict[str, Any]]:
                     # approving it would install a tautological skill.  Keep
                     # the evidence intact for audit, but do not present noise as
                     # a decision the user ought to make.
-                    if change_preview.get("type") == "skill_sequence":
-                        steps = change_preview.get("steps") or []
-                        rules = change_preview.get("ordering_constraints") or []
+                    if preview.get("type") == "skill_sequence":
+                        steps = preview.get("steps") or []
+                        rules = preview.get("ordering_constraints") or []
                         if len(steps) < 2 and not rules:
                             continue
-                    elif change_preview.get("type") != "skill_document":
+                    elif preview.get("type") != "skill_document":
                         # A skill with no inspectable content is not informed
                         # consent and would also fail materialisation later.
                         continue
@@ -189,14 +190,14 @@ def pending_for_user(user_id: str, *, limit: int = 20) -> List[Dict[str, Any]]:
                         "your_episodes": len(mine),
                         "total_evidence": len(refs),
                         "own_share": round(share, 3),
-                        "tool_sequence": change_preview_module.tool_sequence_of_ir(candidate.ir),
+                        "tool_sequence": change_preview.tool_sequence_of_ir(candidate.ir),
                         # What the button does, and what it will change. Without
                         # these the row states a diagnosis and offers a verb that
                         # does not follow from it.
                         "action": action["action"],
                         "action_label": action["label"],
                         "action_effect": action["effect"],
-                        "change": change_preview,
+                        "change": preview,
                         "created_at": candidate.created_at.isoformat()
                         if candidate.created_at
                         else None,
@@ -288,7 +289,7 @@ def summarise_contributions(user_id: str) -> Dict[str, Any]:
                 return empty
 
             episode_ids = {e.episode_id for e in episodes}
-            contributed = [e for e in episodes if e.privacy_class != user_settings_state_module.PRIVACY_PRIVATE]
+            contributed = [e for e in episodes if e.privacy_class != user_settings_constants.PRIVACY_PRIVATE]
 
             memory_written = 0
             for event in (

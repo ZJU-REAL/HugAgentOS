@@ -276,7 +276,6 @@ def test_capability_manifest_contains_current_sanitized_schemas(monkeypatch, db_
         transport="streamable_http",
         url="https://mcp.example/mcp?api_key=must-not-leak",
         headers={"Authorization": "encrypted-secret"},
-        is_stable=False,
         is_enabled=True,
         tools_json=[
             {
@@ -345,7 +344,6 @@ def test_resolve_gateway_tool_rejects_a_stale_schema(monkeypatch, db_session):
             description="",
             transport="streamable_http",
             url="https://mcp.example/mcp",
-            is_stable=False,
             is_enabled=True,
             tools_json=tools,
         )

@@ -299,7 +299,8 @@ def test_two_mcp_sessions_share_capacity_and_close_client(monkeypatch):
     import json
 
     from extensions.mcp_servers.internet_search_mcp import impl, server
-    from mcp.shared.memory import create_connected_server_and_client_session
+    from mcp import Client
+    from tests.llm.test_mcp_parallel_execution import probe_server
 
     monkeypatch.setattr(
         impl,
@@ -337,8 +338,8 @@ def test_two_mcp_sessions_share_capacity_and_close_client(monkeypatch):
     monkeypatch.setattr(server.httpx, "AsyncClient", client_factory)
 
     async def run():
-        async with create_connected_server_and_client_session(server.mcp) as first:
-            async with create_connected_server_and_client_session(server.mcp) as second:
+        async with probe_server(server.mcp) as (url, _):
+            async with Client(url) as first, Client(url) as second:
                 assert len(clients) == 1
                 calls = [
                     asyncio.create_task(
@@ -358,12 +359,12 @@ def test_two_mcp_sessions_share_capacity_and_close_client(monkeypatch):
                 assert started == 8
                 release.set()
                 results = await asyncio.gather(*calls)
-                assert all(not result.isError for result in results)
+                assert all(not result.is_error for result in results)
                 assert maximum == 8
                 data = json.loads(results[0].content[0].text)
                 assert data["result"]["status"] == "complete"
                 bad = await first.call_tool("internet_search", {"query": "a", "cn_only": True})
-                assert bad.isError
+                assert bad.is_error
             assert not clients[0].is_closed
         assert clients[0].is_closed
 
@@ -418,14 +419,6 @@ def test_round_robin_caps_at_eight_sources():
 
 
 def test_search_transport_allows_structured_deadline_result():
-    from core.llm.mcp.pool import make_client
-
-    class Client:
-        def __init__(self, **kwargs):
-            self.kwargs = kwargs
-
-    cfg = {"transport": "streamable_http", "url": "http://localhost:9102/mcp"}
-    client = make_client("internet_search", cfg, client_cls=Client)
-    assert client.kwargs["mcp_config"].timeout == 50.0
-    client = make_client("internet_search", {**cfg, "transport_timeout": 12}, client_cls=Client)
-    assert client.kwargs["mcp_config"].timeout == 12.0
+    from core.llm.mcp.client import _http_transport_timeout
+    assert _http_transport_timeout("internet_search", {}, 120) == 50.0
+    assert _http_transport_timeout("internet_search", {"transport_timeout": 12}, 120) == 12.0

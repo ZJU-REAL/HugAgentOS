@@ -1,10 +1,10 @@
-"""graph contract responsibilities."""
+"""Validate and normalise extracted graph relations."""
 from __future__ import annotations
 import hashlib
 import unicodedata
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Sequence
-from core.memory import graph_state as graph_state_module
+from core.memory import graph_state
 
 @dataclass(frozen=True)
 class GraphRelation:
@@ -19,7 +19,7 @@ class GraphRelation:
 
     @property
     def relationship(self) -> str:
-        return graph_state_module.PREDICATE_LABELS[self.predicate]
+        return graph_state.PREDICATE_LABELS[self.predicate]
 
     @property
     def text(self) -> str:
@@ -44,21 +44,21 @@ def parse_relation(raw: Any) -> Optional[GraphRelation]:
     source = clean_name(raw.get("source"))
     target = clean_name(raw.get("target"))
     predicate = str(raw.get("predicate") or "").strip().lower()
-    if not source or not target or source == target or predicate not in graph_state_module.PREDICATE_LABELS:
+    if not source or not target or source == target or predicate not in graph_state.PREDICATE_LABELS:
         return None
 
     source_type = str(raw.get("source_type") or "other").strip().lower()
     target_type = str(raw.get("target_type") or "other").strip().lower()
-    if source_type not in graph_state_module.ALLOWED_ENTITY_TYPES:
+    if source_type not in graph_state.ALLOWED_ENTITY_TYPES:
         source_type = "other"
-    if target_type not in graph_state_module.ALLOWED_ENTITY_TYPES:
+    if target_type not in graph_state.ALLOWED_ENTITY_TYPES:
         target_type = "other"
     try:
         confidence = float(raw.get("confidence", 0.8))
     except (TypeError, ValueError):
         confidence = 0.8
     confidence = max(0.0, min(1.0, confidence))
-    if confidence < graph_state_module.MIN_CONFIDENCE:
+    if confidence < graph_state.MIN_CONFIDENCE:
         return None
     return GraphRelation(
         source=source,
@@ -87,21 +87,21 @@ def parse_relations(raw_items: Sequence[Any]) -> list[GraphRelation]:
             continue
         seen.add(key)
         relations.append(relation)
-        if len(relations) >= graph_state_module.MAX_RELATIONS_PER_TURN:
+        if len(relations) >= graph_state.MAX_RELATIONS_PER_TURN:
             break
     return relations
 
 
 def clean_name(value: Any) -> str:
     name = unicodedata.normalize("NFKC", str(value or ""))
-    name = graph_state_module.SAFE_NAME.sub(" ", name).strip(" \t\r\n,，。；;：:")
-    if len(name) < 2 or len(name) > graph_state_module.MAX_ENTITY_CHARS:
+    name = graph_state.SAFE_NAME.sub(" ", name).strip(" \t\r\n,，。；;：:")
+    if len(name) < 2 or len(name) > graph_state.MAX_ENTITY_CHARS:
         return ""
     return name
 
 
 def normalise_name(value: str) -> str:
-    return graph_state_module.SAFE_NAME.sub(" ", unicodedata.normalize("NFKC", value).lower()).strip()
+    return graph_state.SAFE_NAME.sub(" ", unicodedata.normalize("NFKC", value).lower()).strip()
 
 
 def entity_key(name: str, entity_type: str) -> str:

@@ -15,7 +15,9 @@ from personal_agent.computer.sandbox import get_personal_sandbox_provider
 
 class CaptureTools:
     def __init__(self): self.tools = {}
-    def register_tool_function(self, fn): self.tools[fn.__name__] = fn
+    def append(self, tool):
+        fn = tool._func
+        self.tools[fn.__name__] = fn
 
 
 def data(chunk): return json.loads(chunk.content[0].text)

@@ -10,6 +10,7 @@ no longer coexists with this ``tools/`` package.
 """
 
 from __future__ import annotations
+from core.llm.factory.tools.definitions import function_tool
 from core.harness import log_writer
 
 import json
@@ -21,8 +22,8 @@ from typing import Any
 from agentscope.message import TextBlock
 from agentscope.tool import Toolkit
 
-# AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolResponse).
-from agentscope.tool._response import ToolChunk as ToolResponse
+# AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolChunk).
+from agentscope.tool._response import ToolChunk
 
 from core.capabilities.skills.loader_factory import get_skill_loader
 
@@ -114,7 +115,7 @@ def register_sandboxed_view_text_file(
     async def view_text_file(
         file_path: str,
         ranges: list[int] | None = None,
-    ) -> ToolResponse:
+    ) -> ToolChunk:
         """View file content within allowed skill directories."""
         prepared = getattr(loader, "capability_run", None)
         if prepared is not None:
@@ -141,7 +142,7 @@ def register_sandboxed_view_text_file(
                 if requested_name is not None:
                     await asyncio.to_thread(validate, prepared, only_skill=requested_name)
             except (CapabilityError, OSError):
-                return ToolResponse(
+                return ToolChunk(
                     content=[
                         TextBlock(
                             type="text",
@@ -161,7 +162,7 @@ def register_sandboxed_view_text_file(
                 real = _os.path.realpath(resolved)
 
         if not any(real.startswith(d + _os.sep) or real == d for d in resolved_dirs):
-            return ToolResponse(content=[TextBlock(
+            return ToolChunk(content=[TextBlock(
                 type="text",
                 text=f"Error: Access denied. Only files inside skill directories can be read.\nRequested: {file_path}",
             )])
@@ -181,10 +182,10 @@ def register_sandboxed_view_text_file(
             from core.harness.registry.skill_content import adapt_skill_content
             _text = adapt_skill_content(_text, user_id)
         except Exception as _e:  # noqa: BLE001
-            return ToolResponse(content=[TextBlock(
+            return ToolChunk(content=[TextBlock(
                 type="text", text=f"Error reading file: {_e}",
             )])
-        resp = ToolResponse(content=[TextBlock(type="text", text=_text)])
+        resp = ToolChunk(content=[TextBlock(type="text", text=_text)])
 
         if _os.path.basename(real) == "SKILL.md":
             from core.config.local_mode import local_mode_enabled
@@ -236,4 +237,4 @@ def register_sandboxed_view_text_file(
 
         return resp
 
-    toolkit.register_tool_function(view_text_file, namesake_strategy="override")
+    toolkit.append(function_tool(view_text_file))

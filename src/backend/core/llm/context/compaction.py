@@ -6,7 +6,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.llm.context.ir_state import KIND_COMPACTION, SESSION_CONTEXT_META_KEY
+from core.llm.context.ir_constants import KIND_COMPACTION, SESSION_CONTEXT_META_KEY
 from core.llm.context.items import make_text_context_item
 from core.llm.context.content import image_token_reserve
 from core.llm.runtime.model_steps import explode_history_rows

@@ -27,17 +27,14 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from core.capabilities.catalog.common import _item, _normalize_kind
-from core.capabilities.catalog.loader import _write_catalog, ensure_default_catalog, invalidate_catalog_cache, load_catalog
+from core.capabilities.catalog.loader import _write_catalog, ensure_default_catalog, load_catalog
 
-# Re-export so existing ``from core.capabilities.catalog.api import invalidate_catalog_cache``
-# and ``from core.capabilities.catalog.api import ensure_default_catalog`` keep working.
 __all__ = [
     "get_catalog",
     "is_enabled",
     "get_enabled_ids",
     "set_enabled",
     "reorder_items",
-    "invalidate_catalog_cache",
     "ensure_default_catalog",
 ]
 

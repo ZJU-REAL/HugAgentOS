@@ -17,8 +17,8 @@ def active_prompt_versions():
 
 def register():
     from core.harness.registry.mcp_clients import register_mcp_client_factory
-    from core.llm.mcp.pool import make_client
-    register_mcp_client_factory(make_client)
+    from core.llm.mcp.lifetime import discover
+    register_mcp_client_factory(discover)
     from core.models.config import ModelConfigService
     from core.llm.prompt_rendering import render_active_prompt_part
     from core.llm.runtime.review_text_agent import run_text_agent

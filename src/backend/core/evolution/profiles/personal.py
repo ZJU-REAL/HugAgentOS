@@ -22,21 +22,19 @@ Two properties follow and are enforced here rather than assumed:
 """
 
 from __future__ import annotations
-from core.evolution.cycle import ordering as ordering_module
-from core.evolution.cycle import patterns as patterns_module
-from core.evolution.cycle import promotion as promotion_module
-from core.evolution.cycle import promotion_state as promotion_state_module
+from core.evolution.cycle import ordering
+from core.evolution.cycle import patterns
+from core.evolution.cycle import promotion
+from core.evolution.cycle import promotion_constants
 
 import hashlib
 import logging
 from typing import Any, Dict, List, Optional
 
 from core.db.engine import SessionLocal
-from core.evolution.cycle import promotion as P
 from core.evolution.evidence.credit import T_SKILL, aggregate_finding, confidence_from_evidence
 from core.evolution.ir import (
     RISK_LOW,
-    RISK_MEDIUM,
     EvolutionIR,
     InvariantViolation,
     Rollback,
@@ -100,14 +98,14 @@ def load_personal_episodes(user_id: str, *, limit: int = 300) -> List[Dict[str, 
     return views
 
 
-def _discover(views: List[Dict[str, Any]]) -> List[patterns_module.Pattern]:
+def _discover(views: List[Dict[str, Any]]) -> List[patterns.Pattern]:
     """Pattern discovery at the personal support threshold."""
-    original = promotion_state_module.MIN_SUPPORT
+    original = promotion_constants.MIN_SUPPORT
     try:
-        promotion_state_module.MIN_SUPPORT = PERSONAL_MIN_SUPPORT
-        return patterns_module.discover_patterns(views)
+        promotion_constants.MIN_SUPPORT = PERSONAL_MIN_SUPPORT
+        return patterns.discover_patterns(views)
     finally:
-        promotion_state_module.MIN_SUPPORT = original
+        promotion_constants.MIN_SUPPORT = original
 
 
 def run_personal_cycle(
@@ -155,17 +153,17 @@ def run_personal_cycle(
     if not views:
         return report
 
-    patterns = _discover(views)
-    report["patterns"] = len(patterns)
-    constraints = ordering_module.extract_ordering_constraints(
+    discovered = _discover(views)
+    report["patterns"] = len(discovered)
+    constraints = ordering.extract_ordering_constraints(
         views, min_support=PERSONAL_MIN_SUPPORT, min_contexts=1
     )
     report["ordering_constraints"] = [c.to_dict() for c in constraints]
 
     known_concepts = _known_concepts(prefs)
 
-    for pattern in patterns:
-        if pattern.kind != promotion_state_module.PATTERN_SUCCESS_SUBSEQUENCE or not pattern.tool_sequence:
+    for pattern in discovered:
+        if pattern.kind != promotion_constants.PATTERN_SUCCESS_SUBSEQUENCE or not pattern.tool_sequence:
             continue
         # 这是"多次成功里观察到的共性"，不是某次失败的归因，所以走聚合决策。
         # 旧实现在这里伪造 outcome_verdict="failed" 逼归因器选中技能引擎——
@@ -187,7 +185,7 @@ def run_personal_cycle(
 
         # min_support 必须显式传入：发现阶段用的个人门槛（3）在 _discover 返回
         # 后已恢复为全局值（5），不传的话支持度 3–4 的个人模式会在这里被静默拒绝。
-        proposal = promotion_module.promote_tool_sequence_to_skill(
+        proposal = promotion.promote_tool_sequence_to_skill(
             pattern,
             episodes=views,
             min_support=PERSONAL_MIN_SUPPORT,

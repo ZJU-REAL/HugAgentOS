@@ -1,0 +1,80 @@
+"""Pattern kinds and support thresholds for promotion."""
+from __future__ import annotations
+
+
+PATTERN_REPEATED_FAILURE = "repeated_failure"
+
+
+PATTERN_SUCCESS_SUBSEQUENCE = "success_subsequence"
+
+
+PATTERN_DRIFT = "execution_drift"
+
+
+MIN_SUPPORT = 5
+
+
+SINGLE_SHOT_CONFIDENCE = 0.85
+
+
+SKILL_MIN_SUCCESS_RATE = 0.7
+
+
+WORKFLOW_MIN_COMBO_FREQUENCY = 5
+
+
+WORKFLOW_MIN_UPLIFT = 0.05
+
+
+MIN_TOOL_SEQUENCE_LEN = 3
+
+
+INTENT_COHESION_RATIO = 0.6
+
+
+PROCEDURAL_MIN_OCCURRENCES = 3
+
+
+PROCEDURAL_MIN_SUCCESS_RATE = 0.6
+
+
+MIN_EXPOSURE_DAYS = 14
+
+
+MIN_OFFERS_BEFORE_JUDGING = 10
+
+
+MIN_OPENS_BEFORE_JUDGING = 3
+
+
+FOLLOW_THROUGH_FLOOR = 0.4
+
+
+SUCCESS_FLOOR = 0.4
+
+
+REASON_NEVER_OPENED = "never_opened"
+
+
+REASON_IGNORED_WHEN_OPENED = "ignored_when_opened"
+
+
+REASON_LOW_SUCCESS = "low_success_when_opened"
+
+
+REASON_HARMFUL = "worse_than_without"
+
+
+ACTION_LOWER_EXPOSURE = "lower_exposure"
+
+
+ACTION_REWRITE = "rewrite"
+
+
+ACTION_RETIRE = "retire"
+
+
+ACTION_ROLLBACK = "rollback"
+
+
+MIN_CONSTRAINT_CONTEXTS = 2

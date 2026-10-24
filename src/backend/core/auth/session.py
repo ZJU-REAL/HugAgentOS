@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
@@ -19,7 +20,6 @@ from core.infra.redis import get_redis
 logger = get_logger(__name__)
 
 SESSION_KEY_PREFIX = "jx:session:"
-
 
 
 def _ttl_seconds() -> int:
@@ -207,11 +207,8 @@ async def revoke_session(token: str) -> bool:
         logger.info("session_revoked", token_hash=token_hash[:8])
         if data and data.get("user_id"):
             from core.harness.registry.resource_owners import resource_owner
-            from core.db.engine import SessionLocal
-
             try:
-                with SessionLocal() as db:
-                    await resource_owner().revoke_session(db, data["user_id"], token_hash)
+                await resource_owner().revoke_session(data["user_id"], token_hash)
             except Exception as exc:
                 # The credential is already revoked. Preserve successful logout;
                 # expired workers stay denied while the resource janitor retries.
@@ -247,17 +244,13 @@ def expires_at_iso(ttl_seconds: Optional[int] = None) -> str:
     return (datetime.now(timezone.utc) + timedelta(seconds=ttl)).isoformat()
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class SessionState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    MEMORY_SESSIONS: dict[str, dict[str, Any]] = state_field(default_factory=lambda: {})
+    MEMORY_SESSIONS: dict[str, dict[str, Any]] = field(default_factory=lambda: {})
 
-@state_cache(maxsize=1)
+
+_STATE = SessionState()
+
+
 def process_state() -> SessionState:
-    return SessionState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

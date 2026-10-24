@@ -65,7 +65,7 @@ The runtime retains at most 64 process records and only evicts completed records
 
 The sandbox identity is resolved by `resolve_sandbox_session(sandbox_session_id, chat_id)`: a non-empty explicit ID wins, while a missing or empty value falls back to `chat_id`. The main agent, plan execution, batch items, and every subagent therefore use one conversation sandbox, and a child run never destroys it when it finishes.
 
-**MySpace real-time registration**: a file written under `/myspace` **is** a file in the user's My Space, and both sides must show the same state at any moment. Registration is driven by **the filesystem itself** (`core/myspace/watcher.py`): any write or delete under the mirror directory `myspace_cache/{uid}/` is registered back into the artifact ledger, **regardless of who wrote it**.
+**MySpace real-time registration**: a file written under `/myspace` **is** a file in the user's My Space, and both sides must show the same state at any moment. Registration is driven by **the filesystem itself** (`core/files/spaces/`): any write or delete under the mirror directory `myspace_cache/{uid}/` is registered back into the artifact ledger, **regardless of who wrote it**.
 
 The earlier design had each writing tool register its own change (write / edit / file delete-move-mkdir / a before-and-after directory snapshot around `Bash`). That assumes changes can only arrive through those entry points, and they cannot: a `nohup`-ed background process writes after the command returns, sub-agents and batch runs write from another coroutine, skill CLIs write directly, and so do MCP servers. Every entry point left out shows up the same way — the file sits on the user's disk, is invisible and undeletable in the UI, and every new sandbox mounts that directory again, which is where "leftover intermediate files from the previous session" came from.
 
@@ -86,9 +86,7 @@ Other points:
 - **The reference point is the artifact record, not the mirror cache**: with the bind mount on, the sandbox's `/workspace/myspace/{uid}` *is* the backend's `myspace_cache/{uid}`, so "sandbox file matches mirror cache" is trivially true and can no longer mean "already registered". That mismatch used to make write-back a permanent no-op.
 - **"Newer on disk than in the ledger" is the only signal**: when the backend writes into the mirror itself (materialising a UI upload, restoring a declined change) it aligns the file's mtime to the registration time, so the watcher never mistakes the backend's own write for a fresh sandbox change — no separate "I wrote this" bookkeeping is needed.
 - **Every worker watches; a claim deduplicates**: the confirmation bar lives in the process running that chat, so the watcher has to run in every worker (the cost is inotify watches scaling as workers × directories against `fs.inotify.max_user_watches`; raise it on deployments with very many folders — exceeding it drops events **silently**); one change is still handled once, via the claim in `core.infra.ephemeral`, and preferably by the worker hosting that user's chat (only it can raise the bar).
-- **When the sandbox directory is not on this host** (`script_runner` / `cube`: the session workspace lives inside a container, or the whole sandbox is remote), `core/myspace/sandbox_sync.py` copies the sandbox's current state into the mirror directory after the command, and everything downstream is identical.
-
-The backlog that accumulated before this shipped is a **one-off data migration**: run `scripts/reconcile_myspace_mirror.py` by hand once (`--dry-run` first; add `--prune-stale` to clear leftover copies). It is deliberately not a scan that runs on every startup — that would be wasted work, and it would paper over real gaps in the live path.
+- **When the sandbox directory is not on this host** (`script_runner` / `cube`: the session workspace lives inside a container, or the whole sandbox is remote), `core/files/spaces/sandbox.py` copies the sandbox's current state into the mirror directory after the command, and everything downstream is identical.
 
 ### Large artifact delivery
 
@@ -185,8 +183,8 @@ fix on both execution surfaces. Updating only the cloud does not fix old clients
 
 ## Administrator sandbox management
 
-- **Read-only monitoring (security console)**: `api/routes/v1/config_security.py` exposes `/v1/config/security/sandbox/*` — overview, instance list, per-instance detail, snapshot list, rebuild history and effective configuration; everything goes through the providers' `admin_*` interfaces, with the UI trimmed by each provider's `admin_capabilities()` declaration (script_runner can't enumerate instances, so those columns are greyed out).
-- **Dependency rebuild (Enterprise EE)**: `api/routes/v1/admin_sandbox.py` (`/v1/admin/sandbox/*`) aggregates the pip/apt dependencies declared by all skills (`core/capabilities/skills/deps/aggregator.py`) and lets an admin trigger a sandbox image rebuild with one click: the `script-runner` / `opensandbox` targets run a local `docker compose build`, while the `cube` target rebuilds the template on the remote node over SSH and hot-swaps it (`core/services/sandbox_rebuild_service.py` + `cube_template_builder`), with per-run status and logs. New skill dependencies get baked into the images without hand-editing Dockerfiles.
+- **Read-only monitoring (security console)**: `features/security_console/api/config_security.py` exposes `/v1/config/security/sandbox/*` — overview, instance list, per-instance detail, snapshot list, rebuild history and effective configuration; everything goes through the providers' `admin_*` interfaces, with the UI trimmed by each provider's `admin_capabilities()` declaration (script_runner can't enumerate instances, so those columns are greyed out).
+- **Dependency rebuild (Enterprise EE)**: `features/sandbox_ops/api/admin_sandbox.py` (`/v1/admin/sandbox/*`) aggregates the pip/apt dependencies declared by all skills (`core/capabilities/skills/deps/aggregator.py`) and lets an admin trigger a sandbox image rebuild with one click: the `script-runner` / `opensandbox` targets run a local `docker compose build`, while the `cube` target rebuilds the template on the remote node over SSH and hot-swaps it (`features/sandbox_ops/rebuild.py` + `cube_template_builder`), with per-run status and logs. New skill dependencies get baked into the images without hand-editing Dockerfiles.
 
 ## Key environment variables
 
@@ -220,17 +218,17 @@ Full list in the [environment variable reference](../deployment/environment-vari
 | `src/backend/core/sandbox/factory.py` | Explicit provider selection; initialization errors propagate |
 | `src/backend/core/sandbox/providers/script_runner/provider.py` | Lightweight sandbox (CE) |
 | `src/backend/core/sandbox/providers/opensandbox/provider.py` | Shared OpenSandbox provider |
-| `src/backend/core/sandbox/providers/opensandbox/session.py` | Sessions / snapshots / park-restore workers (EE) |
+| `src/backend/core/sandbox/providers/opensandbox/` | Sessions / snapshots / park-restore workers (EE) |
 | `src/backend/core/sandbox/providers/opensandbox/execution.py` | Execution path + idle reaper (EE) |
-| `src/backend/core/sandbox/providers/opensandbox/internals.py` | Volume builders, metadata, user pool (EE) |
+| `src/backend/core/sandbox/providers/opensandbox/` | Volume builders, metadata, user pool (EE) |
 | `src/backend/core/sandbox/providers/opensandbox/pool.py` | Two-bucket warm pool |
 | `src/backend/core/sandbox/providers/cube/provider.py` | Cube remote-MicroVM provider (EE) |
 | `src/backend/core/llm/tools/sandbox_tool.py` | Bash / write_stdin / sandbox_put_artifact / sandbox_get_artifact |
 | `src/backend/core/llm/context/offloader.py` | Overflow offloading to the session workspace |
-| `src/backend/api/routes/v1/admin_sandbox.py` | Dependency-rebuild admin API (EE) |
-| `src/backend/api/routes/v1/config_security.py` | Security-console read-only sandbox views |
-| `src/backend/core/services/sandbox_rebuild_service.py` | Image/template rebuild orchestration (EE) |
-| `docker/Dockerfile.script-runner` / `docker/Dockerfile.opensandbox` / `docker/Dockerfile.cube-sandbox` | The three sandbox images |
+| `src/backend/features/sandbox_ops/api/admin_sandbox.py` | Dependency-rebuild admin API (EE) |
+| `src/backend/features/security_console/api/config_security.py` | Security-console read-only sandbox views |
+| `src/backend/features/sandbox_ops/rebuild.py` | Image/template rebuild orchestration (EE) |
+| `docker/sandbox/Dockerfile.script-runner` / `docker/sandbox/Dockerfile.opensandbox` / `docker/sandbox/Dockerfile.cube-sandbox` | The three sandbox images |
 
 Related docs: [Agent skills](agent-skills.md) · [MCP tool system](mcp-tools.md) · [Projects & My Space](projects-myspace.md) · [Editions & licensing](../editions/overview.md)
 
@@ -258,7 +256,7 @@ The backend collects status and logs and keeps the sandbox active. The model can
 
 The command ledger stores bounded logs, execution leases and completion delivery state. OpenSandbox recovery uses the original execution identity, sandbox binding and committed log cursor. It never restarts the command. Other providers stop owned processes on orderly shutdown. After an unexpected restart, an unrecoverable execution is reported as `unknown`.
 
-Migration `bashbackground01` creates the command ledger. Apply it through the normal release procedure before using the feature. Tests use isolated databases and disposable sandbox sessions. See the [architecture decision](../../internal/adr/20261018-background-bash-completion.md) and [validation record](../../internal/background-bash-validation-20261018.md).
+Migration `bashbackground01` creates the command ledger. Apply it through the normal release procedure before using the feature. Tests use isolated databases and disposable sandbox sessions.
 
 ### Reclaim accounting and multi-worker administration
 
@@ -273,5 +271,31 @@ OpenSandbox instance lists and counts use the controller's current running
 inventory instead of cached process handles. Controller query failures mean
 the count is unavailable, never a successful zero. Pool diagnostics include
 scope=worker and worker_pid. They describe one backend process and are not a
-global per-user quota. This fix does not convert local pool limits into
-cross-process admission limits.
+global per-user quota. Controller admission now enforces the shared ceiling described below.
+
+## Shared capacity and maintenance ownership
+
+The controller now enforces OPENSANDBOX_POOL_MAX_TOTAL against Docker inventory
+across backend workers, warm instances, restored sessions and computer instances.
+Worker pool counts remain local diagnostics. Container creation holds a file lock
+on the controller data volume; mount initialization stays outside that critical
+section. Capacity exhaustion or a competing admission returns 429 for later retry.
+Processes of the same controller must share its opensandbox_data volume.
+
+The leader discovers idle sessions from shared bindings, including sessions
+created by other workers or surviving a restart. Identity-checked cleanup of a
+missing binding does not block other sessions. Snapshot work stops with leadership;
+GC deletes metadata only for the snapshot_id it processed.
+
+Output reads no longer prepare mounts or write object directory markers.
+Directory initialization happens during creation, while execution and file access
+still check authorization. An uncertain or timed-out health probe preserves the
+FUSE helper; only confirmed missing or disconnected mounts permit replacement.
+Command observation retries are bounded before durable recovery takes over.
+Processes without a recoverable reference require confirmed termination, not loss
+of their control handle merely because observation failed.
+
+Roll out both backend and OpenSandbox controller images. Updating only the backend
+does not activate the shared capacity limit.
+
+Skill mounts require HOST_STORAGE_PATH to identify the host directory corresponding to backend STORAGE_PATH. Missing configuration fails explicitly; source-tree fallback is removed. Restart adoption requires explicit ownership metadata and never infers ownership from old entrypoints.

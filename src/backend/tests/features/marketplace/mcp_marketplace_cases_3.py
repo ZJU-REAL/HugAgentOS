@@ -62,11 +62,12 @@ async def test_removed_admin_credential_falls_back_to_installer_input(db, monkey
     _patch_probe(monkeypatch)
 
     published = await mcp_publishing.publish_admin_server(
-        db,
         source.server_id,
-        category="信息检索",
-        version="1.0.0",
-        link_as_installation=False,
+        mcp_publishing.Publication(
+            category="信息检索",
+            version="1.0.0",
+            link_as_installation=False,
+        ),
     )
     source.headers = {}
     db.commit()
@@ -81,7 +82,6 @@ async def test_removed_admin_credential_falls_back_to_installer_input(db, monkey
 
     with pytest.raises(BadRequestError, match="请填写安装凭据"):
         await mcp_installation.install_market_item(
-            db,
             published["slug"],
             owner_user_id="u2",
             installed_by="u2",
@@ -99,11 +99,12 @@ async def test_market_edit_can_require_installer_credentials_without_reusing_sou
     _patch_probe(monkeypatch)
 
     published = await mcp_publishing.publish_admin_server(
-        db,
         source.server_id,
-        category="信息检索",
-        version="1.0.0",
-        link_as_installation=False,
+        mcp_publishing.Publication(
+            category="信息检索",
+            version="1.0.0",
+            link_as_installation=False,
+        ),
     )
     updated = mcp_administration.update_market_item(
         db,
@@ -119,7 +120,6 @@ async def test_market_edit_can_require_installer_credentials_without_reusing_sou
 
     with pytest.raises(BadRequestError, match="请填写安装凭据"):
         await mcp_installation.install_market_item(
-            db,
             published["slug"],
             owner_user_id="u2",
             installed_by="u2",
@@ -135,11 +135,12 @@ async def test_market_edit_sets_admin_token_and_keeps_it_out_of_responses(db, mo
     _patch_probe(monkeypatch)
 
     published = await mcp_publishing.publish_admin_server(
-        db,
         source.server_id,
-        category="信息检索",
-        version="1.0.0",
-        link_as_installation=False,
+        mcp_publishing.Publication(
+            category="信息检索",
+            version="1.0.0",
+            link_as_installation=False,
+        ),
     )
     updated = mcp_administration.update_market_item(
         db,
@@ -157,7 +158,6 @@ async def test_market_edit_sets_admin_token_and_keeps_it_out_of_responses(db, mo
     assert "centrally-managed" not in str(source.headers)
 
     installed = await mcp_installation.install_market_item(
-        db,
         published["slug"],
         owner_user_id="u2",
         installed_by="u2",
@@ -190,7 +190,6 @@ async def test_create_market_mcp_with_blank_token_requires_each_installer(db, mo
     monkeypatch.setattr(mcp_versions, 'refresh_mcp_caches', lambda: None)
     monkeypatch.setattr(mcp_publishing, 'refresh_mcp_caches', lambda: None)
     monkeypatch.setattr(admin_mcp_routes, "_probe_connectivity", _fail_probe)
-    monkeypatch.setattr(admin_mcp_routes, "_sync_catalog_from_db", lambda db: None)
     monkeypatch.setattr(admin_mcp_routes, "_refresh_caches", lambda: None)
 
     request = admin_mcp_routes.McpServerCreateRequest(
@@ -206,7 +205,7 @@ async def test_create_market_mcp_with_blank_token_requires_each_installer(db, mo
         market_auth_prefix="Bearer ",
         market_admin_token="",
     )
-    await admin_mcp_routes.create_mcp_server(request, db)
+    await admin_mcp_routes.create_mcp_server(request)
 
     listed = mcp_listing.list_market_items(
         db,
@@ -223,7 +222,7 @@ async def test_create_market_mcp_with_blank_token_requires_each_installer(db, mo
     assert listed["listing_notice"]["discovery_mode"] == "per_install"
     assert listed["tool_count"] == 0
 
-    async def _authenticated_probe(row, db=None):
+    async def _authenticated_probe(row, **_options):
         assert decrypt_mcp_headers(row.headers)["Authorization"] == "Bearer user-secret"
         row.tools_json = _tools("search_documents")
         return True, ""
@@ -233,7 +232,6 @@ async def test_create_market_mcp_with_blank_token_requires_each_installer(db, mo
     monkeypatch.setattr(mcp_submissions, 'probe_mcp_connectivity', _authenticated_probe)
     monkeypatch.setattr(mcp_publishing, 'probe_mcp_connectivity', _authenticated_probe)
     installed = await mcp_installation.install_market_item(
-        db,
         listed["slug"],
         owner_user_id="u2",
         installed_by="u2",
@@ -251,7 +249,7 @@ async def test_create_market_mcp_with_admin_token_makes_user_install_tokenless(d
     async def _validate(*args, **kwargs):
         return None
 
-    async def _probe(row, db=None):
+    async def _probe(row, **_options):
         row.tools_json = discovered_tools
         return True, ""
 
@@ -268,7 +266,6 @@ async def test_create_market_mcp_with_admin_token_makes_user_install_tokenless(d
     monkeypatch.setattr(mcp_versions, 'refresh_mcp_caches', lambda: None)
     monkeypatch.setattr(mcp_publishing, 'refresh_mcp_caches', lambda: None)
     monkeypatch.setattr(admin_mcp_routes, "_probe_connectivity", _probe)
-    monkeypatch.setattr(admin_mcp_routes, "_sync_catalog_from_db", lambda db: None)
     monkeypatch.setattr(admin_mcp_routes, "_refresh_caches", lambda: None)
 
     request = admin_mcp_routes.McpServerCreateRequest(
@@ -284,7 +281,7 @@ async def test_create_market_mcp_with_admin_token_makes_user_install_tokenless(d
         market_auth_prefix="Bearer ",
         market_admin_token="central-secret",
     )
-    await admin_mcp_routes.create_mcp_server(request, db)
+    await admin_mcp_routes.create_mcp_server(request)
 
     source = db.query(AdminMcpServer).filter_by(server_id="admin_token_mcp").one()
     assert decrypt_mcp_headers(source.headers)["Authorization"] == "Bearer central-secret"
@@ -322,7 +319,6 @@ async def test_create_market_mcp_with_oauth_defers_authorization_to_installer(db
     monkeypatch.setattr(mcp_versions, 'refresh_mcp_caches', lambda: None)
     monkeypatch.setattr(mcp_publishing, 'refresh_mcp_caches', lambda: None)
     monkeypatch.setattr(admin_mcp_routes, "_probe_connectivity", _fail_probe)
-    monkeypatch.setattr(admin_mcp_routes, "_sync_catalog_from_db", lambda db: None)
     monkeypatch.setattr(admin_mcp_routes, "_refresh_caches", lambda: None)
 
     request = admin_mcp_routes.McpServerCreateRequest(
@@ -334,7 +330,7 @@ async def test_create_market_mcp_with_oauth_defers_authorization_to_installer(db
         market_requires_auth=True,
         market_auth_type="oauth2",
     )
-    await admin_mcp_routes.create_mcp_server(request, db)
+    await admin_mcp_routes.create_mcp_server(request)
 
     listed = mcp_listing.list_market_items(
         db,
@@ -358,19 +354,21 @@ async def test_move_existing_published_server_removes_global_installation(db, mo
     _patch_probe(monkeypatch)
 
     await mcp_publishing.publish_admin_server(
-        db,
         source.server_id,
-        category="信息检索",
-        version="1.0.0",
+        mcp_publishing.Publication(
+            category="信息检索",
+            version="1.0.0",
+        ),
     )
     assert db.query(McpMarketInstallation).count() == 1
 
     moved = await mcp_publishing.publish_admin_server(
-        db,
         source.server_id,
-        category="信息检索",
-        version="1.0.1",
-        link_as_installation=False,
+        mcp_publishing.Publication(
+            category="信息检索",
+            version="1.0.1",
+            link_as_installation=False,
+        ),
     )
 
     db.refresh(source)
@@ -388,7 +386,6 @@ def test_edit_market_metadata_propagates_to_existing_installations(db, monkeypat
         description=item.description,
         transport=version.transport,
         url=version.url,
-        is_stable=False,
         is_enabled=True,
         owner_user_id="u2",
     )
@@ -439,14 +436,12 @@ async def test_install_uses_installers_own_encrypted_credentials(db, monkeypatch
     _patch_probe(monkeypatch)
 
     first = await mcp_installation.install_market_item(
-        db,
         "acme-search",
         owner_user_id="u2",
         installed_by="u2",
         credentials={"Authorization": "Bearer user-two"},
     )
     second = await mcp_installation.install_market_item(
-        db,
         "acme-search",
         owner_user_id="u3",
         installed_by="u3",

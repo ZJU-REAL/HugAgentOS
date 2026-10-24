@@ -1,4 +1,5 @@
 """Observe-act-verify tools with exclusive desktop control and exact approvals."""
+from core.llm.factory.tools.definitions import function_tool
 import asyncio
 import json
 import shlex
@@ -146,4 +147,4 @@ def register_computer_tools(toolkit, ident, uid):
         from personal_agent.computer.devices import list_devices
         return response(list_devices(uid))
 
-    for fn in (pa_computer_observe, pa_computer_action, pa_device_list): toolkit.register_tool_function(fn)
+    for fn in (pa_computer_observe, pa_computer_action, pa_device_list): toolkit.append(function_tool(fn))

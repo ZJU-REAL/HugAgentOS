@@ -1,12 +1,12 @@
-"""result transactions operations."""
+"""Commit tool results or mark their outcome unknown."""
 from __future__ import annotations
 from typing import Any, Optional
 from core.db.models import ChatRun, ToolEffectLease, ToolEffectLedger
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, aliased
-from core.runs.tool_effects import errors as errors_module
-from core.runs.tool_effects import journal_time as journal_time_module
-from core.runs.tool_effects import types as types_module
+from core.runs.tool_effects import errors
+from core.runs.tool_effects import types
+from core.infra.time import as_utc
 
 def append_event(
     self,
@@ -65,7 +65,7 @@ def mark_unknown_locked(
     if self._terminal_row(db, intent.effect_id) is not None:
         return
     if lease.run_owner != owner or lease.claim_owner != claim_owner:
-        raise errors_module.ToolEffectLeaseLost(intent.effect_id)
+        raise errors.ToolEffectLeaseLost(intent.effect_id)
     self._append_event(
         db,
         run,
@@ -102,10 +102,10 @@ def commit_result_locked(
     terminal = self._terminal_row(db, intent.effect_id)
     if terminal is not None:
         if terminal.event_type == "unknown_outcome":
-            raise errors_module.ToolOutcomeUnknown(intent.effect_id)
+            raise errors.ToolOutcomeUnknown(intent.effect_id)
         return terminal.result_payload
     if lease.run_owner != owner:
-        raise errors_module.ToolEffectLeaseLost(intent.effect_id)
+        raise errors.ToolEffectLeaseLost(intent.effect_id)
     run = self._runs._locked_owned_run(db, intent.run_id, owner)
     self._append_event(
         db,
@@ -152,7 +152,7 @@ def commit_result(
         terminal = self._terminal_row(db, effect_id)
         if terminal is not None:
             if terminal.event_type == "unknown_outcome":
-                raise errors_module.ToolOutcomeUnknown(effect_id)
+                raise errors.ToolOutcomeUnknown(effect_id)
             return terminal.result_payload
         lease = (
             db.query(ToolEffectLease)
@@ -160,8 +160,8 @@ def commit_result(
             .with_for_update()
             .one()
         )
-        now = journal_time_module.aware(self._clock())
-        lease_expiry = journal_time_module.aware(lease.lease_expires_at)
+        now = as_utc(self._clock())
+        lease_expiry = as_utc(lease.lease_expires_at)
         if (
             lease.run_owner != run_owner
             or lease.claim_owner != claim_owner
@@ -177,9 +177,9 @@ def commit_result(
             terminal = self._terminal_row(db, effect_id)
             if terminal is not None:
                 if terminal.event_type == "unknown_outcome":
-                    raise errors_module.ToolOutcomeUnknown(effect_id)
+                    raise errors.ToolOutcomeUnknown(effect_id)
                 return terminal.result_payload
-            raise errors_module.ToolEffectLeaseLost(effect_id)
+            raise errors.ToolEffectLeaseLost(effect_id)
         value = self._commit_result_locked(
             db,
             intent,
@@ -196,7 +196,7 @@ def commit_result(
             terminal = self.terminal_decision(effect_id)
             if terminal is not None:
                 if terminal.action == "unknown":
-                    raise errors_module.ToolOutcomeUnknown(effect_id)
+                    raise errors.ToolOutcomeUnknown(effect_id)
                 return terminal.result
             if _conflict_retries > 0:
                 return self.commit_result(
@@ -208,7 +208,7 @@ def commit_result(
                     reconciled=reconciled,
                     _conflict_retries=_conflict_retries - 1,
                 )
-            raise errors_module.ToolEffectError(str(exc)) from exc
+            raise errors.ToolEffectError(str(exc)) from exc
         return value
 
 
@@ -248,7 +248,7 @@ def mark_unknown(
         db.commit()
 
 
-def terminal_decision(self, effect_id: str) -> Optional[types_module.IntentDecision]:
+def terminal_decision(self, effect_id: str) -> Optional[types.IntentDecision]:
     with self._sessions() as db:
         intent = (
             db.query(ToolEffectLedger)

@@ -1,4 +1,4 @@
-"""Plugin admin config responsibilities."""
+"""Read and write a plugin's admin-level configuration."""
 
 from __future__ import annotations
 

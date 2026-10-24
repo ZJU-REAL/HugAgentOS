@@ -1,8 +1,8 @@
-"""runtime gates responsibilities."""
+"""Deterministic ontology checks on tool calls and outputs."""
 from __future__ import annotations
 from typing import Any, Iterable
 from jsonschema import Draft202012Validator, ValidationError
-from core.ontology import validation_models as validation_models_module
+from core.ontology import validation_models
 
 def evaluate_tool_call(
     runtime: dict[str, Any],
@@ -10,10 +10,10 @@ def evaluate_tool_call(
     tool_name: str,
     tool_input: dict[str, Any],
     completed_tools: Iterable[str] = (),
-) -> validation_models_module.OntologyGateDecision:
+) -> validation_models.OntologyGateDecision:
     """Apply zero-LLM L-a validation to one tool call."""
     if not runtime.get("enabled"):
-        return validation_models_module.OntologyGateDecision(True, "pass")
+        return validation_models.OntologyGateDecision(True, "pass")
     completed = set(completed_tools)
     violations: list[dict[str, Any]] = []
     suggestions: list[str] = []
@@ -69,8 +69,8 @@ def evaluate_tool_call(
                     enforced = True
 
     if not violations:
-        return validation_models_module.OntologyGateDecision(True, "pass", matched_rule_ids=matched)
-    return validation_models_module.OntologyGateDecision(
+        return validation_models.OntologyGateDecision(True, "pass", matched_rule_ids=matched)
+    return validation_models.OntologyGateDecision(
         allowed=not enforced,
         decision="deny" if enforced else "log",
         violations=violations,
@@ -85,10 +85,10 @@ def evaluate_output(
     answer: str,
     citations: Iterable[dict[str, Any]] = (),
     completed_tools: Iterable[str] | None = (),
-) -> validation_models_module.OntologyGateDecision:
+) -> validation_models.OntologyGateDecision:
     """Apply deterministic output constraints before any LLM reviewer."""
     if not runtime.get("enabled"):
-        return validation_models_module.OntologyGateDecision(True, "pass")
+        return validation_models.OntologyGateDecision(True, "pass")
     citation_items = list(citations)
     # ``None`` means the caller cannot observe a complete tool trace (the
     # legacy non-streaming reply path).  Output and citation rules still run,
@@ -147,8 +147,8 @@ def evaluate_output(
                 if rule.get("mode") == "enforce":
                     enforced = True
     if not violations:
-        return validation_models_module.OntologyGateDecision(True, "pass", matched_rule_ids=matched)
-    return validation_models_module.OntologyGateDecision(
+        return validation_models.OntologyGateDecision(True, "pass", matched_rule_ids=matched)
+    return validation_models.OntologyGateDecision(
         allowed=not enforced,
         decision="deny" if enforced else "log",
         violations=violations,

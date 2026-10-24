@@ -6,7 +6,7 @@ from core.sandbox.commands.delivery import notice_text
 
 def completion_context(row):
     """One stable sideband record per completed command, never a chat row."""
-    from core.llm.context.ir_state import KIND_REMINDER, POLICY_NEVER, SESSION_CONTEXT_META_KEY
+    from core.llm.context.ir_constants import KIND_REMINDER, POLICY_NEVER, SESSION_CONTEXT_META_KEY
     from core.llm.context.items import make_text_context_item, session_context_metadata
     event_id = "command_event_" + row["task_id"]
     prompt = notice_text([row])

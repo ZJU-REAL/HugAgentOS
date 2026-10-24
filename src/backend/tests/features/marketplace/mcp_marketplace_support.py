@@ -88,7 +88,7 @@ from features.marketplace.models import McpMarketInstallation, McpMarketItem, Mc
 from core.infra.exceptions import BadRequestError, ResourceNotFoundError
 
 
-from core.llm.mcp.pool import make_client
+from core.llm.mcp.client import make_client
 
 
 from core.capabilities.mcp import management as management
@@ -113,17 +113,23 @@ from sqlalchemy import create_engine
 
 
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+from tests.db_support import share_factory
 
 
 _IS_CE_TREE = not (Path(__file__).resolve().parents[3] / "edition_ee").exists()
 
 
 @pytest.fixture
-def db():
-    engine = create_engine("sqlite://", future=True)
+def db(monkeypatch):
+    # One connection for every thread: marketplace steps run in worker threads.
+    engine = create_engine(
+        "sqlite://", future=True, poolclass=StaticPool, connect_args={"check_same_thread": False}
+    )
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine, autoflush=False, future=True)
     session = Session()
+    share_factory(monkeypatch, Session)
     try:
         yield session
     finally:
@@ -151,7 +157,6 @@ def _private_server(db, *, owner: str = "u1", server_id: str = "umcp_source"):
         url="https://mcp.example.test/mcp",
         headers=encrypt_mcp_headers({"Authorization": "Bearer publisher-secret"}),
         tools_json=_tools("search_documents"),
-        is_stable=False,
         is_enabled=True,
         owner_user_id=owner,
     )
@@ -201,7 +206,7 @@ def _patch_probe(monkeypatch, tools=None):
     async def _validate(*args, **kwargs):
         return None
 
-    async def _probe(row, db=None):
+    async def _probe(row, **_options):
         if tools is not None:
             row.tools_json = tools
         return True, ""
@@ -252,7 +257,7 @@ def _admin_private_market(db, *, auth_schema=None, url: str = "http://mcp:9102/m
 def _patch_install_side_effects(monkeypatch, *, resolves_to: str = "172.27.0.4"):
     """Keep the real URL guard in play while stubbing the network around it."""
 
-    async def _probe(row, db=None):
+    async def _probe(row, **_options):
         return True, ""
 
     monkeypatch.setattr(

@@ -247,6 +247,7 @@ def create_run_record(
     user_id: str,
     request_payload: Dict[str, Any],
     recovery_snapshot: Optional[Dict[str, Any]] = None,
+    on_accept=None,
 ) -> ChatRun:
     """Durably accept a run before any worker task can be spawned."""
     run_id = f"run_{uuid.uuid4().hex[:16]}"
@@ -258,6 +259,7 @@ def create_run_record(
         user_id=user_id,
         request_payload=writer._json_safe(request_payload),
         recovery_snapshot=writer._json_safe(recovery_snapshot or {}),
+        on_accept=on_accept,
     )
 
 

@@ -1,4 +1,4 @@
-"""available resources operations."""
+"""List the MCP servers, skills, plugins and knowledge spaces an agent may bind."""
 from __future__ import annotations
 from typing import Any, Dict, List, Optional
 import logging

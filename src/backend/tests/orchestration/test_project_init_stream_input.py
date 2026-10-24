@@ -3,7 +3,7 @@ from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
-from core.llm.context.ir_state import SESSION_CONTEXT_META_KEY
+from core.llm.context.ir_constants import SESSION_CONTEXT_META_KEY
 from core.llm.runtime.streaming import StreamingAgent
 
 

@@ -105,7 +105,7 @@ Docker 使用沙箱镜像内的 Python Playwright 与 Chromium；桌面完整包
 
 启动时实际尝试 Chromium 沙箱。仅经过宿主验证的外层隔离容器在出现明确的内部沙箱错误时允许关闭 Chromium 内层沙箱后重试；本机环境不采用此降级。启动失败显示 chromium_sandbox_unavailable、chromium_runtime_missing 或 chromium_launch_failed，而不是仅显示异常类型。
 
-更新 OpenSandbox 时需显式从仓库根目录构建运行镜像：docker build -f docker/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .。普通 docker compose up --build 不会重建这一按需启动的镜像。核对 OPENSANDBOX_IMAGE 实际标签，并在更新后用 browser_open 创建新会话；只有 Chromium 初始化及真实浏览器验证通过后才报告资源就绪。其他运行提供方同样需重建各自运行镜像。
+更新 OpenSandbox 时需显式从仓库根目录构建运行镜像：docker build -f docker/sandbox/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .。普通 docker compose up --build 不会重建这一按需启动的镜像。核对 OPENSANDBOX_IMAGE 实际标签，并在更新后用 browser_open 创建新会话；只有 Chromium 初始化及真实浏览器验证通过后才报告资源就绪。其他运行提供方同样需重建各自运行镜像。
 
 Fake-IP DNS 返回198.18.0.0/15时仍禁止连接，错误提示 fake_ip_dns，并建议配置 BROWSER_DNS_RESOLVER_URL 为受信任的 HTTPS JSON DNS 服务。解析失败返回 dns_failed；不得为解决公网 DNS 问题打开私网访问。缺失元素和重复定位器分别返回 element_not_found、ambiguous_locator，未执行动作不再标为结果未知。
 

@@ -1,16 +1,15 @@
-"""rendering responsibilities."""
+"""Render context items into AgentScope state and allocate their sequence numbers."""
 from __future__ import annotations
-from core.llm.context import adapter as adapter_module_
+from core.llm.context import adapter
 from dataclasses import replace
 from typing import Any, Mapping, Sequence
 from agentscope.message import Msg, TextBlock
-from core.llm.context.ir_state import CONTEXT_SEQUENCE_STRIDE, POLICY_HEAD_TAIL
+from core.llm.context.ir_constants import CONTEXT_SEQUENCE_STRIDE, POLICY_HEAD_TAIL
 from core.llm.context.items import ContextItem, make_text_context_item
-from core.llm.context import adapter as adapter_module
 
 def append_state_context_item(state: Any, item: ContextItem) -> Msg:
     """Render and append one explicitly-provenanced item to AgentScope state."""
-    messages = adapter_module_.AgentScopeContextAdapter().messages_from_items([item])
+    messages = adapter.AgentScopeContextAdapter().messages_from_items([item])
     if len(messages) != 1:
         raise ValueError("context item did not render to exactly one message")
     message = messages[0]
@@ -27,7 +26,7 @@ def next_context_sequence(messages: Sequence[Any]) -> int:
     """Allocate one monotonic sequence across replay and live injections."""
     max_sequence = -CONTEXT_SEQUENCE_STRIDE
     for message_index, message in enumerate(messages):
-        entries = adapter_module_.AgentScopeContextAdapter._metadata_entries(message)
+        entries = adapter.AgentScopeContextAdapter._metadata_entries(message)
         blocks = list(getattr(message, "content", None) or [])
         for block_index, _block in enumerate(blocks or [None]):
             explicit = entries[block_index] if block_index < len(entries) else {}
@@ -57,7 +56,7 @@ def next_request_sequence(messages: Sequence[Any]) -> int:
 
 def render_context_item(item: ContextItem) -> Msg:
     """Render one IR item for ``Agent.reply`` without mutating agent state."""
-    messages = adapter_module_.AgentScopeContextAdapter().messages_from_items([item])
+    messages = adapter.AgentScopeContextAdapter().messages_from_items([item])
     if len(messages) != 1:
         raise ValueError("context item did not render to exactly one message")
     return messages[0]
@@ -65,8 +64,8 @@ def render_context_item(item: ContextItem) -> Msg:
 
 def render_session_input(message: Mapping[str, Any], *, created_seq: int) -> Msg:
     """Render one pending positional row at an explicit live request sequence."""
-    adapter = adapter_module_.AgentScopeContextAdapter()
-    items = adapter.items_from_session_dict(message, created_seq=0)
+    context_adapter = adapter.AgentScopeContextAdapter()
+    items = context_adapter.items_from_session_dict(message, created_seq=0)
     positioned = [
         replace(
             item,
@@ -75,7 +74,7 @@ def render_session_input(message: Mapping[str, Any], *, created_seq: int) -> Msg
         )
         for index, item in enumerate(items)
     ]
-    rendered = adapter.messages_from_items(positioned)
+    rendered = context_adapter.messages_from_items(positioned)
     if len(rendered) != 1:
         raise ValueError("session input did not render to exactly one message")
     return rendered[0]

@@ -128,12 +128,10 @@ def cloud_gateway_mcp_configs(
         invoke_url = f"{st['cloud_base']}/api/v1/desktop/capability/gateway/{sid}/call"
         configs[sid] = {
             "transport": "streamable_http",
-            # HttpMCPConfig requires a URL, but ManifestMCPClient never performs
-            # discovery against it. The same JSON endpoint is the only remote hop.
+            # This endpoint invokes the authorized manifest tool through JSON.
             "url": invoke_url,
             "headers": bridge_identity.cloud_headers(st),
             "execution_timeout": 180,
-            "is_stable": False,
             "schema_source": "cloud_manifest",
             "manifest_revision": manifest_revision,
             "manifest_tools": s["tools"],

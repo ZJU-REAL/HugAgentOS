@@ -1,4 +1,4 @@
-"""manual review responsibilities."""
+"""Build the payload for human ontology review cards."""
 from __future__ import annotations
 from typing import Any
 

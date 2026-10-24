@@ -15,14 +15,14 @@ router = APIRouter(route_class=CapabilityRoute, prefix="/admin/applications",
                    tags=["workbench installed configuration"])
 
 
-async def configuration_admin(request: Request, db: Session = Depends(get_db),
+async def configuration_admin(request: Request,
                               user: UserContext | None = Depends(require_auth(False))):
     if user is not None and user.api_key_id:
         fail(403, "configuration_session_required")
     try:
-        return await require_system_settings(request, db, user)
+        return await require_system_settings(request, user)
     except HTTPException:
-        await require_admin(request, request.headers.get("authorization"), db)
+        await require_admin(request, request.headers.get("authorization"))
         return user.user_id if user is not None else "admin_token"
 
 

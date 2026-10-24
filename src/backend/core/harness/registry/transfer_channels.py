@@ -8,7 +8,7 @@ means registering a channel here, not adding a branch to the transport.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
 # Wire contract shared by the uploading client and the receiving gateway route.
@@ -32,11 +32,6 @@ class UploadReceiver:
     options_model: Any
     max_bytes: int
     publish: Callable[..., Any]
-
-
-
-
-
 
 
 def register_upload_channel(source_plugin, tool_name, factory, *, receiver=None):
@@ -76,21 +71,15 @@ def result_localizer(source_plugin: str, tool_name: str):
     return registration_state().LOCALIZERS.get(source_plugin, {}).get(tool_name)
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-
-@state_dataclass
+@dataclass
 class RegistrationState:
-    """Process-owned registrations; replace only while the host is quiescent."""
-    CHANNELS: Dict[str, Dict[str, Callable[[], UploadChannel]]] = state_field(default_factory=dict)
-    LOCALIZERS: Dict[str, Dict[str, Callable[..., Any]]] = state_field(default_factory=dict)
-    RECEIVERS: Dict[str, UploadReceiver] = state_field(default_factory=dict)
+    CHANNELS: Dict[str, Dict[str, Callable[[], UploadChannel]]] = field(default_factory=dict)
+    LOCALIZERS: Dict[str, Dict[str, Callable[..., Any]]] = field(default_factory=dict)
+    RECEIVERS: Dict[str, UploadReceiver] = field(default_factory=dict)
 
 
-@state_cache(maxsize=1)
+_REGISTRATIONS = RegistrationState()
+
+
 def registration_state() -> RegistrationState:
-    return RegistrationState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-registration_state()
+    return _REGISTRATIONS

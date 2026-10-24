@@ -64,12 +64,10 @@ def test_api_and_eval_scope_cannot_be_combined():
                                 "agent_api_scope": {"version": 1}})
 
 
-class Collector:
-    def __init__(self):
-        self.tools = {}
-
-    def register_tool_function(self, func, **kwargs):
-        self.tools[func.__name__] = func
+class Collector(list):
+    @property
+    def tools(self):
+        return {tool.name: tool._func for tool in self}
 
 
 @pytest.fixture
@@ -169,7 +167,8 @@ async def test_artifact_registration_is_rejected_before_io(evaluation_tools):
 async def test_paths_are_task_local_during_concurrent_calls_and_reset_afterward(monkeypatch):
     import asyncio
     from features.evaluation.runtime.runtime import CURRENT_EVALUATION_SCOPE
-    from features.evaluation.runtime.tools import _EvaluationCollector
+    from features.evaluation.runtime.tools import scoped_tool
+    from core.llm.factory.tools.definitions import function_tool
     from core.sandbox.workspace.resolution import validate_workspace_path
     collector = Collector()
     scope = parse_evaluation_scope(owner_user_id="owner", chat_id=SESSION)
@@ -182,7 +181,7 @@ async def test_paths_are_task_local_during_concurrent_calls_and_reset_afterward(
         assert validate_workspace_path("/app/file") is None
         raise RuntimeError("intentional")
 
-    _EvaluationCollector(collector, scope).register_tool_function(probe)
+    collector.append(scoped_tool(function_tool(probe), scope))
     task = asyncio.create_task(collector.tools["probe"]())
     await entered.wait()
     assert CURRENT_EVALUATION_SCOPE.get() is None
@@ -210,7 +209,6 @@ def test_evaluation_command_registration_respects_disabled_tools(monkeypatch):
     from features.evaluation.runtime.process_tools import register_evaluation_process_tools
     from features.evaluation.runtime.runtime import EvaluationExecutionScope
     monkeypatch.setenv("SANDBOX_TOOLS_ENABLED", "false")
-    registered = []
-    toolkit = SimpleNamespace(register_tool_function=lambda *args, **kw: registered.append(args))
+    toolkit = []
     register_evaluation_process_tools(toolkit, EvaluationExecutionScope("u", SESSION))
-    assert registered == []
+    assert toolkit == []

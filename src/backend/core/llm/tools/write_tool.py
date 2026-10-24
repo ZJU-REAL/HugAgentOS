@@ -1,6 +1,7 @@
 """Read-checked mutations of files in the active sandbox."""
 
 from __future__ import annotations
+from core.llm.factory.tools.definitions import function_tool
 
 import difflib
 import hashlib
@@ -335,5 +336,5 @@ def register_write(
         "    ``persistent=true`` 表示文件保存于个人或团队空间；``space_type`` 为 personal/team/temporary。\n"
     )
 
-    toolkit.register_tool_function(Write, namesake_strategy="override")
+    toolkit.append(function_tool(Write))
     logger.info("[factory] Registered Write tool (chat_id=%s)", chat_id)

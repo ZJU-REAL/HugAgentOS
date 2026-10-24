@@ -1,27 +1,34 @@
 """Assemble the main agent and its complete contextual input."""
 
 from __future__ import annotations
-from core.agent_runtime.integrations import memory_identity as memory_identity_module
-from core.agent_runtime.integrations import memory_session as memory_session_module
-from core.llm.runtime import streaming as streaming_module
-from core.llm.context import ir_state as ir_state_module
-from core.llm.context import items as items_module
-from core.llm.citations import allocator as allocator_module
+from core.agent_runtime.integrations import memory_identity
+from core.agent_runtime.integrations import memory_session
+from core.llm.runtime import streaming
+from core.llm.context import ir_constants
+from core.llm.context import items
+from core.llm.citations import allocator
 
 import logging
 import typing as _typing
 
 import core.agent_runtime.budget as budget
-import core.agent_runtime.integrations.memory as memory
 import core.agent_runtime.skills as skills
 import core.agent_runtime.targets as targets
 import core.capabilities.catalog.resolver as catalog_resolver
-import core.llm.citations.anchor as citation_anchor
-import core.llm.context.ir as context_ir
 import core.llm.factory as factory
 from core.agent_runtime.main_state import MainTurn
+from core.db.threads import run_in_session
 
 logger = logging.getLogger(__name__)
+
+
+def _load_subagent_visibility(db, user_id: str, *, evaluation: bool):
+    """The user's own sub-agents and the built-in ones they switched off."""
+    from core.capabilities.agents.edition import UserAgentService
+    from core.auth.users import UserService
+
+    visible = [] if evaluation else UserAgentService(db).list_for_user(user_id)
+    return visible, UserService(db).get_disabled_builtin_subagent_ids(user_id)
 
 
 async def prepare_main(turn: MainTurn):
@@ -52,20 +59,11 @@ async def prepare_main(turn: MainTurn):
     )
     _mention_agent_id = str(turn.context.get("mention_agent_id") or "")
     try:
-        from core.db.engine import SessionLocal as _SessionLocal
-        from core.capabilities.agents.edition import UserAgentService as _UAS
-        from core.auth.users import UserService as _UserService
-
-        with _SessionLocal() as _db:
-            _ua_svc = _UAS(_db)
-            turn.visible_subagents = (
-                []
-                if turn.context.get("evaluation_session")
-                else _ua_svc.list_for_user(_stream_user_id)
-            )
-            _disabled_builtin_ids = _UserService(_db).get_disabled_builtin_subagent_ids(
-                _stream_user_id
-            )
+        turn.visible_subagents, _disabled_builtin_ids = await run_in_session(
+            _load_subagent_visibility,
+            _stream_user_id,
+            evaluation=bool(turn.context.get("evaluation_session")),
+        )
     except Exception as _exc:
         logger.warning("[workflow] failed to load visible subagents: %s", _exc)
         _disabled_builtin_ids = set()
@@ -180,7 +178,7 @@ async def prepare_main(turn: MainTurn):
     # 证据锚点：把发号器绑到 agent 上（中间件与本函数由此共享同一个计数器；
     # 仅靠 ContextVar 不行——本函数是 async generator，与 agent 执行所在的
     # task 上下文不互通）
-    allocator_module.attach_allocator(turn.agent, turn.anchor_allocator)
+    allocator.attach_allocator(turn.agent, turn.anchor_allocator)
 
     # ── Inject the per-turn sub-agent constraint into the current user message ──
     # Keeps it OUT of the system prompt so the LLM provider's prefix cache
@@ -207,23 +205,23 @@ async def prepare_main(turn: MainTurn):
             and turn.session_messages
             and turn.session_messages[-1].get("role") in ("user", "human")
         ):
-            mention_item = items_module.make_text_context_item(
+            mention_item = items.make_text_context_item(
                 _mention_hint,
                 item_id="harness:subagent_routing",
-                kind=ir_state_module.KIND_REMINDER,
+                kind=ir_constants.KIND_REMINDER,
                 origin="harness:subagent_routing",
                 trust="system",
                 created_seq=0,
                 priority=950,
                 token_budget=4_000,
-                truncation_policy=ir_state_module.POLICY_NEVER,
+                truncation_policy=ir_constants.POLICY_NEVER,
             )
             turn.session_messages.insert(
                 -1,
                 {
                     "role": "user",
                     "content": _mention_hint,
-                    ir_state_module.SESSION_CONTEXT_META_KEY: items_module.session_context_metadata(
+                    ir_constants.SESSION_CONTEXT_META_KEY: items.session_context_metadata(
                         mention_item
                     ),
                 },
@@ -268,21 +266,21 @@ async def prepare_main(turn: MainTurn):
     # snapshot. Built on the first turn (L1 profile always, L2 facts only if
     # retrieval beat its budget), replayed byte-for-byte on every turn after,
     # so this head of the message list never moves the prefix-cache boundary.
-    turn.session_messages = await memory_session_module.inject_session_blocks(
+    turn.session_messages = await memory_session.inject_session_blocks(
         turn.session_messages,
         identity_block=(
             ""
             if turn.context.get("evaluation_session")
-            else await memory_identity_module.build_user_identity_block(turn.memory_user_id)
+            else await memory_identity.build_user_identity_block(turn.memory_user_id)
         ),
-        memory_block=await memory_session_module.resolve_session_memory(turn.session_memory),
+        memory_block=await memory_session.resolve_session_memory(turn.session_memory),
     )
 
     # The final request assembler receives the full post-compaction
     # candidate set.  It is the only budget selector, and records every
     # included, truncated, or excluded item in the context manifest.
 
-    turn.streaming_agent = streaming_module.StreamingAgent(turn.agent, turn.mcp_clients)
+    turn.streaming_agent = streaming.StreamingAgent(turn.agent, turn.mcp_clients)
 
     turn.skill_load_ids: set = set()  # track tool_ids that are skill loads
     # tool_id → skill_id; looked up at tool_result time to replace the SSE payload with the curated detail

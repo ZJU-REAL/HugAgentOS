@@ -66,7 +66,15 @@ from integrations.channels.repository import ChannelConnectionRepository
 from core.infra.exceptions import AccessDeniedError, BadRequestError
 
 
-from integrations.channels.service import ChannelService, _clean_scope, bot_to_dict
+from integrations.channels import service as channel_service
+from integrations.channels.service import _clean_scope, bot_to_dict
+
+
+def _share_sessions(monkeypatch, db):
+    """Steps that run through run_in_session open their sessions on the test's database."""
+    from sqlalchemy.orm import sessionmaker
+
+    monkeypatch.setattr("core.db.engine.SessionLocal", sessionmaker(bind=db.get_bind()))
 
 
 def _mk_user(db, uid="u1", meta=None):
@@ -141,23 +149,13 @@ class _FakeWXConn:
 
 
 def _reg_channel_tool(user_id, chat_id):
-    """注册工具并取出被注册的函数。
-
-    注意：register_* 系列拿到的不是 AgentScope 2.0 的 Toolkit，而是鸭子类型的
-    ToolCollector（见 core/llm/runtime/tool_collector.py）——真 Toolkit 是一次性构造的。
-    """
-    from core.llm.runtime.tool_collector import ToolCollector
+    """从原生工具列表取出附件工具函数。"""
+    from core.llm.factory.tools.definitions import ToolAssembly
     from integrations.channels.tools.attachment import register_channel_attachment
 
-    tc = ToolCollector()
+    tc = ToolAssembly()
     register_channel_attachment(tc, user_id=user_id, chat_id=chat_id)
-    ft = tc._tools.get("channel_read_attachment")
-    assert ft is not None, "channel_read_attachment 未注册成功"
-    for attr in ("original_func", "func", "_func"):
-        fn = getattr(ft, attr, None)
-        if callable(fn):
-            return fn
-    raise AssertionError(f"取不到底层函数，FunctionTool 属性：{dir(ft)}")
+    return next(tool for tool in tc if tool.name == "channel_read_attachment")._func
 
 
 def _tool_json(resp):

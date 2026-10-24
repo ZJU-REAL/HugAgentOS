@@ -1,4 +1,4 @@
-"""review prompt responsibilities."""
+"""Build the reviewer prompt from bounded evidence."""
 from __future__ import annotations
 import json
 from typing import Any

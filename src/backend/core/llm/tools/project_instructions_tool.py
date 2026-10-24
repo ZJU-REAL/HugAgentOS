@@ -1,5 +1,6 @@
 """Canonical instruction reads for project chats; writes only during initialization."""
 from __future__ import annotations
+from core.llm.factory.tools.definitions import function_tool
 
 import asyncio
 
@@ -82,16 +83,10 @@ def register_project_instruction_tools(toolkit, *, project_id: str, user_id: str
         except HTTPException as exc:
             return resp_json({"ok": False, "error": exc.detail, "status": exc.status_code})
 
-    toolkit.register_tool_function(
-        read_project_instructions,
-        permission=local_path_tool("file_path", READ, tool_name="read_project_instructions", default_path=target),
-    )
+    toolkit.append(function_tool(read_project_instructions, dispatch_spec=local_path_tool("file_path", READ, tool_name="read_project_instructions", default_path=target)))
     if not allow_write:
         return
-    toolkit.register_tool_function(
-        save_project_instructions,
-        permission=local_path_tool(
+    toolkit.append(function_tool(save_project_instructions, dispatch_spec=local_path_tool(
             "file_path", WRITE, tool_name="save_project_instructions",
             default_path=target, myspace_op=OP_EDIT,
-        ),
-    )
+        )))

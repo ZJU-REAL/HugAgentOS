@@ -83,11 +83,21 @@ def upstream(sandbox_id, execd_secret):
     url = scheme + "://" + domain.split("://", 1)[-1].rstrip("/") + "/sandboxes/" + sandbox_id + "/proxy/" + str(STREAM_PORT)
     return url, {"OPEN-SANDBOX-API-KEY": key, "X-PA-Stream-Token": stream_token(execd_secret)}
 
-async def relay(websocket, value):
-    import websockets
-    from core.db.engine import SessionLocal
+
+def _computer_target(db, grant):
+    """``(sandbox_id, secret, agent_id)`` for a ready computer the grant names, else None."""
     from core.infra.crypto import decrypt_secret
     from personal_agent.models import PersonalAgent
+
+    agent = db.get(PersonalAgent, grant["agent_id"])
+    if agent is None or agent.user_id != grant["user_id"] or agent.computer_status != "ready" or not agent.sandbox_id or not agent.execd_secret_enc:
+        return None
+    return agent.sandbox_id, decrypt_secret(agent.execd_secret_enc), agent.id
+
+
+async def relay(websocket, value):
+    import websockets
+    from core.db.threads import run_in_session
 
     state = get_ephemeral_state()
     raw = await state.take("pa:stream:" + value) if value else None
@@ -95,12 +105,11 @@ async def relay(websocket, value):
         await websocket.close(4401)
         return
     grant = json.loads(raw)
-    with SessionLocal() as db:
-        agent = db.get(PersonalAgent, grant["agent_id"])
-        if agent is None or agent.user_id != grant["user_id"] or agent.computer_status != "ready" or not agent.sandbox_id or not agent.execd_secret_enc:
-            await websocket.close(4404)
-            return
-        sandbox_id, secret, agent_id = agent.sandbox_id, decrypt_secret(agent.execd_secret_enc), agent.id
+    target = await run_in_session(_computer_target, grant)
+    if target is None:
+        await websocket.close(4404)
+        return
+    sandbox_id, secret, agent_id = target
     control = bool(grant["token"])
     url, headers = upstream(sandbox_id, secret)
     try:

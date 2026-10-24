@@ -1,4 +1,4 @@
-"""turn state responsibilities."""
+"""Per-turn trackers for artifact reads and pin hints."""
 from __future__ import annotations
 from contextvars import ContextVar
 from typing import Any, Dict, Optional

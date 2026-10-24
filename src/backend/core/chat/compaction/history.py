@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Mapping
 from core.chat import inflight
 from core.chat.context import build_effective_user_message
 from core.llm.context import compaction as C
-from core.llm.context.ir_state import SESSION_CONTEXT_META_KEY
+from core.llm.context.ir_constants import SESSION_CONTEXT_META_KEY
 from core.llm.runtime.model_steps import assistant_row_replay, record_assistant_step
 from core.chat.references import render_reference_block
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 from contextlib import contextmanager, asynccontextmanager
 import asyncio
+from dataclasses import dataclass, field
 from datetime import timedelta
 from functools import wraps
 import hashlib
@@ -9,9 +10,6 @@ import threading
 
 from fastapi import HTTPException
 from sqlalchemy import text
-
-
-
 
 
 @contextmanager
@@ -103,18 +101,14 @@ async def async_space_lock(identity):
         await asyncio.to_thread(guard.__exit__, None, None, None)
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class LeasesState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    local_guard: object = state_field(default_factory=lambda: threading.Lock())
-    local_locks: object = state_field(default_factory=lambda: {})
+    local_guard: object = field(default_factory=lambda: threading.Lock())
+    local_locks: object = field(default_factory=lambda: {})
 
-@state_cache(maxsize=1)
+
+_STATE = LeasesState()
+
+
 def process_state() -> LeasesState:
-    return LeasesState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

@@ -14,7 +14,6 @@ from features.hosted_apps.schema import ApplicationDefinition, MCPPublish, MCPRo
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
-from starlette.concurrency import run_in_threadpool
 
 router = APIRouter(prefix="/v1/applications", tags=["Applications"])
 
@@ -46,7 +45,7 @@ def detail(app_id: str, user: UserContext = Depends(get_current_user)):
 
 
 @router.post("/{app_id}/editor")
-async def open_editor(
+def open_editor(
     app_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -55,7 +54,7 @@ async def open_editor(
 
     service = ApplicationDataService()
     projects = ApplicationProjectService(db, service.engine)
-    return success_response(data=await run_in_threadpool(projects.editor, app_id, user.user_id))
+    return success_response(data=projects.editor(app_id, user.user_id))
 
 
 @router.post("/{app_id}/tables")
@@ -133,7 +132,7 @@ def export_records(
 
 
 @router.post("/{app_id}/mcp")
-async def publish_mcp(
+def publish_mcp(
     app_id: str,
     body: MCPPublish,
     user: UserContext = Depends(get_current_user),
@@ -142,12 +141,12 @@ async def publish_mcp(
     from features.hosted_apps.projects import ApplicationProjectService
 
     publication = ApplicationPublicationService(db)
-    receipt = await run_in_threadpool(publication.publish, app_id, user.user_id, body.tools)
+    receipt = publication.publish(app_id, user.user_id, body.tools)
     return success_response(data=receipt)
 
 
 @router.post("/{app_id}/mcp/project")
-async def publish_project_mcp(
+def publish_project_mcp(
     app_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -155,7 +154,7 @@ async def publish_project_mcp(
     from features.hosted_apps.projects import ApplicationProjectService
 
     publication = ApplicationPublicationService(db)
-    receipt = await run_in_threadpool(publication.publish, app_id, user.user_id, from_project=True)
+    receipt = publication.publish(app_id, user.user_id, from_project=True)
     return success_response(data=receipt)
 
 
@@ -167,7 +166,7 @@ def revoke_mcp(
 
 
 @router.post("/{app_id}/mcp/rollback")
-async def rollback_mcp(
+def rollback_mcp(
     app_id: str,
     body: MCPRollback,
     user: UserContext = Depends(get_current_user),
@@ -176,7 +175,7 @@ async def rollback_mcp(
     from features.hosted_apps.projects import ApplicationProjectService
 
     publication = ApplicationPublicationService(db)
-    receipt = await run_in_threadpool(publication.rollback, app_id, user.user_id, body.version)
+    receipt = publication.rollback(app_id, user.user_id, body.version)
     return success_response(data=receipt)
 
 @router.delete("/{app_id}/tables/{table}/records/{record_id}")

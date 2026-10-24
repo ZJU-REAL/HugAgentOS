@@ -34,19 +34,26 @@ class AutomationLease:
 
     async def _renew(self):
         stopped = asyncio.create_task(self._stop.wait())
+        attempt = None
         try:
             while not self._finished():
                 await asyncio.wait({stopped}, timeout=RENEW_INTERVAL_SECONDS)
                 if self._finished():
                     return
                 # CAS cannot recreate a deleted key or replace another token.
-                if not await self.state.compare_exchange(
-                    self.key, self.token, self.token, ttl=LEASE_TTL_SECONDS
-                ):
+                attempt = spawn(
+                    self.state.compare_exchange(
+                        self.key, self.token, self.token, ttl=LEASE_TTL_SECONDS
+                    ), name="automation.lease.cas",
+                )
+                done, _ = await asyncio.wait({attempt}, timeout=RENEW_INTERVAL_SECONDS)
+                if not done or not attempt.result():
                     return
                 if self._finished():
                     return
         finally:
+            if attempt is not None and not attempt.done():
+                attempt.cancel()
             stopped.cancel()
             await asyncio.gather(stopped, return_exceptions=True)
 

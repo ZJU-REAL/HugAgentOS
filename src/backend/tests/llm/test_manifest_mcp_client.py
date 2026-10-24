@@ -60,36 +60,31 @@ def test_protocol_accepts_only_a_complete_current_dynamic_manifest():
 
 @pytest.mark.asyncio
 async def test_manifest_client_lists_cloud_schemas_without_network():
-    from core.llm.mcp.manager import ManifestMCPClient
-    from core.llm.mcp.pool import make_client
+    from core.llm.tools.cloud_manifest import manifest_tools
 
     class NetworkMustNotRun(httpx.AsyncBaseTransport):
         async def handle_async_request(self, _request):  # pragma: no cover
             raise AssertionError("schema listing must not perform network I/O")
 
-    client = make_client("search", _config(NetworkMustNotRun()), is_stateful=False)
-    assert isinstance(client, ManifestMCPClient)
-
-    tools = await client.list_tools()
+    tools = manifest_tools("search", _config(NetworkMustNotRun()))
 
     assert [tool.name for tool in tools] == ["search"]
     assert tools[0].input_schema["required"] == ["query"]
 
 
 def test_incomplete_manifest_config_is_rejected_not_compatibility_routed():
-    from core.llm.mcp.pool import make_client, uses_manifest_schema
+    from core.llm.tools.cloud_manifest import manifest_tools
 
     config = _config()
     config["manifest_tools"] = ["search"]
 
-    assert uses_manifest_schema(config) is False
-    with pytest.raises(ValueError, match="invalid cloud capability manifest"):
-        make_client("search", config, is_stateful=False)
+    with pytest.raises(ValueError, match="Invalid manifest tool entry"):
+        manifest_tools("search", config)
 
 
 @pytest.mark.asyncio
 async def test_manifest_tool_calls_json_gateway_with_current_schema_hash():
-    from core.llm.mcp.pool import make_client
+    from core.llm.tools.cloud_manifest import manifest_tools
 
     captured: dict = {}
 
@@ -112,8 +107,7 @@ async def test_manifest_tool_calls_json_gateway_with_current_schema_hash():
         )
 
     config = _config(httpx.MockTransport(handler))
-    client = make_client("search", config, is_stateful=False)
-    tool = (await client.list_tools())[0]
+    tool = manifest_tools("search", config)[0]
 
     result = await tool(query="hello")
 

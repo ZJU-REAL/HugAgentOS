@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import re
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Optional
 
@@ -20,9 +21,6 @@ logger = logging.getLogger(__name__)
 
 
 # Lazily-loaded OpenAI client + resolved model name (avoids errors at import time)
-
-
-
 
 
 def _resolve_memory_model_config() -> tuple[str, str, str]:
@@ -53,9 +51,6 @@ def _client_identity(base_url: str, api_key: str) -> tuple:
     from core.harness.registry.execution_identity import state_fingerprint as _state_fingerprint
 
     return (base_url, api_key, _state_fingerprint(bind(api_key, base_url)))
-
-
-
 
 
 async def _get_client() -> tuple[object, str]:
@@ -287,20 +282,16 @@ def fill_prompt(
         return template
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class BaseState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
     client: object = None
     model_name: Optional[str] = None
-    client_lock: object = state_field(default_factory=lambda: asyncio.Lock())
+    client_lock: object = field(default_factory=lambda: asyncio.Lock())
     client_identity_key: tuple | None = None
 
-@state_cache(maxsize=1)
-def process_state() -> BaseState:
-    return BaseState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+_STATE = BaseState()
+
+
+def process_state() -> BaseState:
+    return _STATE

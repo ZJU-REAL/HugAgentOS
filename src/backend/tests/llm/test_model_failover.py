@@ -27,7 +27,8 @@ class _Candidate:
         self.parameters = SimpleNamespace()
         self.stream = stream
         self.context_size = 32000
-        self.formatter = SimpleNamespace()
+        from agentscope.formatter import OpenAIChatFormatter
+        self.formatter = OpenAIChatFormatter()
         self.wire_protocol = "openai_chat"
         self.structured_reasoning = False
         self._behaviour = behaviour

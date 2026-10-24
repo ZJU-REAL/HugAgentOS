@@ -17,9 +17,8 @@ from .read_image_tool import register_read_image
 from .read_tool import register_read
 from .write_tool import register_write
 
-# Sandbox / skill / myspace / artifact tools (relocated from the former
-# singular ``core.llm.tool`` module). Surfaced here so callers import the whole
-# tool family from one place: ``from core.llm.tools import register_bash, ...``.
+# Sandbox / skill / myspace / artifact tools, surfaced here so callers import
+# the whole tool family from one place: ``from core.llm.tools import register_bash, ...``.
 from .sandbox_tool import (
     register_bash,
     register_sandbox_get_artifact,

@@ -1,9 +1,9 @@
-"""patterns responsibilities."""
+"""Cluster episodes into recurring patterns."""
 from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Sequence
-from core.evolution.cycle import promotion_state as promotion_state_module
+from core.evolution.cycle import promotion_constants
 
 @dataclass
 class Pattern:
@@ -21,7 +21,7 @@ class Pattern:
 
     @property
     def meets_support(self) -> bool:
-        return self.support >= promotion_state_module.MIN_SUPPORT or self.single_shot
+        return self.support >= promotion_constants.MIN_SUPPORT or self.single_shot
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -66,10 +66,10 @@ def discover_patterns(episodes: List[Dict[str, Any]]) -> List[Pattern]:
         failures = [e for e in group if e.get("verdict") == "failed"]
         rate = len(successes) / len(group) if group else 0.0
 
-        if len(successes) >= promotion_state_module.MIN_SUPPORT and rate >= promotion_state_module.SKILL_MIN_SUCCESS_RATE:
+        if len(successes) >= promotion_constants.MIN_SUPPORT and rate >= promotion_constants.SKILL_MIN_SUCCESS_RATE:
             patterns.append(
                 Pattern(
-                    kind=promotion_state_module.PATTERN_SUCCESS_SUBSEQUENCE,
+                    kind=promotion_constants.PATTERN_SUCCESS_SUBSEQUENCE,
                     signature=signature,
                     support=len(successes),
                     episode_ids=[e.get("episode_id", "") for e in successes],
@@ -84,10 +84,10 @@ def discover_patterns(episodes: List[Dict[str, Any]]) -> List[Pattern]:
                     ),
                 )
             )
-        if len(failures) >= promotion_state_module.MIN_SUPPORT:
+        if len(failures) >= promotion_constants.MIN_SUPPORT:
             patterns.append(
                 Pattern(
-                    kind=promotion_state_module.PATTERN_REPEATED_FAILURE,
+                    kind=promotion_constants.PATTERN_REPEATED_FAILURE,
                     signature=signature,
                     support=len(failures),
                     episode_ids=[e.get("episode_id", "") for e in failures],
@@ -97,11 +97,11 @@ def discover_patterns(episodes: List[Dict[str, Any]]) -> List[Pattern]:
             )
 
     for signature, group in by_skill_seq.items():
-        if len(group) >= promotion_state_module.WORKFLOW_MIN_COMBO_FREQUENCY:
+        if len(group) >= promotion_constants.WORKFLOW_MIN_COMBO_FREQUENCY:
             successes = [e for e in group if e.get("verdict") == "success"]
             patterns.append(
                 Pattern(
-                    kind=promotion_state_module.PATTERN_SUCCESS_SUBSEQUENCE,
+                    kind=promotion_constants.PATTERN_SUCCESS_SUBSEQUENCE,
                     signature=signature,
                     support=len(group),
                     episode_ids=[e.get("episode_id", "") for e in group],

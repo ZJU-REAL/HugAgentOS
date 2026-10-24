@@ -21,7 +21,6 @@ from core.sandbox.providers.opensandbox.lifecycle import _OpenSandboxLifecycleMi
 from core.sandbox.providers.opensandbox.models import SandboxSessionRecord as _Session
 from core.sandbox.providers.opensandbox.pool import SandboxPool
 from core.sandbox.providers.opensandbox.runtime import (
-    _user_bound_sandbox_required,
     logger,
     write_file,
 )
@@ -51,9 +50,7 @@ class OpenSandboxProvider(
     _service_loop: Optional[asyncio.AbstractEventLoop] = None
 
     def __init__(self) -> None:
-        # Only the opensandbox SDK is needed (execd commands.run); no longer depends on
-        # code_interpreter (the Jupyter kernel was removed, all languages go through
-        # execd, see cloud_processes).
+        # All languages execute through execd.
         try:
             from opensandbox import Sandbox
         except ImportError as e:
@@ -63,7 +60,10 @@ class OpenSandboxProvider(
             ) from e
 
         s = settings.sandbox
-        self._domain = s.opensandbox_domain
+        # SDK and direct health/renew requests must use the same absolute endpoint.
+        self._domain = s.opensandbox_domain.rstrip("/")
+        if not self._domain.startswith(("http://", "https://")):
+            self._domain = "http://" + self._domain
         self._api_key = s.opensandbox_api_key
         self._image = s.opensandbox_image
         self._ttl_s = s.idle_ttl_s
@@ -118,9 +118,7 @@ class OpenSandboxProvider(
         # serves the fallback path where user_id is missing; normal user-bound traffic
         # goes through _jupyter_user_pool.
         self._pool = SandboxPool(
-            jupyter_min_idle=(
-                s.opensandbox_pool_jupyter_min_idle if not _user_bound_sandbox_required() else 0
-            ),
+            jupyter_min_idle=0,
             jupyter_max_idle=s.opensandbox_pool_jupyter_max_idle,
             light_min_idle=s.opensandbox_pool_light_min_idle,
             light_max_idle=s.opensandbox_pool_light_max_idle,
@@ -131,9 +129,7 @@ class OpenSandboxProvider(
             liveness_fn=self._probe_pooled_sandbox_alive,
             owner_fn=self._pooled_sandbox_owner,
         )
-        # Plan F: jupyter sandboxes are bucketed by user_id. When bind mount is enabled,
-        # all jupyter acquires go through here; adopted old sandboxes are placed into the
-        # matching bucket by their hugagent-user-id metadata.
+        # Account sessions and adopted instances share the same per-user pool.
         self._jupyter_user_pool = _JupyterUserPool(
             factory=lambda uid: self._create_jupyter_sandbox(user_id=uid),
             destroy_fn=self._destroy_sandbox,
@@ -338,23 +334,15 @@ class OpenSandboxProvider(
     # instances (still alive but not tracked in memory, backend_managed=False).
     # Pool figures come from the stats of the two pools.
 
-    async def warmup(self) -> None:
-        """Startup-time pool warmup entry point (called by the FastAPI startup hook,
-        repeatable, idempotent).
+    def bind_loop(self) -> None:
+        loop = asyncio.get_running_loop()
+        if self._service_loop is not None and self._service_loop is not loop:
+            raise RuntimeError("Sandbox provider already belongs to another event loop")
+        self._service_loop = loop
 
-        Steps:
-        1. ``_adopt_existing_sandboxes``: scan all sandboxes on the OpenSandbox server;
-           live sandboxes carrying this app's metadata tag are reclaimed into
-           ``_pool.idle``; those with "our previous entrypoint but missing the tag" or
-           in an unusable state are killed outright to clean up orphans.
-        2. ``_pool.warmup``: if adoption did not fill min_idle, top up the remaining
-           deficit via ``factory()`` (same behavior as before).
-        Effect: after a backend restart, idle fills almost instantly with no need to
-        recreate 4 sandboxes (saves ~60s).
-        """
-        # 锚定服务循环：warmup 由 FastAPI 启动钩子在主循环上调用，之后所有跨循环的
-        # provider 调用都转发到这里（见 ``_on_service_loop``）。
-        self._service_loop = asyncio.get_running_loop()
+    async def warmup(self) -> None:
+        """Adopt owned instances and start pool/snapshot maintenance."""
+        self.bind_loop()
         try:
             await self._adopt_existing_sandboxes()
         except Exception as exc:  # noqa: BLE001 — an adoption failure must not block warmup
@@ -371,11 +359,7 @@ class OpenSandboxProvider(
             if self._snapshot_gc_task is None or self._snapshot_gc_task.done():
                 self._snapshot_gc_task = asyncio.create_task(self._snapshot_gc_loop())
 
-    async def shutdown(self) -> None:
-        """Called on process exit: gracefully shut down all persistent sessions + idle sandboxes in the pools + snapshot workers."""
-        processes = getattr(self, "_command_processes", None)
-        if processes:
-            await processes.close_all()
+    async def stop_maintenance(self) -> None:
         # Stop the snapshot workers first: no more new park / GC triggers
         self._snapshot_workers_shutdown.set()
         for task in (self._snapshot_idle_task, self._snapshot_gc_task):
@@ -388,6 +372,13 @@ class OpenSandboxProvider(
                 pass
         self._snapshot_idle_task = None
         self._snapshot_gc_task = None
+
+    async def shutdown(self) -> None:
+        """Called on process exit: gracefully shut down all persistent sessions + idle sandboxes in the pools + snapshot workers."""
+        processes = getattr(self, "_command_processes", None)
+        if processes:
+            await processes.close_all()
+        await self.stop_maintenance()
 
         for sid, sess in list(self._sessions.items()):
             try:

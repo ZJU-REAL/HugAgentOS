@@ -3,6 +3,7 @@
 from __future__ import annotations
 import logging
 import threading
+from dataclasses import dataclass, field
 from typing import Optional
 from core.config.settings import settings
 
@@ -13,9 +14,6 @@ MEMORY_COLLECTION_NAME = "hugagent_memories"
 # L2 stores procedures; fact extraction belongs to the layered pipeline.
 MEMORY_TYPE_PROCEDURAL = "procedural"
 # One lock and instance per process; account epoch changes invalidate the cache.
-
-
-
 
 
 _MIGRATION_MAX_ROWS = 10_000
@@ -475,21 +473,17 @@ def _is_auth_error(exc: Exception) -> bool:
     )
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class BackendState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
     memory_instance: object = None
     memory_epoch: Optional[str] = None
-    memory_lock: object = state_field(default_factory=lambda: threading.Lock())
+    memory_lock: object = field(default_factory=lambda: threading.Lock())
     memory_init_failed: object = False
     embedding_patched: object = False
 
-@state_cache(maxsize=1)
-def process_state() -> BackendState:
-    return BackendState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+_STATE = BackendState()
+
+
+def process_state() -> BackendState:
+    return _STATE

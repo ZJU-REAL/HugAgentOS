@@ -1,4 +1,5 @@
 """Process tools owned by an evaluation lease, without ordinary-chat state."""
+from core.llm.factory.tools.definitions import function_tool
 from core.llm.tools._tool_helpers import resp_json as _resp_json
 
 def register_evaluation_process_tools(toolkit, scope):
@@ -27,5 +28,5 @@ def register_evaluation_process_tools(toolkit, scope):
             chars=chars, yield_time_ms=yield_time_ms)
         return _resp_json(result)
 
-    toolkit.register_tool_function(write_stdin, namesake_strategy="override")
-    toolkit.register_tool_function(Bash, namesake_strategy="override")
+    toolkit.append(function_tool(write_stdin))
+    toolkit.append(function_tool(Bash))

@@ -1,10 +1,11 @@
-"""mode seed responsibilities."""
+"""Seed values for the built-in turbo chat mode."""
 from __future__ import annotations
 from typing import Any, Dict
 from core.db.models.chat_mode import TOOL_SCOPE_RESTRICTED
 import logging
-logger = logging.getLogger(__name__)
 from core.chat import mode_types
+
+logger = logging.getLogger(__name__)
 
 def turbo_seed_fields() -> Dict[str, Any]:
     """极速模式内置行的字段，取自历史 ``turbo.*`` SystemConfig 键。

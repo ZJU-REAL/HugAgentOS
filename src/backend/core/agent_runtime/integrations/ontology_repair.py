@@ -1,7 +1,7 @@
-"""core agent_runtime integrations ontology_repair responsibilities."""
+"""Re-run the originating agent to produce a revision when ontology review rejects an answer."""
 
 from __future__ import annotations
-from core.llm.citations import allocator as allocator_module
+from core.llm.citations.allocator import collect_citation_dicts
 
 import json
 import logging
@@ -11,7 +11,6 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 import core.agent_runtime.events as agent_runtime_events
 import core.agent_runtime.integrations.ontology_evidence as ontology_evidence
 import core.config.display_names as display_names
-import core.llm.citations.anchor as citation_anchor
 import core.ontology.revision as revision
 from core.llm.citations.allocator import AnchorAllocator
 from core.llm.runtime.streaming import StreamingAgent
@@ -282,7 +281,7 @@ async def _run_ontology_repair_round(
             tool_name = str(event_payload.get("name") or "unknown")
             tool_id = str(event_payload.get("id") or "")
             result = ontology_evidence._parse_tool_result_value(event_payload.get("content"))
-            cit_dicts = allocator_module.collect_citation_dicts(tool_id, allocator)
+            cit_dicts = collect_citation_dicts(tool_id, allocator)
             citations.extend(cit_dicts)
             trace.append(
                 {

@@ -5,15 +5,16 @@
 """
 
 from __future__ import annotations
-from core.llm import prompt_rendering as prompt_rendering_module
+from core.llm.factory.tools.definitions import function_tool
+from core.llm import prompt_rendering
 
 import logging
 from typing import Any, Dict, List, Optional
 
 from agentscope.tool import Toolkit
 
-# AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolResponse).
-from agentscope.tool._response import ToolChunk as ToolResponse
+# AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolChunk).
+from agentscope.tool._response import ToolChunk
 from agentscope.message import TextBlock
 
 logger = logging.getLogger(__name__)
@@ -64,7 +65,7 @@ def register_plan_update_tool(toolkit: Toolkit) -> None:
     不更新（commit 7578469f）。
     """
 
-    async def update_plan(steps: list, title: str = "", explanation: str = "") -> ToolResponse:
+    async def update_plan(steps: list, title: str = "", explanation: str = "") -> ToolChunk:
         """更新任务计划。传入一份计划项列表，每项含步骤与状态，以及可选的说明。
         至多一个步骤可以处于 in_progress。调用本工具**不会打断**执行。
 
@@ -83,12 +84,12 @@ def register_plan_update_tool(toolkit: Toolkit) -> None:
                 （可选）本次改动的理由。中途增删步骤、重写计划结构时必须填写。
 
         Returns:
-            `ToolResponse`:
+            `ToolChunk`:
                 当前清单的各状态计数。
         """
         parsed = parse_plan_update_args({"title": title, "steps": steps})
         if not parsed:
-            return ToolResponse(content=[TextBlock(
+            return ToolChunk(content=[TextBlock(
                 type="text",
                 text=(
                     "错误：steps 必须是非空列表，每个元素为 "
@@ -115,9 +116,9 @@ def register_plan_update_tool(toolkit: Toolkit) -> None:
                 "\n全部步骤已完成，计划终结：不要再调用 update_plan，也不要原样重复"
                 "任何已成功的工具调用，请直接输出面向用户的最终文字回复。"
             )
-        return ToolResponse(content=[TextBlock(type="text", text=text)])
+        return ToolChunk(content=[TextBlock(type="text", text=text)])
 
-    toolkit.register_tool_function(update_plan, namesake_strategy="skip")
+    toolkit.append(function_tool(update_plan))
 
 
 def build_plan_update_prompt_section() -> str:
@@ -126,6 +127,5 @@ def build_plan_update_prompt_section() -> str:
     正文的真源是 ``prompts/prompt_text/plan_tool/plan_tool.system.md``，运行时取
     ``plan_tool`` 版本池的激活版本，可在 Config 管理台「任务计划清单」里编辑。
     """
-    from core.llm import prompt_versions as pvs
 
-    return prompt_rendering_module.render_kind_segment("plan_tool")
+    return prompt_rendering.render_kind_segment("plan_tool")

@@ -1,4 +1,4 @@
-"""loader responsibilities."""
+"""Load skills from several sources, resolving conflicts by source priority."""
 from __future__ import annotations
 from core.harness.registry.local_publication import local_publication
 import time
@@ -8,8 +8,9 @@ from core.capabilities.skills.binary_files import decode_binary, is_binary_value
 from core.capabilities.skills.config import get_enabled_skill_sources, skill_files_dir
 from core.capabilities.skills.registry import AgentSkillMetadata, AgentSkillSpec, _load_skill_from_file, _load_skill_from_str, _load_skill_metadata_from_file, load_skill_metadata_from_str, parse_scripts_json
 import logging
+from core.capabilities.skills import script_discovery
+
 logger = logging.getLogger(__name__)
-from core.capabilities.skills import script_discovery as script_discovery_module
 
 class MultiSourceSkillLoader:
     """Loads skills from multiple sources with priority-based conflict resolution.
@@ -135,7 +136,7 @@ class MultiSourceSkillLoader:
                     metadata = _load_skill_metadata_from_file(skill_info.file_path)
                 # Add source information to skill_path for debugging
                 metadata_with_source = AgentSkillMetadata(
-                    id=script_discovery_module.bound_skill_id(skill_info, metadata.id),
+                    id=script_discovery.bound_skill_id(skill_info, metadata.id),
                     name=metadata.name,
                     description=metadata.description,
                     version=metadata.version,
@@ -222,7 +223,7 @@ class MultiSourceSkillLoader:
 
             # Auto-generate whitelist from .py files when _scripts.json is absent
             if not executable_scripts:
-                auto_scripts = script_discovery_module.auto_detect_scripts(ef, skill_info)
+                auto_scripts = script_discovery.auto_detect_scripts(ef, skill_info)
                 if auto_scripts:
                     executable_scripts = auto_scripts
                     logger.info(
@@ -234,7 +235,7 @@ class MultiSourceSkillLoader:
 
             # Add source information to skill_path
             spec_with_source = AgentSkillSpec(
-                id=script_discovery_module.bound_skill_id(skill_info, spec.id),
+                id=script_discovery.bound_skill_id(skill_info, spec.id),
                 name=spec.name,
                 description=spec.description,
                 version=spec.version,
@@ -435,18 +436,10 @@ class MultiSourceSkillLoader:
                 skill_dir = self.get_skill_dir(sid)
                 if skill_dir is None:
                     continue
-                from core.harness.registry.run_capabilities import has_run_capabilities
-
-                prepared = getattr(self, "capability_run", None)
-                if prepared is not None or has_run_capabilities():
-                    # Native Toolkit deduplicates by Skill.name. Preserve the
-                    # resolved alias even if frontmatter keeps a source name or
-                    # the physical directory ends in a content revision.
-                    toolkit.register_agent_skill(
-                        skill_dir, runtime_name=sid, capability_run=prepared
-                    )
-                else:
-                    toolkit.register_agent_skill(skill_dir)
+                from core.capabilities.skills.runtime_loader import RuntimeNamedSkillLoader
+                toolkit.skill_loaders.append(RuntimeNamedSkillLoader(
+                    skill_dir, sid, getattr(self, "capability_run", None)
+                ))
                 count += 1
             except Exception as e:
                 logger.warning("Failed to register skill '%s': %s", sid, e)

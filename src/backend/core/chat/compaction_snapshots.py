@@ -1,13 +1,13 @@
-"""compaction snapshots operations."""
+"""Capture the message snapshot a compaction summarises and hold its writer lease."""
 from __future__ import annotations
 import hashlib
 import json
 from datetime import timedelta
 from typing import Optional
 from core.db.models import ChatCompactionState, ChatMessage, ChatSession
-from core.chat import compaction_types as compaction_types_module
-from core.chat import service_time as service_time_module
+from core.chat import compaction_types
 import logging
+from core.infra.time import as_utc, utc_now
 logger = logging.getLogger(__name__)
 
 def ensure_message_sequences(self, chat_id: str) -> None:
@@ -74,7 +74,7 @@ def ensure_compaction_state(self, chat_id: str) -> ChatCompactionState:
         covered_seq=self._checkpoint_covered_seq(checkpoint)
         if has_exact_watermark
         else 0,
-        updated_at=service_time_module.utc_now(),
+        updated_at=utc_now(),
     )
     self.db.add(state)
     self.db.flush()
@@ -87,7 +87,7 @@ def acquire_compaction_snapshot(
     *,
     owner: str,
     lease_seconds: int,
-) -> Optional[compaction_types_module.CompactionSnapshot]:
+) -> Optional[compaction_types.CompactionSnapshot]:
     """Capture an exact source watermark and acquire a short-lived lease.
 
     Every exit path must end this transaction. The body takes a row lock on
@@ -118,13 +118,13 @@ def acquire_compaction_snapshot_impl(
     *,
     owner: str,
     lease_seconds: int,
-) -> Optional[compaction_types_module.CompactionSnapshot]:
+) -> Optional[compaction_types.CompactionSnapshot]:
     from core.llm.context.compaction import COMPACTION_CHECKPOINT_KIND
 
     self._ensure_message_sequences(chat_id)
     state = self._ensure_compaction_state(chat_id)
-    now = service_time_module.utc_now()
-    if state.lease_owner and (service_time_module.as_utc(state.lease_expires_at) or now) > now:
+    now = utc_now()
+    if state.lease_owner and (as_utc(state.lease_expires_at) or now) > now:
         self.db.rollback()
         return None
 
@@ -165,7 +165,7 @@ def acquire_compaction_snapshot_impl(
         return None
 
     source_rows = tuple(
-        compaction_types_module.CompactionSourceRow(
+        compaction_types.CompactionSourceRow(
             message_id=row.message_id,
             chat_seq=int(row.chat_seq or 0),
             role=row.role,
@@ -230,7 +230,7 @@ def acquire_compaction_snapshot_impl(
     base_covered_seq = int(state.covered_seq or 0)
     base_checkpoint_id = checkpoint.message_id if checkpoint is not None else None
     self.db.commit()
-    return compaction_types_module.CompactionSnapshot(
+    return compaction_types.CompactionSnapshot(
         chat_id=chat_id,
         owner=owner,
         base_checkpoint_id=base_checkpoint_id,
@@ -256,7 +256,7 @@ def release_compaction_lease(self, chat_id: str, *, owner: str) -> bool:
             {
                 ChatCompactionState.lease_owner: None,
                 ChatCompactionState.lease_expires_at: None,
-                ChatCompactionState.updated_at: service_time_module.utc_now(),
+                ChatCompactionState.updated_at: utc_now(),
             },
             synchronize_session=False,
         )

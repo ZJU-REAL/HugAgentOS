@@ -9,9 +9,10 @@ from typing import Any, Dict, Optional, Tuple
 from core.llm.runtime import interaction_store
 from . import state
 
-logger = logging.getLogger(__name__)
 from .shared import _load_session_grants, _save_session_grant
 from core.llm.tool_permissions.pending import approve_current_policy
+
+logger = logging.getLogger(__name__)
 
 
 async def _register_pending(

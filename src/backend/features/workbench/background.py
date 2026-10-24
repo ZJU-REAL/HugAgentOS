@@ -7,6 +7,7 @@ import time
 import logging
 from features.workbench import activity, external
 from core.capabilities.plugins.resources import service, store
+from core.db.threads import run_in_session
 
 MAX_PER_USER = 2
 MAX_PER_APP = 1
@@ -51,13 +52,15 @@ def admission(db, user_id, key, instance_id, resource_id):
     return value, instance, row
 
 
-async def start(db, user_id, key, instance_id, resource_id):
-    from core.capabilities.plugins.resources.deadlines import arm, provider_for
+def _probe(db, user_id, key, instance_id, resource_id):
+    from core.capabilities.plugins.resources.deadlines import provider_for
 
-    # Probe the runner without holding a database write/coordination lock.
     _, _, probe = admission(db, user_id, key, instance_id, resource_id)
     provider_for(probe)
-    await arm(db, probe, require_background=True)
+
+
+def _reserve(db, user_id, key, instance_id, resource_id):
+    """Charge a background reservation under the owner lock; None when one exists."""
     runtime(db, user_id)
     db.expire_all()
     # Authorization and quotas are evaluated again after the probe and owner lock.
@@ -67,7 +70,8 @@ async def start(db, user_id, key, instance_id, resource_id):
     if existing:
         if existing["expiresAt"] <= now or existing["deadline"] <= now:
             external.fail(410, "background_expired")
-        return {"resourceId": resource_id, "expiresAt": existing["expiresAt"]}
+        db.commit()
+        return existing["expiresAt"], False
     # Expired reservations remain charged until actual stop/reconcile.
     if (
         len(value["background"]) >= MAX_PER_USER
@@ -84,7 +88,18 @@ async def start(db, user_id, key, instance_id, resource_id):
     }
     row.expires_at = min(row.expires_at, expires)
     activity.save(db, user_id, value)
-    await arm(db, row, require_background=True)
+    return expires, True
+
+
+async def start(user_id, key, instance_id, resource_id):
+    from core.capabilities.plugins.resources.deadlines import arm
+
+    # Probe the runner without holding a database write/coordination lock.
+    await run_in_session(_probe, user_id, key, instance_id, resource_id)
+    await arm(resource_id, require_background=True)
+    expires, reserved = await run_in_session(_reserve, user_id, key, instance_id, resource_id)
+    if reserved:
+        await arm(resource_id, require_background=True)
     return {"resourceId": resource_id, "expiresAt": expires}
 
 
@@ -115,9 +130,7 @@ def authorized_resource(db, row):
     return True
 
 
-async def renew(db, user_id, key, instance_id, resource_id):
-    from core.capabilities.plugins.resources.deadlines import arm
-
+def _extend(db, user_id, key, instance_id, resource_id):
     runtime(db, user_id)
     db.expire_all()
     value = activity.read(db, user_id)
@@ -130,11 +143,18 @@ async def renew(db, user_id, key, instance_id, resource_id):
     record["expiresAt"] = expires
     row.expires_at = expires
     activity.save(db, user_id, value)
-    await arm(db, row, require_background=True)
+    return expires
+
+
+async def renew(user_id, key, instance_id, resource_id):
+    from core.capabilities.plugins.resources.deadlines import arm
+
+    expires = await run_in_session(_extend, user_id, key, instance_id, resource_id)
+    await arm(resource_id, require_background=True)
     return {"resourceId": resource_id, "expiresAt": expires}
 
 
-async def stop(db, user_id, key, instance_id, resource_id):
+def _owned_row(db, user_id, key, instance_id, resource_id):
     # Ownership, not availability, gates cleanup so revoked users can still stop.
     row = store.get(db, resource_id, user_id)
     if (
@@ -142,7 +162,11 @@ async def stop(db, user_id, key, instance_id, resource_id):
         or getattr(row, "instance_id", None) != instance_id
     ):
         external.fail(404, "background_not_found")
-    await service.close(db, row)
+    db.expunge(row)
+    return row
+
+
+def _release(db, user_id, resource_id):
     runtime(db, user_id)
     db.expire_all()
     value = activity.read(db, user_id)
@@ -150,37 +174,53 @@ async def stop(db, user_id, key, instance_id, resource_id):
     activity.save(db, user_id, value)
 
 
-async def stop_all(db, user_id, application_key=None, install_id=None):
-    value = activity.read(db, user_id)
-    for rid, record in list(value["background"].items()):
+async def stop(user_id, key, instance_id, resource_id):
+    row = await run_in_session(_owned_row, user_id, key, instance_id, resource_id)
+    await service.close(row)
+    await run_in_session(_release, user_id, resource_id)
+
+
+def _records(db, user_id):
+    return list(activity.read(db, user_id)["background"].items())
+
+
+async def stop_all(user_id, application_key=None, install_id=None):
+    for rid, record in await run_in_session(_records, user_id):
         if (application_key is None or record["applicationKey"] == application_key) and (
             install_id is None or record["binding"].get("installId") == install_id
         ):
-            await stop(db, user_id, record["applicationKey"], record["instanceId"], rid)
+            await stop(user_id, record["applicationKey"], record["instanceId"], rid)
 
 
-async def reconcile(db, user_id):
+def _revoked_row(db, user_id, rid, record):
+    """None while the reservation is still authorized; else the row to stop (or False if gone)."""
     from fastapi import HTTPException
 
-    value = activity.read(db, user_id)
-    for rid, record in list(value["background"].items()):
-        try:
-            row = resource(db, rid, user_id, record["applicationKey"], record["instanceId"])
-            authorized_resource(db, row)
-        except HTTPException:
-            # Metadata is retained until real shutdown succeeds.
-            row = db.get(store.PluginResource, rid)
-            if row is not None and row.user_id == user_id:
-                try:
-                    await service.close(db, row)
-                except Exception as error:
-                    db.rollback()
-                    logging.getLogger(__name__).warning(
-                        "Background cleanup deferred: %s", type(error).__name__
-                    )
-                    continue
-            runtime(db, user_id)
-            db.expire_all()
-            current = activity.read(db, user_id)
-            current["background"].pop(rid, None)
-            activity.save(db, user_id, current)
+    try:
+        row = resource(db, rid, user_id, record["applicationKey"], record["instanceId"])
+        authorized_resource(db, row)
+        return None
+    except HTTPException:
+        db.rollback()
+    # Metadata is retained until real shutdown succeeds.
+    row = db.get(store.PluginResource, rid)
+    if row is None or row.user_id != user_id:
+        return False
+    db.expunge(row)
+    return row
+
+
+async def reconcile(user_id):
+    for rid, record in await run_in_session(_records, user_id):
+        row = await run_in_session(_revoked_row, user_id, rid, record)
+        if row is None:
+            continue
+        if row is not False:
+            try:
+                await service.close(row)
+            except Exception as error:
+                logging.getLogger(__name__).warning(
+                    "Background cleanup deferred: %s", type(error).__name__
+                )
+                continue
+        await run_in_session(_release, user_id, rid)

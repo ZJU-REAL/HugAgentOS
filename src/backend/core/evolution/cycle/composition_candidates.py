@@ -1,11 +1,12 @@
-"""composition candidates responsibilities."""
+"""Retirement, merge, profile and sub-agent candidates."""
 from __future__ import annotations
 from typing import Any, Dict, List
 from core.evolution.evidence.credit import T_ORCHESTRATION, T_SKILL, aggregate_finding, confidence_from_evidence
 from core.evolution.ir import RISK_HIGH, RISK_MEDIUM, EvolutionIR, InvariantViolation, Rollback, validate_ir
 import logging
+from core.evolution.cycle import candidate_records
+
 logger = logging.getLogger(__name__)
-from core.evolution.cycle import candidate_records as candidate_records_module
 
 def decremental_candidates(extras: Dict[str, Any], *, dry_run: bool) -> List[Dict[str, Any]]:
     """Retirement and merge findings, as candidates rather than as a list.
@@ -14,7 +15,7 @@ def decremental_candidates(extras: Dict[str, Any], *, dry_run: bool) -> List[Dic
     capability produces no error — only a slow decline — so it is precisely the
     direction that must not be automatic.
     """
-    from core.evolution.cycle.promotion_state import ACTION_REWRITE
+    from core.evolution.cycle.promotion_constants import ACTION_REWRITE
 
     decremental = extras.get("decremental") or {}
     created: List[Dict[str, Any]] = []
@@ -68,7 +69,7 @@ def decremental_candidates(extras: Dict[str, Any], *, dry_run: bool) -> List[Dic
         if dry_run:
             created.append({"dry_run": True, "kind": "retirement", "asset_id": asset_id})
             continue
-        candidate_id = candidate_records_module.persist_candidate(
+        candidate_id = candidate_records.persist_candidate(
             ir,
             credit=decision.to_dict(),
             proposer="decremental_engine",
@@ -98,7 +99,7 @@ def orchestration_candidates(
     other route.
     """
     from core.capabilities.catalog.api import get_enabled_ids
-    from core.evolution.profiles.agent_profile_state import TARGET_KIND
+    from core.evolution.profiles.agent_profile_constants import TARGET_KIND
     from core.evolution.profiles.agent_profile import builtin_profile, validate_profile
     from core.evolution.generators.orchestration_gen import generate_orchestration_proposals, profile_from_proposals
 
@@ -162,7 +163,7 @@ def orchestration_candidates(
         if dry_run:
             created.append({"dry_run": True, "kind": "agent_profile", "task_type": task_type})
             continue
-        candidate_id = candidate_records_module.persist_candidate(
+        candidate_id = candidate_records.persist_candidate(
             ir,
             credit=decision.to_dict(),
             proposer="orchestration_engine",
@@ -207,7 +208,7 @@ def orchestration_candidates(
         if dry_run:
             created.append({"dry_run": True, "kind": "subagent", "name": subagent.name})
             continue
-        candidate_id = candidate_records_module.persist_candidate(
+        candidate_id = candidate_records.persist_candidate(
             ir,
             credit=decision.to_dict(),
             proposer="orchestration_engine",

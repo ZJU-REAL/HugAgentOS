@@ -408,7 +408,6 @@ async def test_prewarmed_session_delivery_reconciles_before_pool_hit(cloud, monk
             return_value=SimpleNamespace(sandbox=SimpleNamespace(id="pooled"))
         ),
     )
-    monkeypatch.setattr(sessions, "_user_bound_sandbox_required", lambda: True)
     await module_class._create_session_for(fake, "new-chat", user_id="alice")
     assert fake._create_session.await_count == 1
     assert not (view / "sample/old.txt").exists()

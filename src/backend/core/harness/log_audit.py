@@ -1,12 +1,13 @@
-"""log audit responsibilities."""
+"""Write sandbox tool calls as security audit events."""
 from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, Optional
 from sqlalchemy.orm import Session
 from core.db.engine import SessionLocal
 from core.infra.logging import get_logger
-logger = get_logger(__name__)
 from core.harness import log_context
+
+logger = get_logger(__name__)
 
 async def resolve_sandbox_id(session_id: Optional[str]) -> Optional[str]:
     """Look up the current sandbox instance id from the sandbox provider by session key (default = chat_id). Pure query; None on failure."""

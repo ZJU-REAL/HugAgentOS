@@ -5,11 +5,14 @@ from __future__ import annotations
 import asyncio
 import copy
 import inspect
-from collections.abc import Awaitable, Callable, Mapping
+from collections import deque
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import MappingProxyType
 from typing import Any
+
+from core.harness.observation_writer import observation_writer
 
 
 def freeze_value(value: Any) -> Any:
@@ -67,6 +70,28 @@ EventHandler = Callable[[Event], Awaitable[None] | None]
 EventStore = Callable[[Event], Event]
 
 
+def _detach(event: Event) -> Event:
+    return Event(
+        run_id=event.run_id,
+        event_type=event.event_type,
+        phase=event.phase,
+        payload=freeze_value(event.payload),
+        created_at=event.created_at,
+        event_seq=event.event_seq,
+    )
+
+
+def store_events(store: EventStore, events: Sequence[Event]) -> tuple[Event, ...]:
+    """Write a batch through ``store.store_many`` when the store supports it."""
+    store_many = getattr(store, "store_many", None)
+    if store_many is not None:
+        return tuple(store_many(events))
+    return tuple(store(event) for event in events)
+
+
+MEMORY_EVENT_LIMIT = 256
+
+
 class EventSink:
     """Append first, then notify observers with immutable detached events.
 
@@ -85,20 +110,15 @@ class EventSink:
         self._store_timeout_ms = max(1, int(store_timeout_ms))
         self._subscriber_timeout_ms = max(1, int(subscriber_timeout_ms))
         self._handlers: list[EventHandler] = []
-        self._memory: list[Event] = []
+        # Recent events for in-process inspection; durable history lives in the store.
+        self._memory: deque[Event] = deque(maxlen=MEMORY_EVENT_LIMIT)
 
     def subscribe(self, handler: EventHandler) -> None:
         self._handlers.append(handler)
 
     async def append(self, event: Event) -> Event:
-        detached = Event(
-            run_id=event.run_id,
-            event_type=event.event_type,
-            phase=event.phase,
-            payload=freeze_value(event.payload),
-            created_at=event.created_at,
-            event_seq=event.event_seq,
-        )
+        """Store, then notify: observers see the durable sequence number."""
+        detached = _detach(event)
         recorded = detached
         if self._store is not None:
             try:
@@ -111,15 +131,25 @@ class EventSink:
                 # channel. Durable stores log their own failures.
                 recorded = detached
         self._memory.append(recorded)
+        await self._notify(recorded)
+        return recorded
+
+    async def publish(self, event: Event) -> Event:
+        """Record without waiting for the store.
+
+        The durable write is queued for the background observation writer, so
+        the returned and observed event carries no ``event_seq``.
+        """
+        detached = _detach(event)
+        if self._store is not None:
+            observation_writer().submit(self._store, store_events, detached.run_id, (detached,))
+        self._memory.append(detached)
+        await self._notify(detached)
+        return detached
+
+    async def _notify(self, recorded: Event) -> None:
         for handler in tuple(self._handlers):
-            consumer_copy = Event(
-                run_id=recorded.run_id,
-                event_type=recorded.event_type,
-                phase=recorded.phase,
-                payload=freeze_value(recorded.payload),
-                created_at=recorded.created_at,
-                event_seq=recorded.event_seq,
-            )
+            consumer_copy = _detach(recorded)
             try:
 
                 async def notify(
@@ -144,7 +174,6 @@ class EventSink:
                 )
             except Exception:  # noqa: BLE001, S112
                 continue
-        return recorded
 
     def events(self) -> tuple[Event, ...]:
         return tuple(self._memory)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from core.files.artifacts.refs import require_artifact_storage_key
 
 import asyncio
 import base64
@@ -14,8 +13,8 @@ from typing import Any, Optional
 
 from agentscope.message import Base64Source, DataBlock, TextBlock
 
-# AgentScope 2.0: tool functions must return ToolChunk; aliased (its fields are a superset of ToolResponse).
-from agentscope.tool._response import ToolChunk as ToolResponse
+# AgentScope 2.0: tool functions must return ToolChunk; aliased (its fields are a superset of ToolChunk).
+from agentscope.tool._response import ToolChunk
 from core.projects.edition import ProjectScope
 
 logger = logging.getLogger(__name__)
@@ -23,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 async def resp_image(
     image_bytes: bytes, mime_type: str, *, name: str, meta: Optional[dict[str, Any]] = None
-) -> ToolResponse:
+) -> ToolChunk:
     """图片原样交给多模态主模型：一段 JSON 元信息 + 一个图片数据块。
 
     AgentScope 会把工具结果里的 DataBlock 提升成下一轮的 image 消息；端点不收图时
@@ -32,7 +31,7 @@ async def resp_image(
     """
     payload = {"type": "image", "mime_type": mime_type, "size": len(image_bytes), **(meta or {})}
     data = await asyncio.to_thread(lambda: base64.b64encode(image_bytes).decode("ascii"))
-    return ToolResponse(
+    return ToolChunk(
         content=[
             *resp_json(payload).content,
             DataBlock(
@@ -44,13 +43,13 @@ async def resp_image(
     )
 
 
-def resp_json(payload: dict[str, Any]) -> ToolResponse:
-    """Wrap a JSON dict as a single-text-block ToolResponse.
+def resp_json(payload: dict[str, Any]) -> ToolChunk:
+    """Wrap a JSON dict as a single-text-block ToolChunk.
 
     Mirrors ``core.llm.tool._resp_json``. Re-implemented here so this package
     has zero cross-imports back to the large monolithic ``tool.py``.
     """
-    return ToolResponse(
+    return ToolChunk(
         content=[
             TextBlock(
                 type="text",
@@ -60,7 +59,7 @@ def resp_json(payload: dict[str, Any]) -> ToolResponse:
     )
 
 
-def response_metadata(response: ToolResponse, metadata: dict[str, Any]) -> ToolResponse:
+def response_metadata(response: ToolChunk, metadata: dict[str, Any]) -> ToolChunk:
     """Merge file metadata into the existing JSON block, preserving image layout."""
     block = response.content[0]
     block.text = json.dumps({**json.loads(block.text), **metadata}, ensure_ascii=False)

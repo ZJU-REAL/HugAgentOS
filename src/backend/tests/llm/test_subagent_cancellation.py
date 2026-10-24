@@ -13,7 +13,9 @@ from core.llm.subagents import stream as _subagent_stream, tool as subagent_tool
 
 
 class CapturingToolkit:
-    def register_tool_function(self, function, **kwargs):
+    def append(self, tool):
+        function = tool._func
+        kwargs = {"func_description": tool.description, "permission": getattr(tool, "dispatch_spec", None)}
         self.call = function
 
 
@@ -37,7 +39,7 @@ async def test_cancel_stops_child_and_finishes_log_once(monkeypatch, stage):
     class Child:
         state = SimpleNamespace(context=[])
 
-        async def _reply(self, **kwargs):
+        async def reply_stream(self, **kwargs):
             await wait_for_cancel()
             if False:
                 yield None

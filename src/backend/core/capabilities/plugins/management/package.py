@@ -5,7 +5,7 @@ import io
 import tarfile
 import tempfile
 import zipfile
-from core.capabilities import archive as archive
+from core.capabilities import archive
 from core.harness.capability_errors import IntegrityFailed
 
 

@@ -1,4 +1,5 @@
 """Late user instructions remain part of a scheduled conversation's outcome."""
+from tests.orchestration.automation_test_support import execute_queued
 
 import asyncio
 
@@ -46,7 +47,7 @@ async def test_scheduled_outcome_follows_the_main_executor_handoff(live_env, mon
         return None
 
     monkeypatch.setattr(scheduler, "_send_notification", noop)
-    executing = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
+    executing = asyncio.create_task(execute_queued(scheduler, task_id, "owner"))
     try:
         await asyncio.wait_for(entered.wait(), 5)
         await asyncio.sleep(0.2)
@@ -70,6 +71,9 @@ async def test_scheduled_outcome_follows_the_main_executor_handoff(live_env, mon
             if outcome == "complete":
                 assert scheduled.status == "success"
                 assert scheduled.result_summary == "Revised final result"
+            elif outcome == "shutdown":
+                assert scheduled.status == "running"
+                assert runtime.get_run(runs[1]).status == "running"
             else:
                 assert scheduled.status == "failed"
                 assert runtime.get_run(runs[1]).status == "cancelled"
@@ -82,7 +86,7 @@ async def test_scheduled_outcome_follows_the_main_executor_handoff(live_env, mon
 
 
 @pytest.mark.asyncio
-async def test_shutdown_cancels_successor_when_completion_wins_cancel_race(live_env, monkeypatch):
+async def test_shutdown_does_not_cancel_executor_or_successor(live_env, monkeypatch):
     factory, _, task_id = live_env
     source_entered, finish_source = asyncio.Event(), asyncio.Event()
     successor_entered, finish_successor = asyncio.Event(), asyncio.Event()
@@ -123,15 +127,17 @@ async def test_shutdown_cancels_successor_when_completion_wins_cancel_race(live_
     async def noop(*args):
         return None
 
-    executing = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
+    executing = asyncio.create_task(execute_queued(scheduler, task_id, "owner"))
     try:
         await asyncio.wait_for(source_entered.wait(), 5)
         executing.cancel()
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(executing, 5)
-        assert cancelled == runs
-        assert runtime.get_run(runs[1]).status == "cancelled"
-        assert runtime.get_active_run_for_chat(runtime.get_run(runs[0]).chat_id, "owner") is None
+        assert cancelled == []
+        assert runtime.get_run(runs[0]).status == "running"
+        finish_source.set()
+        await asyncio.wait_for(successor_entered.wait(), 5)
+        assert runtime.get_run(runs[1]).status == "running"
     finally:
         finish_source.set()
         finish_successor.set()

@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from core.harness.events import thaw_value
 from core.harness.hooks import Decision, FailureMode, HookSpec, HookStage
 from core.llm.context.reasoning_hooks import reminder
-from core.llm.runtime.hooks_state import FILE_ID_RE, PIN_HINT_SKIP_TOOLS
+from core.llm.runtime.hooks_constants import FILE_ID_RE, PIN_HINT_SKIP_TOOLS
 from core.llm.runtime.message_compat import flatten_tool_output
 from core.llm.tools.plan_update import parse_plan_update_args
 

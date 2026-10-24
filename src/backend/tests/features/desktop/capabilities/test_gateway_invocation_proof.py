@@ -1,7 +1,7 @@
 """A desktop gateway reissues native MCP proofs with its authenticated identity."""
 from types import SimpleNamespace
 import pytest
-from core.llm.mcp import invocation as mcp_invocation, pool as mcp_pool
+from core.llm.mcp import invocation as mcp_invocation, client as mcp_pool
 from features.desktop.capability import mcp as gateway
 
 @pytest.mark.asyncio
@@ -11,12 +11,12 @@ async def test_gateway_replaces_device_proof_only_for_trusted_native_target(monk
     from core.config.mcp_config import mcp_http_url as _mcp_http_url
     url = _mcp_http_url("browser_runtime") if native else "https://third-party.example/mcp"
     captured = {}
-    async def invoke(**arguments):
-        return SimpleNamespace(metadata={}, model_dump=lambda **kwargs: {"content": []})
     class Client:
-        execution_timeout = 1
-        async def get_tool(self, name):
-            return invoke
+        async def __aenter__(self): return self
+        async def __aexit__(self, *exc): pass
+        async def call_tool(self, name, arguments):
+            from mcp.types import CallToolResult
+            return CallToolResult(content=[])
     def make_client(sid, config, **kwargs):
         captured.update(config["headers"])
         return Client()

@@ -96,7 +96,7 @@ async def test_dual_callback_forwards_without_local_write(monkeypatch):
         action="create",
         payload={"title": "Form", "site_id": "cloud-site"},
     )
-    result = await routes.internal_operation(body, x_internal_token="test", db=None)
+    result = await routes.internal_operation(body, x_internal_token="test")
     assert result["data"]["id"] == "cloud-app"
     assert calls == [
         (
@@ -183,6 +183,7 @@ def test_real_local_bootstrap_retains_unmigrated_and_provisions(tmp_path):
     code = """
 import asyncio
 from sqlalchemy import inspect
+import api.app  # compose the host (schema lifecycles) as uvicorn does before startup
 from api.startup.bootstrap import _startup_ensure_tables
 from core.db.engine import engine
 from features.hosted_apps.data import ApplicationDataService
@@ -227,8 +228,7 @@ print("LOCAL_BOOTSTRAP_PASSED")
 @pytest.mark.asyncio
 async def test_cloud_gateway_mcp_receipt_is_localized(monkeypatch):
     import httpx
-    import mcp.types
-    from core.llm.mcp.gateway_tool import GatewayMCPTool
+    from core.llm.tools.cloud_gateway import GatewayMCPTool
     from features.desktop.bridge import client as bridge
     from tests.features.desktop.capabilities.test_runtime_recovery import state
 
@@ -255,7 +255,7 @@ async def test_cloud_gateway_mcp_receipt_is_localized(monkeypatch):
     tool = GatewayMCPTool(
         mcp_name="sites-site_publish",
         source_plugin="sites",
-        tool=mcp.types.Tool(name="manage_application", inputSchema={"type": "object"}),
+        tool={"name": "manage_application", "inputSchema": {"type": "object"}},
         invoke_url=st["cloud_base"] + "/api/v1/desktop/capability/gateway/sites-site_publish/call",
         schema_hash="a" * 64,
         timeout=10,
@@ -293,7 +293,7 @@ async def test_personal_mcp_publication_forwards_cloud_identity_and_tools(monkey
         app_id="a" * 32,
         tools=[{"name": "find", "description": "Find names", "table": "names", "fields": ["name"]}],
     )
-    result = await routes.internal_publish_mcp(body, x_internal_token="test", db=None)
+    result = await routes.internal_publish_mcp(body, x_internal_token="test")
     assert result["data"]["installed"] is True
     assert calls == [
         (

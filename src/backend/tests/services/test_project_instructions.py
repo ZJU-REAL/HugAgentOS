@@ -16,6 +16,7 @@ from core.projects.edition import build_project_ctx
 from core.projects.edition import ProjectService
 from fastapi import HTTPException
 from tests.services.project_instructions_support import env, local, update
+from tests.db_support import share_session
 
 
 def test_local_file_and_editor_and_next_turn_share_one_source(env):
@@ -211,21 +212,20 @@ def test_init_requires_unadorned_project_chat(env, mode):
 @pytest.mark.asyncio
 async def test_registered_tools_save_real_cloud_content_with_revision_and_permissions(env):
     from agentscope.tool import Toolkit
-    from core.llm.runtime.tool_collector import ToolCollector
+    from core.llm.factory.tools.definitions import ToolAssembly
     from core.llm.tools.project_instructions_tool import register_project_instruction_tools
 
     db, _ = env
     p = ProjectService(db).create_personal("alice", "Tools")
-    collector = ToolCollector()
+    collector = ToolAssembly()
     register_project_instruction_tools(collector, project_id=p.project_id, user_id="alice")
-    schemas = await Toolkit(tools=collector.function_tools).get_tool_schemas()
+    schemas = await Toolkit(tools=list(collector)).get_tool_schemas()
     schema = next(
         s["function"] for s in schemas if s["function"]["name"] == "save_project_instructions"
     )
     assert set(schema["parameters"]["required"]) == {"content", "expected_revision"}
-    # ToolCollector's documented get_tool exposes the registered function for direct execution.
-    read = collector.get_tool("read_project_instructions")._func
-    save = collector.get_tool("save_project_instructions")._func
+    read = next(t for t in collector if t.name == "read_project_instructions")._func
+    save = next(t for t in collector if t.name == "save_project_instructions")._func
     before = json.loads((await read()).content[0].text)
     result = json.loads(
         (await save("# Rules\nTest first.", before["instructions_revision"])).content[0].text
@@ -262,7 +262,7 @@ def test_saved_chat_binding_controls_initialization(env):
     assert err.value.status_code == 409
 
 
-def test_instructions_http_api_reads_writes_and_rejects_stale_or_unauthorized(env):
+def test_instructions_http_api_reads_writes_and_rejects_stale_or_unauthorized(env, monkeypatch):
     from api.routes.v1.projects import router
     from core.auth.backend import UserContext, get_current_user
     from core.db.engine import get_db
@@ -274,6 +274,7 @@ def test_instructions_http_api_reads_writes_and_rejects_stale_or_unauthorized(en
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_db] = lambda: db
+    share_session(monkeypatch, db)
     actor = ["alice"]
     app.dependency_overrides[get_current_user] = lambda: UserContext(
         user_id=actor[0], user_center_id="test", username=actor[0]
@@ -314,7 +315,7 @@ async def test_team_initialization_tool_and_viewer_denial(env, monkeypatch):
     if not hasattr(models, "Team"):
         pytest.skip("EE organization project")
     from core.db.models import Team, TeamMember
-    from core.llm.runtime.tool_collector import ToolCollector
+    from core.llm.factory.tools.definitions import ToolAssembly
     from core.sandbox.permissions.dispatch_models import PermissionRuntime
     from core.llm.tools.project_instructions_tool import (
         project_instruction_path,
@@ -340,7 +341,7 @@ async def test_team_initialization_tool_and_viewer_denial(env, monkeypatch):
     target = project_instruction_path(ctx)
     assert target.startswith("/teamspace/team/")
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: False)
-    collector = ToolCollector()
+    collector = ToolAssembly()
     register_project_instruction_tools(
         collector,
         project_id=p.project_id,
@@ -358,8 +359,8 @@ async def test_team_initialization_tool_and_viewer_denial(env, monkeypatch):
         intents = collector.permission_specs[tool_name].resolver({}, runtime)
         assert intents[0].target == "/workspace" + target
         assert all(intent.domain != "myspace" for intent in intents)
-    read = collector.get_tool("read_project_instructions")._func
-    save = collector.get_tool("save_project_instructions")._func
+    read = next(t for t in collector if t.name == "read_project_instructions")._func
+    save = next(t for t in collector if t.name == "save_project_instructions")._func
     snapshot = json.loads((await read()).content[0].text)
     assert snapshot["path"] == target
     result = json.loads(

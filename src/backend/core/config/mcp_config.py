@@ -22,7 +22,7 @@ from extensions.mcp_servers._ports import PORTS as _PORTS
 def mcp_http_url(server_id: str) -> str:
     from core.config.settings import settings
 
-    return f"http://{settings.server.mcp_host}:{_PORTS[server_id]}/mcp/"
+    return f"http://{settings.server.mcp_host}:{_PORTS[server_id]}/mcp"
 
 
 def builtin_mcp_configs(location=None) -> Dict[str, dict]:

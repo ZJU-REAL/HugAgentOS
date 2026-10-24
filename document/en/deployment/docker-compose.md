@@ -14,7 +14,7 @@ For a new deployment:
 
 ```bash
 python3 scripts/configure-ce-docker.py
-docker build -f docker/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .
+docker build -f docker/sandbox/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .
 docker compose build backend
 docker compose up -d --build
 ```
@@ -68,8 +68,8 @@ Enterprise Edition (EE).
 
 | Service | Profile | Container | Image / build | Role |
 |---|---|---|---|---|
-| `script-runner` | `script_runner` | hugagent-script-runner | `docker/Dockerfile.script-runner` | Lightweight sandbox: 1 GB RAM / 1 CPU / read-only rootfs + tmpfs; skill directory mounted read-only at `/workspace/skills` |
-| `opensandbox-config-init` | `opensandbox` | hugagent-opensandbox-config-init | `python:3.12-alpine` | One-shot init: renders `@@HOST_REPO_PATH@@` / `@@HOST_STORAGE_PATH@@` in `docker/opensandbox-config.toml.tpl` into the named volume `opensandbox_config` |
+| `script-runner` | `script_runner` | hugagent-script-runner | `docker/sandbox/Dockerfile.script-runner` | Lightweight sandbox: 1 GB RAM / 1 CPU / read-only rootfs + tmpfs; skill directory mounted read-only at `/workspace/skills` |
+| `opensandbox-config-init` | `opensandbox` | hugagent-opensandbox-config-init | `python:3.12-alpine` | One-shot init: renders `@@HOST_REPO_PATH@@` / `@@HOST_STORAGE_PATH@@` in `docker/opensandbox-server/opensandbox-config.toml.tpl` into the named volume `opensandbox_config` |
 | `opensandbox` | `opensandbox` | hugagent-opensandbox | `hugagent-opensandbox-server:v0.1.13-3` | Shared CE / EE controller: manages containers through Docker socket; execd runs commands and session files persist. CE publishes no host port; the full repository has a configurable debug port |
 
 ### mem0 memory infrastructure (profile `mem0`, optional)
@@ -219,19 +219,19 @@ make migrate-new msg="describe change"
 
 | Feature | Files |
 |---|---|
-| Service orchestration | `docker-compose.yml` (CubeSandbox overlay: `docker-compose.cube.yml`) |
+| Service orchestration | `docker-compose.yml` (CubeSandbox overlay: `docker/sandbox/compose.cube.yml`) |
 | Backend image | `docker/Dockerfile` (multi-stage, target `production`) |
 | MCP image | `docker/Dockerfile.mcp` |
-| Sandbox images | `docker/Dockerfile.script-runner`, `docker/Dockerfile.opensandbox` |
+| Sandbox images | `docker/sandbox/Dockerfile.script-runner`, `docker/sandbox/Dockerfile.opensandbox` |
 | Frontend image + nginx proxy | `src/frontend/Dockerfile`, `src/frontend/nginx.conf`, `src/frontend/default.conf.template` |
 | Backend entrypoint (auto migration) | `src/backend/scripts/backend_entrypoint.sh` |
-| OpenSandbox config template | `docker/opensandbox-config.toml.tpl` |
+| OpenSandbox config template | `docker/opensandbox-server/opensandbox-config.toml.tpl` |
 | Migrations | `alembic.ini`, `src/backend/alembic/` |
 | MCP port single source of truth | `src/backend/extensions/mcp_servers/_ports.py` |
 
 ### OpenSandbox command latency and controller image
 
-The controller is built from `docker/Dockerfile.opensandbox-server` as
+The controller is built from `docker/opensandbox-server/Dockerfile.opensandbox-server` as
 `hugagent-opensandbox-server:v0.1.13-3`. Based on a pinned upstream release,
 it inspects known sandboxes by name and verifies ownership labels. Synchronous
 Docker lookups in lifecycle and proxy routes run in a thread pool so other requests
@@ -270,7 +270,7 @@ Create a dedicated BuildKit builder from the WSL project directory:
     BUILDX_BUILDER=hugagent-limited COMPOSE_PARALLEL_LIMIT=1 docker compose build mcp
     BUILDX_BUILDER=hugagent-limited COMPOSE_PARALLEL_LIMIT=1 docker compose build frontend
     docker buildx build --builder hugagent-limited --load \
-      -f docker/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .
+      -f docker/sandbox/Dockerfile.opensandbox -t hugagent-opensandbox-custom:latest .
     docker buildx stop hugagent-limited
 
 Reuse the builder if it already exists. Stop it after builds; its cache remains available.

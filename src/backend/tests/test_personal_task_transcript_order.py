@@ -192,8 +192,7 @@ async def test_execute_task_consumes_midrun_instruction_and_finishes_in_order(pr
     monkeypatch.setattr("personal_agent.tools.tools.SessionLocal", sessions)
     monkeypatch.setattr("personal_agent.tools.space.SessionLocal", sessions)
     monkeypatch.setattr("personal_agent.tools.email.SessionLocal", sessions)
-    kit = SimpleNamespace(functions={})
-    kit.register_tool_function = lambda fn: kit.functions.__setitem__(fn.__name__, fn)
+    kit = []
     register_personal_tools(kit, SimpleNamespace(profile_ref=ident, current_user_id="owner"))
 
     # Substitute only the model/stream boundary; admission, task tools, transcript,
@@ -216,7 +215,7 @@ async def test_execute_task_consumes_midrun_instruction_and_finishes_in_order(pr
             async def continue_model(**kwargs):
                 assert "改用脚本" in agent.state.context[-1].content[0].text
                 yield "text_delta", "已按脚本要求完成"
-                await kit.functions["pa_finish"]("已按脚本要求完成")
+                await {tool.name: tool._func for tool in kit}["pa_finish"]("已按脚本要求完成")
 
             async for event in middleware.on_reasoning(agent, {}, continue_model):
                 yield event

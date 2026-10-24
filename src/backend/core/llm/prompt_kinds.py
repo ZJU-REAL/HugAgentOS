@@ -1,4 +1,4 @@
-"""prompt kinds responsibilities."""
+"""Prompt kinds: built-in specs plus admin-defined kinds."""
 from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from extensions.paths import DEFAULT_AGENTS_DIR
 from sqlalchemy.orm import Session
-from core.llm import prompt_storage as prompt_storage_module
+from core.llm import prompt_storage
 
 @dataclass(frozen=True)
 class KindSpec:
@@ -45,7 +45,7 @@ def list_custom_kinds(db: Optional[Session] = None) -> List[Dict[str, str]]:
     versions/active 两张表，差别只在于没有文件系统兜底、可以删。
     「对话模式」就是靠这个扩展的：管理员在提示词管理新开一个 tab，模式那边就能绑它。
     """
-    payload = prompt_storage_module.load_payload(db)
+    payload = prompt_storage.load_payload(db)
     out: List[Dict[str, str]] = []
     for item in payload.get("custom_kinds") or []:
         if not isinstance(item, dict):
@@ -84,7 +84,7 @@ def create_custom_kind(
         raise ValueError("kind key required")
     if cleaned in KIND_SPECS:
         raise ValueError(f"「{cleaned}」是内置 kind，不能重复创建")
-    payload = prompt_storage_module.clone(prompt_storage_module.load_payload(db))
+    payload = prompt_storage.clone(prompt_storage.load_payload(db))
     customs = payload.setdefault("custom_kinds", [])
     if any(str((c or {}).get("key")) == cleaned for c in customs):
         raise ValueError(f"kind「{cleaned}」已存在")
@@ -106,7 +106,7 @@ def create_custom_kind(
         }
     )
     payload.setdefault("active", {})[cleaned] = "default"
-    prompt_storage_module.save_payload(payload, db=db, updated_by=updated_by)
+    prompt_storage.save_payload(payload, db=db, updated_by=updated_by)
     return {"key": cleaned, "label": (label or cleaned).strip()[:60]}
 
 
@@ -118,7 +118,7 @@ def delete_custom_kind(key: str, db: Optional[Session] = None) -> bool:
     """
     if key in KIND_SPECS:
         raise ValueError("内置 kind 不可删除")
-    payload = prompt_storage_module.clone(prompt_storage_module.load_payload(db))
+    payload = prompt_storage.clone(prompt_storage.load_payload(db))
     customs = payload.get("custom_kinds") or []
     remaining = [c for c in customs if str((c or {}).get("key")) != key]
     if len(remaining) == len(customs):
@@ -126,7 +126,7 @@ def delete_custom_kind(key: str, db: Optional[Session] = None) -> bool:
     payload["custom_kinds"] = remaining
     payload["versions"] = [v for v in (payload.get("versions") or []) if v.get("kind") != key]
     (payload.get("active") or {}).pop(key, None)
-    prompt_storage_module.save_payload(payload, db=db)
+    prompt_storage.save_payload(payload, db=db)
     return True
 
 

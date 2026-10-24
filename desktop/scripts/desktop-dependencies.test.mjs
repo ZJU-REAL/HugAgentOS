@@ -18,10 +18,25 @@ import {
   WINDOWS_DESKTOP_LOCK_FILE,
   desktopDependencyFingerprint,
   readAndValidateWindowsDesktopLock,
+  readAndValidateDesktopLock,
 } from "./desktop-dependencies.mjs";
 
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(desktopDir, "..");
+
+function assertExactLock(lock) {
+  const source = readFileSync(join(repoRoot, DESKTOP_REQUIREMENTS_FILE), "utf8")
+    .match(/^agentscope @ https:\/\/github\.com\/agentscope-ai\/agentscope\/archive\/[a-f0-9]{40}\.tar\.gz$/m)?.[0];
+  assert.ok(source, "AgentScope must use an immutable commit archive");
+  assert.ok(readFileSync(join(repoRoot, "requirements.txt"), "utf8").split(/\r?\n/).includes(source));
+  assert.ok(lock.split(/\r?\n/).includes(source));
+  for (const line of lock.split(/\r?\n/)) {
+    if (/^[A-Za-z0-9_.-]+/.test(line) && line !== source) {
+      assert.match(line, /^[A-Za-z0-9_.-]+==[^\s]+$/);
+    }
+  }
+  assert.match(lock, /^mcp==2\.3\.0$/m);
+}
 
 function requirementNames(contents) {
   return new Set(
@@ -73,14 +88,7 @@ test("Windows Python 3.11 lock is exact and matches its desktop input", () => {
   const lock = readAndValidateWindowsDesktopLock(repoRoot);
   const names = requirementNames(lock);
   assert.ok(names.size > 100, "the transitive desktop lock must be complete");
-  for (const line of lock.split(/\r?\n/)) {
-    if (/^[A-Za-z0-9_.-]+/.test(line)) {
-      assert.match(line, /^[A-Za-z0-9_.-]+==[^\s]+$/);
-    }
-  }
-  const mcpVersion = lock.match(/^mcp==([^\s]+)$/m)?.[1];
-  assert.ok(mcpVersion, "the lock must contain mcp");
-  assert.equal(Number(mcpVersion.split(".")[0]), 1);
+  assertExactLock(lock);
   assert.match(lock, /^pymilvus==2\.5\.18$/m);
   assert.match(lock, /^milvus-lite==3\.2\.2$/m);
   // Some platform locks pull boto3 through LiteLLM; it is not a storage backend.
@@ -124,14 +132,9 @@ test("desktop dependency hash is independent of checkout line endings", () => {
 
 test("all supported desktop targets have exact Python 3.11 locks", () => {
   for (const [target, config] of Object.entries(DESKTOP_TARGETS)) {
-    const lock = readFileSync(join(repoRoot, config.lockFile), "utf8");
-    assert.match(lock, /# input-sha256: [a-f0-9]{64}/);
+    const lock = readAndValidateDesktopLock(repoRoot, target);
     assert.ok(requirementNames(lock).size > 100, `${target} lock is incomplete`);
-    for (const line of lock.split(/\r?\n/)) {
-      if (/^[A-Za-z0-9_.-]+/.test(line)) {
-        assert.match(line, /^[A-Za-z0-9_.-]+==[^\s]+$/);
-      }
-    }
+    assertExactLock(lock);
   }
 });
 

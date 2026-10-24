@@ -1,14 +1,15 @@
-"""promotion responsibilities."""
+"""Promote recurring sequences, procedures and skill combinations into proposals."""
 from __future__ import annotations
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 import logging
+from core.evolution.cycle import patterns
+from core.evolution.cycle import promotion_constants
+from core.evolution.cycle import promotion_types
+
 logger = logging.getLogger(__name__)
-from core.evolution.cycle import patterns as patterns_module
-from core.evolution.cycle import promotion_state as promotion_state_module
-from core.evolution.cycle import promotion_types as promotion_types_module
 
 def dominant_shared_intent(
-    pattern: patterns_module.Pattern,
+    pattern: patterns.Pattern,
     episodes: Optional[Sequence[Dict[str, Any]]],
     *,
     support_floor: int,
@@ -37,7 +38,7 @@ def dominant_shared_intent(
     top = clusters[0]
     if len(top.episode_ids) < support_floor:
         return None
-    if len(top.episode_ids) / len(supporting) < promotion_state_module.INTENT_COHESION_RATIO:
+    if len(top.episode_ids) / len(supporting) < promotion_constants.INTENT_COHESION_RATIO:
         return None
     # 复现必须跨会话：occasions 按 chat_id 去重，同一会话里反复跑同一套
     # 流程只算一次场合，不构成"这件事总在发生"。
@@ -47,14 +48,14 @@ def dominant_shared_intent(
 
 
 def promote_tool_sequence_to_skill(
-    pattern: patterns_module.Pattern,
+    pattern: patterns.Pattern,
     *,
     episodes: Optional[Sequence[Dict[str, Any]]] = None,
     min_support: Optional[int] = None,
     skill_credit: float = 0.0,
     workflow_credit: float = 0.0,
     existing_skill_signatures: Optional[Dict[str, str]] = None,
-) -> Optional[promotion_types_module.PromotionProposal]:
+) -> Optional[promotion_types.PromotionProposal]:
     """Compile a recurring successful tool sequence into a skill proposal.
 
     A recurring sequence alone is *not* evidence of a reusable capability.
@@ -91,10 +92,10 @@ def promote_tool_sequence_to_skill(
     skill here". Promoting in that case creates a skill with no independent
     content, which then has to be maintained forever.
     """
-    if pattern.kind != promotion_state_module.PATTERN_SUCCESS_SUBSEQUENCE or not pattern.tool_sequence:
+    if pattern.kind != promotion_constants.PATTERN_SUCCESS_SUBSEQUENCE or not pattern.tool_sequence:
         return None
-    support_floor = promotion_state_module.MIN_SUPPORT if min_support is None else int(min_support)
-    if len(pattern.tool_sequence) < promotion_state_module.MIN_TOOL_SEQUENCE_LEN:
+    support_floor = promotion_constants.MIN_SUPPORT if min_support is None else int(min_support)
+    if len(pattern.tool_sequence) < promotion_constants.MIN_TOOL_SEQUENCE_LEN:
         logger.info(
             "[promotion] skipping %s: %d-step sequence is below the SOP floor",
             pattern.signature,
@@ -103,7 +104,7 @@ def promote_tool_sequence_to_skill(
         return None
     if pattern.support < support_floor:
         return None
-    if pattern.success_rate < promotion_state_module.SKILL_MIN_SUCCESS_RATE:
+    if pattern.success_rate < promotion_constants.SKILL_MIN_SUCCESS_RATE:
         return None
     if workflow_credit > skill_credit:
         logger.info(
@@ -123,7 +124,7 @@ def promote_tool_sequence_to_skill(
     covered = [e for e in pattern.episode_ids if e in set(intent.episode_ids)]
 
     existing = (existing_skill_signatures or {}).get(pattern.signature)
-    return promotion_types_module.PromotionProposal(
+    return promotion_types.PromotionProposal(
         from_layer="episode",
         to_layer="skill",
         signature=pattern.signature,
@@ -159,7 +160,7 @@ def promote_procedural_memory_to_skill(
     success_rate: float,
     plan_variety: int,
     existing_skill_id: Optional[str] = None,
-) -> Optional[promotion_types_module.PromotionProposal]:
+) -> Optional[promotion_types.PromotionProposal]:
     """Compile *how work is done here* into a skill proposal.
 
     This is the chain the design described and the code never had. Four
@@ -188,15 +189,15 @@ def promote_procedural_memory_to_skill(
     ]
     if not procedural:
         return None
-    if occurrences < promotion_state_module.PROCEDURAL_MIN_OCCURRENCES:
+    if occurrences < promotion_constants.PROCEDURAL_MIN_OCCURRENCES:
         return None
-    if success_rate < promotion_state_module.PROCEDURAL_MIN_SUCCESS_RATE:
+    if success_rate < promotion_constants.PROCEDURAL_MIN_SUCCESS_RATE:
         return None
     if plan_variety < 2:
         return None
 
     representative = str(intent_cluster.get("representative") or "")
-    return promotion_types_module.PromotionProposal(
+    return promotion_types.PromotionProposal(
         from_layer="memory",
         to_layer="skill",
         signature="proc:" + "|".join(sorted(str(m.get("ref") or "") for m in procedural)),
@@ -225,13 +226,13 @@ def promote_procedural_memory_to_skill(
 
 
 def promote_skills_to_orchestration(
-    pattern: patterns_module.Pattern,
+    pattern: patterns.Pattern,
     *,
     combo_success_rate: float,
     individual_success_rate: float,
     task_types: Optional[Sequence[str]] = None,
     skill_versions: Optional[Dict[str, str]] = None,
-) -> Optional[promotion_types_module.PromotionProposal]:
+) -> Optional[promotion_types.PromotionProposal]:
     """Promote a recurring skill combination into an **agent profile** proposal.
 
     Promoting it into a *workflow* — a fixed DAG — was the wrong target: the
@@ -248,13 +249,13 @@ def promote_skills_to_orchestration(
     """
     if not pattern.skill_sequence or len(pattern.skill_sequence) < 2:
         return None
-    if pattern.support < promotion_state_module.WORKFLOW_MIN_COMBO_FREQUENCY:
+    if pattern.support < promotion_constants.WORKFLOW_MIN_COMBO_FREQUENCY:
         return None
-    if combo_success_rate - individual_success_rate < promotion_state_module.WORKFLOW_MIN_UPLIFT:
+    if combo_success_rate - individual_success_rate < promotion_constants.WORKFLOW_MIN_UPLIFT:
         return None
 
     versions = skill_versions or {}
-    return promotion_types_module.PromotionProposal(
+    return promotion_types.PromotionProposal(
         from_layer="skill",
         to_layer="agent_profile",
         signature=pattern.signature,
@@ -277,7 +278,7 @@ def promote_skills_to_orchestration(
 
 
 def dependencies_satisfied(
-    proposal: promotion_types_module.PromotionProposal, live_skill_versions: Dict[str, str]
+    proposal: promotion_types.PromotionProposal, live_skill_versions: Dict[str, str]
 ) -> Tuple[bool, List[str]]:
     """Whether every declared dependency still exists at the declared version.
 

@@ -63,11 +63,11 @@ async def test_swallowed_cancel_cannot_block_release_or_resurrect_lock(state):
     await bounded(state.entered.wait())
     await bounded(lease.release())
     assert state.cancelled.is_set()
-    assert not lease.renewal.done()
+    assert lease._release_task.done()
     assert await state.get(lease.key) is None
     assert await state.hold(lease.key, "new-owner", ttl=60)
     state.finish.set()
-    await bounded(lease.renewal)
+    await bounded(asyncio.gather(lease.renewal, return_exceptions=True))
     assert state.renewals == 1
     assert await state.get(lease.key) == "new-owner"
 
@@ -84,7 +84,7 @@ async def test_cancelled_close_caller_does_not_abort_shared_cleanup(state):
     await bounded(lease.release())
     assert state.deletions == 1
     state.finish.set()
-    await bounded(lease.renewal)
+    await bounded(asyncio.gather(lease.renewal, return_exceptions=True))
 
 
 async def test_finished_execution_stops_renewal_without_release(state):
@@ -95,7 +95,7 @@ async def test_finished_execution_stops_renewal_without_release(state):
         return "success"
 
     assert await lease.run(work()) == "success"
-    await bounded(lease.renewal)
+    await bounded(asyncio.gather(lease.renewal, return_exceptions=True))
     assert state.renewals == 0
     # No explicit release: the unrenewed key will expire at its original TTL.
     assert await state.get(lease.key) == lease.token
@@ -112,7 +112,7 @@ async def test_finished_execution_during_cas_stops_another_renewal(state):
 
     assert await lease.run(work()) == "success"
     state.finish.set()
-    await bounded(lease.renewal)
+    await bounded(asyncio.gather(lease.renewal, return_exceptions=True))
     assert state.renewals == 1
     await lease.release()
 
@@ -157,7 +157,7 @@ async def test_stop_is_bounded_with_cancellation_swallowing_renewal(state):
     assert not scheduler._leases
     assert await state.get(lease.key) is None
     state.finish.set()
-    await bounded(lease.renewal)
+    await bounded(asyncio.gather(lease.renewal, return_exceptions=True))
 
 
 async def test_redis_cas_cannot_recreate_deleted_lock_or_replace_new_owner(monkeypatch):
@@ -177,3 +177,23 @@ async def test_redis_cas_cannot_recreate_deleted_lock_or_replace_new_owner(monke
         assert await store.get("lease") == "new"
     finally:
         await client.aclose()
+
+
+async def test_stalled_renewal_stops_execution_even_if_cas_ignores_cancel(state):
+    lease = module.AutomationLease("stalled")
+    assert await lease.acquire()
+    stopped = asyncio.Event()
+    async def work():
+        try:
+            await asyncio.Event().wait()
+        finally:
+            stopped.set()
+    with pytest.raises(RuntimeError, match="锁已失效"):
+        await bounded(lease.run(work()))
+    assert stopped.is_set()
+    await bounded(lease.release())
+    assert await state.get(lease.key) is None
+    assert await state.hold(lease.key, "successor", ttl=60)
+    state.finish.set()
+    await asyncio.sleep(0.02)
+    assert await state.get(lease.key) == "successor"

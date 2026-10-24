@@ -31,7 +31,7 @@ async def middleware_stack(
     from core.sandbox.permissions.tool_specs import ToolPermissionRegistry
     from core.llm.tool_permissions import ToolPermissionService
 
-    _builtin_tool_names = {ft.name for ft in toolkit.function_tools}
+    _builtin_tool_names = {ft.name for ft in list(toolkit)}
     _all_tool_names = {
         str(s.get("function", {}).get("name") or "")
         for s in tool_schemas

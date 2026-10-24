@@ -694,11 +694,10 @@ def review_ontology_draft(
 )
 async def generate_ontology_evolution_drafts(
     body: OntologyEvolutionGenerateRequest,
-    db: Session = Depends(get_db),
 ):
-    from core.ontology.evolution import OntologyEvolutionService
+    from core.ontology.evolution import generate_candidates
 
-    result = await OntologyEvolutionService(db).generate_candidates(
+    result = await generate_candidates(
         min_occurrences=body.min_occurrences,
         limit=body.limit,
         model_name=body.model_name,

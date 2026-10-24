@@ -16,6 +16,7 @@ import pytest
 from api.routes.v1 import artifacts as route
 from core.auth.backend import UserContext
 from core.db.models import Artifact, ChatMessage, ChatSession, UserShadow
+from tests.db_support import share_session
 
 USER_ID = "u-backfill"
 
@@ -121,6 +122,8 @@ def test_listing_never_runs_the_scan_on_the_request(user_with_history, monkeypat
         lambda uid, db: pytest.fail("回填不得跑在请求路径上"),
     )
 
+    share_session(monkeypatch, user_with_history)
+
     async def _call():
         await route.list_user_artifacts(
             type=None,
@@ -131,7 +134,6 @@ def test_listing_never_runs_the_scan_on_the_request(user_with_history, monkeypat
             page=1,
             page_size=50,
             user=UserContext(user_id=USER_ID, user_center_id=USER_ID, username="backfill"),
-            db=user_with_history,
         )
         # 扫描被甩到线程里，请求这边不等它
         assert route._backfill_tasks

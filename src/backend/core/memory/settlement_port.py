@@ -1,5 +1,6 @@
 """Memory's named settlement boundary; callers retain their transaction scope."""
 from __future__ import annotations
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 
@@ -8,9 +9,6 @@ class MemorySettlement(Protocol):
     def update_entry_text(self, message_id: str, handle: str, text: str) -> bool: ...
     def build_summary(self, message_id: str, *, session_factory: Any, items: list[dict], failed: bool) -> dict[str, Any]: ...
     def write_summary(self, db: Any, message_id: str, summary: Any) -> None: ...
-
-
-
 
 
 def register_memory_settlement(service: MemorySettlement) -> None:
@@ -23,17 +21,13 @@ def memory_settlement() -> MemorySettlement:
     return process_state().service
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class SettlementPortState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
     service: MemorySettlement | None = None
 
-@state_cache(maxsize=1)
-def process_state() -> SettlementPortState:
-    return SettlementPortState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+_STATE = SettlementPortState()
+
+
+def process_state() -> SettlementPortState:
+    return _STATE

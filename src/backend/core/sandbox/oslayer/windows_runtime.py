@@ -27,14 +27,11 @@ import json
 import os
 import threading
 from collections import Counter
+from dataclasses import dataclass, field
 
 # Environment variables Windows programs read to find their temp directory.
 TEMP_ENV_KEYS = ("TEMP", "TMP")
 ROOTS_FILENAME = "sandbox_labeled_roots.json"
-
-
-
-
 
 
 def root_key(path: str) -> str:
@@ -169,19 +166,15 @@ __all__ = [
 ]
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class WindowsRuntimeState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    LOCK: object = state_field(default_factory=lambda: threading.Lock())
-    IN_USE: Counter[str] = state_field(default_factory=lambda: Counter())
+    LOCK: object = field(default_factory=lambda: threading.Lock())
+    IN_USE: Counter[str] = field(default_factory=lambda: Counter())
     TOKEN: object = None
 
-@state_cache(maxsize=1)
-def process_state() -> WindowsRuntimeState:
-    return WindowsRuntimeState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+_STATE = WindowsRuntimeState()
+
+
+def process_state() -> WindowsRuntimeState:
+    return _STATE

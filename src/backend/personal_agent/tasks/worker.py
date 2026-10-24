@@ -12,6 +12,7 @@ from personal_agent.computer import computer_wait
 from personal_agent.models import PersonalAgent, PersonalWorkItem
 from personal_agent.context import AgentContext
 from personal_agent.identity.config import concurrency
+from core.db.threads import run_in_session
 
 log = logging.getLogger(__name__)
 MAX_AUTO_RESUMES = 2
@@ -70,6 +71,81 @@ def notify(db, row, text):
         AgentContext(db, agent.user_id).conversation.append(agent, "assistant", text, row.id, relation="status")
     except Exception as exc:
         log.warning("Personal notice failed (%s)", type(exc).__name__)
+
+def _renew_lease(db, ident, identity):
+    row = db.get(PersonalWorkItem, ident)
+    if row is None or row.status != "running" or row.owner != identity or not row.lease_until or row.lease_until < time.time():
+        return False
+    row.lease_until = time.time() + TASK_LEASE_SEC
+    db.commit()
+    return True
+
+def _start_run(db, ident, identity):
+    row = db.scalar(select(PersonalWorkItem).where(PersonalWorkItem.id == ident).with_for_update())
+    if row is None or row.owner != identity or row.status != "running": return None
+    agent = db.get(PersonalAgent, row.agent_id)
+    from personal_agent.tasks.task_threads import sync_thread
+    session = sync_thread(db, row, agent.user_id)
+    started = agent.user_id, session.chat_id, row.run_id
+    db.commit()
+    return started
+
+def _ready_to_execute(db, ident, identity, run_id):
+    row = db.get(PersonalWorkItem, ident)
+    if row is None or row.owner != identity or row.run_id != run_id or row.status != "running" or not row.lease_until or row.lease_until < time.time(): return False
+    row.pop_state("decided_during_run")
+    reason = blocked(row)
+    parked = computer_wait.park(row)
+    if reason: wait_for_user(db, row, reason)
+    db.commit()
+    return not (reason or parked)
+
+def _record_outcome(db, ident, identity, uid, result, checkpoint):
+    # Locked until the outcome is written, so an approval cannot slip in between.
+    row = db.scalar(select(PersonalWorkItem).where(PersonalWorkItem.id == ident).with_for_update())
+    if row.owner != identity or row.status != "running": return
+    state = row.checkpoint or {}
+    if computer_wait.park(row):
+        db.commit()
+    elif row.unconfirmed() or state.get("task_wait_reason"):
+        wait_for_user(db, row, blocked(row))
+        db.commit()
+    elif row.pop_state("decided_during_run"):
+        # The user answered while this run was ending. Run again to act on the answer.
+        row.requeue()
+        db.commit()
+    elif state.get("pending_approval"):
+        wait_for_user(db, row, AWAITING_APPROVAL)
+        db.commit()
+    else:
+        AgentContext(db, uid).tasks.complete(ident, result, {**(row.checkpoint or {}), **checkpoint}, owner=identity)
+
+def _record_failure(db, ident, identity, unknown):
+    row = db.get(PersonalWorkItem, ident)
+    if not (row and row.status == "running" and row.owner == identity): return
+    if not unknown and computer_wait.park(row):
+        db.commit()
+        return
+    uncertain = unknown or blocked(row) is not None
+    row.status = "waiting" if uncertain else "failed"
+    row.waiting_reason = "操作结果未知，需核对后继续" if uncertain else "任务执行失败。请检查模型、连接器或电脑状态后重试。"
+    notify(db, row, row.label + ("需要你核对操作结果。" if uncertain else "执行失败。可以在任务卡片中重试。"))
+    if row.status == "failed":
+        from personal_agent.workspace.file_memory import record_task
+        record_task(db, row, db.get(PersonalAgent, row.agent_id))
+    db.commit()
+
+def _approved_payloads(db, ident):
+    row = db.get(PersonalWorkItem, ident)
+    return (row.id, row.run_id, row.owner), dict((row.checkpoint or {}).get("approved_action_payloads", {}))
+
+def _consume_payload(db, ident, digest):
+    """Drop one dispatched action; False when the task now waits for the user."""
+    row = db.get(PersonalWorkItem, ident)
+    state = dict(row.checkpoint or {})
+    remaining = dict(state.get("approved_action_payloads", {})); remaining.pop(digest, None)
+    state["approved_action_payloads"] = remaining; row.checkpoint = state; db.commit()
+    return not (state.get("pending_approval") or state.get("task_wait_reason"))
 
 class PersonalAgentWorker:
     def __init__(self, execute=None):
@@ -139,127 +215,73 @@ class PersonalAgentWorker:
     async def heartbeat(self, ident):
         while True:
             await asyncio.sleep(10)
-            with SessionLocal() as db:
-                row = db.get(PersonalWorkItem, ident)
-                if row is None or row.status != "running" or row.owner != self.identity or not row.lease_until or row.lease_until < time.time():
-                    running = self.active.get(ident)
-                    if running: running.cancel()
-                    return
-                row.lease_until = time.time() + TASK_LEASE_SEC
-                db.commit()
+            if not await run_in_session(_renew_lease, ident, self.identity):
+                running = self.active.get(ident)
+                if running: running.cancel()
+                return
 
     async def run(self, ident):
         beat = asyncio.create_task(self.heartbeat(ident))
         try:
-            with SessionLocal() as db:
-                row = db.scalar(select(PersonalWorkItem).where(PersonalWorkItem.id == ident).with_for_update())
-                if row is None or row.owner != self.identity or row.status != "running": return
-                agent = db.get(PersonalAgent, row.agent_id)
-                from personal_agent.tasks.task_threads import sync_thread
-                session = sync_thread(db, row, agent.user_id)
-                uid, chat_id, run_id = agent.user_id, session.chat_id, row.run_id
-                db.commit()
+            started = await run_in_session(_start_run, ident, self.identity)
+            if started is None: return
+            uid, chat_id, run_id = started
             async with durable_run_binding(user_id=uid, chat_id=chat_id, kind="personal_agent_task", external_id=ident, binding_run_id=run_id) as binding:
                 await self.dispatch_approved(ident, uid)
-                with SessionLocal() as db:
-                    row = db.get(PersonalWorkItem, ident)
-                    if row is None or row.owner != self.identity or row.run_id != run_id or row.status != "running" or not row.lease_until or row.lease_until < time.time(): return
-                    row.pop_state("decided_during_run")
-                    reason = blocked(row)
-                    parked = computer_wait.park(row)
-                    if reason: wait_for_user(db, row, reason)
-                    db.commit()
-                    if reason or parked: return
+                if not await run_in_session(_ready_to_execute, ident, self.identity, run_id): return
                 from personal_agent.tasks.runtime import execute_task, RunawayOutput
                 try:
                     result, checkpoint = await (self.execute or execute_task)(ident, binding)
                 except RunawayOutput as exc:
                     reason = "模型输出重复或过长，已停止。请补充要求后点击重试。"
-                    with SessionLocal() as db:
+                    def _park_or_pause(db):
                         row = db.get(PersonalWorkItem, ident)
                         if row.status == "running" and row.owner == self.identity:
                             if not computer_wait.park(row): pause(db, row, reason)
                             db.commit()
+                    await run_in_session(_park_or_pause)
                     log.warning("Personal task stopped: %s (%s)", ident, type(exc).__name__)
                     return
-                with SessionLocal() as db:
-                    # Locked until the outcome is written, so an approval cannot slip in between.
-                    row = db.scalar(select(PersonalWorkItem).where(PersonalWorkItem.id == ident).with_for_update())
-                    if row.owner != self.identity or row.status != "running": return
-                    state = row.checkpoint or {}
-                    if computer_wait.park(row):
-                        db.commit()
-                    elif row.unconfirmed() or state.get("task_wait_reason"):
-                        wait_for_user(db, row, blocked(row))
-                        db.commit()
-                    elif row.pop_state("decided_during_run"):
-                        # The user answered while this run was ending. Run again to act on the answer.
-                        row.requeue()
-                        db.commit()
-                    elif state.get("pending_approval"):
-                        wait_for_user(db, row, AWAITING_APPROVAL)
-                        db.commit()
-                    else:
-                        AgentContext(db, uid).tasks.complete(ident, result, {**(row.checkpoint or {}), **checkpoint}, owner=self.identity)
+                await run_in_session(_record_outcome, ident, self.identity, uid, result, checkpoint)
         except asyncio.CancelledError:
-            with SessionLocal() as db:
+            def _interrupt(db):
                 row = db.get(PersonalWorkItem, ident)
                 if row and row.status == "running" and row.owner == self.identity:
                     interrupt(db, row, "执行已中断。请检查操作结果后继续。")
                     db.commit()
+            await run_in_session(_interrupt)
             raise
         except Exception as exc:
             from core.runs.tool_effects.errors import find_tool_outcome_unknown
-            with SessionLocal() as db:
-                row = db.get(PersonalWorkItem, ident)
-                if row and row.status == "running" and row.owner == self.identity:
-                    unknown = find_tool_outcome_unknown(exc) is not None
-                    if not unknown and computer_wait.park(row):
-                        db.commit()
-                        return
-                    uncertain = unknown or blocked(row) is not None
-                    row.status = "waiting" if uncertain else "failed"
-                    row.waiting_reason = "操作结果未知，需核对后继续" if uncertain else "任务执行失败。请检查模型、连接器或电脑状态后重试。"
-                    notify(db, row, row.label + ("需要你核对操作结果。" if uncertain else "执行失败。可以在任务卡片中重试。"))
-                    if row.status == "failed":
-                        from personal_agent.workspace.file_memory import record_task
-                        record_task(db, row, db.get(PersonalAgent, row.agent_id))
-                    db.commit()
+            await run_in_session(
+                _record_failure, ident, self.identity, find_tool_outcome_unknown(exc) is not None
+            )
             log.warning("Personal task failed: %s (%s)", ident, type(exc).__name__)
         finally:
             beat.cancel()
             with suppress(asyncio.CancelledError): await beat
 
     async def dispatch_approved(self, ident, uid):
-        from personal_agent.tasks.execution import bind
-        with SessionLocal() as db:
-            row = db.get(PersonalWorkItem, ident)
-            bind(row)
-            payloads = dict((row.checkpoint or {}).get("approved_action_payloads", {}))
+        from personal_agent.tasks.execution import current_execution
+        execution, payloads = await run_in_session(_approved_payloads, ident)
+        current_execution.set(execution)
         if not payloads: return
-        class Tools:
-            def __init__(self): self.functions = {}
-            def register_tool_function(self, function): self.functions[function.__name__] = function
-        tools = Tools()
+        tools = []
         from personal_agent.tools.email import register_email_tools
         from personal_agent.computer.computer import register_computer_tools
         register_email_tools(tools, ident, uid)
         register_computer_tools(tools, ident, uid)
+        functions = {tool.name: tool._func for tool in tools}
         for digest, action in payloads.items():
             if action["kind"] == "email.send":
-                await tools.functions["pa_email_send"](action["to"], action["subject"], action["body"],
+                await functions["pa_email_send"](action["to"], action["subject"], action["body"],
                     [item["path"] for item in action.get("attachments", [])])
             elif action["kind"] == "hugagent.session":
                 from personal_agent.sessions.session_manager import dispatch_approved
                 await dispatch_approved(ident, uid, action)
             elif action["kind"] == "computer.action":
-                await tools.functions["pa_computer_action"](action["action"], action["target"])
-            with SessionLocal() as db:
-                row = db.get(PersonalWorkItem, ident)
-                state = dict(row.checkpoint or {})
-                remaining = dict(state.get("approved_action_payloads", {})); remaining.pop(digest, None)
-                state["approved_action_payloads"] = remaining; row.checkpoint = state; db.commit()
-                if state.get("pending_approval") or state.get("task_wait_reason"): break
+                await functions["pa_computer_action"](action["action"], action["target"])
+            if not await run_in_session(_consume_payload, ident, digest): break
 
     async def loop(self):
         last_maintenance = 0

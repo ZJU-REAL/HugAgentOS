@@ -2,6 +2,7 @@
 from __future__ import annotations
 from core.infra.time import utc_now
 import uuid
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 from core.db.models import AdminMcpServer
 from features.marketplace.models import McpMarketInstallation, McpMarketItem, McpMarketVersion
@@ -9,24 +10,27 @@ from core.infra.exceptions import BadRequestError, ResourceNotFoundError
 from features.marketplace import edition as ml
 from core.capabilities.mcp.management import decrypt_mcp_headers, encrypt_mcp_headers, probe_mcp_connectivity, refresh_mcp_caches, validate_remote_mcp_url
 from sqlalchemy.orm import Session
+from core.db.threads import run_in_session
 from features.marketplace import mcp_listing
 from features.marketplace import mcp_validation
 from features.marketplace import mcp_versions
 
-async def publish_admin_server(
-    db: Session,
-    source_server_id: str,
-    *,
-    category: str,
-    version: str,
-    summary: str = "",
-    tags: Optional[List[str]] = None,
-    publisher_name: str = "管理员",
-    link_as_installation: bool = True,
-    auth_schema_override: Optional[List[Dict[str, Any]]] = None,
-    auth_config_override: Optional[Dict[str, Any]] = None,
-    allow_deferred_discovery: bool = False,
-) -> Dict[str, Any]:
+@dataclass(frozen=True)
+class Publication:
+    """Marketplace listing options for one admin MCP server."""
+
+    category: str
+    version: str
+    summary: str = ""
+    tags: Optional[List[str]] = None
+    publisher_name: str = "管理员"
+    link_as_installation: bool = True
+    auth_schema_override: Optional[List[Dict[str, Any]]] = None
+    auth_config_override: Optional[Dict[str, Any]] = None
+    allow_deferred_discovery: bool = False
+
+
+def _source_server(db: Session, source_server_id: str) -> AdminMcpServer:
     row = (
         db.query(AdminMcpServer)
         .filter(
@@ -37,6 +41,17 @@ async def publish_admin_server(
     )
     if not row:
         raise ResourceNotFoundError("admin_mcp_server", source_server_id)
+    return row
+
+
+def _detached_source(db: Session, source_server_id: str) -> AdminMcpServer:
+    row = _source_server(db, source_server_id)
+    db.expunge(row)
+    return row
+
+
+async def check_publishable(row: AdminMcpServer, publication: Publication) -> List[Dict[str, Any]]:
+    """Validate a server for listing (URL policy + live probe); returns its discovered tools."""
     if row.transport not in ("streamable_http", "sse") or not row.url:
         raise BadRequestError(message="MCP 市场仅支持远程 HTTP/SSE 服务；stdio 请通过插件市场分发")
     if (row.extra_config or {}).get("market_slug"):
@@ -46,12 +61,39 @@ async def publish_admin_server(
         allow_private_network=True,
         require_https=False,
     )
-    ok, error = await probe_mcp_connectivity(row, db)
-    if not ok and not allow_deferred_discovery:
+    ok, error = await probe_mcp_connectivity(row, validate=True)
+    if not ok and not publication.allow_deferred_discovery:
         raise BadRequestError(message=f"MCP 发布检测失败：{error}")
     tools = list(row.tools_json or [])
-    if not tools and not allow_deferred_discovery:
+    if not tools and not publication.allow_deferred_discovery:
         raise BadRequestError(message="MCP 未发现任何工具，不能发布")
+    return tools
+
+
+async def publish_admin_server(source_server_id: str, publication: Publication) -> Dict[str, Any]:
+    row = await run_in_session(_detached_source, source_server_id)
+    tools = await check_publishable(row, publication)
+    return await run_in_session(
+        lambda db: record_publication(db, _source_server(db, source_server_id), tools, publication)
+    )
+
+
+def record_publication(
+    db: Session, row: AdminMcpServer, tools: List[Dict[str, Any]], publication: Publication
+) -> Dict[str, Any]:
+    """List a checked server in the marketplace and commit (``row`` belongs to ``db``)."""
+    category = publication.category
+    version = publication.version
+    summary = publication.summary
+    tags = publication.tags
+    publisher_name = publication.publisher_name
+    link_as_installation = publication.link_as_installation
+    auth_schema_override = publication.auth_schema_override
+    auth_config_override = publication.auth_config_override
+    allow_deferred_discovery = publication.allow_deferred_discovery
+    if tools:
+        row.tools_json = tools
+    source_server_id = row.server_id
     existing = (
         db.query(McpMarketItem)
         .join(McpMarketVersion, McpMarketVersion.version_id == McpMarketItem.latest_version_id)

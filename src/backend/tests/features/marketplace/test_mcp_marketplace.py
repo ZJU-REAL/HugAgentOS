@@ -2,7 +2,7 @@
 from tests.features.marketplace.mcp_marketplace_support import db
 
 from tests.features.marketplace.mcp_marketplace_cases_1 import (
-    test_http_probe_uses_stateless_client_without_explicit_close,
+    test_http_probe_releases_its_discovery_resource,
     test_http_probe_surfaces_401_instead_of_cancel_scope_noise,
     test_ce_metadata_contains_mcp_market_auth_without_ee_dependency,
     test_header_credentials_are_encrypted_and_masked,

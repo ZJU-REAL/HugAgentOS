@@ -1,4 +1,4 @@
-"""spreadsheet parser responsibilities."""
+"""Parse XLSX files into markdown tables and bounded previews."""
 from __future__ import annotations
 import csv
 import io

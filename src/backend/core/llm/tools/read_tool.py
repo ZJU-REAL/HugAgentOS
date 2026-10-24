@@ -1,6 +1,7 @@
 """Read files from the active sandbox."""
 
 from __future__ import annotations
+from core.llm.factory.tools.definitions import function_tool
 
 import asyncio
 import hashlib
@@ -283,5 +284,5 @@ def register_read(
         "             ...}`` / ``{type: 'too_large', ...}`` / ``{error: '...'}``。\n"
     )
 
-    toolkit.register_tool_function(Read, namesake_strategy="override")
+    toolkit.append(function_tool(Read))
     logger.info("[factory] Registered Read tool (chat_id=%s)", chat_id)

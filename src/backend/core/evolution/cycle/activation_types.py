@@ -1,4 +1,4 @@
-"""activation types responsibilities."""
+"""Error raised when a candidate cannot be activated."""
 from __future__ import annotations
 
 

@@ -120,21 +120,21 @@ def test_retiring_worker_cannot_remove_the_destruction_lease(attached):
 
 def test_destruction_guard_renews_long_controller_calls(monkeypatch, sandbox_session_store):
     monkeypatch.setattr(session_registry, "_LOCK_RENEW_INTERVAL_S", 0.001)
-    original_hold = sandbox_session_store.hold
+    original_hold = sandbox_session_store.compare_exchange
 
     async def scenario():
         renewed = asyncio.Event()
         renewals = 0
 
-        async def hold(key, token, *, ttl):
+        async def hold(key, expected, token, *, ttl):
             nonlocal renewals
             if key == session_registry._TRACK_KEY.format(sandbox_id="long-kill"):
                 renewals += 1
                 if renewals >= 2:
                     renewed.set()
-            return await original_hold(key, token, ttl=ttl)
+            return await original_hold(key, expected, token, ttl=ttl)
 
-        monkeypatch.setattr(sandbox_session_store, "hold", hold)
+        monkeypatch.setattr(sandbox_session_store, "compare_exchange", hold)
         async with session_registry.destruction_guard("long-kill") as allowed:
             assert allowed
             await asyncio.wait_for(renewed.wait(), timeout=1)
@@ -145,23 +145,23 @@ def test_destruction_guard_renews_long_controller_calls(monkeypatch, sandbox_ses
 
 def test_lost_destruction_guard_interrupts_kill_and_preserves_adopter(monkeypatch, sandbox_session_store):
     monkeypatch.setattr(session_registry, "_LOCK_RENEW_INTERVAL_S", 0.001)
-    original_hold = sandbox_session_store.hold
+    original_hold = sandbox_session_store.compare_exchange
 
     async def scenario():
         calls = 0
         key = session_registry._TRACK_KEY.format(sandbox_id="lost-kill")
 
-        async def hold(candidate, token, *, ttl):
+        async def hold(candidate, expected, token, *, ttl):
             nonlocal calls
             if candidate == key:
                 calls += 1
-                if calls > 1:
+                if calls >= 1:
                     await sandbox_session_store.drop(key)
                     await sandbox_session_store.put(key, "adopter", ttl=ttl)
                     return False
-            return await original_hold(candidate, token, ttl=ttl)
+            return await original_hold(candidate, expected, token, ttl=ttl)
 
-        monkeypatch.setattr(sandbox_session_store, "hold", hold)
+        monkeypatch.setattr(sandbox_session_store, "compare_exchange", hold)
         with pytest.raises(RuntimeError, match="destruction lease lost"):
             async with session_registry.destruction_guard("lost-kill") as allowed:
                 assert allowed

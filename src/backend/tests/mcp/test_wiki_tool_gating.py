@@ -22,10 +22,9 @@ BASE_TOOLS = {"retrieve_dataset_content", "list_datasets", "retrieve_local_kb"}
 
 
 async def _list_tool_names() -> set[str]:
-    """走 lowlevel handler，覆盖到真实的 list_tools 链路而不是内部函数。"""
-    handler = srv.mcp._mcp_server.request_handlers[types.ListToolsRequest]
-    result = await handler(types.ListToolsRequest(method="tools/list"))
-    return {tool.name for tool in result.root.tools}
+    """The public override is also used by the SDK tools/list handler."""
+    return {tool.name for tool in await srv.mcp.list_tools()}
+
 
 
 @pytest.fixture

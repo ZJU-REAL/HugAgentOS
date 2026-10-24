@@ -26,6 +26,7 @@ from typing import Any, Awaitable, Callable, List, Optional, Sequence, Tuple
 
 import pytz
 from core.db.engine import SessionLocal
+from core.db.threads import run_db
 from core.infra.ephemeral import get_ephemeral_state
 from core.infra.time import utc_now
 
@@ -163,7 +164,7 @@ async def drain_queue(
         processed = 0
         while True:
             async with sem:
-                item_id = claim()
+                item_id = await run_db(claim)
                 if item_id is None:
                     return processed
 
@@ -172,7 +173,7 @@ async def drain_queue(
                     if not allowed:
                         logger.info("[%s] budget exhausted: %s", log_tag, reason)
                         if on_budget_exhausted is not None:
-                            on_budget_exhausted(item_id, reason)
+                            await run_db(on_budget_exhausted, item_id, reason)
                         return processed
 
                 try:

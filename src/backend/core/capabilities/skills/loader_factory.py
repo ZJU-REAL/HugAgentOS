@@ -1,13 +1,12 @@
-"""loader factory responsibilities."""
+"""The process-wide skill loader instance."""
 from __future__ import annotations
-from core.capabilities.skills import loader as loader_module_
+from core.capabilities.skills import loader
 from typing import Optional
-from core.capabilities.skills import loader as loader_module
 
-global_loader: Optional[loader_module_.MultiSourceSkillLoader] = None
+global_loader: Optional[loader.MultiSourceSkillLoader] = None
 
 
-def get_skill_loader(reset: bool = False) -> loader_module_.MultiSourceSkillLoader:
+def get_skill_loader(reset: bool = False) -> loader.MultiSourceSkillLoader:
     """Get the global MultiSourceSkillLoader instance.
 
     Args:
@@ -18,5 +17,5 @@ def get_skill_loader(reset: bool = False) -> loader_module_.MultiSourceSkillLoad
     """
     global global_loader
     if global_loader is None or reset:
-        global_loader = loader_module_.MultiSourceSkillLoader()
+        global_loader = loader.MultiSourceSkillLoader()
     return global_loader

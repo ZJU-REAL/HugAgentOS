@@ -3,14 +3,14 @@ import os
 import uuid
 import base64
 from core.infra.http_errors import response_error
-from mcp.server.fastmcp.utilities.types import Image
+from mcp.server.mcpserver.utilities.types import Image
 from typing import Any
 import httpx
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.mcpserver import Context, MCPServer
 from extensions.mcp_servers._ports import PORTS
 from extensions.mcp_servers._serve import run
 
-mcp = FastMCP("browser-automation")
+mcp = MCPServer("browser-automation")
 
 async def call(ctx, action, resource_id=None, params=None, checkpoint_id=None):
     headers = ctx.request_context.request.headers

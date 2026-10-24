@@ -1,10 +1,4 @@
-"""思考正文必须真的流到界面上。
-
-Responses 有两条思考通道：``reasoning_summary_text`` 是删减过的摘要（OpenAI 返回的
-那条），``reasoning_text`` 是思考原文（自建推理服务返回的那条）。AgentScope 的解析器
-只认前者。实测自建 deepseekv4-flash-vision 一轮发 144 帧 ``reasoning_text.delta``，
-全被丢掉——界面上是一个空思考块，用户看到的现象是「调到思考为高，却根本没有思考」。
-"""
+"""Responses 思考事件原样交给实际解析器，保留条目身份、分段和增量。"""
 
 from __future__ import annotations
 
@@ -31,20 +25,47 @@ async def _drain(events):
 
 
 @pytest.mark.asyncio
-async def test_reasoning_text_deltas_reach_the_parser():
-    """原文通道的增量必须变成解析器认得的形状，否则思考一个字都到不了界面。"""
-    _, seen = await _drain(
-        [
-            _event("response.reasoning_text.delta", delta="先"),
-            _event("response.reasoning_text.delta", delta="想想"),
-            _event("response.output_text.delta", delta="答案"),
-        ]
-    )
+async def test_reasoning_events_keep_identity_and_parts_in_real_parser():
+    from datetime import datetime
+    from agentscope.model import OpenAIResponseModel
 
-    reasoning = [e for e in seen if e.type == "response.reasoning_summary_text.delta"]
-    assert [e.delta for e in reasoning] == ["先", "想想"]
-    # 原始事件不再重复下发，否则同一段思考会被累积两遍。
-    assert not [e for e in seen if e.type == "response.reasoning_text.delta"]
+    events = [
+        _event("response.reasoning_text.delta", item_id="rs_1", content_index=0, delta="先"),
+        _event("response.reasoning_text.delta", item_id="rs_1", content_index=0, delta="想想"),
+        _event("response.reasoning_text.delta", item_id="rs_1", content_index=1, delta="另一段"),
+        _event("response.reasoning_text.delta", item_id="rs_2", content_index=0, delta="另一条"),
+        _event("response.reasoning_summary_text.delta", item_id="rs_1", summary_index=0, delta="摘要"),
+        _event("response.output_text.delta", item_id="msg_1", content_index=0, delta="答案"),
+    ]
+    _, seen = await _drain(events)
+    assert all(actual is original for actual, original in zip(seen, events))
+    assert len(seen) == len(events)
+
+    class Stream:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        def __aiter__(self):
+            async def source():
+                for event in events:
+                    yield event
+            return source()
+
+    model = object.__new__(OpenAIResponseModel)
+    chunks = [
+        chunk async for chunk in model._parse_stream_response(
+            datetime.now(), _ReasoningItemCapture(Stream())
+        )
+    ]
+    blocks = [block for chunk in chunks for block in chunk.content]
+    thinking = [block for block in blocks if isinstance(block, ThinkingBlock)]
+    assert [block.thinking for block in thinking] == ["先", "想想", "另一段", "另一条", "摘要"]
+    assert thinking[0].id == thinking[1].id
+    assert len({block.id for block in thinking}) == 4
+    assert [block.text for block in blocks if isinstance(block, TextBlock)] == ["答案"]
 
 
 @pytest.mark.asyncio
@@ -60,10 +81,11 @@ async def test_other_events_pass_through_untouched():
 
 
 @pytest.mark.asyncio
-async def test_an_empty_delta_is_not_forwarded_as_thinking():
+async def test_an_empty_delta_is_preserved_for_native_parser():
     _, seen = await _drain([_event("response.reasoning_text.delta", delta="")])
 
-    assert seen == []
+    assert len(seen) == 1
+    assert seen[0].delta == ""
 
 
 @pytest.mark.asyncio
@@ -111,3 +133,23 @@ def test_the_encrypted_blob_is_never_shown_as_thinking():
     _attach_reasoning_items(blocks, items)
 
     assert blocks[0].thinking == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("interrupt", [False, True])
+async def test_capture_closes_upstream_on_completion_and_cancellation(interrupt):
+    import asyncio
+    from unittest.mock import AsyncMock
+    stream = SimpleNamespace(__aenter__=AsyncMock(), __aexit__=AsyncMock(return_value=False))
+    capture = _ReasoningItemCapture(stream)
+    if interrupt:
+        with pytest.raises(asyncio.CancelledError):
+            async with capture as entered:
+                assert entered is capture
+                raise asyncio.CancelledError()
+    else:
+        async with capture as entered:
+            assert entered is capture
+    stream.__aenter__.assert_awaited_once()
+    stream.__aexit__.assert_awaited_once()
+    assert stream.__aexit__.call_args.args[0] is (asyncio.CancelledError if interrupt else None)

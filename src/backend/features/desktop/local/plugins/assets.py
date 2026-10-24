@@ -21,9 +21,9 @@ logger = logging.getLogger(__name__)
 
 
 def _bundled_site_template() -> Optional[Path]:
-    """安装包里的 React 站点模板（``docker/site-template/``）。"""
+    """安装包里的 React 站点模板（``docker/sandbox/site-template/``）。"""
     # src/backend/features/desktop/local/plugins/assets.py → parents[6] = 仓库根
-    candidate = Path(__file__).resolve().parents[6] / "docker" / "site-template"
+    candidate = Path(__file__).resolve().parents[6] / "docker" / "sandbox" / "site-template"
     return candidate if (candidate / "init-react-site.sh").is_file() else None
 
 
@@ -42,7 +42,7 @@ def provision_site_template() -> bool:
     """
     source = _bundled_site_template()
     if source is None:
-        logger.warning("[device-assets] 安装包内未找到站点模板（docker/site-template/）")
+        logger.warning("[device-assets] 安装包内未找到站点模板（docker/sandbox/site-template/）")
         return False
     home = site_template_home()
     try:

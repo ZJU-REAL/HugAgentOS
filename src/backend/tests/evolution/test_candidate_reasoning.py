@@ -14,7 +14,7 @@ rather than merely sparse:
   hashed payload carried the evidence count.
 """
 from core.evolution.profiles import agent_profile as agent_profile_module
-from core.evolution.profiles import agent_profile_state as agent_profile_state_module
+from core.evolution.profiles import agent_profile_constants as agent_profile_state_module
 
 import pytest
 

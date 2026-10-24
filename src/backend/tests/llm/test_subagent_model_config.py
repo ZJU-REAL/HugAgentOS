@@ -11,6 +11,7 @@ from core.db.engine import get_db
 from core.models.repository import create_provider
 from core.models import config as model_config
 from core.models.config import ModelConfigService
+from tests.db_support import share_session
 
 
 @pytest.fixture
@@ -22,6 +23,7 @@ def model_api(db_session, monkeypatch):
     app.include_router(routes.router)
     app.dependency_overrides[require_system_settings] = lambda: None
     app.dependency_overrides[get_db] = lambda: db_session
+    share_session(monkeypatch, db_session)
     with TestClient(app) as client:
         yield client, service, db_session
 

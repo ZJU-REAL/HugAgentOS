@@ -1,4 +1,4 @@
-"""text parser responsibilities."""
+"""Decode plain-text files."""
 from __future__ import annotations
 
 

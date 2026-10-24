@@ -4,7 +4,7 @@ This is the machinery that makes the system learn rather than merely record, so
 the tests cover both directions: what must be promoted, and — more importantly —
 what must not be.
 """
-from core.evolution.cycle import patterns as patterns_module, promotion as promotion_module, promotion_state as promotion_state_module, retirement as retirement_module, promotion as P
+from core.evolution.cycle import patterns as patterns_module, promotion as promotion_module, promotion_constants as promotion_state_module, retirement as retirement_module, promotion as P
 
 import pytest
 

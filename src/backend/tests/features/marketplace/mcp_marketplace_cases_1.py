@@ -55,70 +55,35 @@ from tests.features.marketplace.mcp_marketplace_support import (
 )
 
 @pytest.mark.asyncio
-async def test_http_probe_uses_stateless_client_without_explicit_close(db, monkeypatch):
-    calls = {"connected": 0, "closed": 0, "is_stateful": None}
-
-    class FakeClient:
-        async def connect(self):
-            calls["connected"] += 1
-
-        async def list_tools(self):
-            return [SimpleNamespace(name="search", description="Search", inputSchema={})]
-
+async def test_http_probe_releases_its_discovery_resource(db, monkeypatch):
+    from mcp.types import Tool
+    from core.harness.registry import mcp_clients
+    calls = []
+    class Resource:
+        descriptors = [Tool(name="search", description="Search", input_schema={"type":"object"})]
         async def close(self):
-            calls["closed"] += 1
-
-    def _make_client(name, cfg, *, is_stateful=True, **kwargs):
-        calls["is_stateful"] = is_stateful
-        return FakeClient()
-
-    from core.harness.registry import mcp_clients as mcp_pool
-
-    monkeypatch.setattr(mcp_pool, "make_client", _make_client)
-    row = AdminMcpServer(
-        server_id="stateless_probe",
-        display_name="Stateless Probe",
-        transport="streamable_http",
-        url="https://mcp.example.test/mcp",
-        headers={},
-        is_enabled=True,
-    )
-
+            calls.append("closed")
+    async def discover(name, cfg):
+        calls.append(name)
+        return Resource()
+    monkeypatch.setattr(mcp_clients, "discover_tools", discover)
+    row = AdminMcpServer(server_id="probe", display_name="Probe", transport="streamable_http", url="https://mcp.example.test/mcp", headers={}, is_enabled=True)
     ok, error = await management.probe_mcp_connectivity(row)
-
-    assert ok is True
-    assert error == ""
-    assert calls == {"connected": 0, "closed": 0, "is_stateful": False}
+    assert ok and not error
+    assert calls == ["probe", "closed"]
     assert row.tools_json[0]["name"] == "search"
 
 
 @pytest.mark.asyncio
 async def test_http_probe_surfaces_401_instead_of_cancel_scope_noise(db, monkeypatch):
-    request = httpx.Request("POST", "https://mcp.example.test/mcp")
-    response = httpx.Response(401, request=request)
-    unauthorized = httpx.HTTPStatusError(
-        "401 Unauthorized",
-        request=request,
-        response=response,
-    )
-
-    class FakeClient:
-        async def list_tools(self):
-            raise BaseExceptionGroup(
-                "MCP request failed",
-                [
-                    unauthorized,
-                    asyncio.CancelledError("Cancelled via cancel scope deadbeef"),
-                ],
-            )
-
-    def _make_client(name, cfg, *, is_stateful=True, **kwargs):
-        assert is_stateful is False
-        return FakeClient()
-
-    from core.harness.registry import mcp_clients as mcp_pool
-
-    monkeypatch.setattr(mcp_pool, "make_client", _make_client)
+    import httpx2
+    request = httpx2.Request("POST", "https://mcp.example.test/mcp")
+    response = httpx2.Response(401, request=request)
+    unauthorized = httpx2.HTTPStatusError("401 Unauthorized", request=request, response=response)
+    async def discover(name, cfg):
+        raise BaseExceptionGroup("MCP request failed", [unauthorized, asyncio.CancelledError("Cancelled via cancel scope")])
+    from core.harness.registry import mcp_clients
+    monkeypatch.setattr(mcp_clients, "discover_tools", discover)
     row = AdminMcpServer(
         server_id="unauthorized_probe",
         display_name="Unauthorized Probe",
@@ -177,7 +142,6 @@ def test_runtime_query_credentials_are_encrypted_and_never_sent_as_headers():
         transport="streamable_http",
         url="https://mcp.amap.com/mcp?locale=zh-CN",
         headers=encrypted,
-        is_stable=False,
         is_enabled=True,
     )
     runtime_config = McpServerConfigService.get_instance()._row_to_config(row)
@@ -220,14 +184,14 @@ async def test_oauth_bundle_is_provider_neutral_and_never_sent_as_header():
         transport="streamable_http",
         url="https://mcp.example.test/mcp",
         headers=encrypted,
-        is_stable=False,
         is_enabled=True,
     )
     runtime_config = McpServerConfigService.get_instance()._row_to_config(row)
     assert "oauth_provider" in runtime_config
     assert "headers" not in runtime_config
-    client = make_client(row.server_id, runtime_config, is_stateful=False)
-    assert client.oauth_provider is runtime_config["oauth_provider"]
+    client = make_client(row.server_id, runtime_config)
+    assert client.mode == "auto"
+    assert client.server.args[1]["oauth_provider"] is runtime_config["oauth_provider"]
 
 
 @pytest.mark.asyncio
@@ -236,6 +200,7 @@ async def test_oauth_callback_and_status_are_shared_without_plaintext_code(monke
 
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     monkeypatch.setattr("core.infra.ephemeral.get_redis", lambda **_: fake_redis)
+    monkeypatch.setattr("core.infra.ephemeral.redis_configured", lambda: True)
     flow = oauth_service.OAuthInstallFlow(
         flow_id="mcpoauth_test",
         slug="gitlab-official",
@@ -267,7 +232,8 @@ async def test_oauth_start_hands_back_before_discovery_finishes(db, monkeypatch)
 
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     monkeypatch.setattr("core.infra.ephemeral.get_redis", lambda **_: fake_redis)
-    monkeypatch.setattr("core.capabilities.mcp.oauth_state.DISCOVERY_GRACE_SECONDS", 0.05)
+    monkeypatch.setattr("core.infra.ephemeral.redis_configured", lambda: True)
+    monkeypatch.setattr("core.capabilities.mcp.oauth.DISCOVERY_GRACE_SECONDS", 0.05)
     mcp_curated.ensure_curated_market_items(db)
 
     async def slow_discovery(flow):
@@ -280,7 +246,6 @@ async def test_oauth_start_hands_back_before_discovery_finishes(db, monkeypatch)
     monkeypatch.setattr(oauth_service, "run_flow", slow_discovery)
     try:
         started = await oauth_service.start_oauth_install(
-            db,
             slug="gitlab-official",
             owner_user_id="u1",
             installed_by="u1",
@@ -306,6 +271,7 @@ async def test_oauth_cancel_marks_flow_failed_and_wakes_worker(monkeypatch):
 
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     monkeypatch.setattr("core.infra.ephemeral.get_redis", lambda **_: fake_redis)
+    monkeypatch.setattr("core.infra.ephemeral.redis_configured", lambda: True)
     flow = oauth_service.OAuthInstallFlow(
         flow_id="mcpoauth_cancel",
         slug="gitlab-official",
@@ -434,7 +400,7 @@ async def test_self_service_mcp_uses_private_network_deployment_setting(
     async def _validate(url, **kwargs):
         validation.update(url=url, **kwargs)
 
-    async def _probe(row, _db):
+    async def _probe(row, **_options):
         row.tools_json = _tools("search")
         return True, ""
 
@@ -457,7 +423,6 @@ async def test_self_service_mcp_uses_private_network_deployment_setting(
             url="http://10.10.0.8/mcp",
         ),
         user=SimpleNamespace(user_id="u1"),
-        db=db,
     )
 
     assert validation == {

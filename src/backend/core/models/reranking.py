@@ -1,4 +1,4 @@
-"""vector reranking responsibilities."""
+"""Call the configured reranking service."""
 from __future__ import annotations
 import os
 import requests

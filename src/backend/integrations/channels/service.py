@@ -9,6 +9,7 @@ See internal design docs.
 
 from __future__ import annotations
 
+from core.db.threads import run_in_session
 import hashlib
 import json
 import logging
@@ -21,7 +22,6 @@ from core.auth.capabilities import resolve_user_capabilities
 from integrations.channels.registry import get_adapter, list_adapters
 from integrations.channels.models import ChannelConnection
 from integrations.channels.repository import ChannelConnectionRepository
-from core.infra.background import spawn
 from core.infra.crypto import encrypt_secret
 from core.infra.exceptions import (
     AccessDeniedError,
@@ -139,7 +139,7 @@ class ChannelService:
         return agent_id
 
     # ── Create / bind ───────────────────────────────────────────────────
-    async def create_bot(
+    def register_bot(
         self,
         owner_id: str,
         *,
@@ -156,6 +156,7 @@ class ChannelService:
         group_listen_mode: str = "mention_only",
         local_binding_id: Optional[str] = None,
     ) -> ChannelConnection:
+        """Validate and store a pending bot (credentials encrypted); returns it detached."""
         # 1. Capability bit
         caps = resolve_user_capabilities(self.db, owner_id)
         if not caps.get("can_create_channel_bot"):
@@ -213,21 +214,19 @@ class ChannelService:
             "enabled": True,
         })
 
-        # 5. Validate credentials (exchange for a token). Failure → mark error but keep the row (user can fix credentials and retry)
-        adapter = get_adapter(channel_type)
-        try:
-            await adapter.validate_credentials(conn)
-        except Exception as exc:  # noqa: BLE001
-            self.repo.set_status(channel_id, "error", last_error=str(exc)[:480])
-            raise BadRequestError(f"凭据校验失败：{exc}")
+        self.db.expunge(conn)
+        return conn
 
-        # 6. Start the long connection (not needed in webhook mode)
-        if transport == "long_conn":
-            self._start_long_conn(channel_id, channel_type)
-        else:
-            self.repo.set_status(channel_id, "connected")
+    def mark_connected(self, channel_id: str) -> ChannelConnection:
+        self.repo.set_status(channel_id, "connected")
+        return self.detached(channel_id)
 
-        self.db.refresh(conn)
+    def mark_failed(self, channel_id: str, error: Exception) -> None:
+        self.repo.set_status(channel_id, "error", last_error=str(error)[:480])
+
+    def detached(self, channel_id: str) -> ChannelConnection:
+        conn = self.repo.get_by_id(channel_id)
+        self.db.expunge(conn)
         return conn
 
     # ── Update / delete / test ──────────────────────────────────────────
@@ -280,70 +279,23 @@ class ChannelService:
             _manager().stop_connection(channel_id)
         self.repo.delete(channel_id)
 
-    async def test_bot(self, owner_id: str, channel_id: str) -> Dict[str, Any]:
+    def owned_detached(self, channel_id: str, owner_id: str) -> ChannelConnection:
         conn = self._owned(channel_id, owner_id)
-        adapter = get_adapter(conn.channel_type)
-        try:
-            await adapter.validate_credentials(conn)
-        except Exception as exc:  # noqa: BLE001
-            self.repo.set_status(channel_id, "error", last_error=str(exc)[:480])
-            raise BadRequestError(f"凭据校验失败：{exc}")
-        # Credentials and receiver health are separate. Only the receiver can prove
-        # that a long connection is running; an HTTP worker may not own that receiver.
-        if conn.enabled and conn.transport == "webhook":
-            self.repo.set_status(channel_id, "connected")
-        return {"ok": True}
+        self.db.expunge(conn)
+        return conn
 
     # ── WeChat QR-code binding (for qr-mode channels, no credential form) ─
-    async def start_weixin_bind(
-        self, owner_id: str, *, agent_id: Optional[str] = None, local_binding_id: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """Fetch the WeChat login QR code, stash the polling context in Redis (TTL), return {bind_id, qrcode_img}.
-
-        Non-empty ``agent_id`` (binding from the subagent page) → verify ownership and carry it
-        in the context to the poll phase, where it is written into the connection.
-        """
+    def admit_bind(self, owner_id: str, agent_id: Optional[str]) -> Optional[str]:
+        """Capability check for a new bot; returns the validated sub-agent id."""
         caps = resolve_user_capabilities(self.db, owner_id)
         if not caps.get("can_create_channel_bot"):
             raise AccessDeniedError("无权创建渠道机器人")
-        agent_id = self._validate_agent(owner_id, agent_id)
-        adapter = get_adapter("weixin")
-        try:
-            qr = await adapter.start_qr_bind()
-        except Exception as exc:  # noqa: BLE001
-            raise BadRequestError(f"获取微信二维码失败：{exc}")
-        bind_id = f"wxbind_{uuid.uuid4().hex[:16]}"
-        from core.infra.ephemeral import get_ephemeral_state
+        return self._validate_agent(owner_id, agent_id)
 
-        await get_ephemeral_state().put(
-            f"{_WEIXIN_BIND_PREFIX}{bind_id}",
-            json.dumps({"owner_id": owner_id, "qrcode": qr["qrcode"], "agent_id": agent_id, "local_binding_id": local_binding_id}),
-            ttl=_WEIXIN_BIND_TTL,
-        )
-        return {"bind_id": bind_id, "qrcode_img": qr.get("qrcode_img_content", "")}
-
-    async def poll_weixin_bind(self, owner_id: str, bind_id: str) -> Dict[str, Any]:
-        """Poll the QR-scan status; confirmed → persist ChannelConnection + start long polling, returns {status, channel_id?}."""
-        from core.infra.ephemeral import get_ephemeral_state
-
-        state = get_ephemeral_state()
-        key = f"{_WEIXIN_BIND_PREFIX}{bind_id}"
-        raw = await state.get(key)
-        ctx = json.loads(raw) if raw else None
-        if ctx is None or ctx.get("owner_id") != owner_id:
-            raise ResourceNotFoundError("weixin_bind", bind_id)
-        adapter = get_adapter("weixin")
-        try:
-            status = await adapter.poll_qr_status(ctx["qrcode"])
-        except Exception as exc:  # noqa: BLE001
-            raise BadRequestError(f"查询扫码状态失败：{exc}")
-        if status.get("status") != "confirmed":
-            return {"status": status.get("status") or "waiting"}
-        if not isinstance(status.get("bot_token"), str) or not status["bot_token"].strip():
-            raise BadRequestError("微信绑定未返回有效凭据，请重新扫码")
-
-        # confirmed → create the connection (app_id is derived from bot_token, satisfying the unique constraint)
-        await state.drop(key)
+    def record_weixin_bind(
+        self, owner_id: str, ctx: Dict[str, Any], status: Dict[str, Any]
+    ) -> tuple[str, bool]:
+        """Store a confirmed WeChat binding; returns ``(channel_id, created)``."""
         bot_token = status["bot_token"]
         app_id = f"wx_{hashlib.sha256(bot_token.encode()).hexdigest()[:24]}"
         existing = self.repo.get_by_app_id("weixin", app_id)
@@ -359,7 +311,7 @@ class ChannelService:
             if isinstance(user_id, str) and user_id.strip():
                 existing.config = {**(existing.config or {}), "ilink_user_id": user_id}
                 self.db.commit()
-            return {"status": "confirmed", "channel_id": existing.channel_id}
+            return existing.channel_id, False
         channel_id = f"chan_{uuid.uuid4().hex[:16]}"
         config = {"bot_token_enc": encrypt_secret(bot_token)}
         user_id = status.get("ilink_user_id")
@@ -383,17 +335,17 @@ class ChannelService:
             "status": "pending",
             "enabled": True,
         })
-        self._start_long_conn(channel_id, "weixin")
-        return {"status": "confirmed", "channel_id": channel_id}
+        return channel_id, True
 
     # ── Webhook entry (for webhook-mode channels) ──────────────────────
     def handle_webhook(
         self, channel_id: str, headers: Dict[str, str], body: bytes
-    ) -> Dict[str, Any]:
-        """Handle the webhook synchronously: URL verification returns the challenge; message events dispatch the async handle_inbound.
+    ) -> tuple[Dict[str, Any], Any]:
+        """Verify and parse a webhook delivery (database + crypto only).
 
-        Returns the response body (dict) sent back to the channel. Signature verification
-        failure raises AccessDeniedError.
+        Returns ``(response body for the channel, inbound message or None)``; the
+        caller dispatches the inbound message on the event loop. Signature
+        verification failure raises AccessDeniedError.
         """
         import json
 
@@ -414,18 +366,13 @@ class ChannelService:
         else:
             payload = json.loads(body or b"{}")
         if payload.get("type") == "url_verification":
-            return {"challenge": payload.get("challenge", "")}
+            return {"challenge": payload.get("challenge", "")}, None
 
         if not adapter.verify_webhook(conn, headers, body):
             raise AccessDeniedError("webhook 验签失败")
 
-        inbound = adapter.parse_inbound(conn, payload)
-        if inbound is None:
-            return {"code": 0}  # non-message event, ack
-        from integrations.channels.inbound import handle_inbound
-
-        spawn(handle_inbound(inbound), name="channel.handle_inbound")
-        return {"code": 0}
+        # A non-message event parses to None and is only acknowledged.
+        return {"code": 0}, adapter.parse_inbound(conn, payload)
 
     def handle_webhook_get(self, channel_id: str, params: Dict[str, str]) -> str:
         """GET URL verification (used when configuring the WeCom callback): verify the signature, then return the plaintext echostr.
@@ -446,11 +393,102 @@ class ChannelService:
             raise AccessDeniedError(f"URL 校验失败: {exc}")
 
     # ── Internal ────────────────────────────────────────────────────────
-    def _start_long_conn(self, channel_id: str, channel_type: str) -> None:
-        try:
-            _manager().start_connection(channel_id, channel_type)
-        except Exception:  # noqa: BLE001
-            logger.exception("[channels] 启动长连接失败 %s", channel_id)
+def _mark_failed(db: Session, channel_id: str, error: Exception) -> None:
+    ChannelService(db).mark_failed(channel_id, error)
+
+
+async def create_bot(owner_id: str, **fields: Any) -> ChannelConnection:
+    """Store a bot, check its credentials with the platform, then start receiving.
+
+    The credential check is a network call between two short database steps; a
+    failed check keeps the row (marked ``error``) so the owner can fix it.
+    """
+    conn = await run_in_session(lambda db: ChannelService(db).register_bot(owner_id, **fields))
+    try:
+        await get_adapter(conn.channel_type).validate_credentials(conn)
+    except Exception as exc:  # noqa: BLE001
+        await run_in_session(_mark_failed, conn.channel_id, exc)
+        raise BadRequestError(f"凭据校验失败：{exc}")
+    if conn.transport == "long_conn":
+        _start_long_conn(conn.channel_id, conn.channel_type)
+        return await run_in_session(lambda db: ChannelService(db).detached(conn.channel_id))
+    return await run_in_session(lambda db: ChannelService(db).mark_connected(conn.channel_id))
+
+
+async def test_bot(owner_id: str, channel_id: str) -> Dict[str, Any]:
+    conn = await run_in_session(lambda db: ChannelService(db).owned_detached(channel_id, owner_id))
+    try:
+        await get_adapter(conn.channel_type).validate_credentials(conn)
+    except Exception as exc:  # noqa: BLE001
+        await run_in_session(_mark_failed, channel_id, exc)
+        raise BadRequestError(f"凭据校验失败：{exc}")
+    # Credentials and receiver health are separate. Only the receiver can prove
+    # that a long connection is running; an HTTP worker may not own that receiver.
+    if conn.enabled and conn.transport == "webhook":
+        await run_in_session(lambda db: ChannelService(db).mark_connected(channel_id))
+    return {"ok": True}
+
+
+async def start_weixin_bind(
+    owner_id: str, *, agent_id: Optional[str] = None, local_binding_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Fetch the WeChat login QR code, stash the polling context in Redis (TTL), return {bind_id, qrcode_img}.
+
+    Non-empty ``agent_id`` (binding from the subagent page) → verify ownership and carry it
+    in the context to the poll phase, where it is written into the connection.
+    """
+    agent_id = await run_in_session(lambda db: ChannelService(db).admit_bind(owner_id, agent_id))
+    adapter = get_adapter("weixin")
+    try:
+        qr = await adapter.start_qr_bind()
+    except Exception as exc:  # noqa: BLE001
+        raise BadRequestError(f"获取微信二维码失败：{exc}")
+    bind_id = f"wxbind_{uuid.uuid4().hex[:16]}"
+    from core.infra.ephemeral import get_ephemeral_state
+
+    await get_ephemeral_state().put(
+        f"{_WEIXIN_BIND_PREFIX}{bind_id}",
+        json.dumps({"owner_id": owner_id, "qrcode": qr["qrcode"], "agent_id": agent_id, "local_binding_id": local_binding_id}),
+        ttl=_WEIXIN_BIND_TTL,
+    )
+    return {"bind_id": bind_id, "qrcode_img": qr.get("qrcode_img_content", "")}
+
+
+async def poll_weixin_bind(owner_id: str, bind_id: str) -> Dict[str, Any]:
+    """Poll the QR-scan status; confirmed → persist ChannelConnection + start long polling, returns {status, channel_id?}."""
+    from core.infra.ephemeral import get_ephemeral_state
+
+    state = get_ephemeral_state()
+    key = f"{_WEIXIN_BIND_PREFIX}{bind_id}"
+    raw = await state.get(key)
+    ctx = json.loads(raw) if raw else None
+    if ctx is None or ctx.get("owner_id") != owner_id:
+        raise ResourceNotFoundError("weixin_bind", bind_id)
+    adapter = get_adapter("weixin")
+    try:
+        status = await adapter.poll_qr_status(ctx["qrcode"])
+    except Exception as exc:  # noqa: BLE001
+        raise BadRequestError(f"查询扫码状态失败：{exc}")
+    if status.get("status") != "confirmed":
+        return {"status": status.get("status") or "waiting"}
+    if not isinstance(status.get("bot_token"), str) or not status["bot_token"].strip():
+        raise BadRequestError("微信绑定未返回有效凭据，请重新扫码")
+
+    # confirmed → create the connection (app_id is derived from bot_token, satisfying the unique constraint)
+    await state.drop(key)
+    channel_id, created = await run_in_session(
+        lambda db: ChannelService(db).record_weixin_bind(owner_id, ctx, status)
+    )
+    if created:
+        _start_long_conn(channel_id, "weixin")
+    return {"status": "confirmed", "channel_id": channel_id}
+
+
+def _start_long_conn(channel_id: str, channel_type: str) -> None:
+    try:
+        _manager().start_connection(channel_id, channel_type)
+    except Exception:  # noqa: BLE001
+        logger.exception("[channels] 启动长连接失败 %s", channel_id)
 
 
 def _manager():

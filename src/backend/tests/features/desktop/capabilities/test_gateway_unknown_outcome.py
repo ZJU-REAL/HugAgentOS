@@ -7,7 +7,7 @@ from agentscope.message import ToolCallBlock
 from agentscope.tool import Toolkit
 from core.llm.runtime.state import AgentRuntimeState
 from tests.orchestration.hook_support import durable_adapter
-from core.llm.mcp.pool import make_client
+from core.llm.tools.cloud_manifest import manifest_tools
 from core.db.models import ChatRun, ToolEffectLedger
 from core.runs.journal import RunJournal
 from core.runs.tool_effects.errors import ToolOutcomeUnknown
@@ -36,8 +36,8 @@ async def test_ambiguous_cloud_write_stops_run_without_committed_error_or_replay
             return httpx.Response(200, content=b"lost-result")
         return httpx.Response(int(failure), json={"detail": "upstream result unavailable"})
 
-    client = make_client("search", _config(httpx.MockTransport(upstream)), is_stateful=False)
-    toolkit = Toolkit(mcps=[client])
+    client = manifest_tools("search", _config(httpx.MockTransport(upstream)))
+    toolkit = Toolkit(tools=client)
     state = AgentRuntimeState(run_id="cloud-write", journal_owner="worker")
     middleware = durable_adapter(sessions)
 
@@ -80,9 +80,9 @@ async def test_rejected_write_does_not_claim_an_unknown_effect(monkeypatch, stat
     async def rejected(_request):
         return httpx.Response(status, json={"detail": "not authorized or stale schema"})
 
-    client = make_client("search", _config(httpx.MockTransport(rejected)), is_stateful=False)
+    client = manifest_tools("search", _config(httpx.MockTransport(rejected)))
     with pytest.raises(RuntimeError):
-        await (await client.get_tool("search"))(query="write")
+        await next(t for t in client if t.name == "search")(query="write")
 
 
 @pytest.mark.asyncio
@@ -94,9 +94,9 @@ async def test_read_only_timeout_remains_an_ordinary_recoverable_error(monkeypat
 
     config = _config(httpx.MockTransport(timeout))
     config["manifest_tools"][0]["annotations"] = {"readOnlyHint": True}
-    client = make_client("search", config, is_stateful=False)
+    client = manifest_tools("search", config)
     with pytest.raises(RuntimeError, match="调用超时"):
-        await (await client.get_tool("search"))(query="read")
+        await next(t for t in client if t.name == "search")(query="read")
 
 
 @pytest.mark.asyncio
@@ -116,7 +116,7 @@ async def test_stale_gateway_schema_refreshes_captured_account(monkeypatch):
     monkeypatch.setattr(bridge_client, "notify_cloud_changed", lambda: refreshes.append(True))
     async def stale(request):
         return httpx.Response(409, json={"detail": "schema changed"})
-    client = make_client("search", _config(httpx.MockTransport(stale)), is_stateful=False)
+    client = manifest_tools("search", _config(httpx.MockTransport(stale)))
     with pytest.raises(RuntimeError, match="正在同步最新能力"):
-        await (await client.get_tool("search"))(query="write")
+        await next(t for t in client if t.name == "search")(query="write")
     assert refreshes == [True]

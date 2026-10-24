@@ -13,7 +13,8 @@ from features.hosted_apps.data import ApplicationDataService
 from features.hosted_apps.schema import ToolDefinition
 from features.hosted_apps.store import applications
 from fastapi import HTTPException
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import Field
 from sqlalchemy import select
@@ -58,7 +59,7 @@ def query_tool(service: ApplicationDataService, app: dict, definition: ToolDefin
             offset=arguments.get("offset", 0),
         )
 
-    # FastMCP needs an explicit typed signature rather than opaque **kwargs.
+    # MCPServer needs an explicit typed signature rather than opaque **kwargs.
     from features.hosted_apps.relational import table_definition
 
     fields = {c.name: c for c in table_definition(app, definition.table).columns}
@@ -88,6 +89,20 @@ def query_tool(service: ApplicationDataService, app: dict, definition: ToolDefin
     return invoke
 
 
+class QueryMCPServer(MCPServer):
+    async def call_tool(self, name, arguments, context=None):
+        import jsonschema
+
+        schemas = {tool.name: tool.input_schema for tool in await self.list_tools()}
+        if name in schemas:
+            schema = {**schemas[name], "additionalProperties": False}
+            try:
+                jsonschema.validate(arguments, schema)
+            except jsonschema.ValidationError:
+                raise ToolError("Invalid query arguments") from None
+        return await super().call_tool(name, arguments, context)
+
+
 class ApplicationMCPGateway:
     """Each HTTP call reloads persisted authorization, so revocation works across workers."""
 
@@ -112,7 +127,7 @@ class ApplicationMCPGateway:
                 {"detail": error.detail}, error.status_code, headers={"WWW-Authenticate": "Bearer"}
             )(scope, receive, send)
             return
-        server = FastMCP(app["title"], host="0.0.0.0", stateless_http=True, json_response=True)
+        server = QueryMCPServer(app["title"])
         for raw in app["tools"]:
             definition = ToolDefinition.model_validate(raw)
             server.add_tool(
@@ -126,10 +141,7 @@ class ApplicationMCPGateway:
                     openWorldHint=False,
                 ),
             )
-            tool = server._tool_manager.get_tool(definition.name)
-            tool.fn_metadata.arg_model.model_config["extra"] = "forbid"
-            tool.fn_metadata.arg_model.model_rebuild(force=True)
-        transport = server.streamable_http_app()
+        transport = server.streamable_http_app(host="0.0.0.0", stateless_http=True, json_response=True)
         inner_scope = {**scope, "path": "/mcp", "raw_path": b"/mcp", "root_path": ""}
         async with server.session_manager.run():
             await transport(inner_scope, receive, send)

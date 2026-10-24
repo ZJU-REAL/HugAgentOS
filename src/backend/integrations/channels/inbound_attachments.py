@@ -5,13 +5,25 @@ from typing import Any, Dict, List
 from integrations.channels.protocol import InboundMsg
 from core.db.engine import SessionLocal
 from core.db.models import Artifact
+from core.db.threads import run_in_session
 from integrations.channels.models import ChannelConnection
 import logging
 logger = logging.getLogger(__name__)
 from integrations.channels import inbound_state
 
+def _store(db, owner_id, content, name, mime, chat_id, channel_id) -> str:
+    from core.files.artifacts.service import store_bytes_as_artifact
+
+    art = store_bytes_as_artifact(
+        db, user_id=owner_id, content=content, filename=name, mime_type=mime,
+        chat_id=chat_id, source="channel_upload",
+        extra={"channel_id": channel_id},
+    )
+    return art.artifact_id
+
+
 async def ingest_attachments(
-    db, adapter, conn: ChannelConnection, owner_id: str, chat_id: str, msg: InboundMsg
+    adapter, conn: ChannelConnection, owner_id: str, chat_id: str, msg: InboundMsg
 ) -> List[Dict[str, Any]]:
     """Download inbound attachments → store as Artifacts (mirrors /v1/file/upload) → return uploaded_files items.
 
@@ -21,7 +33,6 @@ async def ingest_attachments(
     download = getattr(adapter, "download_resource", None)
     if download is None or not msg.attachments:
         return []
-    from core.files.artifacts.service import store_bytes_as_artifact
 
     out: List[Dict[str, Any]] = []
     for att in msg.attachments:
@@ -31,14 +42,12 @@ async def ingest_attachments(
                 continue
             name = att.get("name") or "file.bin"
             mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
-            art = store_bytes_as_artifact(
-                db, user_id=owner_id, content=content, filename=name, mime_type=mime,
-                chat_id=chat_id, source="channel_upload",
-                extra={"channel_id": conn.channel_id},
+            artifact_id = await run_in_session(
+                _store, owner_id, content, name, mime, chat_id, conn.channel_id
             )
             out.append({
-                "file_id": art.artifact_id,
-                "download_url": f"/files/{art.artifact_id}",
+                "file_id": artifact_id,
+                "download_url": f"/files/{artifact_id}",
                 "name": name,
                 "mime_type": mime,
             })

@@ -10,7 +10,7 @@ import pytest
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit
 from features.desktop.capabilities import registry, runtime, skills
-from core.llm.runtime.tool_collector import ToolCollector
+from core.llm.factory.tools.definitions import ToolAssembly
 from core.llm.tools.skill_tool import register_sandboxed_view_text_file
 from core.capabilities.manifest_protocol import skill_content_hash
 
@@ -47,7 +47,7 @@ def frozen(index_db, caps_root, monkeypatch):
         if physical:
             original_get_dir = loader.get_skill_dir
             loader.get_skill_dir = lambda sid: str(Path(original_get_dir(sid)).resolve())
-        collector = ToolCollector()
+        collector = ToolAssembly()
         assert loader.register_skills_to_toolkit(collector, list(names)) == len(names)
         return prepared, loader, collector
 
@@ -75,7 +75,7 @@ async def test_real_factory_prompt_and_native_registry_preserve_two_custom_alias
             Path(loader.get_skill_dir(alias)).resolve()
         )
         assert native[alias].markdown == marker
-        loaded = await toolkit.builtin_skill_viewer.tool(alias, AgentState())
+        loaded = await toolkit.builtin_skill_viewer.tool.call(alias, AgentState())
         assert "\n".join(block.text for block in loaded.content) == marker
         assert "name: original-cloud-name" in (prepared.view_dir / alias / "SKILL.md").read_text()
     assert "- `original-cloud-name`" not in prompt
@@ -95,7 +95,7 @@ async def test_native_projection_is_detached_and_custom_alias_reads_frozen_bytes
     assert again["custom-local"].name == "custom-local"
     assert again["custom-local"].dir == str(Path(loader.get_skill_dir("custom-local")).resolve())
     register_sandboxed_view_text_file(collector, [loader.get_skill_dir("custom-local")], loader)
-    tool = collector.get_tool("view_text_file")._func
+    tool = next(t for t in collector if t.name == "view_text_file")._func
     response = await tool(str(Path(loader.get_skill_dir("custom-local")).resolve() / "SKILL.md"))
     assert "FROZEN_CONTENT" in "\n".join(block.text for block in response.content)
     denied = await tool(
@@ -143,7 +143,7 @@ def test_explicit_skill_hint_uses_authorized_alias_instead_of_store_revision(fro
 async def test_parallel_runtime_loader_order_bounds_and_failure():
     import asyncio
 
-    from core.llm.runtime.tool_collector import _ParallelRuntimeSkillLoader
+    from core.capabilities.skills.runtime_loader import ParallelRuntimeSkillLoader
 
     active = 0
     peak = 0
@@ -166,13 +166,13 @@ async def test_parallel_runtime_loader_order_bounds_and_failure():
             finally:
                 active -= 1
 
-    assert await _ParallelRuntimeSkillLoader([Loader(i) for i in range(8)]).list_skills() == list(
+    assert await ParallelRuntimeSkillLoader([Loader(i) for i in range(8)]).list_skills() == list(
         range(8)
     )
     assert peak <= 4
     seen.clear()
     with pytest.raises(RuntimeError, match="validation rejected"):
-        await _ParallelRuntimeSkillLoader([Loader(i, i == 2) for i in range(8)]).list_skills()
+        await ParallelRuntimeSkillLoader([Loader(i, i == 2) for i in range(8)]).list_skills()
     assert sorted(seen) == list(range(8))
     assert active == 0
 
@@ -180,12 +180,12 @@ async def test_parallel_runtime_loader_order_bounds_and_failure():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mutation", ["revoke", "corrupt"])
 async def test_desktop_batched_loader_matches_native_and_rechecks(frozen, monkeypatch, mutation):
-    from core.llm.runtime import tool_collector
+    from core.capabilities.skills import runtime_loader
 
     prepared, loader, collector = frozen({"alias": "BODY"})
     instance = collector.skill_loaders[0]
     expected = await instance.list_skills()
-    monkeypatch.setattr(tool_collector, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(runtime_loader, "os", SimpleNamespace(name="nt"))
     actual = await instance.list_skills()
     assert actual == expected
     actual[0].markdown = "poison"

@@ -8,8 +8,9 @@ from types import SimpleNamespace
 import pytest
 
 from tests.llm.local_project_test_support import local_project, pin_tool
-from core.llm.runtime.tool_collector import ToolCollector
+from core.llm.factory.tools.definitions import ToolAssembly
 from tests.llm.command_test_support import command_tool_state
+from tests.db_support import share_session
 
 
 def payload(result):
@@ -27,7 +28,7 @@ async def test_relative_write_lands_in_project_and_pin_keeps_original(local_proj
 
     source, scope = local_project
     destination = source.parent / "交付 results" / "report.html"
-    collector = ToolCollector()
+    collector = ToolAssembly()
     register_write(
         collector,
         chat_id="pin-chat",
@@ -50,7 +51,7 @@ async def test_relative_write_lands_in_project_and_pin_keeps_original(local_proj
     )
     try:
         result = payload(
-            await collector.get_tool("Write")._func(
+            await next(t for t in collector if t.name == "Write")._func(
                 file_path="交付 results/report.html", content="<h1>Project original</h1>"
             )
         )
@@ -110,7 +111,7 @@ async def local_tools(local_project, command_tool_state, tmp_path, monkeypatch):
     )
     provider = ScriptRunnerProvider()
     monkeypatch.setattr("core.sandbox.get_sandbox_provider", lambda: provider)
-    collector = ToolCollector()
+    collector = ToolAssembly()
     state = ReadStateTracker()
     common = dict(
         chat_id="pin-chat", sandbox_session_id="cwd-child", user_id="pin-user", scope=scope
@@ -119,7 +120,7 @@ async def local_tools(local_project, command_tool_state, tmp_path, monkeypatch):
         register(collector, state=state, **common)
     for register in (register_glob, register_grep):
         register(collector, **common)
-    register_bash(collector, loader=None, loaded_skill_ids=set(), **common)
+    register_bash(collector, loader=None, **common)
     register_pin_to_workspace(collector, scope=scope, sandbox_session_id="cwd-child")
     registry = ToolPermissionRegistry()
     for name, spec in collector.permission_specs.items():
@@ -143,7 +144,7 @@ async def local_tools(local_project, command_tool_state, tmp_path, monkeypatch):
             return outcome.payload
         token = CURRENT_PERMISSION_TICKET.set(outcome.ticket)
         try:
-            return payload(await collector.get_tool(name)._func(**args))
+            return payload(await next(t for t in collector if t.name == name)._func(**args))
         finally:
             CURRENT_PERMISSION_TICKET.reset(token)
 
@@ -232,6 +233,7 @@ with ZipFile(p/'delivery.zip', 'w') as z:
     app = FastAPI()
     app.include_router(files.router)
     app.dependency_overrides[get_db] = lambda: db_session
+    share_session(monkeypatch, db_session)
     headers = {
         "x-desktop-bridge": "cwd-e2e-bridge",
         "x-desktop-bridge-user": base64.b64encode(
@@ -371,6 +373,8 @@ async def test_real_factory_agent_uses_bound_project_for_file_and_bash(local_too
             return 0
 
     class ScriptedModel:
+        from agentscope.formatter import OpenAIChatFormatter
+        formatter = OpenAIChatFormatter()
         model = "cwd-e2e-scripted"
         context_size = 32768
         calls = 0

@@ -1,6 +1,7 @@
 """Host-owned execution identity contract for core model and tool operations."""
 from __future__ import annotations
 from contextlib import AbstractContextManager
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 
@@ -14,9 +15,6 @@ class ExecutionIdentity(Protocol):
     def cloud_headers(self, state: dict[str, Any]) -> dict[str, str]: ...
     def account_scope(self, state: dict[str, Any]) -> AbstractContextManager: ...
     def clear_state(self) -> None: ...
-
-
-
 
 
 def register_execution_identity(provider: ExecutionIdentity | None) -> None:
@@ -68,19 +66,13 @@ def notify_cloud_changed():
     return require_provider().notify_cloud_changed()
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-
-@state_dataclass
+@dataclass
 class RegistrationState:
-    """Process-owned registrations; replace only while the host is quiescent."""
     provider: ExecutionIdentity | None = None
 
 
-@state_cache(maxsize=1)
-def registration_state() -> RegistrationState:
-    return RegistrationState()
+_REGISTRATIONS = RegistrationState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-registration_state()
+
+def registration_state() -> RegistrationState:
+    return _REGISTRATIONS

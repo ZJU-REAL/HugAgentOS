@@ -1,4 +1,4 @@
-"""Plugin sources responsibilities."""
+"""Locate plugin bundles on disk and derive namespaced component ids."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from core.capabilities.plugins.packaging import definitions as plugin_definitions
 from core.capabilities.plugins.packaging.importer import ext_or_top as _ext_or_top, manifest_extensions
-from core.capabilities.skills.installation import compute_install_id as compute_install_id
+from core.capabilities.skills.installation import compute_install_id
 
 logger = logging.getLogger(__name__)
 

@@ -2,29 +2,18 @@
 from core.db.utc_datetime import UTCDateTime
 from core.infra.time import utc_now
 
-from datetime import datetime, timezone
 
 from core.db.engine import Base
-from core.db.edition import MarketplaceListingEditionFields
 from sqlalchemy import (
-    JSON,
     Boolean,
     CheckConstraint,
     Column,
-    ForeignKey,
     Index,
     Integer,
-    Numeric,
     String,
     Text,
-    UniqueConstraint,
-    text,
 )
-from sqlalchemy.dialects.postgresql import INET, JSONB
-from sqlalchemy.orm import mapped_column, relationship
-
-JSONType = JSON().with_variant(JSONB(), "postgresql")
-INETType = String(45).with_variant(INET(), "postgresql")
+from core.db.models.column_types import JSONType
 
 
 class AdminSkill(Base):
@@ -145,7 +134,6 @@ class AdminMcpServer(Base):
     env_vars = Column(JSONType, default=dict)
     env_inherit = Column(JSONType, default=list)
     headers = Column(JSONType, default=dict)
-    is_stable = Column(Boolean, nullable=False, default=True)
     is_enabled = Column(Boolean, nullable=False, default=True)
     sort_order = Column(Integer, nullable=False, default=0)
     extra_config = Column(JSONType, default=dict)
@@ -170,21 +158,6 @@ class AdminMcpServer(Base):
         Index("idx_admin_mcp_servers_owner_user_id", "owner_user_id"),
         Index("idx_admin_mcp_servers_source_plugin", "source_plugin"),
     )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 class InstalledPlugin(Base):

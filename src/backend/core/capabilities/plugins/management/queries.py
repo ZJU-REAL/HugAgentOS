@@ -1,4 +1,4 @@
-"""Plugin queries responsibilities."""
+"""List installed plugins and read their full details."""
 
 from __future__ import annotations
 

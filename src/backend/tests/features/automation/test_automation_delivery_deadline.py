@@ -1,4 +1,5 @@
 """Delivery deadlines cannot rewrite business outcomes or start later sends."""
+from tests.orchestration.automation_test_support import execute_queued
 
 import asyncio
 import threading
@@ -107,7 +108,7 @@ async def test_delivery_error_keeps_committed_success(live_env, monkeypatch):
     monkeypatch.setattr(automation_conversation, "execute_prompt", prompt)
     scheduler = AutomationScheduler()
     monkeypatch.setattr(scheduler, "_send_notification", fail)
-    await scheduler.execute_task(task_id, "owner")
+    await execute_queued(scheduler, task_id, "owner")
     with factory() as db:
         service = AutomationService(db)
         assert service.get_task_runs(task_id, "owner")[0].status == "success"
@@ -138,7 +139,7 @@ async def test_stale_executor_cannot_update_task_or_notify(live_env, monkeypatch
     monkeypatch.setattr(automation_conversation, "execute_prompt", prompt)
     scheduler = AutomationScheduler()
     monkeypatch.setattr(scheduler, "_send_notification", notify)
-    await scheduler.execute_task(task_id, "owner")
+    await execute_queued(scheduler, task_id, "owner")
     with factory() as db:
         service = AutomationService(db)
         run = service.get_task_runs(task_id, "owner")[0]

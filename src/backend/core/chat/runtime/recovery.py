@@ -13,6 +13,7 @@ import core.runs.settings as settings
 import core.runs.tasks as tasks
 from core.infra.logging import get_logger
 from core.runs.journal import RecoveryDecision
+from core.db.threads import run_in_session
 
 logger = get_logger(__name__)
 
@@ -24,7 +25,7 @@ async def recover_orphan_runs() -> int:
 
     # Desktop channel runs require a live device lease and a scoped I/O adapter.
     # Neither survives process restart. Fail closed before any tool-effect recovery.
-    with engine.SessionLocal() as db:
+    def _orphaned_channel_runs(db):
         local_channel_runs = [
             (run.run_id, run.chat_id)
             for run in db.query(models.ChatRun)
@@ -33,6 +34,8 @@ async def recover_orphan_runs() -> int:
             if (run.request_payload or {}).get("source") == "desktop_channel"
             and run.run_id not in tasks.process_state().active_runs
         ]
+        return local_channel_runs
+    local_channel_runs = await run_in_session(_orphaned_channel_runs)
     for run_id, chat_id in local_channel_runs:
         if ownership.journal().cancel(
             run_id, reason="desktop channel lease cannot survive process restart"

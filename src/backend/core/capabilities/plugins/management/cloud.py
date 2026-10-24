@@ -8,7 +8,7 @@ import tempfile
 import uuid
 from sqlalchemy import text
 from pathlib import Path
-from core.capabilities import archive as archive
+from core.capabilities import archive
 from core.capabilities.skills.binary_files import encode_upload
 from core.capabilities.plugins.management.package import snapshot
 from core.db.engine import SessionLocal

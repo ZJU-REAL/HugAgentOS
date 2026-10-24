@@ -5,7 +5,7 @@ still wrong — the class of defect that survives both code review and a green
 suite, because the code runs and produces output nobody checks against reality.
 """
 from core.evolution.cycle import cycle_extras as cycle_extras_module
-from core.evolution.cycle import cycle_extras_state as cycle_extras_state_module
+from core.evolution.cycle import cycle_extras_constants as cycle_extras_state_module
 from core.evolution.cycle import extra_findings as extra_findings_module
 from core.evolution.cycle import memory_findings as memory_findings_module
 from core.evolution.cycle import usage_evidence as usage_evidence_module

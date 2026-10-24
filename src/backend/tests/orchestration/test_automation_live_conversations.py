@@ -1,4 +1,5 @@
 """Scheduled runs expose the same live conversation boundary as interactive runs."""
+from tests.orchestration.automation_test_support import execute_queued
 from core.chat.projection.codec import chat_projection_codec
 
 import asyncio
@@ -81,7 +82,7 @@ async def test_running_scheduled_conversation_can_replay_progress_and_be_stopped
         return None
 
     monkeypatch.setattr(scheduler, "_send_notification", noop)
-    executing = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
+    executing = asyncio.create_task(execute_queued(scheduler, task_id, "owner"))
     try:
         await asyncio.wait_for(entered.wait(), 5)
         with factory() as db:
@@ -140,7 +141,7 @@ async def test_scheduled_prompt_accepts_instruction_and_delivers_final_segment(
         notices.append(args)
 
     monkeypatch.setattr(scheduler, "_send_notification", notify)
-    executing = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
+    executing = asyncio.create_task(execute_queued(scheduler, task_id, "owner"))
     try:
         await asyncio.wait_for(entered.wait(), 5)
         with factory() as db:
@@ -191,7 +192,7 @@ async def test_scheduler_waits_for_explicit_stop_without_execution_deadline(live
         return None
 
     monkeypatch.setattr(scheduler, "_send_notification", noop)
-    executing = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
+    executing = asyncio.create_task(execute_queued(scheduler, task_id, "owner"))
     try:
         await asyncio.sleep(0.6)
         assert not executing.done()
@@ -253,7 +254,7 @@ async def test_scheduled_plan_exposes_steps_and_preserves_background_profile(liv
         return None
 
     monkeypatch.setattr(scheduler, "_send_notification", noop)
-    executing = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
+    executing = asyncio.create_task(execute_queued(scheduler, task_id, "owner"))
     try:
         await asyncio.wait_for(entered.wait(), 5)
         with factory() as db:
@@ -293,10 +294,11 @@ async def test_scheduler_shutdown_and_admission_failure_release_locks(live_env, 
     def fail(*args, **kwargs):
         raise RuntimeError("database unavailable")
 
-    monkeypatch.setattr(AutomationService, "record_run_start", fail)
+    monkeypatch.setattr("features.automation.admission.admit", fail)
     with pytest.raises(RuntimeError, match="database unavailable"):
-        await scheduler.execute_task(task_id, "owner")
-    assert released == [task_id]
+        await execute_queued(scheduler, task_id, "owner")
+    assert released == []
+    assert not scheduler._leases
 
 
 @pytest.mark.asyncio
@@ -333,7 +335,7 @@ async def test_scheduled_plan_stop_settles_without_failure_increment(live_env, m
         return None
 
     monkeypatch.setattr(scheduler, "_send_notification", noop)
-    executing = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
+    executing = asyncio.create_task(execute_queued(scheduler, task_id, "owner"))
     await asyncio.wait_for(entered.wait(), 5)
     with factory() as db:
         chat_id = AutomationService(db).get_task_runs(task_id, "owner")[0].chat_id
@@ -348,7 +350,7 @@ async def test_scheduled_plan_stop_settles_without_failure_increment(live_env, m
 
 
 @pytest.mark.asyncio
-async def test_stopping_scheduler_fences_already_started_conversation(live_env, monkeypatch):
+async def test_stopping_scheduler_preserves_durable_child_for_recovery(live_env, monkeypatch):
     factory, _, task_id = live_env
     entered = asyncio.Event()
 
@@ -363,16 +365,19 @@ async def test_stopping_scheduler_fences_already_started_conversation(live_env, 
     async def noop(*args):
         return None
 
-    await scheduler.start()
-    scheduler._launch_execution(task_id, "owner")
+    from tests.orchestration.automation_test_support import request
+    request(task_id, "owner")
+    await scheduler._dispatch_pending()
     await asyncio.wait_for(entered.wait(), 5)
     await asyncio.wait_for(scheduler.stop(), 5)
     assert not scheduler._executions
     with factory() as db:
         run = AutomationService(db).get_task_runs(task_id, "owner")[0]
-        assert run.status == "failed"
+        assert run.status == "running"
         assert run.chat_id
-        assert runtime.get_active_run_for_chat(run.chat_id, "owner") is None
+        active = runtime.get_active_run_for_chat(run.chat_id, "owner")
+        assert active is not None
+    await runtime.cancel_run(active.run_id, user_id="owner")
 
 
 @pytest.mark.asyncio
@@ -444,7 +449,7 @@ async def test_scheduled_tool_result_is_durable_before_next_model_round(
         return None
 
     monkeypatch.setattr(scheduler, "_send_notification", noop)
-    executing = asyncio.create_task(scheduler.execute_task(task_id, "owner"))
+    executing = asyncio.create_task(execute_queued(scheduler, task_id, "owner"))
     try:
         await asyncio.wait_for(reached.wait(), 5)
         with factory() as db:

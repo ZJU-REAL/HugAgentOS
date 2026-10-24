@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import logging
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from core.config.settings import settings
@@ -88,24 +89,19 @@ class ConversationClassifier:
 # Singleton instance
 
 
-
 def get_classifier() -> ConversationClassifier:
     if process_state().classifier is None:
         process_state().classifier = ConversationClassifier()
     return process_state().classifier
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class ClassifierState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
     classifier: ConversationClassifier | None = None
 
-@state_cache(maxsize=1)
-def process_state() -> ClassifierState:
-    return ClassifierState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+_STATE = ClassifierState()
+
+
+def process_state() -> ClassifierState:
+    return _STATE

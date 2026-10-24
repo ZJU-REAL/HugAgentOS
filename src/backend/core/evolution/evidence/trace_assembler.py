@@ -24,7 +24,7 @@ import logging
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from core.db.engine import SessionLocal
 from core.db.models.evolution import EvolutionEpisode, EvolutionTraceEvent

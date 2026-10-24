@@ -78,8 +78,8 @@ def sandbox(monkeypatch):
     )
     Base.metadata.create_all(engine)
     session = sessionmaker(bind=engine)
-    for module in (runtime, state):
-        monkeypatch.setattr(module, "SessionLocal", session)
+    monkeypatch.setattr(state, "SessionLocal", session)
+    monkeypatch.setattr("core.db.engine.SessionLocal", session)
     monkeypatch.setattr(jobs_owner.process_state(), 'loop', None)
     monkeypatch.setattr(jobs_supervisor.process_state(), 'entries', {})
     box = Sandbox()

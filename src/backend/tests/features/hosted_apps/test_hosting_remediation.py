@@ -89,10 +89,10 @@ def test_anonymous_cannot_evict_recovery_baseline(hosted):
 async def test_mcp_limit_schema_has_bounds():
     from features.hosted_apps.mcp import query_tool
     from features.hosted_apps.schema import ToolDefinition, TableDefinition
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server.mcpserver import MCPServer
     app = {"tables": {"entries": TableDefinition(name="entries", columns=[{"name": "title"}]).model_dump()}}
     tool = ToolDefinition(name="entries", description="Read entries", table="entries", fields=["title"])
-    mcp = FastMCP("probe")
+    mcp = MCPServer("probe")
     mcp.add_tool(query_tool(None, app, tool))
-    schema = (await mcp.list_tools())[0].inputSchema["properties"]["limit"]
+    schema = (await mcp.list_tools())[0].input_schema["properties"]["limit"]
     assert schema["maximum"] == 100 and schema["minimum"] == 1

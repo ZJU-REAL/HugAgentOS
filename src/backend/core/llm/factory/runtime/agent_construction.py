@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import logging
 
-logger = logging.getLogger(__name__)
 import os
 
 from agentscope.agent import ReActConfig
-from agentscope.agent._config import ModelConfig
+from agentscope.agent import ModelConfig, InjectionConfig
 from core.llm.context.compacting_agent import CompactingAgent
 from core.llm.factory.request import AgentRequest
+
+logger = logging.getLogger(__name__)
 
 
 async def agent_construction(
@@ -93,7 +94,8 @@ async def agent_construction(
         state=_state,
         context_config=context_config,
         model_config=ModelConfig(max_retries=3, fallback_model=None),
-        react_config=ReActConfig(max_iters=_max_iters),
+        injection_config=InjectionConfig(inject_runtime_state=False),
+        react_config=ReActConfig(max_iters=_max_iters, interruption_raise_cancelled_error=True),
         offloader=_offloader,
     )
     # Compaction trigger accounting reuses the exact already-frozen execution

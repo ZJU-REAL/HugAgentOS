@@ -5,11 +5,9 @@ import asyncio
 import functools
 import logging
 import threading
+from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
-
-
-
 
 
 def bind():
@@ -65,19 +63,15 @@ def owned(func):
     return wrapper
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class OwnerState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
     loop: object = None
-    guard: object = state_field(default_factory=lambda: threading.Lock())
-    tasks: object = state_field(default_factory=lambda: set())
+    guard: object = field(default_factory=lambda: threading.Lock())
+    tasks: object = field(default_factory=lambda: set())
 
-@state_cache(maxsize=1)
+
+_STATE = OwnerState()
+
+
 def process_state() -> OwnerState:
-    return OwnerState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

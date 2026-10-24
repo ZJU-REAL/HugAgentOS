@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Optional
 
 from core.db.engine import SessionLocal
@@ -52,21 +52,40 @@ class ResolvedModelConfig:
     extra: dict = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class _Snapshot:
+    """One committed model configuration, published as a whole and never mutated.
+
+    ``revision`` is the database revision the rows were read under; ``None``
+    marks a snapshot that must not be trusted (nothing loaded yet, or a forced
+    reload).
+    """
+
+    revision: Optional[str]
+    version: int
+    roles: dict[str, ResolvedModelConfig] = field(default_factory=dict)
+    chat_providers: dict[str, ResolvedModelConfig] = field(default_factory=dict)
+    providers: dict[str, ResolvedModelConfig] = field(default_factory=dict)
+    chain: tuple[ResolvedModelConfig, ...] = ()
+
+
 class ModelConfigService:
-    """Thread-safe singleton that resolves role → model config from DB."""
+    """Thread-safe singleton that resolves role → model config from DB.
+
+    Every lookup compares the committed revision (one primary-key read) with the
+    snapshot it holds, so a change committed by any worker or process is seen
+    on the next lookup. Lookups never wait on each other: the snapshot is
+    swapped atomically, and only a revision mismatch takes the refresh lock,
+    which one thread holds while the others that saw the same mismatch wait for
+    its result instead of reading the tables again.
+    """
 
     _instance: Optional["ModelConfigService"] = None
     _lock = threading.Lock()
 
     def __init__(self) -> None:
-        self._cache: dict[str, Optional[ResolvedModelConfig]] = {}
-        self._revision: str | None = None
-        self._cache_lock = threading.RLock()
-        # All runtime views share one committed revision.
-        self._provider_cache: dict[str, Optional[ResolvedModelConfig]] = {}
-        # Failover candidate order belongs to the same snapshot.
-        self._chain_cache: Optional[list[ResolvedModelConfig]] = None
-        self._version: int = 0  # bumped on invalidate
+        self._snapshot = _Snapshot(revision=None, version=0)
+        self._refresh_lock = threading.Lock()
 
     @classmethod
     def get_instance(cls) -> "ModelConfigService":
@@ -78,55 +97,62 @@ class ModelConfigService:
 
     @property
     def version(self) -> int:
-        self._maybe_refresh()
-        return self._version
+        return self._current().version
 
     # ── resolve ────────────────────────────────────────────────────────
 
     def resolve(self, role_key: str) -> Optional[ResolvedModelConfig]:
-        with self._cache_lock:
-            self._maybe_refresh()
-            return self._cache.get(role_key)
+        return self._current().roles.get(role_key)
 
     def resolve_provider(self, provider_id: str) -> Optional[ResolvedModelConfig]:
-        with self._cache_lock:
-            self._maybe_refresh()
-            return self._provider_cache.get((provider_id or "").strip())
+        return self._current().chat_providers.get((provider_id or "").strip())
 
     def resolve_failover_chain(
         self, primary: Optional[ResolvedModelConfig]
     ) -> list[ResolvedModelConfig]:
-        with self._cache_lock:
-            self._maybe_refresh()
-            chain = [
-                cfg
-                for cfg in self._chain_cache or []
-                if primary is None or cfg.provider_id != primary.provider_id
-            ]
-            return ([primary] if primary else []) + chain
+        chain = [
+            cfg
+            for cfg in self._current().chain
+            if primary is None or cfg.provider_id != primary.provider_id
+        ]
+        return ([primary] if primary else []) + chain
 
     def invalidate_cache(self) -> None:
-        with self._cache_lock:
-            self._revision = None
-            self._version += 1
+        """Force the next lookup to reload, for rows written without a revision bump."""
+        # Under the refresh lock, so a reload already reading the old rows
+        # cannot publish them over this request.
+        with self._refresh_lock:
+            self._snapshot = replace(self._snapshot, revision=None)
 
-    def _maybe_refresh(self) -> None:
+    def _current(self) -> _Snapshot:
         from core.db.model_config_revision import read_revision
 
-        with self._cache_lock, SessionLocal() as db:
-            revision = read_revision(db)
-            if revision == self._revision:
-                return
-            # Read into a new snapshot, then publish under the same lock. An
-            # error propagates; it must not silently authorize stale models.
-            from core.db.model_config_revision import REVISION_KEY
+        snapshot = self._snapshot
+        observed = None
+        if snapshot.revision is not None:
+            with SessionLocal() as db:
+                observed = read_revision(db)
+            if observed == snapshot.revision:
+                return snapshot
+        with self._refresh_lock:
+            # A reload finished while this thread waited. It is current only if
+            # it carries the revision this lookup observed after it began.
+            current = self._snapshot
+            if observed is not None and current.revision == observed:
+                return current
+            # An error propagates; it must not silently authorize stale models.
+            self._snapshot = self._load(current.version + 1)
+            return self._snapshot
 
-            snapshot_revision = (
-                select(ContentBlock.payload)
-                .where(ContentBlock.id == REVISION_KEY)
-                .scalar_subquery()
-            )
-            # One SELECT has one MVCC snapshot even under READ COMMITTED.
+    def _load(self, version: int) -> _Snapshot:
+        from core.db.model_config_revision import REVISION_KEY
+
+        snapshot_revision = (
+            select(ContentBlock.payload).where(ContentBlock.id == REVISION_KEY).scalar_subquery()
+        )
+        with SessionLocal() as db:
+            # One SELECT has one MVCC snapshot even under READ COMMITTED, so the
+            # revision it carries is exactly the one these rows belong to.
             rows = (
                 db.query(ModelProvider, ModelRoleAssignment, snapshot_revision)
                 .outerjoin(
@@ -135,33 +161,35 @@ class ModelConfigService:
                 )
                 .all()
             )
-            providers = list({p.provider_id: p for p, _, _ in rows if p.is_active}.values())
-            resolved = {p.provider_id: self._provider_to_resolved(p) for p in providers}
-            roles = {
+            if rows:
+                revision = str((rows[0][2] or {}).get("revision", ""))
+            else:
+                from core.db.model_config_revision import read_revision
+
+                revision = read_revision(db)
+        providers = list({p.provider_id: p for p, _, _ in rows if p.is_active}.values())
+        resolved = {p.provider_id: self._provider_to_resolved(p) for p in providers}
+        chat = [p for p in providers if p.provider_type == "chat"]
+        ranked = sorted(
+            chat,
+            key=lambda p: (
+                -int(p.weight or 1),
+                -resolved[p.provider_id].context_length,
+                p.provider_id,
+            ),
+        )
+        return _Snapshot(
+            revision=revision,
+            version=version,
+            roles={
                 a.role_key: resolved[a.provider_id]
                 for _, a, _ in rows
                 if a is not None and a.provider_id in resolved
-            }
-            chat = {
-                p.provider_id: resolved[p.provider_id]
-                for p in providers
-                if p.provider_type == "chat"
-            }
-            if rows:
-                revision = str((rows[0][2] or {}).get("revision", ""))
-            ranked = sorted(
-                (p for p in providers if p.provider_type == "chat"),
-                key=lambda p: (
-                    -int(p.weight or 1),
-                    -resolved[p.provider_id].context_length,
-                    p.provider_id,
-                ),
-            )
-            self._cache = roles
-            self._provider_cache = chat
-            self._chain_cache = [resolved[p.provider_id] for p in ranked]
-            self._revision = revision
-            self._version += 1
+            },
+            chat_providers={p.provider_id: resolved[p.provider_id] for p in chat},
+            providers=resolved,
+            chain=tuple(resolved[p.provider_id] for p in ranked),
+        )
 
     @staticmethod
     def _provider_to_resolved(provider: ModelProvider) -> ResolvedModelConfig:
@@ -194,46 +222,17 @@ class ModelConfigService:
     def get_context_length_by_model_name(self, model_name: str) -> Optional[int]:
         """Look up the context length (tokens) by model_name.
 
-        Checks the role cache first, then falls back to scanning extra_config.context_length across all providers.
+        Role assignments win; any other active provider with that model name
+        (one not assigned to a role may still be referenced) is the fallback.
         Returns None when not configured (the caller decides its own fallback strategy).
         """
-        if not model_name:
-            return None
-        target = model_name.strip()
+        target = (model_name or "").strip()
         if not target:
             return None
-
-        self._maybe_refresh()
-        for cfg in self._cache.values():
-            if cfg is None:
-                continue
+        snapshot = self._current()
+        for cfg in (*snapshot.roles.values(), *snapshot.providers.values()):
             if cfg.model_name == target and cfg.context_length > 0:
                 return cfg.context_length
-
-        # Fallback: scan the providers table directly (a provider not assigned to any role may still be referenced)
-        try:
-            db = SessionLocal()
-            try:
-                rows = (
-                    db.query(ModelProvider)
-                    .filter(ModelProvider.model_name == target)
-                    .filter(ModelProvider.is_active == True)  # noqa: E712
-                    .all()
-                )
-                for provider in rows:
-                    extra = provider.extra_config or {}
-                    raw = extra.get("context_length")
-                    if raw:
-                        try:
-                            val = int(raw)
-                            if val > 0:
-                                return val
-                        except (TypeError, ValueError):
-                            continue
-            finally:
-                db.close()
-        except Exception as exc:
-            logger.debug("[ModelConfigService] context_length lookup failed: %s", exc)
         return None
 
     # ── MCP env overlay ───────────────────────────────────────────────

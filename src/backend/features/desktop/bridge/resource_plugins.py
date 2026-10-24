@@ -103,7 +103,6 @@ def local_config(server, user_id, profile):
             "url": _mcp_http_url(audience),
             "origin": "local_plugin",
             "execution_scope": "local",
-            "is_stable": False,
             "owner_user_id": user_id,
             "source_plugin": inst.key,
             "plugin_install_id": inst.install_id,

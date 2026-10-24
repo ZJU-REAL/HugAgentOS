@@ -338,7 +338,7 @@ class LiteLLMChatModel(
         response = await litellm.acompletion(**kwargs)
 
         if self.stream:
-            return self._parse_stream_response(start_datetime, response, "wav")
+            return self._parse_stream_response(start_datetime, response)
         return self._parse_completion_response(start_datetime, response, "wav")
 
 

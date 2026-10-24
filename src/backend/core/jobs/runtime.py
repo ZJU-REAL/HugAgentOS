@@ -3,16 +3,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass, field
 
 import core.jobs.owner as owner
 import core.jobs.process as process
 import core.jobs.state as state
 import core.jobs.supervisor as supervisor
-from core.db.engine import SessionLocal
 from core.jobs.store import JobService
+from core.db.threads import run_in_session
 
 logger = logging.getLogger(__name__)
-
 
 
 async def _launch(jid, user_id, *, resume=False):
@@ -54,7 +54,7 @@ async def start_job(
     start_params=None,
     interpreter="${PY_BIN:-python3}",
 ):
-    with SessionLocal() as db:
+    def _create_job(db):
         job = JobService(db).create(
             user_id=user_id,
             chat_id=chat_id,
@@ -66,6 +66,8 @@ async def start_job(
             start_params={**(start_params or {}), "interpreter": interpreter},
         )
         jid = job.job_id
+        return jid
+    jid = await run_in_session(_create_job)
     return await _launch(jid, user_id)
 
 
@@ -87,10 +89,11 @@ async def cancel_job(job_row_id, *, user_id):
     if not attempt:
         # Legacy nohup jobs have no attributable process handle. Never broad-kill
         # another job or claim to have stopped a process we cannot identify.
-        with SessionLocal() as db:
+        def _cancel_legacy_job(db):
             JobService(db).finish(
                 job_row_id, "cancelled", error="旧作业已撤销回调权限，进程状态无法确认"
             )
+        await run_in_session(_cancel_legacy_job)
         raise RuntimeError("旧作业已撤销回调权限，但无持久进程引用，无法确认停止；请勿自动重跑")
     state.finish(job_row_id, attempt, "cancelled", "用户取消", require_owner=False)
     state.take_control(job_row_id, attempt)
@@ -170,17 +173,13 @@ async def run_job_reaper_loop():
         await supervisor.shutdown()
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class RuntimeState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    launches: object = state_field(default_factory=lambda: {})
+    launches: object = field(default_factory=lambda: {})
 
-@state_cache(maxsize=1)
+
+_STATE = RuntimeState()
+
+
 def process_state() -> RuntimeState:
-    return RuntimeState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

@@ -1,7 +1,7 @@
-"""candidate records responsibilities."""
+"""Persist candidates and derive their attribution features."""
 from __future__ import annotations
-from core.evolution.cycle import patterns as patterns_module
-from core.evolution.cycle import promotion_state as promotion_state_module
+from core.evolution.cycle import patterns
+from core.evolution.cycle import promotion_constants
 from typing import Any, Dict, List, Optional
 from core.db.engine import SessionLocal
 from core.db.models.evolution import EvolutionCandidate
@@ -11,7 +11,7 @@ from core.evolution.cycle.release import DRAFT
 import logging
 logger = logging.getLogger(__name__)
 
-def features_for(pattern: patterns_module.Pattern) -> CreditFeatures:
+def features_for(pattern: patterns.Pattern) -> CreditFeatures:
     """Translate a discovered pattern into attribution features.
 
     Success-subsequence tool patterns no longer come through here: they are an
@@ -19,7 +19,7 @@ def features_for(pattern: patterns_module.Pattern) -> CreditFeatures:
     verdict to route them through the failure attributor is the exact move
     :func:`core.evolution.evidence.credit.aggregate_finding` exists to replace.
     """
-    if pattern.kind == promotion_state_module.PATTERN_REPEATED_FAILURE:
+    if pattern.kind == promotion_constants.PATTERN_REPEATED_FAILURE:
         return CreditFeatures(
             outcome_verdict="failed",
             outcome_confidence=0.8,

@@ -1,11 +1,11 @@
-"""content blocks responsibilities."""
+"""Export and import content blocks and the prompt pool as snapshots."""
 from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Mapping
 from core.db.models import ContentBlock
 from sqlalchemy.orm import Session
 from core.files.content import branding
-from core.files.content import content_blocks_state
+from core.files.content import content_blocks_constants
 
 class ContentSnapshotError(ValueError):
     """Raised when a docs content snapshot is invalid."""
@@ -21,7 +21,7 @@ def serialize_block(row: ContentBlock | None, alias: str | None = None) -> dict[
 
 def build_docs_snapshot(
     db: Session,
-    block_map: Mapping[str, str] = content_blocks_state.DOCS_BLOCK_MAP,
+    block_map: Mapping[str, str] = content_blocks_constants.DOCS_BLOCK_MAP,
 ) -> dict[str, Any]:
     """Build a portable JSON snapshot for content blocks.
 
@@ -32,7 +32,7 @@ def build_docs_snapshot(
     row_map = {row.id: row for row in rows}
 
     return {
-        "schema_version": content_blocks_state.SNAPSHOT_SCHEMA_VERSION,
+        "schema_version": content_blocks_constants.SNAPSHOT_SCHEMA_VERSION,
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "blocks": {
             alias: serialize_block(row_map.get(db_id), alias) for alias, db_id in block_map.items()
@@ -53,23 +53,23 @@ def parse_snapshot_datetime(value: Any) -> datetime | None:
 
 def normalize_docs_snapshot(
     snapshot: Mapping[str, Any],
-    block_map: Mapping[str, str] = content_blocks_state.DOCS_BLOCK_MAP,
+    block_map: Mapping[str, str] = content_blocks_constants.DOCS_BLOCK_MAP,
 ) -> dict[str, Any]:
     """Validate and normalize an incoming content snapshot."""
     if not isinstance(snapshot, Mapping):
         raise ContentSnapshotError("Snapshot body must be a JSON object")
 
-    schema_version = snapshot.get("schema_version", content_blocks_state.SNAPSHOT_SCHEMA_VERSION)
-    if schema_version != content_blocks_state.SNAPSHOT_SCHEMA_VERSION:
+    schema_version = snapshot.get("schema_version", content_blocks_constants.SNAPSHOT_SCHEMA_VERSION)
+    if schema_version != content_blocks_constants.SNAPSHOT_SCHEMA_VERSION:
         raise ContentSnapshotError(
-            f"Unsupported schema_version: {schema_version}. Expected {content_blocks_state.SNAPSHOT_SCHEMA_VERSION}"
+            f"Unsupported schema_version: {schema_version}. Expected {content_blocks_constants.SNAPSHOT_SCHEMA_VERSION}"
         )
 
     raw_blocks = snapshot.get("blocks")
     if not isinstance(raw_blocks, Mapping):
         raise ContentSnapshotError("Snapshot.blocks must be an object")
 
-    unknown_blocks = set(raw_blocks.keys()) - set(block_map.keys()) - content_blocks_state.RETIRED_BLOCK_ALIASES
+    unknown_blocks = set(raw_blocks.keys()) - set(block_map.keys()) - content_blocks_constants.RETIRED_BLOCK_ALIASES
     if unknown_blocks:
         raise ContentSnapshotError(
             f"Unknown blocks in snapshot: {', '.join(sorted(unknown_blocks))}"
@@ -84,7 +84,7 @@ def normalize_docs_snapshot(
             raise ContentSnapshotError(f"Snapshot block '{alias}' must be an object")
 
         payload = raw_block.get("payload", branding.default_payload(alias))
-        expected_type = dict if alias in content_blocks_state.DICT_PAYLOAD_BLOCKS else list
+        expected_type = dict if alias in content_blocks_constants.DICT_PAYLOAD_BLOCKS else list
         if not isinstance(payload, expected_type):
             kind = "object" if expected_type is dict else "list"
             raise ContentSnapshotError(f"Snapshot block '{alias}'.payload must be a {kind}")
@@ -103,7 +103,7 @@ def normalize_docs_snapshot(
         raise ContentSnapshotError("Snapshot.exported_at must be a string")
 
     return {
-        "schema_version": content_blocks_state.SNAPSHOT_SCHEMA_VERSION,
+        "schema_version": content_blocks_constants.SNAPSHOT_SCHEMA_VERSION,
         "exported_at": exported_at,
         "blocks": normalized_blocks,
     }
@@ -115,7 +115,7 @@ def import_docs_snapshot(
     *,
     overwrite: bool = True,
     default_updated_by: str | None = None,
-    block_map: Mapping[str, str] = content_blocks_state.DOCS_BLOCK_MAP,
+    block_map: Mapping[str, str] = content_blocks_constants.DOCS_BLOCK_MAP,
 ) -> dict[str, Any]:
     """Import a content snapshot into the current database."""
     normalized = normalize_docs_snapshot(snapshot, block_map=block_map)
@@ -163,7 +163,7 @@ def build_prompt_snapshot(db: Session) -> dict[str, Any]:
     Same format as the docs snapshot, but scoped to PROMPT_BLOCK_MAP so it can
     be migrated across environments independently of docs/page config.
     """
-    return build_docs_snapshot(db, block_map=content_blocks_state.PROMPT_BLOCK_MAP)
+    return build_docs_snapshot(db, block_map=content_blocks_constants.PROMPT_BLOCK_MAP)
 
 
 def import_prompt_snapshot(
@@ -179,5 +179,5 @@ def import_prompt_snapshot(
         snapshot,
         overwrite=overwrite,
         default_updated_by=default_updated_by,
-        block_map=content_blocks_state.PROMPT_BLOCK_MAP,
+        block_map=content_blocks_constants.PROMPT_BLOCK_MAP,
     )

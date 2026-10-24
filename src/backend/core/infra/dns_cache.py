@@ -29,12 +29,11 @@ import os
 import socket
 import threading
 import time
+from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Tuple
 
 DEFAULT_TTL_S = 300.0
 MAX_ENTRIES = 256
-
-
 
 
 _ttl_s = DEFAULT_TTL_S
@@ -94,19 +93,15 @@ def installed() -> bool:
     return process_state().original is not None
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class DnsCacheState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    lock: object = state_field(default_factory=lambda: threading.Lock())
-    cache: Dict[Tuple[Any, ...], Tuple[float, Any]] = state_field(default_factory=lambda: {})
+    lock: object = field(default_factory=lambda: threading.Lock())
+    cache: Dict[Tuple[Any, ...], Tuple[float, Any]] = field(default_factory=lambda: {})
     original: object = None
 
-@state_cache(maxsize=1)
-def process_state() -> DnsCacheState:
-    return DnsCacheState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+_STATE = DnsCacheState()
+
+
+def process_state() -> DnsCacheState:
+    return _STATE

@@ -44,7 +44,7 @@ async def test_device_gateway_maps_local_intent_before_cloud_mcp(effect_env, tmp
     from agentscope.message import TextBlock, ToolCallBlock, ToolResultState
     from agentscope.tool import Toolkit
     from agentscope.tool._response import ToolChunk
-    from core.llm.mcp.manager import GatewayMCPTool
+    from core.llm.tools.cloud_gateway import GatewayMCPTool
     from core.llm.runtime.state import AgentRuntimeState
     from tests.orchestration.hook_support import make_adapter, durable_adapter
     from features.desktop.capability.service import invoke_gateway_tool
@@ -60,15 +60,16 @@ async def test_device_gateway_maps_local_intent_before_cloud_mcp(effect_env, tmp
     raw = {"name": "create_scheduled_task", "inputSchema": {"type": "object", "properties": {}}}
 
     class CloudClient:
-        execution_timeout = 10
-        async def get_tool(self, name):
-            async def invoke(**args):
-                result = impl.create_task(user_id="user-1", **args)
-                return ToolChunk(content=[TextBlock(text=json.dumps(result))],
-                                 state=ToolResultState.SUCCESS if result["ok"] else ToolResultState.ERROR)
-            return invoke
-    monkeypatch.setattr('core.llm.mcp.pool.make_client', lambda *a, **kw: CloudClient())
+        async def __aenter__(self): return self
+        async def __aexit__(self, *exc): pass
+        async def call_tool(self, name, args):
+            from mcp.types import CallToolResult, TextContent
+            result = impl.create_task(user_id="user-1", **args)
+            return CallToolResult(content=[TextContent(text=json.dumps(result))], is_error=not result["ok"])
+    monkeypatch.setattr('core.llm.mcp.client.make_client', lambda *a, **kw: CloudClient())
 
+    # This ledger fixture has no configured connector/model credentials.
+    monkeypatch.setattr("features.desktop.capability.security._known_cloud_secrets", lambda *_a, **_kw: set())
     received = []
     async def endpoint(request):
         body = json.loads(request.content)
@@ -81,7 +82,7 @@ async def test_device_gateway_maps_local_intent_before_cloud_mcp(effect_env, tmp
             )
         return httpx.Response(200, json={"code": 200, "data": result})
 
-    tool = GatewayMCPTool(mcp_name="automation", tool=mcp.types.Tool.model_validate(raw),
+    tool = GatewayMCPTool(mcp_name="automation", tool=raw,
         invoke_url="https://cloud.invalid/api/v1/desktop/capability/gateway/automation/call",
         schema_hash="a"*64, headers={}, timeout=10, transport=httpx.MockTransport(endpoint))
     toolkit = Toolkit(tools=[tool])
@@ -93,7 +94,7 @@ async def test_device_gateway_maps_local_intent_before_cloud_mcp(effect_env, tmp
     request = {"tool_call": ToolCallBlock(id="gateway-call", name=tool.name,
         input=json.dumps({"cron_expression": "0 18 * * *", "prompt": "report"}))}
     first = [item async for item in middleware.on_acting(SimpleNamespace(state=state), request, invoke)]
-    assert first[-1].state == ToolResultState.SUCCESS
+    assert first[-1].state == ToolResultState.SUCCESS, first[-1]
     second = [item async for item in middleware.on_acting(SimpleNamespace(state=state), request, invoke)]
     assert second[-1].state == ToolResultState.SUCCESS
     assert len(received) == 1

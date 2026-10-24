@@ -4,7 +4,7 @@ Cloud Docker deployments in CE and EE default to S3-compatible storage. Desktop 
 
 Set STORAGE_TYPE=s3 and configure S3_ENDPOINT, S3_BUCKET, S3_REGION, S3_ACCESS_KEY and S3_SECRET_KEY. The backend and sandbox controller must reach the endpoint.
 
-The optional docker/compose.object-storage.yml starts an independent S3 service. It uses its own volume and does not publish host ports. It does not share Milvus storage.
+The optional docker/object-storage/compose.object-storage.yml starts an independent S3 service. It uses its own volume and does not publish host ports. It does not share Milvus storage.
 
 CE initialization generates separate random access and secret keys. Run python3 scripts/configure-ce-docker.py in a new CE checkout. It refuses to overwrite an existing .env.
 

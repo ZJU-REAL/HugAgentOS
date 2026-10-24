@@ -115,7 +115,7 @@ async def create_agent_executor(
     required_plugin_name: Optional[str] = None,
     required_plugin_skill_ids: Optional[List[str]] = None,
     required_plugin_mcp_ids: Optional[List[str]] = None,
-    # mode_spec: 对话模式的装配契约（core/services/chat_mode_service.ChatModeSpec）。
+    # mode_spec: 对话模式的装配契约（core.chat.mode_types.ChatModeSpec）。
     # 「模式」把原来写死的极速模式泛化成一张表：工具面 / 技能 / 插件 / 提示词 kind /
     # 迭代上限都由它给。turbo_mode 现在的含义是"这个模式要收窄工具面"，收窄成什么
     # 由 mode_spec 说了算。缺省（老调用方没传）时退回历史的 turbo.* 配置键读取，

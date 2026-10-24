@@ -3,12 +3,12 @@
 Reads the `dependencies` JSON column from every enabled `admin_skills` row,
 merges and deduplicates per ecosystem (pip / npm / apt), then writes:
 
-  - `<repo_root>/docker/requirements-skills.txt`   (pip)
-  - `<repo_root>/docker/package-skills.json`       (npm)
-  - `<repo_root>/docker/apt-skills.txt`            (apt)
+  - `<repo_root>/docker/sandbox/requirements-skills.txt`   (pip)
+  - `<repo_root>/docker/sandbox/package-skills.json`       (npm)
+  - `<repo_root>/docker/sandbox/apt-skills.txt`            (apt)
 
-These files are picked up by `docker/Dockerfile.script-runner` and
-`docker/Dockerfile.opensandbox` during the rebuild flow.
+These files are picked up by `docker/sandbox/Dockerfile.script-runner` and
+`docker/sandbox/Dockerfile.opensandbox` during the rebuild flow.
 """
 from __future__ import annotations
 
@@ -221,9 +221,9 @@ def write_manifests(
         raise FileNotFoundError(f"repo_root not found: {repo_root}")
 
     targets = {
-        "pip": root / "docker" / "requirements-skills.txt",
-        "npm": root / "docker" / "package-skills.json",
-        "apt": root / "docker" / "apt-skills.txt",
+        "pip": root / "docker" / "sandbox" / "requirements-skills.txt",
+        "npm": root / "docker" / "sandbox" / "package-skills.json",
+        "apt": root / "docker" / "sandbox" / "apt-skills.txt",
     }
     changed: List[str] = []
     for kind, path in targets.items():

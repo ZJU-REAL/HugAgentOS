@@ -2,7 +2,7 @@
 import asyncio
 from typing import Literal
 from pydantic import BaseModel, ConfigDict
-from mcp.server.fastmcp import Context
+from mcp.server.mcpserver import Context
 from mcp.types import ToolAnnotations
 from core.capabilities.plugins.management.contract import MANAGERS, tools
 from core.capabilities.plugins.management.errors import management_error

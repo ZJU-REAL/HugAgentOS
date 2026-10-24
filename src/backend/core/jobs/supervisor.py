@@ -15,8 +15,6 @@ STARTUP_SECONDS = 30.0
 PROGRESS_WAKE_SECONDS = 300.0
 
 
-
-
 def _notify(coro):
     async def deliver():
         try:
@@ -200,18 +198,14 @@ async def shutdown():
     await asyncio.gather(*notices, return_exceptions=True)
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class SupervisorState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    entries: object = state_field(default_factory=lambda: {})
-    notifications: object = state_field(default_factory=lambda: set())
+    entries: object = field(default_factory=lambda: {})
+    notifications: object = field(default_factory=lambda: set())
 
-@state_cache(maxsize=1)
+
+_STATE = SupervisorState()
+
+
 def process_state() -> SupervisorState:
-    return SupervisorState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

@@ -74,7 +74,7 @@ def test_bundle_manifest_is_wellformed():
     assert manifest["name"] == "agent-manager"
     ext_mcp = manifest["extensions"]["org.hugagent"]["mcp"]
     assert set(ext_mcp) == set(mcp_json["mcpServers"]), "扩展段的服务名必须与 mcp.json 一一对应"
-    assert mcp_json["mcpServers"]["agent_manager"]["url"] == "http://mcp:9115/mcp/"
+    assert mcp_json["mcpServers"]["agent_manager"]["url"] == "http://mcp:9115/mcp"
 
     # The declared tool list must match what the server actually exposes — a manifest that
     # advertises a tool the server doesn't have is a silently broken promise to the model.
@@ -141,7 +141,7 @@ def test_install_plugin_creates_rows_and_is_agent_visible(am_env):
         mcp = mcps[0]
         assert mcp.owner_user_id == OWNER
         assert mcp.transport == "streamable_http"
-        assert mcp.url == "http://mcp:9115/mcp/"
+        assert mcp.url == "http://mcp:9115/mcp"
         assert mcp.is_enabled is True  # http MCP is not needs_runtime → enabled upon install
         assert len(mcp.tools_json) == 8
         assert plugin is not None

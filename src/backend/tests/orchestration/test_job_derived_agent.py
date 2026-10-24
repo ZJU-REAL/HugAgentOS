@@ -350,7 +350,8 @@ def submitted_job(monkeypatch):
     monkeypatch.setattr(run_journal, "durable_run_binding", binding)
 
     class Toolkit:
-        def register_tool_function(self, fn):
+        def append(self, tool):
+            fn = tool._func
             self.call = fn
 
     runtime = snapshot_parent_runtime(

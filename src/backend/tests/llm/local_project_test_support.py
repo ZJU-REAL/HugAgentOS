@@ -11,7 +11,7 @@ from core.db.models import Project, UserShadow, ChatSession
 
 from core.llm.runtime import workspace
 
-from core.llm.runtime.tool_collector import ToolCollector
+from core.llm.factory.tools.definitions import ToolAssembly
 
 from core.llm.tools.pin_tool import register_pin_to_workspace
 
@@ -83,7 +83,7 @@ def local_project(tmp_path, db_session, monkeypatch):
 
 
 def pin_tool(scope, session_id=None):
-    collector = ToolCollector()
+    collector = ToolAssembly()
     register_pin_to_workspace(collector, scope=scope, sandbox_session_id=session_id)
 
     async def invoke(**args):
@@ -108,7 +108,7 @@ def pin_tool(scope, session_id=None):
             raise PermissionError(str(outcome.payload))
         token = CURRENT_PERMISSION_TICKET.set(outcome.ticket)
         try:
-            return await collector.get_tool("pin_to_workspace")._func(**args)
+            return await next(t for t in collector if t.name == "pin_to_workspace")._func(**args)
         finally:
             CURRENT_PERMISSION_TICKET.reset(token)
 

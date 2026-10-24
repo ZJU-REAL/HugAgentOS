@@ -1,12 +1,12 @@
-"""prompt files responsibilities."""
+"""Read prompt parts from markdown files on disk."""
 from __future__ import annotations
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from core.llm import prompt_kinds as prompt_kinds_module
-from core.llm import prompt_storage as prompt_storage_module
-from core.llm import prompt_versions_state as prompt_versions_state_module
+from core.llm import prompt_kinds
+from core.llm import prompt_storage
+from core.llm import prompt_versions_state
 
 def backend_root() -> Path:
     # src/backend
@@ -14,7 +14,7 @@ def backend_root() -> Path:
 
 
 def fs_dir(kind: str) -> Path:
-    spec = prompt_kinds_module.KIND_SPECS.get(kind)
+    spec = prompt_kinds.KIND_SPECS.get(kind)
     if spec is None:
         raise ValueError(f"unknown kind: {kind}")
     if spec.root is not None:
@@ -53,15 +53,15 @@ def read_fs_parts(kind: str) -> List[Dict[str, Any]]:
     """
     dirp = fs_dir(kind)
     sig = fs_signature(dirp)
-    with prompt_versions_state_module.process_state().fs_parts_cache_lock:
-        cached = prompt_versions_state_module.process_state().fs_parts_cache.get(kind)
+    with prompt_versions_state.process_state().fs_parts_cache_lock:
+        cached = prompt_versions_state.process_state().fs_parts_cache.get(kind)
         if cached is not None and cached[0] == sig:
-            return prompt_storage_module.clone(cached[1])
+            return prompt_storage.clone(cached[1])
 
     parts = build_fs_parts(kind, dirp, [name for name, _, _ in sig])
-    with prompt_versions_state_module.process_state().fs_parts_cache_lock:
-        prompt_versions_state_module.process_state().fs_parts_cache[kind] = (sig, parts)
-    return prompt_storage_module.clone(parts)
+    with prompt_versions_state.process_state().fs_parts_cache_lock:
+        prompt_versions_state.process_state().fs_parts_cache[kind] = (sig, parts)
+    return prompt_storage.clone(parts)
 
 
 def prompt_part_id(filename: str) -> str:
@@ -72,7 +72,7 @@ def prompt_part_id(filename: str) -> str:
 
 
 def build_fs_parts(kind: str, dirp: Path, files: List[str]) -> List[Dict[str, Any]]:
-    layout = prompt_kinds_module.KIND_SPECS[kind].layout
+    layout = prompt_kinds.KIND_SPECS[kind].layout
 
     if layout == "single":
         fname = f"{kind}.system.md"
@@ -122,13 +122,13 @@ def build_fs_parts(kind: str, dirp: Path, files: List[str]) -> List[Dict[str, An
 
 def default_version_for_kind(kind: str, version_id: Optional[str] = None) -> Dict[str, Any]:
     """Build a new version dict from filesystem for a given kind."""
-    spec = prompt_kinds_module.KIND_SPECS.get(kind)
+    spec = prompt_kinds.KIND_SPECS.get(kind)
     if spec is None:
         raise ValueError(f"unknown kind: {kind}")
 
     now = datetime.now(timezone.utc).isoformat()
     return {
-        "id": version_id or prompt_versions_state_module.DEFAULT_VERSION_ID,
+        "id": version_id or prompt_versions_state.DEFAULT_VERSION_ID,
         "kind": kind,
         "name": spec.name,
         "description": spec.desc,

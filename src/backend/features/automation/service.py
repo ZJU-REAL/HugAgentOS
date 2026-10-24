@@ -32,9 +32,8 @@ def _channel_target_fields(extra_data: Optional[Dict[str, Any]]) -> Dict[str, An
     """Parse the first channel delivery target from a task's extra_data, filling in
     {channel_id, conversation_id}.
 
-    Handles both the delivery_targets list and the old flat form (resolve_delivery_targets
-    unifies them). No channel target → both are None (= site-internal only). Exposed via
-    task_to_dict to backfill the frontend edit form.
+    Reads delivery_targets for the frontend edit form. Without a channel target,
+    both fields are None.
     """
     try:
         from features.automation.delivery_targets import resolve_delivery_targets
@@ -256,18 +255,6 @@ class AutomationService:
 
     # ── Due tasks (for scheduler) ──────────────────────────────────
 
-    def get_due_tasks(self, now: datetime) -> List[ScheduledTask]:
-        # Manual-type tasks are never auto-fired; they can only be triggered via /trigger.
-        return (
-            self.db.query(ScheduledTask)
-            .filter(
-                ScheduledTask.status == "active",
-                ScheduledTask.schedule_type != "manual",
-                ScheduledTask.next_run_at <= now,
-            )
-            .all()
-        )
-
     @staticmethod
     def _is_oneshot_done(task: ScheduledTask) -> bool:
         """True when no more runs are scheduled after the current one
@@ -280,30 +267,6 @@ class AutomationService:
             or (not task.recurring)
             or bool(task.max_runs and (task.run_count or 0) >= task.max_runs)
         )
-
-    def advance_next_run(self, task_id: str) -> None:
-        task = self.get_task_by_id(task_id)
-        if not task:
-            return
-        task.run_count = (task.run_count or 0) + 1
-
-        # Manual tasks: stay active, no next_run_at, run_count just grows.
-        if task.schedule_type == "manual":
-            task.next_run_at = None
-        # One-shot / max_runs reached: clear next_run_at so the schedule stops
-        # re-firing. Do NOT flip status to "completed" here — this runs as a
-        # PRE-advance (before execute_task), and execute_task's guard refuses any
-        # task whose status isn't active/paused. Marking it completed now would
-        # make the executor skip the very run it just fired (never records a run,
-        # never delivers to the channel). Terminal status is set AFTER the run by
-        # finalize_after_run().
-        elif self._is_oneshot_done(task):
-            task.next_run_at = None
-        else:
-            task.next_run_at = scheduling.compute_next_run(task.cron_expression, task.timezone)
-
-        task.updated_at = datetime.now(timezone.utc)
-        self.db.commit()
 
     def request_manual_trigger(self, task: ScheduledTask) -> None:
         """登记一次「立即执行」，留给调度器取走。
@@ -318,44 +281,9 @@ class AutomationService:
         task.updated_at = task.manual_trigger_at
         self.db.commit()
 
-    def take_manual_triggers(self) -> List[Tuple[str, str]]:
-        """取走所有待执行的手动触发，返回 (task_id, user_id)。
-
-        一条语句取走并清空，取到即归本次调用所有，不必再加行锁。
-        """
-        taken = self.db.execute(
-            update(ScheduledTask)
-            .where(ScheduledTask.manual_trigger_at.isnot(None))
-            .values(manual_trigger_at=None)
-            .returning(ScheduledTask.task_id, ScheduledTask.user_id)
-        ).all()
-        self.db.commit()
-        return [(row.task_id, row.user_id) for row in taken]
-
-    def bump_run_count(self, task_id: str) -> None:
-        """手动触发路径专用的计数递增。
-
-        run_count 原本只在 advance_next_run 里 +1，而那是**调度器轮询**的前置步骤。
-        手动「立即执行」和 schedule_type='manual' 的任务根本不走调度器（get_due_tasks
-        把 manual 排除在外），于是这些执行只落了一条 run 记录、累计次数却纹丝不动——
-        详情页出现「有 5 条执行记录、累计执行 0 次」的自相矛盾。
-
-        这里不动调度器那条路径的语义（那边 +1 与 next_run_at 推进必须原子发生），
-        只补上手动触发这一路的计数。
-        """
-        self.db.execute(
-            update(ScheduledTask)
-            .where(ScheduledTask.task_id == task_id)
-            .values(
-                run_count=func.coalesce(ScheduledTask.run_count, 0) + 1,
-                updated_at=datetime.now(timezone.utc),
-            )
-        )
-        self.db.commit()
-
     def finalize_after_run(self, task_id: str) -> None:
         """Mark one-shot / exhausted tasks 'completed' once their run has
-        finished. Recurring tasks stay active (advance_next_run already moved
+        finished. Recurring tasks stay active (admission already moved
         their next_run_at forward). Never overrides an auto-disabled task."""
         task = self.get_task_by_id(task_id)
         if not task or task.status == "disabled":
@@ -367,11 +295,6 @@ class AutomationService:
             self.db.commit()
 
     # ── Run history ───────────────────────────────────────────────
-
-    def record_run_start(self, task_id: str, *, lease_token=None) -> ScheduledTaskRun:
-        from .runs import AutomationRunRepository
-
-        return AutomationRunRepository(self.db).start(task_id, lease_token)
 
     def record_run_complete(
         self,
@@ -453,7 +376,7 @@ class AutomationService:
             "description": task.description,
             "sidebar_activated": bool(task.sidebar_activated),
             # Channel delivery target (for frontend edit backfill): parse the first channel
-            # target from delivery_targets / the old flat channel_id. None if absent (= site-internal only).
+            # target from delivery_targets. None if absent (= site-internal only).
             **_channel_target_fields(task.extra_data),
             "created_at": task.created_at.isoformat() if task.created_at else None,
             "updated_at": task.updated_at.isoformat() if task.updated_at else None,

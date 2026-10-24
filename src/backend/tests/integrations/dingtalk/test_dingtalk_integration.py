@@ -11,6 +11,7 @@ import json
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from core.db.engine import Base
 import core.db.models  # noqa: F401  ensure all models are registered (FK depends on users_shadow)
@@ -31,7 +32,9 @@ except ModuleNotFoundError:
 @pytest.fixture
 def db(monkeypatch):
     monkeypatch.delenv("HUGAGENT_CAPS_ROOT", raising=False)
-    eng = create_engine("sqlite:///:memory:")
+    eng = create_engine(
+        "sqlite:///:memory:", poolclass=StaticPool, connect_args={"check_same_thread": False}
+    )
     Base.metadata.create_all(eng)
     sessions = sessionmaker(bind=eng)
     monkeypatch.setattr("core.db.engine.SessionLocal", sessions)
@@ -204,7 +207,7 @@ def test_settings_dws_arch_flag():
 
 def test_dingtalk_seeded_in_system_configs():
     # Custom App credentials go through system-config dingtalk.* keys (configured visually in the Config admin platform, not in .env)
-    from core.config.store.system_config_state import SEED_CONFIGS
+    from core.config.store.system_config_constants import SEED_CONFIGS
 
     keys = {row[0] for row in SEED_CONFIGS}
     assert {"dingtalk.client_id", "dingtalk.client_secret", "dingtalk.trusted_domains"} <= keys
@@ -258,11 +261,12 @@ def test_connection_repo_ensure_and_update(db):
     assert rec2.granted_scopes == ["a", "b"]
 
 
-def test_connection_status_dict(db):
+@pytest.mark.asyncio
+async def test_connection_status_dict(db):
     from integrations.dingtalk.service import DingTalkService
 
-    svc = DingTalkService(db)
-    data = svc.get_status("u1")
+    svc = DingTalkService()
+    data = await svc.get_status("u1")
     assert data["status"] == "disconnected"
     assert data["granted_scopes"] == []
     assert "verification_url" in data
@@ -270,7 +274,8 @@ def test_connection_status_dict(db):
     assert data["qr_data_uri"] is None  # QR code is not rendered when not pending
 
 
-def test_status_dict_renders_qr_when_pending(db):
+@pytest.mark.asyncio
+async def test_status_dict_renders_qr_when_pending(db):
     from integrations.dingtalk.service import DingTalkService
     from integrations.dingtalk.parsing import make_qr_data_uri
 
@@ -286,7 +291,7 @@ def test_status_dict_renders_qr_when_pending(db):
             "login_user_code": "AB-12",
         },
     )
-    data = DingTalkService(db).get_status("u1")
+    data = await DingTalkService().get_status("u1")
     assert data["status"] == "pending"
     assert (data["qr_data_uri"] or "").startswith("data:image/svg+xml")
 

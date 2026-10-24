@@ -29,7 +29,8 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Dict, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Dict, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,6 @@ STATUS_REVERTED = "reverted"
 MIN_WEIGHT = 0.05
 
 _CACHE_TTL_S = 30.0
-
 
 
 def _cache_key(user_id: str, workspace_id: str) -> str:
@@ -156,18 +156,13 @@ def apply_overlay(
     return kept
 
 
-
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class WeightsState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    cache: Dict[str, Tuple[float, Dict[str, float], set]] = state_field(default_factory=lambda: {})
+    cache: Dict[str, Tuple[float, Dict[str, float], set]] = field(default_factory=lambda: {})
 
-@state_cache(maxsize=1)
+
+_STATE = WeightsState()
+
+
 def process_state() -> WeightsState:
-    return WeightsState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

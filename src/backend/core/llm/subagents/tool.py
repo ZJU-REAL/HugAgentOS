@@ -5,33 +5,29 @@ anyio cancel-scope cross-task errors from MCP clients.
 """
 
 from __future__ import annotations
+from core.llm.factory.tools.definitions import function_tool
 from core.harness import log_writer
 
 import asyncio
 import logging
-import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
 
 from agentscope.message import TextBlock
 from agentscope.tool import Toolkit
 
-# AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolResponse).
-from agentscope.tool._response import ToolChunk as ToolResponse
+# AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolChunk).
+from agentscope.tool._response import ToolChunk
 from core.infra.task_lifecycle import settle_task
 from core.llm.subagents import sessions as subagent_sessions
-from core.llm.context.rendering import next_request_sequence, render_context_item
-from core.llm.context.ir_state import KIND_USER_INPUT, POLICY_NEVER
-from core.llm.context.items import make_text_context_item
-from core.llm.tools._common import resolve_sandbox_session
-from core.harness import log_writer as log_writer
 
-logger = logging.getLogger(__name__)
 
 from core.llm.subagents.execution import _ChildExecution, _map_subagent_event, _run_subagent_in_thread, _shared_ontology_runtime, _SubMapper
-from core.llm.subagents.prompts import _collapse_ids, _get_tools_desc as get_tools_desc, build_explicit_subagent_command_hint, build_subagent_mention_hint, build_subagent_prompt_section
+from core.llm.subagents.prompts import _get_tools_desc as get_tools_desc, build_explicit_subagent_command_hint, build_subagent_mention_hint, build_subagent_prompt_section
+
+logger = logging.getLogger(__name__)
 
 _subagent_pool = ThreadPoolExecutor(max_workers=16, thread_name_prefix="subagent")
 
@@ -79,7 +75,7 @@ def register_subagent_tool(
         task: str,
         context_summary: str = "",
         resume_session_id: str = "",
-    ) -> ToolResponse:
+    ) -> ToolChunk:
         """调用子智能体执行专业任务。子智能体拥有独立的工具和专业知识。
 
         需要并行调用多个子智能体时，在同一轮回复中生成多个 call_subagent 调用，
@@ -99,12 +95,12 @@ def register_subagent_tool(
                 完整上下文（读过的文件、跑过的命令、犯过的错）上继续；留空则全新启动。
 
         Returns:
-            `ToolResponse`:
+            `ToolChunk`:
                 子智能体的执行结果，末尾附带本次的续跑句柄。
                 结果对用户不可见，你需要汇总后呈现给用户。
         """
         if agent_id not in agent_map:
-            return ToolResponse(
+            return ToolChunk(
                 content=[
                     TextBlock(
                         type="text",
@@ -126,7 +122,7 @@ def register_subagent_tool(
                 user_id=current_user_id,
             )
             if resume_messages is None:
-                return ToolResponse(
+                return ToolChunk(
                     content=[
                         TextBlock(
                             type="text",
@@ -254,7 +250,7 @@ def register_subagent_tool(
                 child_runtime = _child_capability_runtime(parent_runtime, agent_id)
             except IntegrityFailed:
                 await _finish("failed", error="missing durable capability scope")
-                return ToolResponse(
+                return ToolChunk(
                     content=[
                         TextBlock(
                             type="text", text="子智能体缺少可恢复的持久工具调用身份，已拒绝执行。"
@@ -302,7 +298,7 @@ def register_subagent_tool(
 
             if not ok:
                 await _finish("failed", output=text, error=text)
-                return ToolResponse(
+                return ToolChunk(
                     content=[
                         TextBlock(
                             type="text",
@@ -335,7 +331,7 @@ def register_subagent_tool(
                 if saved
                 else ""
             )
-            return ToolResponse(
+            return ToolChunk(
                 content=[
                     TextBlock(
                         type="text",
@@ -370,7 +366,7 @@ def register_subagent_tool(
             if _emit is not None:
                 _emit({"sub_type": "error", "error": str(e)[:200]})
             await _finish("failed", error=str(e)[:200])
-            return ToolResponse(
+            return ToolChunk(
                 content=[
                     TextBlock(
                         type="text",
@@ -379,4 +375,4 @@ def register_subagent_tool(
                 ]
             )
 
-    toolkit.register_tool_function(call_subagent, namesake_strategy="skip")
+    toolkit.append(function_tool(call_subagent))

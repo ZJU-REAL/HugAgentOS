@@ -1,7 +1,7 @@
 """Own one chat worker lifecycle and coordinate its persistence phases."""
 
 from __future__ import annotations
-from core.runs.tool_effects import errors as errors_module
+from core.runs.tool_effects import errors
 
 import asyncio
 import contextlib
@@ -11,7 +11,7 @@ import typing as _typing
 from typing import Any, Dict, List, Optional
 
 from core.harness.registry.chat_execution import stream_chat_workflow
-import core.db.engine as engine
+from core.db.threads import run_in_session
 import core.harness.hooks as hooks
 import core.llm.runtime.model_steps as model_steps
 import core.runs.clock as clock
@@ -22,13 +22,24 @@ import core.runs.settings as settings
 import core.runs.watchdog as watchdog
 import core.chat.service as services_ChatService_module
 import core.runs.journal as run_journal
-import core.runs.tool_effects.journal as tool_effect_ledger
 from core.infra.logging import get_logger
 
-logger = get_logger(__name__)
 
 from core.chat.runtime import chunks, pauses, snapshots
 from core.chat.runtime.turn_state import TurnState
+
+logger = get_logger(__name__)
+
+
+def _pop_compaction_notice(db, chat_id: str) -> Optional[Dict[str, Any]]:
+    """Consume a pending compaction notice; return the state to show, or None."""
+    from core.chat.compaction.service import pop_compaction_notice
+    from core.chat.compaction.usage_projection import get_chat_context_state
+
+    chat_service = services_ChatService_module.ChatService(db)
+    if not pop_compaction_notice(chat_service, chat_id):
+        return None
+    return get_chat_context_state(chat_service, chat_id)["context_compaction"]
 
 
 async def _run_workflow(
@@ -186,18 +197,8 @@ async def _run_workflow(
         # in the background → notify the user once in this turn's first frame.
         # Failures are silent and must never affect the main conversation.
         try:
-            from core.chat.compaction.service import pop_compaction_notice
-            from core.chat.compaction.usage_projection import get_chat_context_state
-
-            with engine.SessionLocal() as _cn_db:
-                _cn_service = services_ChatService_module.ChatService(_cn_db)
-                _notify_compaction = pop_compaction_notice(_cn_service, turn.chat_id)
-                _compaction_state = (
-                    get_chat_context_state(_cn_service, turn.chat_id)["context_compaction"]
-                    if _notify_compaction
-                    else None
-                )
-            if _notify_compaction:
+            _compaction_state = await run_in_session(_pop_compaction_notice, turn.chat_id)
+            if _compaction_state is not None:
                 await turn.emit(
                     {
                         "type": "compaction_notice",
@@ -311,7 +312,7 @@ async def _run_workflow(
                     terminal=True,
                 )
 
-    except errors_module.ToolOutcomeUnknown as exc:
+    except errors.ToolOutcomeUnknown as exc:
         await pauses._pause_for_tool_outcome(turn, exc)
 
     except hooks.HookPaused as exc:
@@ -330,7 +331,7 @@ async def _run_workflow(
         if nested_pause is not None:
             await pauses._pause_for_hook(turn, nested_pause)
             return
-        nested_unknown = errors_module.find_tool_outcome_unknown(exc)
+        nested_unknown = errors.find_tool_outcome_unknown(exc)
         if nested_unknown is not None:
             await pauses._pause_for_tool_outcome(turn, nested_unknown)
             return

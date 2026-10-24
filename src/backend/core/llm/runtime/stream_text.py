@@ -1,8 +1,8 @@
-"""stream text responsibilities."""
+"""Split visible answer text from thinking and detect tool error text."""
 from __future__ import annotations
 from typing import Tuple
 from core.infra.model_output import THINK_BLOCK_RE
-from core.llm.runtime import streaming_state as streaming_state_module
+from core.llm.runtime import streaming_constants
 
 def looks_like_tool_error(content: str) -> bool:
     if not content:
@@ -21,7 +21,7 @@ def looks_like_tool_error(content: str) -> bool:
         return True
     if "不存在或已删除" in s or "无权访问" in head:
         return True
-    if streaming_state_module.HTTP_ERR_RE.search(s):
+    if streaming_constants.HTTP_ERR_RE.search(s):
         return True
     return False
 

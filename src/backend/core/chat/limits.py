@@ -1,25 +1,33 @@
-"""limits responsibilities."""
+"""Length limits applied to message content and thinking before they are stored."""
 from __future__ import annotations
 from typing import Any, Dict, List, Optional
 import logging
 logger = logging.getLogger(__name__)
-from core.chat import service_state as service_state_module
+
+CONTENT_MAX = 100_000
+
+
+TRUNC_NOTE = "\n\n…（本条回复过长，已截断保存；完整过程见工具调用记录）"
+
+
+THINKING_MAX = 200_000
+
 
 def clamp_message_content(content: str) -> str:
     """Apply the database content limit independently of ChatService wiring."""
 
     text = content or ""
-    if len(text) <= service_state_module.CONTENT_MAX:
+    if len(text) <= CONTENT_MAX:
         return text
-    keep = service_state_module.CONTENT_MAX - len(service_state_module.TRUNC_NOTE)
-    logger.warning("[chat] message content truncated: %d -> %d chars", len(text), service_state_module.CONTENT_MAX)
+    keep = CONTENT_MAX - len(TRUNC_NOTE)
+    logger.warning("[chat] message content truncated: %d -> %d chars", len(text), CONTENT_MAX)
     kept = text[:keep]
     # 老格式的思考是以 <think>…</think> 内联在正文里的。截断点可能落在块中间，
     # 闭合标签一丢，历史重建就把整段思考当正文渲染出来（思考泄露到页面上）。
     close = "</think>"
     if kept.count("<think>") > kept.count(close):
         kept = kept[: keep - len(close)] + close
-    return kept + service_state_module.TRUNC_NOTE
+    return kept + TRUNC_NOTE
 
 
 def clamp_thinking(
@@ -35,11 +43,11 @@ def clamp_thinking(
     """
     if not blocks:
         return None, segments or None
-    if sum(len(str(b.get("content") or "")) for b in blocks) <= service_state_module.THINKING_MAX:
+    if sum(len(str(b.get("content") or "")) for b in blocks) <= THINKING_MAX:
         return blocks, segments or None
     kept: List[Dict[str, Any]] = []
     kept_indices: List[int] = []
-    budget = service_state_module.THINKING_MAX
+    budget = THINKING_MAX
     for offset, block in enumerate(reversed(blocks)):
         text = str(block.get("content") or "")
         if not text:

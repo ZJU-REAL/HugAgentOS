@@ -6,6 +6,9 @@ from core.config.settings import settings
 from core.infra.logging import get_logger
 logger = get_logger(__name__)
 
+
+from core.db.threads import run_in_session
+
 async def _startup_ensure_tables():
     """Ensure database tables exist for SQLite environments.
 
@@ -27,16 +30,11 @@ async def _startup_seed_ce_admin():
     if settings.edition.edition != "ce":
         return
     try:
-        from core.db.engine import SessionLocal
         from core.auth.local_user_bootstrap import ensure_ce_default_admin
 
-        db = SessionLocal()
-        try:
-            user_id, created = ensure_ce_default_admin(db)
-            if created:
-                logger.info("[startup] CE default administrator created: %s", user_id)
-        finally:
-            db.close()
+        user_id, created = await run_in_session(ensure_ce_default_admin)
+        if created:
+            logger.info("[startup] CE default administrator created: %s", user_id)
     except Exception as exc:
         logger.warning("[startup] CE default administrator seed failed: %s", exc)
 
@@ -62,17 +60,14 @@ async def _startup_seed_page_config():
     """Seed default page_config content block if missing (idempotent)."""
     try:
         from core.files.content.branding import enforce_ce_branding, seed_page_config_if_missing
-        from core.db.engine import SessionLocal
 
-        db = SessionLocal()
-        try:
-            inserted = seed_page_config_if_missing(db)
-            if inserted:
-                logger.info("[startup] default page_config seeded")
-            if enforce_ce_branding(db):
-                logger.info("[startup] CE page config normalized")
-        finally:
-            db.close()
+        inserted, normalized = await run_in_session(
+            lambda db: (seed_page_config_if_missing(db), enforce_ce_branding(db))
+        )
+        if inserted:
+            logger.info("[startup] default page_config seeded")
+        if normalized:
+            logger.info("[startup] CE page config normalized")
     except Exception as exc:
         logger.warning("[startup] page_config seed failed: %s", exc)
 
@@ -82,17 +77,10 @@ async def _startup_seed_prompt_versions():
     Idempotent: only inserts versions that don't already exist.
     """
     try:
-        from core.db.engine import SessionLocal
-        from core.llm import prompt_versions as pvs
-
-        db = SessionLocal()
-        try:
-            result = prompt_versions_module.seed_from_filesystem(db=db)
-            added = result.get("added") or []
-            if added:
-                logger.info("[startup] prompt versions seeded: %s", ", ".join(added))
-        finally:
-            db.close()
+        result = await run_in_session(lambda db: prompt_versions_module.seed_from_filesystem(db=db))
+        added = result.get("added") or []
+        if added:
+            logger.info("[startup] prompt versions seeded: %s", ", ".join(added))
     except Exception as exc:
         logger.warning("[startup] prompt versions seed failed: %s", exc)
 
@@ -103,15 +91,10 @@ async def _startup_seed_roles():
     populates fresh deployments. When CE has no roles table, degrades entirely to a no-op.
     """
     try:
-        from core.db.engine import SessionLocal
         from orchestration.workers.edition_startup import seed_default_roles
 
-        db = SessionLocal()
-        try:
-            added = seed_default_roles(db)
-            if added:
-                logger.info("[startup] default roles seeded: %s", ", ".join(added))
-        finally:
-            db.close()
+        added = await run_in_session(seed_default_roles)
+        if added:
+            logger.info("[startup] default roles seeded: %s", ", ".join(added))
     except Exception as exc:
         logger.warning("[startup] roles seed failed: %s", exc)

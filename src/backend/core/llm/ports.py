@@ -1,5 +1,6 @@
 """Execution-layer services injected into the model runtime by its host."""
 from __future__ import annotations
+from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 
 
@@ -15,9 +16,6 @@ class ToolEffectRuntime(Protocol):
     async def execute_outcome(self, **kwargs: Any) -> ToolEffectOutcome: ...
     def binding_error(self, message: str) -> Exception: ...
     def response_error(self, message: str) -> Exception: ...
-
-
-
 
 
 def register_tool_effect_runtime(factory: Callable[..., ToolEffectRuntime]) -> None:
@@ -43,11 +41,6 @@ class CommandRecords(Protocol):
     def list_owned(self, user_id: str, chat_id: str) -> list[dict]: ...
 
 
-
-
-
-
-
 def register_execution_services(*, commands: CommandExecution, records: CommandRecords,
                                 parent_snapshot: Callable[..., dict]) -> None:
     process_state().commands, process_state().command_records, process_state().parent_snapshot = commands, records, parent_snapshot
@@ -71,20 +64,16 @@ def snapshot_parent_runtime(request: Any, **kwargs: Any) -> dict:
     return process_state().parent_snapshot(request, **kwargs)
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class PortsState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
     tool_effect_factory: Callable[..., ToolEffectRuntime] | None = None
     commands: CommandExecution | None = None
     command_records: CommandRecords | None = None
     parent_snapshot: Callable[..., dict] | None = None
 
-@state_cache(maxsize=1)
-def process_state() -> PortsState:
-    return PortsState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+_STATE = PortsState()
+
+
+def process_state() -> PortsState:
+    return _STATE

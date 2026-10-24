@@ -125,7 +125,6 @@ def test_raw_explicit_cloud_id_is_saved_with_its_account_scope(selected):
 def test_soft_run_connector_honors_parent_plugin_disable(selected, monkeypatch):
     from dataclasses import replace
     from features.desktop.capabilities.runtime import save
-    from core.llm.mcp.capability_guards import connector_available
     from features.desktop.bridge import client as bridge
 
     _, plugin, _, skill = selected
@@ -148,9 +147,9 @@ def test_soft_run_connector_honors_parent_plugin_disable(selected, monkeypatch):
     )
     save(run)
     monkeypatch.setattr(bridge_gateway, 'cloud_gateway_mcp_configs', lambda *a, **kw: {"pack-search": {}})
-    assert connector_available(run, "pack-search")
+    assert run.validate_tool_call("pack-search")
     registry.set_enabled(plugin.install_id, False)
-    assert not connector_available(run, "pack-search")
+    assert not run.validate_tool_call("pack-search")
 
 
 @pytest.mark.asyncio

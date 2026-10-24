@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from core.auth.backend import UserContext, get_current_user
 from features.knowledge.processing import vectorise_document_background
 from core.db.engine import SessionLocal, get_db
+from core.db.threads import run_in_session
 from core.db.models import Artifact, ChatMessage, ChatSession, UserShadow
 from features.knowledge.models import KBDocument, KBSpace
 from core.db.paging import DEFAULT_PAGE_SIZE
@@ -259,36 +260,18 @@ def list_favorite_chats(
     )
 
 
-@router.get("", summary="用户文件/图片列表")
-async def list_user_artifacts(
-    type: Optional[str] = Query(None, description="document | image"),
-    source_kind: Optional[str] = Query(None, description="user_upload | ai_generated"),
-    keyword: Optional[str] = Query(None, description="文件名搜索"),
-    scope: str = Depends(artifact_list_scope),
-    folder_id: Optional[str] = Query(
-        None,
-        description="仅 personal scope 生效：__root__=个人根目录，<id>=该个人文件夹直接子文件，省略=全部个人文件（向后兼容）",
-    ),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, description="每页条数，无上限"),
-    user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
+def _artifact_page(
+    db: Session,
+    uid: str,
+    *,
+    type: Optional[str],
+    source_kind: Optional[str],
+    keyword: Optional[str],
+    scope: str,
+    folder_id: Optional[str],
+    page: int,
+    page_size: int,
 ):
-    """获取当前用户有权查看的文件与图片。"""
-    uid = str(user.user_id)
-
-    # One-time backfill for historical data. It scans every message the account ever
-    # wrote, so it never runs inline — doing that on the event loop froze the whole
-    # backend for minutes. It also must not go through ``BackgroundTasks``: those run
-    # on the shared request threadpool, which every endpoint needs via ``get_db``
-    # (see the postmortem at the top of core/kb/index_queue.py). Detached to the
-    # default executor instead. The rows it adds are
-    # historical, so the next listing picks them up.
-    if uid not in _backfilled_users:
-        task = asyncio.create_task(asyncio.to_thread(_run_backfill_once, uid))
-        _backfill_tasks.add(task)
-        task.add_done_callback(_backfill_tasks.discard)
-
     repo = ArtifactRepository(db)
     mime_prefix = None
     if type == "image":
@@ -341,6 +324,49 @@ async def list_user_artifacts(
         }
         items.append(extend_artifact_item(artifact, item))
 
+    return items, total
+
+
+@router.get("", summary="用户文件/图片列表")
+async def list_user_artifacts(
+    type: Optional[str] = Query(None, description="document | image"),
+    source_kind: Optional[str] = Query(None, description="user_upload | ai_generated"),
+    keyword: Optional[str] = Query(None, description="文件名搜索"),
+    scope: str = Depends(artifact_list_scope),
+    folder_id: Optional[str] = Query(
+        None,
+        description="仅 personal scope 生效：__root__=个人根目录，<id>=该个人文件夹直接子文件，省略=全部个人文件（向后兼容）",
+    ),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, description="每页条数，无上限"),
+    user: UserContext = Depends(get_current_user),
+):
+    """获取当前用户有权查看的文件与图片。"""
+    uid = str(user.user_id)
+
+    # One-time backfill for historical data. It scans every message the account ever
+    # wrote, so it never runs inline — doing that on the event loop froze the whole
+    # backend for minutes. It also must not go through ``BackgroundTasks``: those run
+    # on the shared request threadpool, which every endpoint needs via ``get_db``
+    # (see the postmortem at the top of core/kb/index_queue.py). Detached to the
+    # default executor instead. The rows it adds are
+    # historical, so the next listing picks them up.
+    if uid not in _backfilled_users:
+        task = asyncio.create_task(asyncio.to_thread(_run_backfill_once, uid))
+        _backfill_tasks.add(task)
+        task.add_done_callback(_backfill_tasks.discard)
+
+    items, total = await run_in_session(
+        _artifact_page,
+        uid,
+        type=type,
+        source_kind=source_kind,
+        keyword=keyword,
+        scope=scope,
+        folder_id=folder_id,
+        page=page,
+        page_size=page_size,
+    )
     return success_response(
         data={
             "items": items,

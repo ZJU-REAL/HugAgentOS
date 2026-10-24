@@ -8,6 +8,7 @@ workflow, subagents) uses the same algorithm.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from threading import Lock
 from time import monotonic
 from typing import Any, Dict, List, Optional, Tuple
@@ -23,7 +24,6 @@ logger = logging.getLogger(__name__)
 _CAPABILITY_CACHE_TTL = 30.0  # seconds
 
 # user_id -> (expires_at, (skills, agents, mcps))
-
 
 
 # ── Context helpers (extract typed lists from a runtime context dict) ────────
@@ -331,7 +331,7 @@ def resolve_all_runtime_enabled(
         # Dedup: if a privately-installed skill / MCP has already been set global by an admin (same underlying entry_name), drop the private
         # copy — otherwise the same capability would be loaded twice (global id=entry, private id=entry-fingerprint), which is wasteful and also lets
         # the model see two identically-named, identical-content tools/skills. Same semantics as the dedup on the /v1/catalog display side.
-        from core.capabilities.skills.installation import base_entry_name as base_entry_name
+        from core.capabilities.skills.installation import base_entry_name
 
         if owned_skills:
             _global_skills = set(skills)
@@ -368,18 +368,14 @@ def invalidate_capability_cache(user_id: Optional[str] = None) -> None:
             process_state().capability_cache.pop(user_id, None)
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class ResolverState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    capability_cache_lock: object = state_field(default_factory=lambda: Lock())
-    capability_cache: Dict[str, Tuple[float, Tuple[Optional[List[str]], Optional[List[str]], Optional[List[str]]]]] = state_field(default_factory=lambda: {})
+    capability_cache_lock: object = field(default_factory=lambda: Lock())
+    capability_cache: Dict[str, Tuple[float, Tuple[Optional[List[str]], Optional[List[str]], Optional[List[str]]]]] = field(default_factory=lambda: {})
 
-@state_cache(maxsize=1)
+
+_STATE = ResolverState()
+
+
 def process_state() -> ResolverState:
-    return ResolverState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

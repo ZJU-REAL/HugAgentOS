@@ -6,28 +6,17 @@ from datetime import datetime, timezone
 
 from core.db.engine import Base
 from sqlalchemy import (
-    JSON,
-    BigInteger,
     Boolean,
     CheckConstraint,
     Column,
     ForeignKey,
     Index,
     Integer,
-    Numeric,
     String,
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import INET, JSONB
-from sqlalchemy.orm import mapped_column, relationship
-
-JSONType = JSON().with_variant(JSONB(), "postgresql")
-INETType = String(45).with_variant(INET(), "postgresql")
-# BigInteger autoincrement PK: SQLite only auto-increments the INTEGER rowid, not
-# BIGINT, so an unqualified BigInteger PK stays NULL on the no-Docker SQLite
-# profile. Fall back to Integer on SQLite (still BIGINT on Postgres).
-BigIntPK = BigInteger().with_variant(Integer(), "sqlite")
+from core.db.models.column_types import JSONType, BigIntPK
 
 
 class ToolCallLog(Base):

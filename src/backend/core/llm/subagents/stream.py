@@ -29,7 +29,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
@@ -44,10 +44,6 @@ _NO_CHAT = "_nochat_"
 class _Bus:
     loop: asyncio.AbstractEventLoop
     queue: asyncio.Queue
-
-
-
-
 
 
 def _key(chat_id: Optional[str]) -> str:
@@ -96,18 +92,14 @@ def is_active(chat_id: Optional[str]) -> bool:
         return _key(chat_id) in process_state().BUSES
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class StreamState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    LOCK: object = state_field(default_factory=lambda: threading.RLock())
-    BUSES: Dict[str, _Bus] = state_field(default_factory=lambda: {})
+    LOCK: object = field(default_factory=lambda: threading.RLock())
+    BUSES: Dict[str, _Bus] = field(default_factory=lambda: {})
 
-@state_cache(maxsize=1)
+
+_STATE = StreamState()
+
+
 def process_state() -> StreamState:
-    return StreamState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

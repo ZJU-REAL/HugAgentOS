@@ -37,8 +37,6 @@ logger = logging.getLogger(__name__)
 MEMORY_WAIT_SECONDS = 45.0
 
 
-
-
 @dataclass
 class _PendingTurn:
     message_id: str
@@ -51,8 +49,6 @@ class _PendingTurn:
     memory_entries: List[Dict[str, Any]] = field(default_factory=list)
     memory_failed: bool = False
     timer: Optional[threading.Timer] = None
-
-
 
 
 # Turns already settled. A late duplicate — the watchdog fired and the pipeline
@@ -206,18 +202,14 @@ def reset_for_tests() -> None:
         _settled.clear()
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class SettlementRunnerState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    lock: object = state_field(default_factory=lambda: threading.Lock())
-    pending: Dict[str, _PendingTurn] = state_field(default_factory=lambda: {})
+    lock: object = field(default_factory=lambda: threading.Lock())
+    pending: Dict[str, _PendingTurn] = field(default_factory=lambda: {})
 
-@state_cache(maxsize=1)
+
+_STATE = SettlementRunnerState()
+
+
 def process_state() -> SettlementRunnerState:
-    return SettlementRunnerState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

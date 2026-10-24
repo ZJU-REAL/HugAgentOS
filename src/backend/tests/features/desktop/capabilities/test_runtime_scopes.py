@@ -4,7 +4,6 @@ from features.desktop.capabilities import skill_account
 from features.desktop.capabilities import skill_candidates
 from features.desktop.capabilities import skill_publication
 
-import core.runs.tool_effect_recovery as runs_tool_effect_recovery
 import orchestration.plans.mode as mode
 import pytest
 from features.desktop.capabilities import registry, runtime, skills
@@ -15,6 +14,7 @@ from features.desktop.bridge import client as bridge
 from features.desktop.bridge import skills as cloud_skills
 from core.capabilities.manifest_protocol import skill_content_hash
 from tests.features.desktop.capabilities.test_runtime_recovery import _zip, durable_index, state
+from tests.db_support import share_session
 
 
 @pytest.fixture
@@ -227,6 +227,7 @@ async def test_actual_plan_steps_use_stable_independent_scopes(setup, monkeypatc
     monkeypatch.setattr(mode, "_build_plan_header_lines", lambda *a: ([], []))
     monkeypatch.setattr(mode, "_build_step_instruction", lambda step, *a, **kw: step.step_id)
     monkeypatch.setattr(mode, "is_run_cancelled", lambda *a: False)
+    monkeypatch.setattr(mode, "_plan_status", lambda db, plan_id: plan.status)
     monkeypatch.setattr(plan_mode.log_writer, "start_subagent_log", noop)
     monkeypatch.setattr(plan_mode.log_writer, "finish_subagent_log", noop)
     monkeypatch.setattr("core.harness.log_context.subagent_scope", lambda *a, **kw: nullcontext())
@@ -236,6 +237,10 @@ async def test_actual_plan_steps_use_stable_independent_scopes(setup, monkeypatc
     monkeypatch.setattr(
         'core.ontology.runtime_policy.build_user_ontology_runtime', lambda **kw: (False, {})
     )
+    noop_db = lambda *_a, **_k: None  # noqa: E731 - the faked PlanService owns all reads
+    share_session(monkeypatch, SimpleNamespace(
+        refresh=noop_db, expunge=noop_db, expunge_all=noop_db, commit=noop_db, rollback=noop_db
+    ))
     binding = CURRENT_RUN_BINDING.set(("root-run", "ledger-owner"))
     try:
         for _ in range(2):
@@ -245,7 +250,6 @@ async def test_actual_plan_steps_use_stable_independent_scopes(setup, monkeypatc
                 async for event in plan_mode.astream_execute_plan(
                     plan_id="plan-1",
                     user_id="owner",
-                    db=SimpleNamespace(refresh=lambda *_: None),
                     run_id="root-run",
                 )
             ]
@@ -367,7 +371,7 @@ async def test_recovery_adapter_executes_proven_root_but_never_rebuilds_child(se
             [],
         )
 
-    monkeypatch.setattr(runs_tool_effect_recovery, "SessionLocal", Db)
+    monkeypatch.setattr("core.db.engine.SessionLocal", Db)
     monkeypatch.setattr("core.llm.factory.create_agent_executor", create)
     intent = SimpleNamespace(
         run_id="root-run",
@@ -395,7 +399,7 @@ async def test_registered_child_dispatch_has_scope_even_without_sse(setup, monke
     from core.harness.tool_call_context import CURRENT_TOOL_CALL_ID
 
     registered = {}
-    toolkit = SimpleNamespace(register_tool_function=lambda fn, **kw: registered.update(call=fn))
+    toolkit = SimpleNamespace(append=lambda tool: registered.update(call=tool._func))
     captured = []
 
     def worker(*args):

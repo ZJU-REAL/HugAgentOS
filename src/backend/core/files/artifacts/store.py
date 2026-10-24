@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import shutil
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -61,7 +62,6 @@ _OSS_RECORD_PREFIX = "artifacts/_records"
 _OSS_LEGACY_INDEX_KEY = "artifacts/_index.json"
 
 # Bucket directories already created in this process (see _ensure_bucket).
-
 
 
 # ── Helper: get the current STORAGE_TYPE ──────────────────────────────────
@@ -445,17 +445,13 @@ def prepare_records() -> int:
     return restore_records_from_oss()
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class StoreState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    known_buckets: set = state_field(default_factory=lambda: set())
+    known_buckets: set = field(default_factory=lambda: set())
 
-@state_cache(maxsize=1)
+
+_STATE = StoreState()
+
+
 def process_state() -> StoreState:
-    return StoreState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

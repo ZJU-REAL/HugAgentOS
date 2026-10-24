@@ -10,6 +10,6 @@ The page distinguishes directory loading, directory failure, an undiscoverable a
 
 A secondary view may reference its application's workspace module. Launch accepts only the main module and modules declared by that application's views. Other installation modules are rejected.
 
-No database schema migration is required. Legacy UI v1/v2, managed application APIs, and existing business URLs retain their contracts. Integrated acceptance records full platform validation. Fixture checks do not establish native client compatibility.
+No database schema migration is required. Legacy UI v1/v2, managed application APIs, and existing business URLs retain their contracts.
 
 An empty directory retains the deep link and shows an empty state. Network and server failures offer retry. They do not appear as missing applications or denied discovery.

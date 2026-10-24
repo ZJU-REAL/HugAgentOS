@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import ipaddress
-import json
 import logging
 import socket
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, List
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import httpx
+import httpx2
 from core.db.models import AdminMcpServer
 from core.infra.crypto import decrypt_secret, encrypt_secret
 from core.infra.exceptions import BadRequestError
@@ -346,11 +345,17 @@ def refresh_mcp_caches() -> None:
 
 async def probe_mcp_connectivity(
     row: AdminMcpServer,
-    db: Session | None = None,
+    *,
+    validate: bool = False,
     oauth_provider: Any = None,
     timeout_seconds: float | None = None,
 ) -> tuple[bool, str]:
-    """Return whether an MCP server can connect and enumerate its tools."""
+    """Return whether an MCP server can connect and enumerate its tools.
+
+    ``row`` only supplies the connection config and receives ``tools_json``;
+    ``validate`` also runs the Domain Pack build check on the discovered tools,
+    on a session of its own.
+    """
     from core.capabilities.mcp.service import McpServerConfigService
 
     if timeout_seconds is None:
@@ -361,29 +366,22 @@ async def probe_mcp_connectivity(
         )
 
     cfg = McpServerConfigService.get_instance()._row_to_config(row)
+    cfg["discovery_timeout"] = timeout_seconds
     if oauth_provider is not None:
         cfg["oauth_provider"] = oauth_provider
 
     async def _do_probe() -> None:
-        from core.harness.registry.mcp_clients import make_client
+        from core.harness.registry.mcp_clients import discover_tools
 
         if row.transport not in ("stdio", "streamable_http", "sse"):
             raise RuntimeError(f"Unknown transport: {row.transport}")
-        is_http = row.transport in ("streamable_http", "sse")
-        # AgentScope's stateful HTTP MCP client owns an AnyIO cancel scope that
-        # is bound to the task which opened it.  Failed handshakes (notably 401)
-        # can finalize the underlying async generator in another task, masking
-        # the real HTTP error with "Attempted to exit cancel scope...".  A
-        # stateless client keeps the complete list_tools lifecycle in this task.
-        client = make_client(row.server_id, cfg, is_stateful=not is_http)
+        resource = await discover_tools(row.server_id, cfg)
         try:
-            if not is_http:
-                await client.connect()
-            discovered = await client.list_tools()
-            tools_meta = []
+            discovered = resource.descriptors
             tools_meta = [snapshot_tool(tool) for tool in discovered or []]
             row.tools_json = tools_meta
-            if db is not None and tools_meta:
+            if validate and tools_meta:
+                from core.db.threads import run_in_session
                 from core.harness.registry.build_governance import validate_build
 
                 extra_config = row.extra_config or {}
@@ -401,7 +399,8 @@ async def probe_mcp_connectivity(
                         for tag in tags
                         if str(tag).strip()
                     )
-                report = validate_build(db,
+                report = await run_in_session(
+                    validate_build,
                     asset_type="tool",
                     name=row.display_name,
                     description=row.description or "",
@@ -413,14 +412,7 @@ async def probe_mcp_connectivity(
                     messages = "; ".join(item.message for item in report.errors)
                     raise RuntimeError(f"Domain Pack 构建校验失败：{messages}")
         finally:
-            # Stateless HTTP list_tools opens and closes its own connection.
-            # Calling close() is unnecessary and can re-enter the SDK's
-            # task-bound cancel scope.  Stateful stdio still requires cleanup.
-            if not is_http:
-                try:
-                    await client.close()
-                except BaseException as exc:  # noqa: BLE001
-                    logger.debug("MCP probe client close failed: %s", exc)
+            await resource.close()
 
     try:
         await asyncio.wait_for(_do_probe(), timeout=timeout_seconds)
@@ -463,13 +455,13 @@ def _format_mcp_probe_exception(exc: BaseException) -> str:
         if is_cancel_noise:
             continue
 
-        if isinstance(current, httpx.HTTPStatusError) and current.response is not None:
+        if isinstance(current, httpx2.HTTPStatusError) and current.response is not None:
             status = current.response.status_code
             reason = current.response.reason_phrase
             if status in (401, 403):
                 return f"远端 MCP 返回 {status} {reason}，请检查鉴权设置和 Token"
             return f"远端 MCP 返回 HTTP {status} {reason}"
-        if isinstance(current, httpx.ConnectError):
+        if isinstance(current, httpx2.ConnectError):
             return "无法连接远端 MCP，请检查地址、网络和服务状态"
         if message:
             return f"{type(current).__name__}: {message}"

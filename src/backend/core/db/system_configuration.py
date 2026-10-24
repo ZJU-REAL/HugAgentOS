@@ -4,7 +4,7 @@ import logging
 from typing import Optional
 from core.db.engine import SessionLocal
 from core.db.models import SystemConfig
-from core.config.store import system_config_state
+from core.config.store import system_config_constants
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ class SystemConfigurationStore:
         existing_keys = set(rows_by_key)
         inserted_keys: set[str] = set()
         inserted = 0
-        for key, val, display, desc, group, secret in system_config_state.SEED_CONFIGS:
+        for key, val, display, desc, group, secret in system_config_constants.SEED_CONFIGS:
             if key not in existing_keys:
                 row = SystemConfig(
                     config_key=key,
@@ -102,7 +102,7 @@ class SystemConfigurationStore:
         legacy edits can never overwrite provider-specific values.
         """
         migrated = 0
-        for field in system_config_state.PROVIDER_SCOPED_KNOWLEDGE_FIELDS:
+        for field in system_config_constants.PROVIDER_SCOPED_KNOWLEDGE_FIELDS:
             destination_key = f"knowledge_base.dify.{field}"
             if destination_key not in inserted_keys:
                 continue

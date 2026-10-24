@@ -83,10 +83,10 @@ Industry-chain, news, and company-profile presentation remains an EE feature.
 | `.hugagent-edition` | Machine-readable `ce` marker used only after derivation; it lets release tooling distinguish a derived CE checkout from a source checkout whose generator is unexpectedly missing |
 | `.github/workflows/desktop-release.yml` | Public CE desktop release workflow, including the release-tag/version preflight gate |
 | `src/backend/api/routes/v1/__init__.py` | CE route registry; `EE_ROUTERS` is always empty |
-| `src/backend/core/auth/permissions_iface.py` | Owner-only single-tenant authorization interface with no team permission exports |
-| `src/backend/core/files/artifacts/edition.py` | Personal artifact-scope interface with no team fields, permissions, or repository methods |
+| `src/backend/core/auth/personal_permissions_iface.py` | Owner-only single-tenant authorization interface with no team permission exports |
+| `src/backend/core/files/edition.py` | Personal artifact-scope interface with no team fields, permissions, or repository methods |
 | `src/backend/core/llm/tools/edition_{myspace,myspace_vfs,artifact_recovery}.py` | Personal MySpace tool, VFS, and recovery interfaces; organization implementations do not enter CE |
-| `src/backend/core/config/edition_display_names.py` | CE tool display names with no team-tool names |
+| `src/backend/core/config/display_names.py` | CE tool display names with no team-tool names |
 | `src/backend/core/memory/audit.py` | Memory-audit no-op stub (same interface, writes nothing) |
 | `src/backend/alembic/versions/ce_000{1,2}_*.py` | CE independent migration-chain baseline and idempotent schema upgrade (next section) |
 | `src/backend/orchestration/workers/edition_startup.py` | CE startup seam with no-op implementations for EE data-source recovery and distillation scheduling, so pruned modules are never imported |
@@ -194,7 +194,7 @@ A qualifying release build must pass all of:
 | Overlay directory | `ce/overlay/` |
 | Derived-tree edition marker | `ce/overlay/.hugagent-edition` |
 | Public desktop release workflow | `ce/overlay/.github/workflows/desktop-release.yml` |
-| CE/EE table boundary | `src/backend/core/db/edition_tables.py` |
+| CE/EE table boundary | `src/backend/edition_ee/db/edition_tables.py` |
 | Idempotent schema reconciler | `src/backend/core/db/schema_reconcile.py` |
 | Startup table-creation CE branch | `src/backend/core/db/engine.py::init_db` |
 | CE independent migration chain | `ce/overlay/src/backend/alembic/versions/ce_000{1,2}_*.py` |

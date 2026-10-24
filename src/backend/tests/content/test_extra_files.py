@@ -371,7 +371,7 @@ def test_loader_get_skill_dir_db_materializes():
 
 def test_register_skills_to_toolkit():
     from agentscope.tool import Toolkit
-    from core.llm.runtime.tool_collector import ToolCollector
+    from core.llm.factory.tools.definitions import ToolAssembly
     from core.capabilities.skills.loader import MultiSourceSkillLoader
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -389,9 +389,7 @@ def test_register_skills_to_toolkit():
         backend = CompositeBackend([FilesystemBackend(root_dir=tmpdir, source_name="test")])
         loader = MultiSourceSkillLoader(backend=backend)
 
-        # AgentScope 2.0: register_skills_to_toolkit writes into ToolCollector (register_agent_skill);
-        # the collected skill directories live in collector.skill_loaders, passed to Toolkit(skills_or_loaders=).
-        c = ToolCollector()
+        c = ToolAssembly()
         n = loader.register_skills_to_toolkit(c)
         assert n == 1
         assert len(c.skill_loaders) == 1

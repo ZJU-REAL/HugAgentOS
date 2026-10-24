@@ -1,16 +1,19 @@
 """Application lifecycle operations."""
 
-import os
-import sys
-
 import core.chat.runtime.recovery as recovery
-import core.runs.watchdog as watchdog
 import orchestration.loops.recovery as loops_recovery
 import orchestration.workers.run_recovery as _run_recovery
 from core.config.settings import settings
 from core.infra.logging import get_logger
 
 logger = get_logger(__name__)
+
+async def _startup_thread_budget():
+    """Size this worker's thread pools to the connection pool before serving."""
+    from core.db.threads import apply_thread_budget
+
+    apply_thread_budget()
+
 
 async def _startup_watch_capability_changes():
     """智能体 / 技能 / 连接器 / 插件被增删时递增能力变更号，桌面端据此同步一次。"""
@@ -22,8 +25,6 @@ async def _startup_watch_capability_changes():
 async def _startup_recover_chat_runs():
     """Resume claimable chat_runs; valid leases are retried by the recovery loop."""
     try:
-        pass
-
         count = await recovery.recover_orphan_runs()
         if count:
             logger.info("[startup] chat_runs orphan recovered: %d", count)
@@ -33,8 +34,6 @@ async def _startup_recover_chat_runs():
 async def _startup_resume_loops():
     """Resume interrupted autonomous loops (M4, off by default; enable with LOOP_AUTO_RESUME=true)."""
     try:
-        pass
-
         count = await loops_recovery.resume_running_loops()
         if count:
             logger.info("[startup] autonomous loops resumed: %d", count)
@@ -132,6 +131,7 @@ async def _startup_warm_sandbox_pool():
         logger.info("[startup] sandbox provider %s warmup kicked off", provider.name)
     except Exception as exc:  # noqa: BLE001
         logger.warning("[startup] sandbox warmup failed: %s", exc)
+        raise
 
 async def _startup_local_sidecars():
     """Spawn and verify MCP + script_runner sidecars in local profile.
@@ -282,3 +282,17 @@ async def _shutdown_extensions():
 
     for _, stop in reversed(lifecycle_hooks()):
         await stop()
+
+
+async def _shutdown_sandbox_maintenance():
+    from core.sandbox import get_sandbox_provider
+    stop = getattr(get_sandbox_provider(), "stop_maintenance", None)
+    if stop is not None:
+        await stop()
+
+
+async def _shutdown_sandbox_provider():
+    from core.sandbox import get_sandbox_provider
+    shutdown = getattr(get_sandbox_provider(), "shutdown", None)
+    if shutdown is not None:
+        await shutdown()

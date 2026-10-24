@@ -1,13 +1,12 @@
 """Authenticated application resource routes; shared tickets/stream remain reusable."""
 
 from core.auth.backend import UserContext, require_auth
-from core.db.engine import get_db
+from core.db.threads import run_in_session
 from core.infra.responses import success_response
 from core.harness.registry.resource_owners import resource_owner
 from core.capabilities.plugins.resources import service
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy.orm import Session
 
 
 class ResourceOpen(BaseModel):
@@ -25,6 +24,23 @@ class ResourceCommand(BaseModel):
     params: dict = Field(default_factory=dict)
 
 
+def _owned(db, user_id, key, instance_id, resource_id, *, allow_closed=False):
+    row = resource_owner().owned(db, user_id, key, instance_id, resource_id, allow_closed=allow_closed)
+    return service.detached(db, row)
+
+
+def _commandable(db, user_id, key, instance_id, resource_id):
+    from core.capabilities.plugins.resources.owners import resolve_installation
+    from features.workbench.ui.contract import find_module
+
+    row = resource_owner().owned(db, user_id, key, instance_id, resource_id)
+    selected = resolve_installation(db, row, row.user_id)
+    module = find_module(selected.ui, row.module_id)
+    if not module or "resource.command" not in module.get("grants", []):
+        raise HTTPException(403, "resource_command_not_granted")
+    return service.detached(db, row)
+
+
 def routes(route_class, json_write):
     router = APIRouter(
         prefix="/applications/{key}/instances/{instance_id}/resources",
@@ -40,7 +56,6 @@ def routes(route_class, json_write):
         response: Response,
         idempotency_key: str = Header(alias="Idempotency-Key"),
         user: UserContext = Depends(require_auth()),
-        db: Session = Depends(get_db),
     ):
         from fastapi import HTTPException
 
@@ -48,7 +63,6 @@ def routes(route_class, json_write):
             raise HTTPException(422, "invalid_instance_id")
         response.headers["Cache-Control"] = "no-store"
         value = await resource_owner().create(
-            db,
             str(user.user_id),
             key,
             instance_id,
@@ -64,12 +78,11 @@ def routes(route_class, json_write):
         resource_id: str,
         response: Response,
         user: UserContext = Depends(require_auth()),
-        db: Session = Depends(get_db),
     ):
         response.headers["Cache-Control"] = "no-store"
         return success_response(
             data={
-                "resource": await resource_owner().lease(db, str(user.user_id), key, instance_id, resource_id)
+                "resource": await resource_owner().lease(str(user.user_id), key, instance_id, resource_id)
             }
         )
 
@@ -80,14 +93,13 @@ def routes(route_class, json_write):
         resource_id: str,
         response: Response,
         user: UserContext = Depends(require_auth()),
-        db: Session = Depends(get_db),
     ):
         response.headers["Cache-Control"] = "no-store"
-        row = resource_owner().owned(
-            db, str(user.user_id), key, instance_id, resource_id, allow_closed=True
+        row = await run_in_session(
+            _owned, str(user.user_id), key, instance_id, resource_id, allow_closed=True
         )
         if row.status != "closed":
-            await service.close(db, row)
+            await service.close(row)
         return success_response(data={"closed": True})
 
     @router.post("/{resource_id}/command")
@@ -98,18 +110,10 @@ def routes(route_class, json_write):
         body: ResourceCommand,
         response: Response,
         user: UserContext = Depends(require_auth()),
-        db: Session = Depends(get_db),
     ):
         import json
 
-        from core.capabilities.plugins.resources.owners import resolve_installation
-        from features.workbench.ui.contract import find_module
-
-        row = resource_owner().owned(db, str(user.user_id), key, instance_id, resource_id)
-        selected = resolve_installation(db, row, row.user_id)
-        module = find_module(selected.ui, row.module_id)
-        if not module or "resource.command" not in module.get("grants", []):
-            raise HTTPException(403, "resource_command_not_granted")
+        row = await run_in_session(_commandable, str(user.user_id), key, instance_id, resource_id)
         if len(json.dumps(body.model_dump()).encode()) > 256 * 1024:
             raise HTTPException(413, "resource_command_too_large")
         response.headers["Cache-Control"] = "no-store"

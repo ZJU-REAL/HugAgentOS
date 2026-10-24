@@ -240,7 +240,9 @@ def test_replay_reproduces_three_serial_steps_in_order_without_duplication():
         "c1",
         "c2",
     ]
-    assert rows[-1]["content"][-1] == {"type": "text", "text": "done"}
+    assert rows[-1]["content"][-1]["type"] == "text"
+    assert rows[-1]["content"][-1]["text"] == "done"
+    assert rows[-1]["content"][-1]["created_at"] is not None
 
 
 def test_replay_keeps_two_parallel_calls_in_one_step_with_both_results_after_it():
@@ -306,7 +308,8 @@ def test_close_dangling_calls_balances_the_record_at_rest():
 
 def test_cancelled_turn_is_marked_at_the_end_of_the_last_answer():
     rows = M.replay_rows([_assistant(TextBlock(type="text", text="我先看看"))], cancelled=True)
-    assert rows[-1]["content"] == [{"type": "text", "text": "我先看看\n\n[本轮回答被用户中断]"}]
+    assert len(rows[-1]["content"]) == 1
+    assert rows[-1]["content"][0]["text"] == "我先看看\n\n[本轮回答被用户中断]"
 
     rows = M.replay_rows(
         [
@@ -334,10 +337,9 @@ def test_replace_final_text_rewrites_only_the_last_answer_text():
 
     M.replace_final_text(steps, "revised")
 
-    assert steps[-1]["blocks"] == [
-        {"type": "thinking", "thinking": "B"},
-        {"type": "text", "text": "revised"},
-    ]
+    assert len(steps[-1]["blocks"]) == 2
+    assert steps[-1]["blocks"][0]["thinking"] == "B"
+    assert steps[-1]["blocks"][1] == {"type": "text", "text": "revised"}
     assert steps[0]["blocks"][1]["type"] == "tool_call"
 
 

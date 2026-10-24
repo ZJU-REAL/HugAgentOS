@@ -14,7 +14,6 @@ from core.llm.citations import allocator as allocator_module
 from types import SimpleNamespace
 
 import core.agent_runtime.integrations.memory as memory
-import core.agent_runtime.resources as resources
 import core.agent_runtime.runner as runner
 import core.agent_runtime.targets as targets
 import core.capabilities.catalog.resolver as catalog_resolver
@@ -101,7 +100,6 @@ async def test_user_question_events_reach_the_stream(monkeypatch):
     monkeypatch.setattr(catalog_resolver, "enabled_kb_ids_from_context", lambda _ctx: [])
     monkeypatch.setattr(targets, "_resolve_mode_spec", lambda _ctx: None)
     monkeypatch.setattr(streaming_module, 'StreamingAgent', FakeStreamingAgent)
-    monkeypatch.setattr(resources.process_state(), 'persistent_clients', [])
 
     chunks = [
         chunk

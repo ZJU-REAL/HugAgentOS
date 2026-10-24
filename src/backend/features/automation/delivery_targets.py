@@ -7,10 +7,6 @@ elements like:
     {"type": "channel", "channel_id": "chan_…", "conversation_id": "oc_…"}  # IM conversation (Feishu, etc.)
     {"type": "email", "to": "a@b.com"}                            # reserved, delivery not yet implemented
 
-Backward compatibility: legacy tasks put flat ``channel_id`` / ``conversation_id`` only
-at the top level of extra_data (old #7 style); ``resolve_delivery_targets`` interprets
-this as ``[{inapp}, {channel…}]``. No markers at all → in-app only.
-
 See internal design docs.
 """
 
@@ -22,12 +18,7 @@ _VALID_TYPES = ("inapp", "channel", "email")
 
 
 def resolve_delivery_targets(extra_data: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Resolve the final delivery-target list from a task's extra_data (with backward
-    compatibility).
-
-    Priority: explicit ``delivery_targets`` > legacy flat ``channel_id/conversation_id``
-    > in-app only.
-    """
+    """Read the canonical delivery-target list; omitted targets mean in-app."""
     meta = extra_data if isinstance(extra_data, dict) else {}
     targets = meta.get("delivery_targets")
     if isinstance(targets, list) and targets:
@@ -38,13 +29,7 @@ def resolve_delivery_targets(extra_data: Optional[Dict[str, Any]]) -> List[Dict[
         if out:
             return out
 
-    # Backward compatibility: legacy #7 channel tasks only put flat channel_id/conversation_id at the top level
-    ch = meta.get("channel_id")
-    conv = meta.get("conversation_id")
-    legacy: List[Dict[str, Any]] = [{"type": "inapp"}]
-    if ch and conv:
-        legacy.append({"type": "channel", "channel_id": ch, "conversation_id": conv})
-    return legacy
+    return [{"type": "inapp"}]
 
 
 def build_delivery_targets(

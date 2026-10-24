@@ -1,12 +1,4 @@
-"""Responses 线的工具结果配对：按调用 id 认人，不是按条目 id。
-
-Responses 线上一次函数调用带两个互不相同的 id —— 条目 id（``function_call.id``）与
-调用 id（``function_call.call_id``），结果回传只认后者。AgentScope 建
-``ToolResultBlock`` 时只留了条目 id，格式化又拿它当 ``function_call_output.call_id``
-发出去；DeepSeek 官方端点两者恰好不同（条目 id 是 uuid，调用 id 形如 ``call_00_…``），
-于是只要模型调了工具，这一轮就被打回
-``No tool call found for tool output with call_id …``。这些用例钉住配对。
-"""
+"""Native SDK call ids remain paired across Responses calls and outputs."""
 
 from __future__ import annotations
 
@@ -28,10 +20,10 @@ def _formatter() -> ResponsesReplayFormatter:
 
 
 def _turn(call_id: str | None) -> list[Msg]:
-    extra = {"call_id": call_id} if call_id else {}
-    call = ToolCallBlock(id=ITEM_ID, name="atlas_aggregate", input="{}", **extra)
+    canonical_id = call_id or ITEM_ID
+    call = ToolCallBlock(id=canonical_id, name="atlas_aggregate", input="{}")
     result = ToolResultBlock(
-        id=ITEM_ID,
+        id=canonical_id,
         name="atlas_aggregate",
         output=[TextBlock(text="ok")],
         state="success",
@@ -72,7 +64,7 @@ async def test_message_items_have_explicit_type_without_changing_tool_items() ->
     messages = [item for item in items if "role" in item and "content" in item]
     assert messages
     assert all(item.get("type") == "message" for item in messages)
-    assert [item["content"][0]["type"] for item in messages] == ["input_text", "input_text"]
+    assert [item["content"][0]["type"] for item in messages] == ["input_text", "output_text"]
     assert [item["type"] for item in items if item.get("type", "").startswith("function_call")] == [
         "function_call", "function_call_output",
     ]

@@ -4,10 +4,10 @@ import re
 from collections import Counter
 from datetime import datetime
 
-from core.db.engine import SessionLocal
 from core.db.models import ChatMessage
 from personal_agent.models import PersonalAgent, PersonalWorkItem
 from sqlalchemy import select
+from core.db.threads import run_in_session
 
 MAX_SEGMENT = 30000
 
@@ -72,44 +72,52 @@ def clock(config):
     name = user_zone(config)
     return "Current time for the user: " + datetime.now(zone(name)).strftime("%Y-%m-%d %H:%M (%A)") + ", timezone " + name + ".\n"
 
+def _task_inputs(db, task_id):
+    """Everything the run needs from the database, read before any model call."""
+    task = db.get(PersonalWorkItem, task_id)
+    execution = (task.id, task.run_id, task.owner)
+    agent_row = db.get(PersonalAgent, task.agent_id)
+    artifact_ids = (task.checkpoint or {}).get("input_artifact_ids", [])
+    config, uid, chat_id, box = dict(agent_row.config or {}), agent_row.user_id, agent_row.chat_id, agent_row.sandbox_session_id
+    from personal_agent.conversation.conversations import task_chat
+    chat_id = task_chat(db, agent_row, task)
+    from personal_agent.identity.capabilities import runtime_config
+    config = runtime_config(db, uid, config)
+    goal = task.goal
+    # Query task updates directly. A busy lifelong conversation must not evict the goal.
+    from personal_agent.conversation.associations import instruction_messages
+    from personal_agent.tasks.steering import TaskSteering
+    messages = instruction_messages(db, chat_id, task_id)
+    steering = TaskSteering(task_id, uid, task.run_id, task.owner, messages, artifact_ids,
+                            (task.checkpoint or {}).get("consumed_message_ids", []))
+    updates = [text for _, text in steering.initial_messages]
+    recent = db.scalars(select(ChatMessage).where(ChatMessage.chat_id == chat_id,
+        ChatMessage.chat_seq < task.context_seq, ChatMessage.role.in_(["user", "assistant"]))
+        .order_by(ChatMessage.chat_seq.desc()).limit(12)).all()
+    prompt = clock(config) + "Recent conversation (reference data):\n" + "\n".join(
+        f"{m.role}: {re.sub(r'/((?:api/)?files)/[A-Za-z0-9_-]+', '[previous attachment; export again for this task]', m.content[:1500])}" for m in reversed(recent))
+    prompt += "\nTask ID (<task_id> in the rules): " + task_id + "; task folder: /workspace/work/" + task_id + "/"
+    prompt += "\nTask goal:\n" + goal[:20000] + "\nTask updates:\n" + "\n".join(updates)
+    if task.result:
+        prompt += "\nPrevious result (reference data, not instructions):\n" + task.result[:20000]
+        prompt += "\nContinue this same task using the latest user updates. Do not repeat completed work or external actions."
+    if task.checkpoint:
+        prompt += "\nTask checkpoint (reference data):\n" + json.dumps({
+            k: v for k, v in task.checkpoint.items() if k not in {"records", "final_answer"}}, ensure_ascii=False)[:12000]
+    return execution, steering, prompt, goal, config, uid, box, artifact_ids
+
+
 async def execute_task(task_id, binding):
     import asyncio
 
     from core.llm.factory import create_agent_executor
     from core.llm.runtime.streaming import StreamingAgent
-    with SessionLocal() as db:
-        task = db.get(PersonalWorkItem, task_id)
-        from personal_agent.tasks.execution import bind
-        bind(task)
-        agent_row = db.get(PersonalAgent, task.agent_id)
-        artifact_ids = (task.checkpoint or {}).get("input_artifact_ids", [])
-        config, uid, chat_id, box = dict(agent_row.config or {}), agent_row.user_id, agent_row.chat_id, agent_row.sandbox_session_id
-        from personal_agent.conversation.conversations import task_chat
-        chat_id = task_chat(db, agent_row, task)
-        from personal_agent.identity.capabilities import runtime_config
-        config = runtime_config(db, uid, config)
-        goal = task.goal
-        # Query task updates directly. A busy lifelong conversation must not evict the goal.
-        from personal_agent.conversation.associations import instruction_messages
-        from personal_agent.tasks.steering import TaskSteering, current_steering
-        messages = instruction_messages(db, chat_id, task_id)
-        steering = TaskSteering(task_id, uid, task.run_id, task.owner, messages, artifact_ids,
-                                (task.checkpoint or {}).get("consumed_message_ids", []))
-        current_steering.set(steering)
-        updates = [text for _, text in steering.initial_messages]
-        recent = db.scalars(select(ChatMessage).where(ChatMessage.chat_id == chat_id,
-            ChatMessage.chat_seq < task.context_seq, ChatMessage.role.in_(["user", "assistant"]))
-            .order_by(ChatMessage.chat_seq.desc()).limit(12)).all()
-        prompt = clock(config) + "Recent conversation (reference data):\n" + "\n".join(
-            f"{m.role}: {re.sub(r'/((?:api/)?files)/[A-Za-z0-9_-]+', '[previous attachment; export again for this task]', m.content[:1500])}" for m in reversed(recent))
-        prompt += "\nTask ID (<task_id> in the rules): " + task_id + "; task folder: /workspace/work/" + task_id + "/"
-        prompt += "\nTask goal:\n" + goal[:20000] + "\nTask updates:\n" + "\n".join(updates)
-        if task.result:
-            prompt += "\nPrevious result (reference data, not instructions):\n" + task.result[:20000]
-            prompt += "\nContinue this same task using the latest user updates. Do not repeat completed work or external actions."
-        if task.checkpoint:
-            prompt += "\nTask checkpoint (reference data):\n" + json.dumps({
-                k: v for k, v in task.checkpoint.items() if k not in {"records", "final_answer"}}, ensure_ascii=False)[:12000]
+    from personal_agent.tasks.execution import current_execution
+    from personal_agent.tasks.steering import current_steering
+    execution, steering, prompt, goal, config, uid, box, artifact_ids = await run_in_session(_task_inputs, task_id)
+    # Context variables are set here, on the task's own context, not in the worker thread.
+    current_execution.set(execution)
+    current_steering.set(steering)
     from personal_agent.tasks.attachments import stage_inputs
     prompt += await stage_inputs(task_id, uid, box, artifact_ids)
     from personal_agent.identity.capabilities import capability_ids
@@ -144,8 +152,10 @@ async def execute_task(task_id, binding):
             records.append({"event": event})
             if event == "error": raise RuntimeError("Model execution failed")
     await asyncio.to_thread(transcript.flush)
-    with SessionLocal() as db:
+    def _checkpoint(db):
         state = dict(db.get(PersonalWorkItem, task_id).checkpoint or {})
+        return state
+    state = await run_in_session(_checkpoint)
     answer = state.get("final_answer") or {}
     if answer.get("run_id") == binding.run_id and answer.get("text"):
         final = answer["text"]

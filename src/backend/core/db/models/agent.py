@@ -2,12 +2,10 @@
 from core.db.utc_datetime import UTCDateTime
 from core.infra.time import utc_now
 
-from datetime import datetime, timezone
 
 from core.db.engine import Base
 from core.db.edition import UserAgentEditionFields, user_agent_edition_table_args
 from sqlalchemy import (
-    JSON,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -18,13 +16,9 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
-    UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import INET, JSONB
-from sqlalchemy.orm import mapped_column, relationship
-
-JSONType = JSON().with_variant(JSONB(), "postgresql")
-INETType = String(45).with_variant(INET(), "postgresql")
+from sqlalchemy.orm import relationship
+from core.db.models.column_types import JSONType
 
 
 class UserAgent(UserAgentEditionFields, Base):
@@ -92,9 +86,6 @@ class UserAgent(UserAgentEditionFields, Base):
         Index("idx_user_agents_updated_at", "updated_at"),
         Index("idx_user_agents_source_market_slug", "source_market_slug"),
     )
-
-
-
 
 
 class Plan(Base):

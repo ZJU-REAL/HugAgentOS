@@ -15,12 +15,11 @@ async def runtime_listeners(
     _manifest_for_surface,
     _plugin_runtime,
     agent,
-    http_clients,
+    mcp_resources,
     profile,
     skill_selection,
     system_prompt,
     toolkit,
-    transient_mcp_clients,
 ):
     async def _publish_context_manifest(request_manifest):  # noqa: ANN001, ANN202
         """Bind the exact post-budget context manifest used for this request."""
@@ -102,12 +101,15 @@ async def runtime_listeners(
 
     _log.info("[factory] +%s agent created, TOTAL setup done", _elapsed())
 
-    # Only transient (per-request) stdio clients + HTTP clients get closed;
-    # pooled stable clients stay open for reuse (closing them would defeat the
-    # pool and hand dead clients to the next request).
-    all_transient = [*transient_mcp_clients, *http_clients]
+    for resource in mcp_resources:
+        if resource.interactions is not None:
+            resource.interactions.agent = agent
+    # Release each run's leases; chat-owned STDIO sessions expire independently.
+    all_transient = list(mcp_resources)
     # Clients connected by a mid-run load_plugin activation are appended to this
     # same list object, so the caller's close_clients() teardown covers them.
     if _plugin_runtime is not None:
         _plugin_runtime["close_list"] = all_transient
+        _plugin_runtime["agent"] = agent
+        _plugin_runtime["request"] = request
     return agent, all_transient

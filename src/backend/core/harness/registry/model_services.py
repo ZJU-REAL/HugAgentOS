@@ -1,12 +1,7 @@
 """Host-provided model operations used by capability and evolution domains."""
 from __future__ import annotations
+from dataclasses import dataclass
 from typing import Any, Callable
-
-
-
-
-
-
 
 
 def register_model_services(*, ranker: Callable[..., list[str]], prompt_reader: Callable[[], list[tuple[str, dict[str, Any]]]], prompt_renderer: Callable, text_agent: Callable, environment: Callable) -> None:
@@ -48,13 +43,8 @@ def model_environment():
     return registration_state().environment()
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-
-@state_dataclass
+@dataclass
 class RegistrationState:
-    """Process-owned registrations; replace only while the host is quiescent."""
     ranker: Callable[..., list[str]] | None = None
     prompt_reader: Callable[[], list[tuple[str, dict[str, Any]]]] | None = None
     prompt_renderer: Callable | None = None
@@ -62,9 +52,8 @@ class RegistrationState:
     environment: Callable | None = None
 
 
-@state_cache(maxsize=1)
-def registration_state() -> RegistrationState:
-    return RegistrationState()
+_REGISTRATIONS = RegistrationState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-registration_state()
+
+def registration_state() -> RegistrationState:
+    return _REGISTRATIONS

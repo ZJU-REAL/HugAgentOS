@@ -1,6 +1,5 @@
 """Application resource admission uses the existing worker, quota and janitor."""
 
-import asyncio
 import hashlib
 import json
 import time
@@ -10,56 +9,51 @@ from fastapi import HTTPException
 from core.capabilities.plugins.resources import service, store
 from core.capabilities.plugins.resources.owners import application_binding
 from core.capabilities.plugins.resources.reservation import lock_owner
+from core.db.threads import run_in_session
 
 
-async def reserve(db, selected, module_id, user_id, binding):
-    deadline = time.monotonic() + 95
-    while True:
+def reserve(db, selected, module_id, user_id, binding):
+    """One idempotent admission attempt under the owner lock (see ``service._admit``)."""
+    lock_owner(db, user_id)
+    row = db.get(store.PluginResource, binding["resource_id"])
+    if row is None:
+        return "reserve", None  # caller retains the quota/admission lock
+    if (
+        row.user_id != user_id
+        or row.request_digest != binding["request_digest"]
+        or row.application_key != binding["application_key"]
+        or row.instance_id != binding["instance_id"]
+        or row.install_id != selected.install_id
+        or row.revision != selected.revision
+        or row.module_id != module_id
+    ):
+        db.rollback()
+        raise HTTPException(409, "idempotency_conflict")
+    if row.status == "active":
+        service.authorized(db, row.resource_id, user_id)
         db.commit()
-        lock_owner(db, user_id)
-        row = db.get(store.PluginResource, binding["resource_id"])
-        if row is None:
-            return None, False  # caller retains the quota/admission lock
-        if (
-            row.user_id != user_id
-            or row.request_digest != binding["request_digest"]
-            or row.application_key != binding["application_key"]
-            or row.instance_id != binding["instance_id"]
-            or row.install_id != selected.install_id
-            or row.revision != selected.revision
-            or row.module_id != module_id
-        ):
-            db.rollback()
-            raise HTTPException(409, "idempotency_conflict")
-        if row.status == "active":
-            service.authorized(db, row.resource_id, user_id)
-            db.commit()
-            return row, True
-        if row.status != "starting" or row.expires_at <= time.time():
-            db.commit()
-            raise HTTPException(410, "resource_closed_no_replay")
+        return "adopted", row
+    if row.status != "starting" or row.expires_at <= time.time():
         db.commit()
-        if time.monotonic() >= deadline:
-            raise HTTPException(503, "resource_start_pending")
-        await asyncio.sleep(0.05)
-        db.expire_all()
-        application_binding(
-            db,
-            user_id,
-            binding["application_key"],
-            selected.install_id,
-            selected.revision,
-            binding["scope"],
-            module_id,
-        )
+        raise HTTPException(410, "resource_closed_no_replay")
+    db.commit()
+    return "wait", None
+
+
+def _record_quota_denied(db, user_id, item, instance_id):
+    from core.harness.registry.resource_owners import resource_owner
+
+    resource_owner().record(db, user_id, "resource", "quota_denied", item=item, instance_id=instance_id)
 
 
 async def create(
-    db, user_id, key, instance_id, install_id, revision, execution_scope, module_id, idempotency_key
+    user_id, key, instance_id, install_id, revision, execution_scope, module_id, idempotency_key
 ):
     if not idempotency_key or len(idempotency_key) > 128:
         raise HTTPException(400, "idempotency_key_required")
-    item = application_binding(db, user_id, key, install_id, revision, execution_scope, module_id)
+    item = await run_in_session(
+        application_binding, user_id, key, install_id, revision, execution_scope, module_id
+    )
     payload = [key, instance_id, install_id, revision, execution_scope, module_id]
     digest = hashlib.sha256(json.dumps(payload).encode()).hexdigest()
     resource_id = hashlib.sha256(
@@ -67,7 +61,6 @@ async def create(
     ).hexdigest()
     try:
         return await service.create(
-            db,
             module_id=module_id,
             user_id=user_id,
             chat_id=None,
@@ -83,12 +76,9 @@ async def create(
             },
         )
     except HTTPException as error:
-        db.rollback()
         if error.status_code == 429:
-            from core.harness.registry.resource_owners import resource_owner
-
             try:
-                resource_owner().record(db, user_id, "resource", "quota_denied", item=item, instance_id=instance_id)
+                await run_in_session(_record_quota_denied, user_id, item, instance_id)
             except Exception:
                 pass  # The original quota denial remains authoritative if telemetry storage fails.
         raise
@@ -104,13 +94,13 @@ def owned(db, user_id, key, instance_id, resource_id, *, allow_closed=False):
     return service.authorized(db, resource_id, user_id)
 
 
-async def renew(db, user_id, key, instance_id, resource_id):
-    row = owned(db, user_id, key, instance_id, resource_id)
+def _extend_lease(db, user_id, key, instance_id, resource_id):
+    """Extend a foreground lease; returns True when the background lease owns it instead."""
     from core.harness.registry.resource_owners import resource_owner
 
+    row = owned(db, user_id, key, instance_id, resource_id)
     if resource_owner().authorize(db, row):
-        await resource_owner().renew(db, user_id, key, instance_id, resource_id)
-        return store.public(row)
+        return True
     updated = (
         db.query(store.PluginResource)
         .filter_by(resource_id=row.resource_id, status="active")
@@ -120,16 +110,25 @@ async def renew(db, user_id, key, instance_id, resource_id):
     db.commit()
     if updated != 1:
         raise HTTPException(410, "resource_expired")
-    db.refresh(row)
+    return False
+
+
+def _public(db, user_id, resource_id):
+    return store.public(store.get(db, resource_id, user_id))
+
+
+async def renew(user_id, key, instance_id, resource_id):
     from core.capabilities.plugins.resources.deadlines import arm
+    from core.harness.registry.resource_owners import resource_owner
 
-    await arm(db, row)
-    return store.public(row)
+    if await run_in_session(_extend_lease, user_id, key, instance_id, resource_id):
+        await resource_owner().renew(user_id, key, instance_id, resource_id)
+    else:
+        await arm(resource_id)
+    return await run_in_session(_public, user_id, resource_id)
 
 
-async def close_application_resources(
-    db, user_id, *, application_key=None, instance_id=None, install_id=None
-):
+def _application_rows(db, user_id, application_key, instance_id, install_id):
     query = db.query(store.PluginResource).filter(
         store.PluginResource.user_id == user_id,
         store.PluginResource.application_key.is_not(None),
@@ -142,11 +141,19 @@ async def close_application_resources(
     ):
         if value is not None:
             query = query.filter(getattr(store.PluginResource, name) == value)
+    rows = query.all()
+    db.expunge_all()
+    return rows
+
+
+async def close_application_resources(
+    user_id, *, application_key=None, instance_id=None, install_id=None
+):
+    rows = await run_in_session(_application_rows, user_id, application_key, instance_id, install_id)
     failures = []
-    for row in query.all():
+    for row in rows:
         try:
-            await service.close(db, row)
+            await service.close(row)
         except Exception:
-            db.rollback()
             failures.append(row.resource_id)
     return {"closed": not failures, "retry_resource_ids": failures}

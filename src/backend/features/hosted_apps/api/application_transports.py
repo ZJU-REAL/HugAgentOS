@@ -2,15 +2,15 @@
 
 import json
 
-from core.db.engine import get_db
 from core.infra.responses import success_response
 from features.hosted_apps.data import ApplicationDataService
 from features.hosted_apps.operations import perform_operation
 from features.hosted_apps.schema import InternalMCPPublish, InternalOperation, RecordBatch
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Request
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
+
+from core.db.threads import run_in_session
 
 internal_router = APIRouter(prefix="/v1/internal/applications", tags=["internal-applications"])
 public_router = APIRouter(prefix="/site", tags=["application-data"])
@@ -21,7 +21,6 @@ mcp_router = APIRouter(prefix="/applications-mcp", tags=["hosted-mcp"])
 async def internal_operation(
     body: InternalOperation,
     x_internal_token: str | None = Header(None),
-    db: Session = Depends(get_db),
 ):
     from features.sites.api.internal_site_auth import _check_internal_token
 
@@ -42,7 +41,7 @@ async def internal_operation(
                 chat_id=body.chat_id,
             )
         )
-    result = await run_in_threadpool(perform_operation, body, db)
+    result = await run_in_session(lambda db: perform_operation(body, db))
     return success_response(data=result)
 
 
@@ -50,7 +49,6 @@ async def internal_operation(
 async def internal_publish_mcp(
     body: InternalMCPPublish,
     x_internal_token: str | None = Header(None),
-    db: Session = Depends(get_db),
 ):
     from features.sites.api.internal_site_auth import _check_internal_token
     from core.harness.registry.host_runtime import requires_remote_execution as bridge_enabled
@@ -69,27 +67,27 @@ async def internal_publish_mcp(
         from features.hosted_apps.projects import ApplicationProjectService
         from features.hosted_apps.publication import ApplicationPublicationService
 
-        publication = ApplicationPublicationService(db)
-        result = await run_in_threadpool(
-            publication.publish,
-            body.app_id,
-            body.user_id,
-            body.tools,
-            install_personal=True,
-            chat_id=body.chat_id,
+        result = await run_in_session(
+            lambda db: ApplicationPublicationService(db).publish(
+                body.app_id,
+                body.user_id,
+                body.tools,
+                install_personal=True,
+                chat_id=body.chat_id,
+            )
         )
 
     return success_response(data=result)
 
 
 @public_router.post("/{slug}/__api/data/{table}")
-async def visitor_insert(slug: str, table: str, request: Request, db: Session = Depends(get_db)):
+async def visitor_insert(slug: str, table: str, request: Request):
     from features.sites.api.sites_serve import _api_json, _client_ip, _load_authorized_site
     from features.hosted_apps.store import applications
 
     from features.sites.rate_limit import count_attempt
     await count_attempt(_client_ip(request), slug)
-    site, gate = await _load_authorized_site(slug, request, db, require_unlock=True)
+    site, gate = await _load_authorized_site(slug, request, require_unlock=True)
     if gate is not None:
         return _api_json(
             {"detail": "Site access authorization is required"},
@@ -130,14 +128,12 @@ async def visitor_insert(slug: str, table: str, request: Request, db: Session = 
 
 
 @public_router.api_route("/{slug}/__api/data/{table}", methods=["GET", "PUT"])
-async def visitor_collection(
-    slug: str, table: str, request: Request, db: Session = Depends(get_db)
-):
+async def visitor_collection(slug: str, table: str, request: Request):
     from features.sites.api.sites_serve import _api_json, _client_ip, _load_authorized_site
     from features.hosted_apps.collections import read_collection, replace_collection
     from features.hosted_apps.store import applications
 
-    site, gate = await _load_authorized_site(slug, request, db, require_unlock=True)
+    site, gate = await _load_authorized_site(slug, request, require_unlock=True)
     if gate is not None:
         return _api_json(
             {"detail": "Site access authorization is required"},

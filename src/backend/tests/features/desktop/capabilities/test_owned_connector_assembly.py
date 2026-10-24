@@ -62,3 +62,15 @@ def test_modern_connector_cannot_revive_revoked_installation(installed, revocati
         assert catalog_resolver.resolve_explicit_runtime_capabilities(
             db, user, mcp_ids=[sid]
         )[1] == []
+
+
+def test_packaged_compose_host_reaches_the_local_plane(client, index_db, monkeypatch):
+    from dataclasses import replace
+    from core.config.settings import settings
+    from extensions.mcp_servers._ports import PORTS
+    monkeypatch.setattr("core.config.settings.settings",
+                        replace(settings, server=replace(settings.server, mcp_host="127.0.0.1")))
+    root = Path(__file__).resolve().parents[4] / "extensions/plugins/marketplace/automation"
+    sid = service.install("local-u1", str(root))["components"]["mcp"][0]
+    # The manifest names the compose service ``mcp``; a local plane listens on loopback.
+    assert local_plugin_runtime.configs("local-u1")[sid]["url"] == f"http://127.0.0.1:{PORTS['automation_task']}/mcp"

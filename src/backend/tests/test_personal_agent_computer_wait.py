@@ -77,7 +77,9 @@ async def test_action_not_dispatched_or_marked_unknown_while_desktop_busy(sessio
     monkeypatch.setattr(computer, "cloud_driver", driver)
     class Toolkit:
         def __init__(self): self.functions = {}
-        def register_tool_function(self, fn): self.functions[fn.__name__] = fn
+        def append(self, tool):
+            fn = tool._func
+            self.functions[fn.__name__] = fn
     with sessions() as db:
         svc = AgentContext(db, "owner")
         svc.identity.configure({"approval_mode": "full"})

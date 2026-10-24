@@ -6,6 +6,7 @@ import asyncio
 from typing import Any, Dict, Optional
 
 from agentscope.tool import Toolkit
+from core.capabilities.skills.runtime_loader import ParallelRuntimeSkillLoader
 from core.llm.factory.models import RequiredCapabilities
 from core.llm.factory.request import AgentRequest
 from core.llm.tools.ontology_toolkit import OntologyFilteredToolkit
@@ -23,9 +24,8 @@ async def tool_surface(
     required: RequiredCapabilities,
     _required_connector_tool_names,
     _required_plugin_mcp_tool_names,
-    http_clients,
+    mcp_resources,
     loader,
-    mcp_clients,
     skill_ids_to_register,
     toolkit,
 ):
@@ -71,7 +71,7 @@ async def tool_surface(
     }
 
     def _build_toolkit(*, include_skills: bool = True) -> Toolkit:
-        # ``toolkit`` here is still the ToolCollector; construct the real Toolkit from the current collection state.
+        # Construct the native Toolkit from the assembled native tool values.
         #
         # "Skill" (AgentScope's builtin SkillViewer) is hidden unconditionally —
         # distinct from the ontology forbidden_tools above. The Toolkit injects
@@ -81,12 +81,8 @@ async def tool_surface(
         # observability). A model that called Skill instead would bypass all of
         # that and receive backend-path content unusable in the sandbox — so the
         # schema is pure per-round prefill waste plus a wrong door.
-        _visible_mcps = [*mcp_clients, *http_clients]
-        if _prepared_capabilities is not None:
-            _visible_mcps = _prepared_capabilities.wrap_mcp_clients(
-                _visible_mcps, scope_id=request.capability_scope
-            )
-        selected_tools = toolkit.function_tools
+        mcp_tools = [tool for resource in mcp_resources for tool in resource.tools]
+        selected_tools = list(toolkit)
         if request.profile:
             from core.harness.registry import agent_profile
 
@@ -96,16 +92,21 @@ async def tool_surface(
             # The existing MCP resolver already intersects the explicit per-agent list.
             # A profile that does not inherit defaults gets none when the list is empty.
             if not _profile.inherit_default_mcps and not request.enabled_mcp_ids:
-                _visible_mcps = []
+                mcp_tools = []
             if not _profile.native_skill_prompt:
                 include_skills = False
-        return OntologyFilteredToolkit(
-            tools=selected_tools,
-            mcps=_visible_mcps,
-            skills_or_loaders=(toolkit.skill_loaders or None) if include_skills else None,
+        names = [tool.name for tool in [*selected_tools, *mcp_tools]]
+        if len(names) != len(set(names)):
+            raise ValueError("Duplicate model-facing tool names")
+        built = OntologyFilteredToolkit(
+            tools=[*selected_tools, *mcp_tools],
+            skills_or_loaders=[ParallelRuntimeSkillLoader(toolkit.skill_loaders)] if include_skills and toolkit.skill_loaders else None,
             skill_instruction_template=_SKILL_INSTRUCTION_TEMPLATE,
             hidden_tools={*_ontology_hidden_tools, "Skill"},
         )
+        if _prepared_capabilities is not None:
+            built.capability_guard = _prepared_capabilities.tool_guard(scope_id=request.capability_scope)
+        return built
 
     # Compute schemas first in the "subagent tools not yet registered" state
     # (consistent with 1.x: subagent tools are registered after

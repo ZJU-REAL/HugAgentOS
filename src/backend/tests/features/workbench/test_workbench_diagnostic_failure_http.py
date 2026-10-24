@@ -9,6 +9,7 @@ from core.db.engine import get_db
 from core.db.models import UserShadow
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tests.db_support import share_session
 
 BASE = "/v1/workbench"
 KEY = "external:telemetry_failure"
@@ -37,6 +38,7 @@ def client(db_session, monkeypatch):
         yield db_session
 
     app.dependency_overrides[get_db] = database
+    share_session(monkeypatch, db_session)
     token = asyncio.run(create_session({"user_id": "diagnostic-failure-user", "username": "Reader"}))
     with TestClient(app) as browser:
         browser.cookies.set(settings.session.cookie_name, token)

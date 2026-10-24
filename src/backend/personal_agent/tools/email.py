@@ -1,4 +1,5 @@
 """IMAP/SMTP broker. Credentials remain in the backend, never in the sandbox."""
+from core.llm.factory.tools.definitions import function_tool
 import asyncio
 import hashlib
 import imaplib
@@ -134,4 +135,4 @@ def register_email_tools(toolkit, ident, uid):
         receipt(ident, uid, digest, result)
         return response(result)
 
-    for fn in (pa_email_list, pa_email_read, pa_email_download, pa_email_send): toolkit.register_tool_function(fn)
+    for fn in (pa_email_list, pa_email_read, pa_email_download, pa_email_send): toolkit.append(function_tool(fn))

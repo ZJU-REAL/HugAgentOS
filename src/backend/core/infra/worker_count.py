@@ -33,6 +33,13 @@ read. The entrypoint sizes ``--workers`` from it, but it is deliberately not the
 only launch path: ``cli.py`` and ``api.app.main`` call ``uvicorn.run`` in
 process, where nothing exported the resolved value. Deriving the answer instead
 of trusting the environment keeps those paths from believing they are a cluster.
+
+Each worker also brings its own database pool, and that pool is not a separate
+knob: a process can only use as many connections as it has threads doing
+database work, so :func:`core.db.engine.thread_budget` derives the pool from
+``WORKER_THREADS`` (anyio's limiter) and the event loop's executor, and every
+worker applies those limits at startup. Postgres therefore needs
+``max_connections >= resolve() * (pool_size + overflow)`` for the backend alone.
 """
 
 from __future__ import annotations

@@ -88,7 +88,7 @@ def test_bundle_manifest_is_wellformed():
     assert manifest["name"] == "plugin-manager"
     ext_mcp = manifest["extensions"]["org.hugagent"]["mcp"]
     assert set(ext_mcp) == set(mcp_json["mcpServers"]), "扩展段的服务名必须与 mcp.json 一一对应"
-    assert mcp_json["mcpServers"]["plugin_manager"]["url"] == "http://mcp:9116/mcp/"
+    assert mcp_json["mcpServers"]["plugin_manager"]["url"] == "http://mcp:9116/mcp"
 
     from extensions.mcp_servers.plugin_manager_mcp import server
 
@@ -138,7 +138,7 @@ def test_install_plugin_creates_rows_and_is_agent_visible(pm_env):
         assert len(skills) == 1 and skills[0].owner_user_id == OWNER
         assert len(mcps) == 1
         mcp = mcps[0]
-        assert mcp.url == "http://mcp:9116/mcp/"
+        assert mcp.url == "http://mcp:9116/mcp"
         assert mcp.is_enabled is True
         assert len(mcp.tools_json) == 8
         assert plugin is not None

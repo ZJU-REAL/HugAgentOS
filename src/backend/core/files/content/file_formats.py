@@ -1,4 +1,4 @@
-"""file formats responsibilities."""
+"""File extensions the parsers accept."""
 from __future__ import annotations
 
 

@@ -251,7 +251,7 @@ def test_command_sideband_does_not_cross_chat_or_user(command_db):
 
 def test_active_completion_context_retains_harness_provenance():
     from core.llm.context.adapter import AgentScopeContextAdapter
-    from core.llm.context.ir_state import KIND_REMINDER, POLICY_NEVER, SESSION_CONTEXT_META_KEY
+    from core.llm.context.ir_constants import KIND_REMINDER, POLICY_NEVER, SESSION_CONTEXT_META_KEY
     from core.sandbox.commands.context import completion_context
     message = completion_context({"task_id":"cmd_event", "status":"completed", "exit_code":0})
     assert SESSION_CONTEXT_META_KEY in message
@@ -266,7 +266,7 @@ def test_active_completion_context_retains_harness_provenance():
 
 def test_idle_completion_message_retains_harness_provenance(command_db):
     from core.llm.context.adapter import AgentScopeContextAdapter
-    from core.llm.context.ir_state import KIND_REMINDER, POLICY_NEVER, SESSION_CONTEXT_META_KEY
+    from core.llm.context.ir_constants import KIND_REMINDER, POLICY_NEVER, SESSION_CONTEXT_META_KEY
     from core.chat.compaction.history import normalize_rows
     with command_db() as db:
         source = ChatSequencer(db).accept_main_run(chat_id="c", user_id="u",
@@ -290,3 +290,81 @@ def test_idle_completion_message_retains_harness_provenance(command_db):
         assert item.trust == "system"
         assert item.truncation_policy == POLICY_NEVER
         assert item.priority == 950
+
+
+async def test_observation_failure_preserves_cancellation_control(command_db):
+    polls = 0
+    async def poll(pid, **kwargs):
+        nonlocal polls
+        polls += 1
+        if polls == 1:
+            raise TimeoutError("transient output read")
+        if kwargs["chars"]:
+            return {"status": "exited", "exit_code": 130}
+        return {"status": "running", "session_id": "p"}
+    provider = SimpleNamespace(name="test", touch_session=AsyncMock(),
+        start_process=AsyncMock(return_value={"status":"running","session_id":"p"}),
+        write_stdin=poll)
+    owner = CommandRuntime()
+    result = await owner.start(provider, request(), chat_id="c", source_run_id=None, background=True)
+    await asyncio.sleep(0.1)
+    assert store.snapshot(result["task_id"])["status"] == "running"
+    await owner.cancel(result["task_id"], "u", "c")
+    assert store.snapshot(result["task_id"])["status"] == "cancelled"
+    assert provider.start_process.await_count == 1
+    await owner.shutdown()
+
+async def test_failed_stop_keeps_shared_ownership_across_workers(command_db, monkeypatch):
+    monkeypatch.setattr(store, "LEASE_SECONDS", 0.3)
+    can_stop = False
+    async def poll(pid, **kwargs):
+        if can_stop and kwargs["chars"]:
+            return {"status": "exited", "exit_code": 130}
+        raise TimeoutError("process still alive; stop RPC unavailable")
+    provider = SimpleNamespace(name="test", touch_session=AsyncMock(),
+        start_process=AsyncMock(return_value={"status": "running", "session_id": "p"}),
+        write_stdin=poll)
+    owner, other = CommandRuntime(), CommandRuntime()
+    result = await owner.start(provider, request(), chat_id="c", source_run_id=None, background=True)
+    tid = result["task_id"]
+    # Force the observer down its failed-stop path, retaining the process handle.
+    task = owner.tasks[tid]
+    await asyncio.sleep(0.02)
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    for _ in range(20):
+        await owner.recover(provider)
+        await other.recover(provider)
+        await asyncio.sleep(0.04)
+    row = store.snapshot(tid)
+    assert row["status"] == "running"
+    assert row["owner"] == owner.owner
+    assert tid in owner.providers
+    can_stop = True
+    await owner.recover(provider)
+    await asyncio.sleep(0.1)
+    assert store.snapshot(tid)["status"] == "failed"
+    assert tid not in owner.providers
+    await owner.shutdown()
+    await other.shutdown()
+
+async def test_lost_owner_must_stop_local_process_before_forgetting_handle(command_db):
+    stopped = asyncio.Event()
+    provider = SimpleNamespace(name="test", touch_session=AsyncMock(),
+        start_process=AsyncMock(return_value={"status": "running", "session_id": "p"}))
+    async def poll(pid, **kwargs):
+        assert kwargs["chars"] == chr(3)
+        stopped.set()
+        return {"status": "exited", "exit_code": 130}
+    provider.write_stdin = poll
+    owner = CommandRuntime()
+    result = await owner.start(provider, request(), chat_id="c", source_run_id=None, background=True)
+    tid = result["task_id"]
+    with command_db() as db:
+        row = db.get(models.CommandTask, tid)
+        row.owner, row.status = "successor", "unknown"
+        db.commit()
+    await asyncio.wait_for(stopped.wait(), 2)
+    await asyncio.sleep(0.05)
+    assert tid not in owner.providers
+    await owner.shutdown()

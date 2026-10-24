@@ -1,4 +1,4 @@
-"""compaction types responsibilities."""
+"""Snapshot and conflict types shared by the compaction checkpoint protocol."""
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Optional

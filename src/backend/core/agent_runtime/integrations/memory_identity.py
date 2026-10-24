@@ -1,13 +1,13 @@
-"""memory identity responsibilities."""
+"""Build and cache the per-user identity block injected at the head of a chat."""
 from __future__ import annotations
 import asyncio
+from dataclasses import dataclass, field
 from time import monotonic
 from typing import Dict
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
 import logging
+from core.agent_runtime.integrations import memory_state
+
 logger = logging.getLogger(__name__)
-from core.agent_runtime.integrations import memory_state as memory_state_module
 
 async def build_user_identity_block(user_id: str) -> str:
     """Assemble the "current user" identity block (username / nickname) for injection into the session-frozen message.
@@ -58,18 +58,17 @@ async def build_user_identity_block(user_id: str) -> str:
             + "\n".join(lines)
             + "\n需要称呼用户时，用上述昵称（无昵称则用用户名）自然称呼。"
         )
-    process_state().identity_cache[user_id] = (now + memory_state_module.IDENTITY_CACHE_TTL_S, block)
+    process_state().identity_cache[user_id] = (now + memory_state.IDENTITY_CACHE_TTL_S, block)
     return block
 
 
-@state_dataclass
+@dataclass
 class MemoryState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    identity_cache: Dict[str, tuple] = state_field(default_factory=lambda: {})
+    identity_cache: Dict[str, tuple] = field(default_factory=lambda: {})
 
 
-@state_cache(maxsize=1)
+_STATE = MemoryState()
+
+
 def process_state() -> MemoryState:
-    return MemoryState()
-
-process_state()
+    return _STATE

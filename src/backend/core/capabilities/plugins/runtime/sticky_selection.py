@@ -6,11 +6,12 @@ from core.harness.registry import execution_account as skill_account
 import logging
 from typing import Any, Dict, List, Optional, Set
 
-logger = logging.getLogger(__name__)
 
 
 from core.capabilities.plugins.runtime import activation_history as plugin_activation_history
 from core.capabilities.plugins.runtime import models as plugin_runtime_models
+
+logger = logging.getLogger(__name__)
 
 
 def _cloud_sticky_selection(tokens, *, user_id, allow_aliases=False, unavailable_out=None):

@@ -1,9 +1,8 @@
 """Transactional cleanup contributions for ORM user deletion."""
 from __future__ import annotations
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any
-
-
 
 
 def register_user_cleanup(handler: Callable[[Any, Any], None]) -> None:
@@ -16,19 +15,13 @@ def cleanup_user(session: Any, user: Any) -> None:
         handler(session, user)
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-
-@state_dataclass
+@dataclass
 class RegistrationState:
-    """Process-owned registrations; replace only while the host is quiescent."""
-    handlers: list[Callable[[Any, Any], None]] = state_field(default_factory=list)
+    handlers: list[Callable[[Any, Any], None]] = field(default_factory=list)
 
 
-@state_cache(maxsize=1)
+_REGISTRATIONS = RegistrationState()
+
+
 def registration_state() -> RegistrationState:
-    return RegistrationState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-registration_state()
+    return _REGISTRATIONS

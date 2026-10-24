@@ -1,4 +1,4 @@
-"""system config responsibilities."""
+"""Thread-safe service that resolves service configs from the database with env fallback."""
 from __future__ import annotations
 import os
 import threading
@@ -6,8 +6,9 @@ import time
 from typing import Optional
 from core.harness.registry.system_configuration import system_configuration_store
 import logging
+from core.config.store import system_config_constants
+
 logger = logging.getLogger(__name__)
-from core.config.store import system_config_state
 
 class SystemConfigService:
     """Thread-safe singleton that resolves service configs from DB with env fallback."""
@@ -37,7 +38,7 @@ class SystemConfigService:
         if key in self._cache and self._cache[key] is not None:
             return self._cache[key]
         # env fallback
-        env_key = system_config_state.CONFIG_KEY_TO_ENV.get(key)
+        env_key = system_config_constants.CONFIG_KEY_TO_ENV.get(key)
         if env_key:
             env_val = os.getenv(env_key)
             if env_val is not None:
@@ -85,14 +86,13 @@ class SystemConfigService:
 
     def _maybe_refresh(self) -> None:
         now = time.monotonic()
-        if now - self._cache_ts < system_config_state.CACHE_TTL_SECONDS and self._cache_meta:
+        if now - self._cache_ts < system_config_constants.CACHE_TTL_SECONDS and self._cache_meta:
             return
         with self._cache_lock:
-            if now - self._cache_ts < system_config_state.CACHE_TTL_SECONDS and self._cache_meta:
+            if now - self._cache_ts < system_config_constants.CACHE_TTL_SECONDS and self._cache_meta:
                 return
             self._load_from_db()
             self._cache_ts = time.monotonic()
-
 
 
     def _load_from_db(self) -> None:
@@ -113,7 +113,7 @@ class SystemConfigService:
         Only includes keys that have a non-None value (from DB or env fallback).
         """
         overlay: dict[str, str] = {}
-        for config_key, env_key in system_config_state.CONFIG_KEY_TO_ENV.items():
+        for config_key, env_key in system_config_constants.CONFIG_KEY_TO_ENV.items():
             val = self.get(config_key)
             if val is not None:
                 overlay[env_key] = val

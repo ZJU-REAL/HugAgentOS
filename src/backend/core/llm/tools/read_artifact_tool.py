@@ -4,6 +4,7 @@ Extracted from the oversized ``core/llm/tool.py``. Self-contained: all heavy
 deps (content parsers, hooks) are imported lazily inside the functions.
 ``core.llm.tool`` re-exports the public names for backward compatibility.
 """
+from core.llm.factory.tools.definitions import function_tool
 
 import asyncio
 import logging
@@ -11,7 +12,7 @@ from typing import Optional
 
 from agentscope.message import TextBlock
 from agentscope.tool import Toolkit
-from agentscope.tool._response import ToolChunk as ToolResponse
+from agentscope.tool._response import ToolChunk
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +125,7 @@ def register_read_artifact(toolkit: Toolkit, user_id: Optional[str] = None) -> N
         limit: int = _READ_ARTIFACT_DEFAULT_LIMIT,
         sheet_name: str | None = None,
         slide_index: int | None = None,
-    ) -> ToolResponse:
+    ) -> ToolChunk:
         """读取已上传文件的完整解析文本（按字符分页）。
 
         ⚠️ 每轮对话每个 file_id **累计最多读 50000 字符**，超出即被拒绝。所以要精准
@@ -159,18 +160,18 @@ def register_read_artifact(toolkit: Toolkit, user_id: Optional[str] = None) -> N
         import json as _json
 
         from core.files.artifacts.reader import fetch_parsed_text, load_artifact_meta
-        from core.llm.runtime.hooks_state import MAX_FILE_CONTENT_CHARS
+        from core.llm.runtime.hooks_constants import MAX_FILE_CONTENT_CHARS
         from core.llm.runtime.turn_state import get_artifact_read_state
 
         fid = (file_id or "").strip()
         if not fid:
-            return ToolResponse(content=[TextBlock(
+            return ToolChunk(content=[TextBlock(
                 type="text",
                 text=_json.dumps({"error": "file_id 不能为空"}, ensure_ascii=False),
             )])
 
         if sheet_name is not None and slide_index is not None:
-            return ToolResponse(content=[TextBlock(
+            return ToolChunk(content=[TextBlock(
                 type="text",
                 text=_json.dumps(
                     {"error": "sheet_name 与 slide_index 互斥（分别用于 xlsx / pptx）"},
@@ -185,7 +186,7 @@ def register_read_artifact(toolkit: Toolkit, user_id: Optional[str] = None) -> N
         # Blocking it mid-answer stalls streaming for every chat on the instance.
         meta = await asyncio.to_thread(load_artifact_meta, fid, user_id=user_id)
         if meta is None:
-            return ToolResponse(content=[TextBlock(
+            return ToolChunk(content=[TextBlock(
                 type="text",
                 text=_json.dumps(
                     {"error": f"文件 {fid} 不存在、已删除，或无权访问"},
@@ -227,7 +228,7 @@ def register_read_artifact(toolkit: Toolkit, user_id: Optional[str] = None) -> N
         except RuntimeError as e:
             err = {"error": str(e), "file_id": fid, "filename": meta.get("filename")}
             err.update(extras)
-            return ToolResponse(content=[TextBlock(
+            return ToolChunk(content=[TextBlock(
                 type="text", text=_json.dumps(err, ensure_ascii=False),
             )])
 
@@ -235,7 +236,7 @@ def register_read_artifact(toolkit: Toolkit, user_id: Optional[str] = None) -> N
             error = meta.get("parse_error") or "文件暂无可读文本内容"
             err = {"error": error, "filename": meta.get("filename"), "file_id": fid}
             err.update(extras)
-            return ToolResponse(content=[TextBlock(
+            return ToolChunk(content=[TextBlock(
                 type="text", text=_json.dumps(err, ensure_ascii=False),
             )])
 
@@ -272,7 +273,7 @@ def register_read_artifact(toolkit: Toolkit, user_id: Optional[str] = None) -> N
                 )
             else:
                 hint += " 如需更多内容，请缩小范围（精准 offset/limit）后再试。"
-            return ToolResponse(content=[TextBlock(
+            return ToolChunk(content=[TextBlock(
                 type="text",
                 text=_json.dumps(
                     {
@@ -317,10 +318,10 @@ def register_read_artifact(toolkit: Toolkit, user_id: Optional[str] = None) -> N
             "budget_remaining": budget_remaining_after,
         }
         result.update(extras)
-        return ToolResponse(content=[TextBlock(
+        return ToolChunk(content=[TextBlock(
             type="text",
             text=_json.dumps(result, ensure_ascii=False),
         )])
 
-    toolkit.register_tool_function(read_artifact, namesake_strategy="override")
+    toolkit.append(function_tool(read_artifact))
     logger.info("[factory] Registered read_artifact tool (user=%s)", user_id)

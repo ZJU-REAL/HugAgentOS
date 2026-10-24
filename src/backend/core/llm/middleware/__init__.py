@@ -1,1 +1,1 @@
-"""middleware domain package."""
+"""Record of the AgentScope middleware chain replaced by HookBus hooks."""

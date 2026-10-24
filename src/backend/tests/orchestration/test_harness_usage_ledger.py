@@ -193,6 +193,28 @@ async def test_model_retry_wrapper_records_each_physical_call(ledger_env):
     assert structured_rows[0].usage == AttemptUsage(7, 3)
 
 
+def test_attempt_batch_reserves_consecutive_sequences_in_one_write(ledger_env):
+    ledger = HarnessUsageLedger(ledger_env)
+    ledger.record_attempt(
+        UsageAttempt(run_id="run-ledger", kind="model", operation_name="m",
+                     status="success", latency_ms=1)
+    )
+    batch = ledger.record_attempts(
+        UsageAttempt(run_id="run-ledger", kind="hook", operation_name=name,
+                     status="success", latency_ms=1)
+        for name in ("a", "b", "c")
+    )
+    assert [row.attempt_seq for row in batch] == [2, 3, 4]
+    assert [row.operation_name for row in ledger.attempts("run-ledger")] == ["m", "a", "b", "c"]
+    with pytest.raises(ValueError):
+        ledger.record_attempts([
+            UsageAttempt(run_id="run-ledger", kind="hook", operation_name="x",
+                         status="success", latency_ms=1),
+            UsageAttempt(run_id="other", kind="hook", operation_name="y",
+                         status="success", latency_ms=1),
+        ])
+
+
 @pytest.mark.asyncio
 async def test_durable_event_store_allocates_sequence_before_observers(ledger_env):
     sink = EventSink(DurableEventStore(ledger_env))

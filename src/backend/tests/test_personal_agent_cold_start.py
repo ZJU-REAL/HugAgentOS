@@ -1,6 +1,6 @@
 """Cold SQLite initialization must allow catalog configuration to seed independently."""
 from core.config.store import system_config
-from core.config.store import system_config_state
+from core.config.store import system_config_constants
 from types import SimpleNamespace
 
 from sqlalchemy import create_engine, select
@@ -28,7 +28,7 @@ def test_first_identity_allows_catalog_seed_on_another_connection(tmp_path, monk
     Base.metadata.create_all(engine)
     config = system_config.SystemConfigService()
     monkeypatch.setattr("core.db.system_configuration.SessionLocal", factory)
-    monkeypatch.setattr(system_config_state, 'SEED_CONFIGS', [
+    monkeypatch.setattr(system_config_constants, 'SEED_CONFIGS', [
         ("pa.cold_start", "seeded", "Cold start", "", "test", False),
     ])
     monkeypatch.setattr(capabilities, "plugin_inventory", lambda db, user_id: [])

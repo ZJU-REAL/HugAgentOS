@@ -7,6 +7,7 @@ import base64
 import logging
 import re
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -372,7 +373,6 @@ class ScriptRunnerProvider(CompletionMixin):
         raise SandboxAdminNotSupported("script_runner 无连接池")
 
 
-
 _SKILL_VIEW_TTL_S = 60.0
 
 
@@ -412,17 +412,13 @@ def _refresh_skill_view(user_id: Optional[str]) -> None:
         logger.warning("[script_runner] 技能视图刷新失败 user=%s: %s", uid, exc)
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class ProviderState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    SKILL_VIEW_SYNCED: dict[str, tuple[float, int]] = state_field(default_factory=lambda: {})
+    SKILL_VIEW_SYNCED: dict[str, tuple[float, int]] = field(default_factory=lambda: {})
 
-@state_cache(maxsize=1)
+
+_STATE = ProviderState()
+
+
 def process_state() -> ProviderState:
-    return ProviderState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

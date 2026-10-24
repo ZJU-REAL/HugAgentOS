@@ -4,7 +4,6 @@ import httpx
 import pytest
 from integrations.channels.adapters.weixin import WeixinAdapter
 from core.infra.ephemeral import LocalEphemeralState
-from integrations.channels.service import ChannelService
 from httpx import _client
 from tests.integrations.channels.test_channel_desktop_relay_api import api, headers  # noqa: F401
 
@@ -38,7 +37,7 @@ def test_raw_weixin_wait_scan_confirm_creates_local_bot(api, monkeypatch):
     client, _, _ = api
     ephemeral = LocalEphemeralState()
     monkeypatch.setattr("core.infra.ephemeral.get_ephemeral_state", lambda: ephemeral)
-    monkeypatch.setattr(ChannelService, "_start_long_conn", lambda *args: None)
+    monkeypatch.setattr("integrations.channels.service._start_long_conn", lambda *args: None)
     states = iter(
         [
             {"status": "wait"},

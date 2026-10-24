@@ -49,7 +49,6 @@ def canonical_hash(value: Any) -> str:
 def token_claims(token: str) -> Dict[str, Any]:
     """Read routing labels only; server-side signature/session checks authorize use."""
     try:
-        import base64
         raw = str(token).split(".")
         if len(raw) != 3 or raw[0] not in ("dcap1", "dcap2"):
             return {}

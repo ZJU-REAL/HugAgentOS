@@ -1,13 +1,13 @@
-"""retention operations."""
+"""Prune settled tool effect records and close orphaned intents."""
 from __future__ import annotations
 from datetime import timedelta
 from typing import Optional
 from core.db.models import ChatRun, ToolEffectLease, ToolEffectLedger
 from core.runs.journal import LIVE_STATUSES
 from sqlalchemy import and_, case
-from core.runs.tool_effects import journal_state as journal_state_module
-from core.runs.tool_effects import journal_time as journal_time_module
-from core.runs.tool_effects import types as types_module
+from core.runs.tool_effects import journal_constants
+from core.runs.tool_effects import types
+from core.infra.time import as_utc
 
 def prune_settled(self, *, retention_days: int = 7) -> int:
     """Drop per-run recovery/observability facts of long-terminal runs.
@@ -32,9 +32,9 @@ def prune_settled(self, *, retention_days: int = 7) -> int:
     """
     from core.db.models import ChatRunOperation, HarnessEventLog, HarnessUsageAttempt
 
-    now = journal_time_module.aware(self._clock())
+    now = as_utc(self._clock())
     cutoff = now - timedelta(days=retention_days)
-    attention_cutoff = now - timedelta(days=retention_days * journal_state_module.ATTENTION_RETENTION_FACTOR)
+    attention_cutoff = now - timedelta(days=retention_days * journal_constants.ATTENTION_RETENTION_FACTOR)
     with self._sessions() as db:
 
         earliest_cutoff = max(cutoff, attention_cutoff)
@@ -97,7 +97,7 @@ def prune_settled(self, *, retention_days: int = 7) -> int:
         return deleted
 
 
-def settle_terminal_run_intent(self, effect_id: str) -> Optional[types_module.ToolIntent]:
+def settle_terminal_run_intent(self, effect_id: str) -> Optional[types.ToolIntent]:
     """Close an orphan intent without replay after its owning run is terminal.
 
     Cancellation/failure is a hard replay boundary: the user's stopped run

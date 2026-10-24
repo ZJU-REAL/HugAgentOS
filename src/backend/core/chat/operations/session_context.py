@@ -140,30 +140,3 @@ def load_session_messages(
     if messages is None:
         raise HTTPException(status_code=404, detail=f"Session {chat_id} not found")
     return messages
-
-
-def release_request_session(db: Session) -> None:
-    """End the request transaction before an SSE response is handed over.
-
-    A streaming response outlives its handler: FastAPI keeps the request-scoped
-    session (``Depends(get_db)``) open until the stream completes. Anything left
-    open here is therefore a transaction — and any row lock in it — held for the
-    entire turn. The background run then blocks on its own chat row when it
-    commits the reply, so the run cannot finish, so the stream cannot finish, so
-    this session is never released: a circular wait that only a client
-    disconnect breaks.
-
-    Committing rather than rolling back matches what the handler already did on
-    every other exit: everything it meant to persist is committed by this point,
-    so this only ends the read transaction the history load left behind.
-    """
-    try:
-        db.commit()
-    except Exception:  # noqa: BLE001 - never turn cleanup into a failed request
-        logger.warning("release_request_session_commit_failed", exc_info=True)
-        try:
-            db.rollback()
-        except Exception:  # noqa: BLE001
-            logger.warning("release_request_session_rollback_failed", exc_info=True)
-    finally:
-        db.close()

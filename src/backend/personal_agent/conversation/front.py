@@ -24,6 +24,7 @@ from personal_agent.models import (
 from personal_agent.tasks import task_ops
 from personal_agent.tasks.task_threads import StreamRecord
 from sqlalchemy import func, select
+from core.db.threads import run_in_session
 
 log = logging.getLogger(__name__)
 PROFILE = "personal_agent_front"
@@ -286,8 +287,10 @@ async def converse(plan, binding):
     from core.llm.factory import create_agent_executor
     from core.llm.runtime.streaming import StreamingAgent
     from personal_agent.identity.capabilities import front_mcp_ids, runtime_config
-    with SessionLocal() as db:
+    def _agent_config(db):
         config = runtime_config(db, plan["uid"], plan["config"])
+        return config
+    config = await run_in_session(_agent_config)
     reply = plan["reply"]
     effort = config.get("thinking_effort", "fast")
     instance, clients = await create_agent_executor(user_query=plan["query"], current_user_id=plan["uid"],

@@ -81,10 +81,10 @@ CE 前端不按工具名猜测远程 MCP 的业务结构。用户接入的远程
 | `.hugagent-edition` | 仅在派生后出现的机器可读 `ce` 标识；让发布工具区分派生 CE checkout 与生成器异常缺失的源代码 checkout |
 | `.github/workflows/desktop-release.yml` | 公开 CE 桌面发版 workflow，包含 release tag / 版本前置门禁 |
 | `src/backend/api/routes/v1/__init__.py` | CE 路由注册表；`EE_ROUTERS` 恒为空 |
-| `src/backend/core/auth/permissions_iface.py` | 单租户 owner-only 权限接口；不导出团队权限函数 |
-| `src/backend/core/files/artifacts/edition.py` | 个人空间 artifact 作用域接口；不暴露团队字段、权限或仓储方法 |
+| `src/backend/core/auth/personal_permissions_iface.py` | 单租户 owner-only 权限接口；不导出团队权限函数 |
+| `src/backend/core/files/edition.py` | 个人空间 artifact 作用域接口；不暴露团队字段、权限或仓储方法 |
 | `src/backend/core/llm/tools/edition_{myspace,myspace_vfs,artifact_recovery}.py` | 个人空间工具、VFS 与恢复接口；组织空间实现不进入 CE |
-| `src/backend/core/config/edition_display_names.py` | CE 工具展示名；不包含团队工具名称 |
+| `src/backend/core/config/display_names.py` | CE 工具展示名；不包含团队工具名称 |
 | `src/backend/core/memory/audit.py` | 记忆审计 no-op stub（同名接口、不落数据） |
 | `src/backend/alembic/versions/ce_000{1,2}_*.py` | CE 独立迁移链基线与幂等 Schema 升级（见下节） |
 | `src/backend/orchestration/workers/edition_startup.py` | CE 启动接缝；为 EE 数据源恢复、蒸馏调度提供 no-op 实现，避免导入已裁除模块 |
@@ -183,7 +183,7 @@ EE 始终全量建表。维护规则：**新增 EE 专属模型必须放进 `edi
 | overlay 目录 | `ce/overlay/` |
 | 派生树版本标识 | `ce/overlay/.hugagent-edition` |
 | 公开桌面发版 workflow | `ce/overlay/.github/workflows/desktop-release.yml` |
-| CE/EE 建表边界 | `src/backend/core/db/edition_tables.py` |
+| CE/EE 建表边界 | `src/backend/edition_ee/db/edition_tables.py` |
 | 幂等 Schema 升级器 | `src/backend/core/db/schema_reconcile.py` |
 | 启动建表 CE 分支 | `src/backend/core/db/engine.py::init_db` |
 | CE 独立迁移链 | `ce/overlay/src/backend/alembic/versions/ce_000{1,2}_*.py` |

@@ -1,10 +1,10 @@
-"""content responsibilities."""
+"""Normalise, measure and truncate context content."""
 from __future__ import annotations
 from core.models.constants import IMAGE_TOKEN_RESERVE
 from typing import Any, Mapping
 from core.infra.immutable import thaw_json
 from core.harness.execution_manifest import canonical_json
-from core.llm.context import ir_state as ir_state_module
+from core.llm.context import ir_constants
 
 def normalize_context_content(content: Any) -> Any:
     """Convert SDK block objects into stable, framework-neutral JSON values."""
@@ -134,11 +134,11 @@ def truncate_content(content: Any, max_tokens: int, policy: str) -> Any:
     if max_tokens <= 0:
         return ""
     if isinstance(content, str):
-        return truncate_text(content, max_tokens, tail_only=policy == ir_state_module.POLICY_TAIL)
+        return truncate_text(content, max_tokens, tail_only=policy == ir_constants.POLICY_TAIL)
     if isinstance(content, Mapping):
         mutable = thaw_json(content)
         block_type = str(mutable.get("type") or "")
-        if block_type not in ir_state_module.TRUNCATABLE_BLOCK_TYPES:
+        if block_type not in ir_constants.TRUNCATABLE_BLOCK_TYPES:
             return mutable
         for key in ("output", "content", "text"):
             value = mutable.get(key)
@@ -147,7 +147,7 @@ def truncate_content(content: Any, max_tokens: int, policy: str) -> Any:
                 mutable[key] = truncate_text(
                     value,
                     max(1, max_tokens - overhead),
-                    tail_only=policy == ir_state_module.POLICY_TAIL,
+                    tail_only=policy == ir_constants.POLICY_TAIL,
                 )
                 return mutable
             if key == "output" and isinstance(value, (list, Mapping)):
@@ -165,7 +165,7 @@ def truncate_content(content: Any, max_tokens: int, policy: str) -> Any:
                     output = [{"type": "text", "text": ""}, *images]
                     overhead = estimate_context_tokens({**mutable, key: output})
                     output[0]["text"] = truncate_text(
-                        text, max(1, max_tokens - overhead), tail_only=policy == ir_state_module.POLICY_TAIL
+                        text, max(1, max_tokens - overhead), tail_only=policy == ir_constants.POLICY_TAIL
                     )
                     mutable[key] = output
                     return mutable
@@ -185,7 +185,7 @@ def truncate_content(content: Any, max_tokens: int, policy: str) -> Any:
                 mutable[key] = truncate_text(
                     flattened,
                     max(1, max_tokens - overhead),
-                    tail_only=policy == ir_state_module.POLICY_TAIL,
+                    tail_only=policy == ir_constants.POLICY_TAIL,
                 )
                 return mutable
         return mutable
@@ -200,13 +200,13 @@ def prune_tool_output(content: Any, original_tokens: int) -> Any:
     images = tool_result_images(mutable)
     if images:
         mutable["output"] = [
-            {"type": "text", "text": ir_state_module.PRUNED_OUTPUT_TEMPLATE.format(tokens=original_tokens)},
+            {"type": "text", "text": ir_constants.PRUNED_OUTPUT_TEMPLATE.format(tokens=original_tokens)},
             *images,
         ]
         return mutable
     for key in ("output", "content", "text"):
         if key in mutable:
-            mutable[key] = ir_state_module.PRUNED_OUTPUT_TEMPLATE.format(tokens=original_tokens)
+            mutable[key] = ir_constants.PRUNED_OUTPUT_TEMPLATE.format(tokens=original_tokens)
             return mutable
-    mutable["output"] = ir_state_module.PRUNED_OUTPUT_TEMPLATE.format(tokens=original_tokens)
+    mutable["output"] = ir_constants.PRUNED_OUTPUT_TEMPLATE.format(tokens=original_tokens)
     return mutable

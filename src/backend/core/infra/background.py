@@ -18,13 +18,12 @@ False、改用 ``asyncio.run``），失效还不报。
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass, field
 from typing import Any, Coroutine, Set
 
 from core.infra.logging import get_logger
 
 logger = get_logger(__name__)
-
-
 
 
 def spawn(coro: Coroutine[Any, Any, Any], *, name: str) -> asyncio.Task:
@@ -56,18 +55,13 @@ def _forget(task: asyncio.Task) -> None:
         logger.warning("background_task_failed", task=task.get_name(), error=str(exc))
 
 
-
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class BackgroundState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    tasks: Set[asyncio.Task] = state_field(default_factory=lambda: set())
+    tasks: Set[asyncio.Task] = field(default_factory=lambda: set())
 
-@state_cache(maxsize=1)
+
+_STATE = BackgroundState()
+
+
 def process_state() -> BackgroundState:
-    return BackgroundState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

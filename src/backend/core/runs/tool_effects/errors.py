@@ -1,4 +1,4 @@
-"""errors responsibilities."""
+"""Errors raised by the tool effect ledger."""
 from __future__ import annotations
 from typing import Optional
 

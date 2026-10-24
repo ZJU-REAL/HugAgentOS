@@ -11,7 +11,7 @@ import pytest
 from features.desktop.capabilities import plugins, skills, runtime
 from core.capabilities.plugins import runtime as plugin_loader
 from core.capabilities.manifest_protocol import skill_content_hash
-from core.llm.runtime.tool_collector import ToolCollector
+from core.llm.factory.tools.definitions import ToolAssembly
 from core.llm.tools import plugin_activation
 
 
@@ -42,8 +42,8 @@ def test_desktop_directory_defers_skill_until_load_plugin(index_db, caps_root, m
         "run", "owner", skill_ids=["report"], plugin_ids=[plan.directory[0].install_id]
     )
     run = runtime.preflight(run, plugin_ids=[plan.directory[0].install_id])
-    basic = SimpleNamespace(mcps=[], skills_or_loaders=[])
-    collector = ToolCollector()
+    basic = SimpleNamespace(tools=[], skills_or_loaders=[])
+    collector = ToolAssembly()
     context = {
         "toolkit": SimpleNamespace(tool_groups=[basic]),
         "loader": runtime.frozen_loader(run),
@@ -53,7 +53,7 @@ def test_desktop_directory_defers_skill_until_load_plugin(index_db, caps_root, m
     }
     plugin_activation.register_load_plugin(collector, plan.deferred_by_slug(), context)
     assert basic.skills_or_loaders == []
-    tool = next(t for t in collector.function_tools if t.name == "load_plugin")
+    tool = next(t for t in list(collector) if t.name == "load_plugin")
     asyncio.run(tool(plugin="reports"))
     assert len(basic.skills_or_loaders) == 1
 
@@ -119,8 +119,8 @@ def test_load_plugin_rechecks_definition_before_exposing_skills(
     run = runtime.preflight(
         run)
     loader = runtime.frozen_loader(run)
-    basic = SimpleNamespace(mcps=[], skills_or_loaders=[])
-    collector = ToolCollector()
+    basic = SimpleNamespace(tools=[], skills_or_loaders=[])
+    collector = ToolAssembly()
     plugin_activation.register_load_plugin(
         collector,
         plan.deferred_by_slug(),
@@ -137,7 +137,7 @@ def test_load_plugin_rechecks_definition_before_exposing_skills(
     else:
         component.entry_file.write_text("{}")
     with pytest.raises(CapabilityError):
-        asyncio.run(collector.get_tool("load_plugin")._func("reports"))
+        asyncio.run(next(t for t in collector if t.name == "load_plugin")._func("reports"))
     assert basic.skills_or_loaders == []
 
 
@@ -224,7 +224,7 @@ async def test_load_plugin_adds_frozen_mcp_schema_to_live_toolkit(
     runtime.bind_mcp(run, configs, None)
     run = runtime.preflight(
         run, available_mcp={"lookup-mcp"})
-    collector = ToolCollector()
+    collector = ToolAssembly()
     context = {
         "prepared_run": run,
         "prepared_servers": configs,
@@ -233,11 +233,11 @@ async def test_load_plugin_adds_frozen_mcp_schema_to_live_toolkit(
         "close_list": [],
     }
     plugin_activation.register_load_plugin(collector, plan.deferred_by_slug(), context)
-    toolkit = Toolkit(tools=collector.function_tools)
+    toolkit = Toolkit(tools=list(collector))
     context["toolkit"] = toolkit
     before = await toolkit.get_tool_schemas()
     assert "find_record" not in str(before)
-    await collector.get_tool("load_plugin")(plugin="lookup")
+    await next(t for t in collector if t.name == "load_plugin")(plugin="lookup")
     assert "find_record" in str(await toolkit.get_tool_schemas())
     for client in context["close_list"]:
         await client.close()
@@ -427,7 +427,7 @@ async def test_available_namespaced_plugin_publishes_tools_after_activation(
     runtime.bind_mcp(run, configs, None)
     run = runtime.preflight(
         run, available_mcp=set(configs))
-    collector = ToolCollector()
+    collector = ToolAssembly()
     context = {
         "prepared_run": run,
         "prepared_servers": configs,
@@ -436,10 +436,10 @@ async def test_available_namespaced_plugin_publishes_tools_after_activation(
         "close_list": [],
     }
     plugin_activation.register_load_plugin(collector, plan.deferred_by_slug(), context)
-    toolkit = Toolkit(tools=collector.function_tools)
+    toolkit = Toolkit(tools=list(collector))
     context["toolkit"] = toolkit
     assert "publish_site" not in str(await toolkit.get_tool_schemas())
-    await collector.get_tool("load_plugin")(plugin="sites-private")
+    await next(t for t in collector if t.name == "load_plugin")(plugin="sites-private")
     assert "publish_site" in str(await toolkit.get_tool_schemas())
     for client in context["close_list"]:
         await client.close()

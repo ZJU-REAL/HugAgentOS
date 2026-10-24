@@ -1,13 +1,12 @@
 """Coordinate the direct agent lifecycle."""
 
 from __future__ import annotations
-from core.agent_runtime.integrations import memory as memory_module
-from core.agent_runtime.integrations import memory_session as memory_session_module
-from core.ontology import output_review_state as output_review_state_module
-from core.ontology import runtime_pack as runtime_pack_module
-from core.runs.tool_effects import errors as errors_module
-from core.llm.citations import allocator as allocator_module
-from core.harness import log_writer
+from core.agent_runtime.integrations import memory
+from core.agent_runtime.integrations import memory_session
+from core.ontology import output_review_state
+from core.ontology import runtime_pack
+from core.runs.tool_effects import errors
+from core.llm.citations import allocator
 
 import asyncio
 import logging
@@ -17,22 +16,18 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 
 import core.agent_runtime.budget as budget
 import core.agent_runtime.integrations.evolution as evolution
-import core.agent_runtime.integrations.memory as memory
 import core.agent_runtime.integrations.memory_budget as memory_budget
 import core.agent_runtime.integrations.ontology_evidence as ontology_evidence
 import core.agent_runtime.integrations.ontology_repair as ontology_repair
-import core.agent_runtime.resources as resources
 import core.agent_runtime.targets as targets
 import core.chat.message_parser as message_parser
 import core.capabilities.catalog.resolver as catalog_resolver
-import core.llm.citations.anchor as citation_anchor
-import core.ontology.validator as validator
-import core.runs.tool_effects.journal as tool_effect_ledger
 
-logger = logging.getLogger(__name__)
 
 from core.agent_runtime import prepare_direct, stream_direct
 from core.agent_runtime.direct_state import DirectTurn
+
+logger = logging.getLogger(__name__)
 
 
 async def _astream_subagent_direct(
@@ -73,7 +68,7 @@ async def _astream_subagent_direct(
             "code_capability_enabled": bool(turn.context.get("code_capability_enabled", False)),
         },
     )
-    from core.harness import log_writer as log_writer
+    from core.harness import log_writer
 
     _direct_log_started = _time.monotonic()
     turn.direct_tool_count = 0
@@ -144,7 +139,7 @@ async def _astream_subagent_direct(
         if not isinstance(turn.ontology_runtime, dict):
             turn.ontology_runtime = {}
             turn.context["ontology_runtime"] = turn.ontology_runtime
-        activations = runtime_pack_module.activate_runtime_for_asset(
+        activations = runtime_pack.activate_runtime_for_asset(
             turn.ontology_runtime,
             kind="subagent",
             asset_id=agent_id,
@@ -177,7 +172,7 @@ async def _astream_subagent_direct(
             turn.memory_enabled,
         )
 
-        turn.session_memory = await memory_session_module.open_session_memory(
+        turn.session_memory = await memory_session.open_session_memory(
             chat_id=_mem0_chat_id,
             scope_user_id=_mem0_scope_user_id,
             workspace_id=turn.memory_workspace_id,
@@ -198,9 +193,9 @@ async def _astream_subagent_direct(
         turn.ontology_trace: _typing.List[_typing.Dict[str, _typing.Any]] = []
         # 证据锚点发号器：跨轮续号；创建后绑到 agent 上（见下方 attach_allocator），
         # 中间件与本函数由此共享同一个计数器
-        turn.anchor_allocator = allocator_module.AnchorAllocator(
+        turn.anchor_allocator = allocator.AnchorAllocator(
             await asyncio.to_thread(
-                allocator_module.anchor_start_for_chat,
+                allocator.anchor_start_for_chat,
                 str(turn.context.get("chat_id") or "") or None,
             )
         )
@@ -219,13 +214,10 @@ async def _astream_subagent_direct(
             logger.error("subagent_stream_error: %s\n%s", e, traceback.format_exc())
             warnings.append(f"Streaming error: {str(e)[:200]}")
 
-            unknown_outcome = errors_module.find_tool_outcome_unknown(e)
+            unknown_outcome = errors.find_tool_outcome_unknown(e)
             if unknown_outcome is not None:
                 if turn.streaming_agent is not None:
                     await turn.streaming_agent.shutdown()
-                    resources.process_state().persistent_clients.append(
-                        (turn.streaming_agent, list(turn.mcp_clients))
-                    )
                 await _finish_direct_log("failed", error=str(unknown_outcome)[:200])
                 if unknown_outcome is e:
                     raise
@@ -238,9 +230,6 @@ async def _astream_subagent_direct(
                 # would read as a completed answer.
                 if turn.streaming_agent is not None:
                     await turn.streaming_agent.shutdown()
-                    resources.process_state().persistent_clients.append(
-                        (turn.streaming_agent, list(turn.mcp_clients))
-                    )
                 await _finish_direct_log("failed", error=str(e)[:200])
                 raise
 
@@ -256,7 +245,7 @@ async def _astream_subagent_direct(
         )
         _ontology_review_claimed = bool(
             turn.full_response
-            and output_review_state_module.claim_output_review(
+            and output_review_state.claim_output_review(
                 turn.ontology_runtime, owner=_ontology_review_owner_id
             )
         )
@@ -323,17 +312,16 @@ async def _astream_subagent_direct(
                 review = await turn.review_task
             except (asyncio.CancelledError, GeneratorExit):
                 await cancel_and_join(turn.review_task)
-                output_review_state_module.release_output_review(
+                output_review_state.release_output_review(
                     turn.ontology_runtime, owner=_ontology_review_owner_id
                 )
                 await turn.streaming_agent.shutdown()
-                resources.process_state().persistent_clients.append((turn.streaming_agent, list(turn.mcp_clients)))
                 raise
             except Exception as exc:  # noqa: BLE001
                 if not turn.review_task.done():
                     turn.review_task.cancel()
                 review = ontology_evidence._ontology_review_failure_result(turn.full_response, exc)
-            output_review_state_module.complete_output_review(
+            output_review_state.complete_output_review(
                 turn.ontology_runtime,
                 owner=_ontology_review_owner_id,
                 verdict=str(review.get("verdict") or "unknown"),
@@ -378,7 +366,6 @@ async def _astream_subagent_direct(
         _direct_usage = await turn.streaming_agent.aget_usage()
         _direct_context_usage = turn.streaming_agent.get_context_usage(_direct_usage)
         await turn.streaming_agent.shutdown()
-        resources.process_state().persistent_clients.append((turn.streaming_agent, list(turn.mcp_clients)))
         await _finish_direct_log(
             "success",
             output=turn.full_response,
@@ -415,7 +402,7 @@ async def _astream_subagent_direct(
         # ── [memory] Post-response pipeline (SSE already closed, user isn't waiting) ────
         # No memory is written unless the user opted into memory_write_enabled (first gate).
         if _mem0_write_enabled:
-            memory_module.save_memories_background(
+            memory.save_memories_background(
                 turn.memory_user_id,
                 user_message,
                 turn.full_response,
@@ -457,7 +444,7 @@ async def _astream_subagent_direct(
             if turn.review_task is not None:
                 await cancel_and_join(turn.review_task)
             if turn.review_owner is not None:
-                output_review_state_module.release_output_review(turn.ontology_runtime, owner=turn.review_owner)
+                output_review_state.release_output_review(turn.ontology_runtime, owner=turn.review_owner)
             if turn.direct_stream is not None:
                 await turn.direct_stream.aclose()
             if not _direct_log_finished and turn.streaming_agent is not None:

@@ -66,13 +66,13 @@
 | 环节 | 位置 |
 |---|---|
 | 发布与查询工具 | `src/backend/extensions/mcp_servers/site_publish_mcp/`（`publish_site` / `list_sites`，由「站点」插件提供） |
-| 内部接口 | `src/backend/api/routes/v1/internal_sites.py`（`/v1/internal/sites/publish`、`/v1/internal/sites/list`） |
-| 站点查询服务 | `src/backend/core/services/site_listing.py`（本机与云端统一记录格式） |
-| 业务服务 | `src/backend/core/services/site_service.py` |
-| 公开托管路由 | `src/backend/api/routes/sites_serve.py`（`GET /site/{slug}/{path}`） |
-| 管理接口 | `src/backend/api/routes/v1/sites.py`（`/v1/sites`） |
-| 访问密码 | `src/backend/core/services/site_password.py`（哈希 + 凭据）、`src/backend/api/routes/site_gate.py`（统一验证页） |
-| 数据表 | `sites`（`core/db/models/site.py`） |
+| 内部接口 | `src/backend/features/sites/api/internal_sites.py`（`/v1/internal/sites/publish`、`/v1/internal/sites/list`） |
+| 站点查询服务 | `src/backend/features/sites/listing.py`（本机与云端统一记录格式） |
+| 业务服务 | `src/backend/features/sites/management.py` |
+| 公开托管路由 | `src/backend/features/sites/api/sites_serve.py`（`GET /site/{slug}/{path}`） |
+| 管理接口 | `src/backend/features/sites/api/sites.py`（`/v1/sites`） |
+| 访问密码 | `src/backend/features/sites/`（哈希 + 凭据）、`src/backend/features/sites/api/site_gate.py`（统一验证页） |
+| 数据表 | `sites`（`features/sites/models.py`） |
 | 前端管理面板 | `src/frontend/src/components/sites/SitesPanel.tsx`（实验室 → 站点）、`SitePasswordField.tsx`（密码管理） |
 | nginx 转发 | `src/frontend/default.conf.template` 的 `location /site/` |
 

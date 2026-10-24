@@ -10,6 +10,7 @@ no longer coexists with this ``tools/`` package.
 """
 
 from __future__ import annotations
+from core.llm.factory.tools.definitions import function_tool
 
 import asyncio
 import logging
@@ -18,14 +19,15 @@ from typing import Any, Optional
 
 from agentscope.tool import Toolkit
 
-# AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolResponse).
-from agentscope.tool._response import ToolChunk as ToolResponse
+# AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolChunk).
+from agentscope.tool._response import ToolChunk
 from core.llm.tools._common import resolve_sandbox_session
 from core.llm.tools._tool_helpers import resp_json as _resp_json
 
-logger = logging.getLogger(__name__)
 
 import re as _re
+
+logger = logging.getLogger(__name__)
 
 # dws exit code 4 = PAT authorization interception; stderr/stdout carries a line
 # ``PAT_AUTHORIZATION_URL=<url>`` (a copy-safe link dws prints separately for
@@ -55,7 +57,6 @@ def register_bash(
     toolkit: Toolkit,
     *,
     loader: Any,
-    loaded_skill_ids: set[str],
     chat_id: Optional[str] = None,
     sandbox_session_id: Optional[str] = None,
     user_id: Optional[str] = None,
@@ -69,8 +70,8 @@ def register_bash(
     ``opensandbox_provider._make_skills_volumes`` + ``config.get_sandbox_skills_dir``):
     what is bound there is the **caller's own skill view**, holding the shared
     skills plus that user's private ones, so no one sees another user's skill
-    files. This registration just sets up the Bash tool itself; ``loader`` /
-    ``loaded_skill_ids`` are kept for backward compat with existing callers.
+    files. This registration just sets up the Bash tool itself; ``loader`` only
+    supplies the capability run that scopes it.
 
     The sandbox session is bound to ``chat_id`` so OpenSandbox keeps a single
     persistent container per conversation (variables, pip packages, /workspace
@@ -88,7 +89,7 @@ def register_bash(
     async def Bash(
         command: str, timeout: int | None = None, yield_time_ms: int = 60000,
         run_in_background: bool = False,
-    ) -> ToolResponse:
+    ) -> ToolChunk:
         from core.sandbox import ProcessRequest as _ProcessRequest
         from core.sandbox import SandboxConnectError as _SandboxConnectError
         from core.sandbox import SandboxError as _SandboxError
@@ -194,7 +195,7 @@ def register_bash(
             return _resp_json(payload)
         return await finish(payload)
 
-    async def write_stdin(session_id: str, chars: str = "", yield_time_ms: int = 0) -> ToolResponse:
+    async def write_stdin(session_id: str, chars: str = "", yield_time_ms: int = 0) -> ToolChunk:
         from core.llm.ports import command_execution
         from core.llm.ports import command_records
         tid = await asyncio.to_thread(command_records().resolve_id, session_id, user_id, _sess)
@@ -207,7 +208,7 @@ def register_bash(
         payload = await asyncio.to_thread(command_records().read, tid, user_id, _sess)
         return await finish(payload)
 
-    async def background_process(session_id: str) -> ToolResponse:
+    async def background_process(session_id: str) -> ToolChunk:
         """Adopt an existing Bash process without executing the command again."""
         from core.sandbox import get_sandbox_provider
         from core.llm.ports import command_execution
@@ -215,12 +216,12 @@ def register_bash(
             user_id=user_id, session_id=_sess, chat_id=chat_id, source_run_id=source_run_id)
         return _resp_json(payload)
 
-    async def list_processes() -> ToolResponse:
+    async def list_processes() -> ToolChunk:
         """List this user's command tasks in the current chat."""
         from core.llm.ports import command_records
         return _resp_json({"tasks": await asyncio.to_thread(command_records().list_owned, user_id, chat_id)})
 
-    async def finish(payload: dict) -> ToolResponse:
+    async def finish(payload: dict) -> ToolChunk:
         # dws (DingTalk CLI) PAT per-scope authorization interception: exit code 4
         # + a PAT_AUTHORIZATION_URL=<url> line on stderr. Surface the link to the
         # model in structured form so it hands it verbatim to the user, who
@@ -273,10 +274,10 @@ def register_bash(
         "    JSON: {stdout, stderr, exit_code, execution_time_ms, status, session_id}；输出仅含新增内容。\n"
         "    running 表示继续运行；exited 时检查 exit_code 和 error。\n"
     )
-    toolkit.register_tool_function(background_process, namesake_strategy="override")
-    toolkit.register_tool_function(list_processes, namesake_strategy="override")
-    toolkit.register_tool_function(write_stdin, namesake_strategy="override")
-    toolkit.register_tool_function(Bash, namesake_strategy="override")
+    toolkit.append(function_tool(background_process))
+    toolkit.append(function_tool(list_processes))
+    toolkit.append(function_tool(write_stdin))
+    toolkit.append(function_tool(Bash))
 
     logger.info("[factory] Registered Bash tool (chat_id=%s)", chat_id)
 

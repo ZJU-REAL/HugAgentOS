@@ -259,7 +259,7 @@ def test_revocation_commits_before_failed_close_and_continues(boundary, monkeypa
     from core.capabilities.plugins.resources import lifecycle
 
     with SessionLocal() as db:
-        asyncio.run(lifecycle.reconcile(db, USER))
+        asyncio.run(lifecycle.reconcile(USER))
         db.expire_all()
         assert db.get(PluginResource, "worker-a").status == "closed"
     assert calls[-1] == "worker-a"

@@ -107,7 +107,6 @@ export const TOOL_DICT: Record<string, string> = {
   '等{n}项': ' +{n} more',
   // ThinkingStepRow.tsx
   '思考': 'Thinking',
-  // PendingStepRow.tsx
   // CodeView.tsx (line count — same key as in ToolOutputRenderer.tsx above)
   // SearchRenderer.tsx
   '暂无搜索结果': 'No search results',
@@ -191,4 +190,30 @@ export const TOOL_DICT: Record<string, string> = {
   '正在导出 Excel 表格': 'Exporting Excel sheet',
   '导出了 Excel 表格': 'Exported an Excel sheet',
   '已调用工具': 'Called tools',
+  '正在查找文件': 'Finding files',
+  '查找了文件': 'Found files',
+  '正在搜索内容': 'Searching content',
+  '搜索了内容': 'Searched content',
+  '正在识别图片': 'Reading image',
+  '识别了图片': 'Read an image',
+  '正在查阅知识地图': 'Browsing knowledge map',
+  '查阅了知识地图': 'Browsed knowledge map',
+  '正在向你提问': 'Asking you',
+  '向你提了问题': 'Asked you a question',
+  '正在运行批量作业': 'Running batch job',
+  '运行了批量作业': 'Ran a batch job',
+  '正在固定到工作区': 'Pinning to workspace',
+  '固定到了工作区': 'Pinned to workspace',
+  '正在发布站点': 'Publishing site',
+  '发布了站点': 'Published a site',
+  '正在查阅历史对话': 'Reading past chats',
+  '查阅了历史对话': 'Read past chats',
+  '正在读取项目说明': 'Reading project instructions',
+  '读取了项目说明': 'Read project instructions',
+  '正在更新项目说明': 'Updating project instructions',
+  '更新了项目说明': 'Updated project instructions',
+  // ToolRunShell.tsx / TurnStatusIndicator.tsx
+  '正在分析结果…': 'Analyzing results…',
+  '正在思考下一步…': 'Working out the next step…',
+  '仍在等待模型响应…': 'Still waiting for the model…',
 };

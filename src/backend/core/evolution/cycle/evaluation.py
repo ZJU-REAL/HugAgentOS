@@ -1,9 +1,8 @@
-"""evaluation responsibilities."""
+"""Replay-evaluate candidates and record the results."""
 from __future__ import annotations
 from typing import Any, Dict, List, Optional
 from core.db.engine import SessionLocal
 from core.db.models.evolution import EvolutionCandidate
-from core.evolution.cycle.release import DRAFT
 import logging
 logger = logging.getLogger(__name__)
 

@@ -73,7 +73,7 @@ async def test_chat_recovers_only_live_owned_resources(runtime, monkeypatch):
     from types import SimpleNamespace
     from core.capabilities.plugins.resources import service
     db, _, _, _ = runtime
-    await service.create(db, "browser", "browser", "warm-user", "warm-chat")
+    await service.create("browser", "browser", "warm-user", "warm-chat")
     result = await chat_resources("warm-chat", SimpleNamespace(user_id="warm-user"), db)
     assert len(result["data"]["items"]) == 1
     async def closed(*args):

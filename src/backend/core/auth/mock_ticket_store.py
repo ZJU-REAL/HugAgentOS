@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
@@ -33,8 +34,6 @@ logger = get_logger(__name__)
 TICKET_KEY_PREFIX = "jx:login_ticket:"
 TICKET_TTL = 300  # seconds
 TICKET_PREFIX = "mock_ticket_"
-
-
 
 
 def _hash(token: str) -> str:
@@ -110,17 +109,13 @@ async def consume_ticket(ticket: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class MockTicketStoreState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    MEMORY_TICKETS: Dict[str, Dict[str, Any]] = state_field(default_factory=lambda: {})
+    MEMORY_TICKETS: Dict[str, Dict[str, Any]] = field(default_factory=lambda: {})
 
-@state_cache(maxsize=1)
+
+_STATE = MockTicketStoreState()
+
+
 def process_state() -> MockTicketStoreState:
-    return MockTicketStoreState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

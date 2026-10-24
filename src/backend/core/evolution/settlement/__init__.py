@@ -1,1 +1,1 @@
-"""settlement domain package."""
+"""Settle evolution outcomes back into memory."""

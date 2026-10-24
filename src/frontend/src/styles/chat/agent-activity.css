@@ -1,0 +1,226 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   Agent activity in a streaming reply
+   - one vector brand mark per reply (.jx-agentMark) that glides between row
+     slots (.jx-agentSlot) as the agent moves from task to task
+   - tool-kind chips on the run header (.jx-kindChip)
+   - line tool icons (.jx-toolIcon) and rolling one-line labels (.jx-rollText)
+   Decorative motion first (each with a reduced-motion fade), the running
+   indicators that must keep moving last.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Slots and the travelling mark ── */
+/* Box shared with .jx-turnStatusMark (turn-status.css). */
+.jx-agentSlot{
+  position:relative;
+}
+.jx-agentSlot-failed{
+  font-size:13px;
+  color:var(--color-text-tertiary);
+}
+/* Out of flow, so the mark never takes part in the message's layout. */
+.jx-agentCursor{
+  position:absolute;
+  width:0;
+  height:0;
+  pointer-events:none;
+}
+.jx-agentCursor-mark{
+  position:absolute;
+  left:0;
+  top:0;
+  z-index:1;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:20px;
+  height:18px;
+  transition:opacity var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.jx-agentCursor-mark--glide{
+  transition:transform var(--motion-duration-slow) var(--motion-ease-brand-out),
+             opacity var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.jx-agentCursor-mark--hidden{
+  opacity:0;
+}
+
+/* ── The mark: brand glyph + outline trace + spark ── */
+.jx-agentMark{
+  display:block;
+  width:20px;
+  height:15px;
+  overflow:visible;
+}
+.jx-agentMark-base{
+  fill:var(--color-primary);
+  fill-opacity:.3;
+  transition:fill-opacity var(--motion-duration-normal) var(--motion-ease-standard),
+             fill var(--motion-duration-normal) var(--motion-ease-standard);
+}
+.jx-agentMark-trace{
+  fill:none;
+  stroke:var(--color-primary);
+  stroke-width:2.4;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+  stroke-dasharray:24 76;
+  opacity:0;
+}
+.jx-agentMark-spark{
+  fill:var(--color-brand-spark);
+  transform-box:fill-box;
+  transform-origin:center;
+  transition:fill var(--motion-duration-normal) var(--motion-ease-standard);
+}
+/* Settled rows keep the mono glyph: the spark follows the grey (brand spec §10). */
+.jx-agentMark--rest .jx-agentMark-base{
+  fill:var(--color-text-tertiary);
+  fill-opacity:.85;
+}
+.jx-agentMark--rest .jx-agentMark-spark{
+  fill:var(--color-text-tertiary);
+}
+
+/* Brand intro (spec §10): outline 0–600ms → fill 500–700ms → spark from 650ms. */
+.jx-agentMark--intro .jx-agentMark-base{
+  fill-opacity:1;
+  animation:jx-kf-agentFill 200ms var(--motion-ease-standard) 500ms backwards;
+}
+.jx-agentMark--intro .jx-agentMark-trace{
+  opacity:1;
+  stroke-dasharray:100 100;
+  animation:jx-kf-agentDraw 600ms var(--motion-ease-standard) both;
+}
+.jx-agentMark--intro .jx-agentMark-spark{
+  animation:jx-kf-agentPop var(--motion-duration-normal) var(--motion-ease-brand-out) 650ms backwards;
+}
+@keyframes jx-kf-agentDraw{ from{ stroke-dashoffset:100; } to{ stroke-dashoffset:0; } }
+@keyframes jx-kf-agentFill{ from{ fill-opacity:0; } }
+@keyframes jx-kf-agentPop{ from{ transform:scale(0); } }
+
+/* ── Tool-kind chips on the run header ── */
+/* Side by side, not overlapped: at 20px an overlap hides part of the glyph. */
+.jx-kindStack{
+  display:inline-flex;
+  align-items:center;
+  gap:3px;
+  flex-shrink:0;
+}
+.jx-kindChip{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:20px;
+  height:20px;
+  border-radius:6px;
+  background:color-mix(in srgb, var(--color-text) 6%, var(--color-bg-chat));
+  color:var(--color-text-secondary);
+  transition:background-color var(--motion-duration-fast) var(--motion-ease-standard),
+             color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.jx-kindChip .jx-toolIcon{
+  width:13px;
+  height:13px;
+}
+.jx-kindChip.is-running{
+  background:color-mix(in srgb, var(--color-primary) 13%, var(--color-bg-chat));
+  color:var(--color-primary);
+}
+.jx-kindChip--logo{
+  background:transparent;
+}
+.jx-kindChip--logo .jx-tcr-capabilityIcon{
+  display:inline-flex;
+}
+.jx-kindChip--more{
+  font-family:var(--font-family-number);
+  font-size:11px;
+  font-weight:600;
+  font-variant-numeric:tabular-nums;
+  color:var(--color-text-tertiary);
+}
+.jx-kindChip--enter{
+  animation:jx-kf-kindIn var(--motion-duration-normal) var(--motion-ease-brand-out) backwards;
+}
+@keyframes jx-kf-kindIn{ from{ opacity:0; transform:translateX(-6px) scale(.7); } to{ opacity:1; transform:none; } }
+
+/* ── Line tool icons (16px canvas, 1.5 stroke, currentColor) ── */
+.jx-toolIcon{
+  display:block;
+  flex-shrink:0;
+  width:14px;
+  height:14px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.5;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.jx-tcr-kind{
+  color:var(--color-text-tertiary);
+  transition:color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.jx-tcr-kind--running{
+  color:var(--color-primary);
+}
+
+/* ── Rolling one-line label ── */
+.jx-rollText{
+  display:inline-grid;
+  overflow:hidden;
+  vertical-align:middle;
+  min-width:0;
+  max-width:100%;
+}
+.jx-rollText--sizing{
+  transition:width var(--motion-duration-normal) var(--motion-ease-brand-out);
+}
+.jx-rollText-item{
+  grid-area:1/1;
+  justify-self:start;
+  white-space:nowrap;
+}
+.jx-rollText-item--in{
+  animation:jx-kf-rollIn var(--motion-duration-normal) var(--motion-ease-brand-out) backwards;
+}
+/* Exit ≈ enter × 0.7 */
+.jx-rollText-item--out{
+  animation:jx-kf-rollOut var(--motion-duration-fast) var(--motion-ease-exit) forwards;
+}
+@keyframes jx-kf-rollIn{ from{ opacity:0; transform:translateY(75%); } to{ opacity:1; transform:none; } }
+@keyframes jx-kf-rollOut{ from{ opacity:1; transform:none; } to{ opacity:0; transform:translateY(-75%); } }
+
+/* motion-fade: movement becomes a plain fade; the brand intro just fades in. */
+@media (prefers-reduced-motion: reduce){
+  @keyframes jx-kf-agentDraw{ from{ stroke-dashoffset:0; opacity:0; } to{ stroke-dashoffset:0; opacity:1; } }
+  @keyframes jx-kf-agentFill{ from{ fill-opacity:1; opacity:0; } to{ opacity:1; } }
+  @keyframes jx-kf-agentPop{ from{ opacity:0; } to{ opacity:1; } }
+  @keyframes jx-kf-kindIn{ from{ opacity:0; } to{ opacity:1; } }
+  @keyframes jx-kf-rollIn{ from{ opacity:0; } to{ opacity:1; } }
+  @keyframes jx-kf-rollOut{ from{ opacity:1; } to{ opacity:0; } }
+  .jx-agentCursor-mark--glide{
+    transition:opacity var(--motion-duration-fast) var(--motion-ease-standard);
+  }
+}
+
+
+
+
+/* ── Running indicators: these keep moving under reduced motion ── */
+.jx-agentMark--work .jx-agentMark-trace{
+  /* motion-keep: a light running round the mark is how a busy step looks; a still mark reads as stalled */
+  opacity:1;
+  animation:jx-kf-agentTrace 1.3s linear infinite;
+}
+.jx-agentMark--think .jx-agentMark-trace{
+  /* motion-keep: the slower light says the model is still working on its answer */
+  opacity:.7;
+  stroke-dasharray:10 90;
+  animation:jx-kf-agentTrace 2.6s linear infinite;
+}
+.jx-agentMark--think .jx-agentMark-spark{
+  /* motion-keep: the breathing spark marks a wait on the model, which must not look frozen */
+  animation:jx-kf-agentBreathe 1.2s var(--motion-ease-standard) infinite;
+}
+@keyframes jx-kf-agentTrace{ from{ stroke-dashoffset:100; } to{ stroke-dashoffset:0; } }
+@keyframes jx-kf-agentBreathe{ 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.6); } }

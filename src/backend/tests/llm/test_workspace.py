@@ -77,7 +77,7 @@ def test_pin_to_workspace_tool_accepts_list(monkeypatch):
     import json as _json
 
     from agentscope.tool import Toolkit
-    from core.llm.runtime.tool_collector import ToolCollector
+    from core.llm.factory.tools.definitions import ToolAssembly
     from core.llm.tools.pin_tool import register_pin_to_workspace
 
     # Stub the artifact lookup so we don't need a real artifact store.
@@ -92,10 +92,9 @@ def test_pin_to_workspace_tool_accepts_list(monkeypatch):
     monkeypatch.setattr('core.files.artifacts.store.get_artifact', fake_get_artifact)
 
     workspace.init_state()
-    # AgentScope 2.0: register_* writes into the ToolCollector; schema goes through Toolkit.get_tool_schemas().
-    c = ToolCollector()
+    c = ToolAssembly()
     register_pin_to_workspace(c)
-    tk = Toolkit(tools=c.function_tools)
+    tk = Toolkit(tools=list(c))
     schemas = asyncio.run(tk.get_tool_schemas())
     pin_schema = next(s for s in schemas if s["function"]["name"] == "pin_to_workspace")
     # Schema must declare file_ids as an array of strings (not a string).
@@ -103,7 +102,7 @@ def test_pin_to_workspace_tool_accepts_list(monkeypatch):
     assert fid_param["type"] == "array"
     assert fid_param["items"]["type"] == "string"
 
-    fn = c.get_tool("pin_to_workspace")._func
+    fn = next(t for t in c if t.name == "pin_to_workspace")._func
 
     resp = asyncio.run(fn(file_ids=["fid_a", "fid_b"]))
     payload = _json.loads(resp.content[0].text)  # 2.0: block is a pydantic object

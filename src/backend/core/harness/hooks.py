@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import logging
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field, replace
@@ -13,9 +12,8 @@ from types import MappingProxyType
 from typing import Any
 
 from core.harness.events import Event, EventSink, freeze_value, thaw_value
-from core.harness.usage import AttemptUsage, UsageAttempt, UsageRecorder
-
-logger = logging.getLogger(__name__)
+from core.harness.observation_writer import observation_writer
+from core.harness.usage import AttemptUsage, UsageAttempt, UsageRecorder, record_attempt_batch
 
 
 class HookStage(str, Enum):
@@ -179,11 +177,9 @@ class HookBus:
         *,
         event_sink: EventSink | None = None,
         usage_recorder: UsageRecorder | None = None,
-        usage_timeout_ms: int = 1_000,
     ) -> None:
         self.event_sink = event_sink or EventSink()
         self.usage_recorder = usage_recorder
-        self.usage_timeout_ms = max(1, int(usage_timeout_ms))
         self._hooks: dict[HookStage, list[tuple[int, int, HookSpec]]] = {}
         self._registration_seq = 0
 
@@ -206,43 +202,36 @@ class HookBus:
                      for _, _, spec in self._hooks.get(stage, ()))
 
     async def _call(self, spec: HookSpec, invocation: Invocation) -> Decision:
-        async def invoke() -> Decision:
-            if inspect.iscoroutinefunction(spec.handler):
-                result = await spec.handler(invocation)
+        # Synchronous handlers are in-memory policies and run inline: a thread
+        # hop plus timeout would let executor saturation reject or skip them.
+        # Policies that block on I/O must be async and own their offloading.
+        result = spec.handler(invocation)
+        if inspect.isawaitable(result):
+            # Interactive policies own their timeout and must retain caller cancellation.
+            if spec.timeout_ms is None:
+                result = await result
             else:
-                result = await asyncio.to_thread(spec.handler, invocation)
-                if inspect.isawaitable(result):
-                    result = await result
-            if result is None:
-                return Decision()
-            if not isinstance(result, Decision):
-                raise HookContractError(
-                    f"hook {spec.name} returned {type(result).__name__}"
-                )
-            return result
-
-        # Interactive policies own their timeout and must retain caller cancellation.
-        if spec.timeout_ms is None:
-            return await invoke()
-        return await asyncio.wait_for(invoke(), timeout=max(1, spec.timeout_ms) / 1_000)
+                result = await asyncio.wait_for(result, timeout=max(1, spec.timeout_ms) / 1_000)
+        if result is None:
+            return Decision()
+        if not isinstance(result, Decision):
+            raise HookContractError(f"hook {spec.name} returned {type(result).__name__}")
+        return result
 
     async def run(self, invocation: Invocation) -> HookOutcome:
         current = invocation
         executed: list[str] = []
         terminal = Decision()
-        await self.event_sink.append(
-            Event.create(
-                run_id=current.run_id,
-                event_type="hook_stage_started",
-                phase=current.stage.value,
-                payload={"operation_name": current.operation_name},
-            )
-        )
-        for _, _, spec in tuple(self._hooks.get(current.stage, ())):
+        hooks = tuple(self._hooks.get(current.stage, ()))
+        if not hooks:
+            return HookOutcome(current, terminal, ())
+        attempts: list[dict[str, Any]] = []
+        usage: list[UsageAttempt] = []
+        cancellation: asyncio.CancelledError | None = None
+        for _, _, spec in hooks:
             started = time.monotonic()
             status = "success"
             decision = Decision()
-            cancellation: asyncio.CancelledError | None = None
             try:
                 decision = await self._call(spec, current)
                 if decision.patch:
@@ -270,57 +259,56 @@ class HookBus:
                     terminal = Decision.reject(f"hook {spec.name} failed: {exc}")
             latency_ms = int((time.monotonic() - started) * 1_000)
             executed.append(spec.name)
-            if self.usage_recorder is not None:
-                try:
-                    await asyncio.wait_for(
-                        asyncio.to_thread(
-                            self.usage_recorder.record_attempt,
-                            UsageAttempt(
-                                run_id=current.run_id,
-                                kind="hook",
-                                operation_name=spec.name,
-                                status=status,
-                                latency_ms=latency_ms,
-                                usage=decision.usage,
-                                metadata={"stage": current.stage.value},
-                            ),
-                        ),
-                        timeout=self.usage_timeout_ms / 1_000,
-                    )
-                except Exception:  # noqa: BLE001
-                    logger.warning("Hook usage recording failed for %s", spec.name, exc_info=True)
-            await self.event_sink.append(
-                Event.create(
+            usage.append(
+                UsageAttempt(
                     run_id=current.run_id,
-                    event_type="hook_attempt_finished",
-                    phase=current.stage.value,
-                    payload={
-                        "hook": spec.name,
-                        "status": status,
-                        "decision": terminal.kind.value
-                        if terminal.kind != DecisionKind.CONTINUE
-                        else decision.kind.value,
-                        "latency_ms": latency_ms,
-                    },
+                    kind="hook",
+                    operation_name=spec.name,
+                    status=status,
+                    latency_ms=latency_ms,
+                    usage=decision.usage,
+                    metadata={"stage": current.stage.value},
                 )
             )
-            if terminal.kind in {DecisionKind.REJECT, DecisionKind.PAUSE}:
+            attempts.append(
+                {
+                    "hook": spec.name,
+                    "status": status,
+                    "decision": terminal.kind.value
+                    if terminal.kind != DecisionKind.CONTINUE
+                    else decision.kind.value,
+                    "latency_ms": latency_ms,
+                }
+            )
+            if terminal.kind in {DecisionKind.REJECT, DecisionKind.PAUSE} or cancellation is not None:
                 break
-            if cancellation is not None:
-                raise cancellation
 
-        await self.event_sink.append(
+        await self._record_stage(current, terminal, executed, attempts, usage)
+        if cancellation is not None:
+            raise cancellation
+        return HookOutcome(current, terminal, tuple(executed))
+
+    async def _record_stage(self, current, terminal, executed, attempts, usage) -> None:
+        """Queue one usage batch and one event per stage, not one per hook.
+
+        Both are written by the background observation writer; the stage never
+        waits for the database and a failed write cannot change its outcome.
+        """
+        if self.usage_recorder is not None and current.run_id:
+            observation_writer().submit(self.usage_recorder, record_attempt_batch, current.run_id, usage)
+        await self.event_sink.publish(
             Event.create(
                 run_id=current.run_id,
                 event_type="hook_stage_finished",
                 phase=current.stage.value,
                 payload={
+                    "operation_name": current.operation_name,
                     "decision": terminal.kind.value,
                     "executed_hooks": executed,
+                    "attempts": attempts,
                 },
             )
         )
-        return HookOutcome(current, terminal, tuple(executed))
 
     async def enforce(self, invocation: Invocation) -> Invocation:
         outcome = await self.run(invocation)

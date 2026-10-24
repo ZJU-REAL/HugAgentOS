@@ -1,14 +1,13 @@
-"""message writes operations."""
+"""Add, upsert, stream-refresh and delete chat messages."""
 from __future__ import annotations
-from core.infra.time import utc_now
+from core.infra.time import as_utc, utc_now
 import uuid
 from typing import Any, Dict, List, Optional
 from core.db.models import ChatCompactionState, ChatMessage, ChatRun, ChatSession
 from core.db.repository.chat import _strip_nul
 from sqlalchemy import update
 from core.ontology.revision import is_substantive_revision, normalize_revision_candidate
-from core.chat import limits as limits_module
-from core.chat import service_time as service_time_module
+from core.chat import limits
 
 def add_message(
     self,
@@ -28,7 +27,7 @@ def add_message(
 ) -> ChatMessage:
     """Add a message to a chat session."""
     extra = dict(extra_data or {})
-    kept_thinking, kept_segments = limits_module.clamp_thinking(thinking, extra.get("segments"))
+    kept_thinking, kept_segments = limits.clamp_thinking(thinking, extra.get("segments"))
     if "segments" in extra:
         extra["segments"] = kept_segments
     message_data = {
@@ -36,7 +35,7 @@ def add_message(
         "chat_id": chat_id,
         "chat_seq": chat_seq,
         "role": role,
-        "content": limits_module.clamp_message_content(content),
+        "content": limits.clamp_message_content(content),
         "model": model,
         "thinking": kept_thinking,
         "tool_calls": tool_calls,
@@ -90,14 +89,14 @@ def refresh_streaming_message(
     if live_run is None:
         return False
     extra = dict(extra_data)
-    kept_thinking, kept_segments = limits_module.clamp_thinking(thinking, extra.get("segments"))
+    kept_thinking, kept_segments = limits.clamp_thinking(thinking, extra.get("segments"))
     if "segments" in extra:
         extra["segments"] = kept_segments
     result = self.db.execute(
         update(ChatMessage)
         .where(ChatMessage.message_id == message_id)
         .values(
-            content=limits_module.clamp_message_content(content),
+            content=limits.clamp_message_content(content),
             thinking=_strip_nul(kept_thinking),
             tool_calls=_strip_nul(tool_calls),
             model_steps=_strip_nul(model_steps),
@@ -135,9 +134,9 @@ def upsert_message(
     """
     existing = self.message_repo.get_by_id(message_id)
     if existing is not None:
-        update: Dict[str, Any] = {"content": limits_module.clamp_message_content(content)}
+        update: Dict[str, Any] = {"content": limits.clamp_message_content(content)}
         extra = dict(extra_data) if extra_data is not None else None
-        kept_thinking, kept_segments = limits_module.clamp_thinking(
+        kept_thinking, kept_segments = limits.clamp_thinking(
             thinking, (extra or {}).get("segments")
         )
         if model is not None:
@@ -170,7 +169,7 @@ def upsert_message(
                 checkpoint = self.db.get(ChatMessage, state.active_checkpoint_id)
                 manifest = ((checkpoint.extra_data or {}).get("replacement_manifest") or {}) if checkpoint else {}
                 captured = (extra or {}).get("context_usage", {}).get("captured_at_ms", 0)
-                checkpoint_ms = int(service_time_module.as_utc(checkpoint.created_at).timestamp() * 1000) if checkpoint else 0
+                checkpoint_ms = int(as_utc(checkpoint.created_at).timestamp() * 1000) if checkpoint else 0
                 if (manifest.get("phase") == "mid_turn" and type(captured) is int
                         and captured > checkpoint_ms):
                     self._invalidate_compaction_lineage_for_rewrite(

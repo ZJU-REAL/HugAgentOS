@@ -34,7 +34,9 @@ class Toolkit:
     def __init__(self):
         self.functions = {}
 
-    def register_tool_function(self, function, **kwargs):
+    def append(self, tool):
+        function = tool._func
+        kwargs = {"func_description": tool.description, "permission": getattr(tool, "dispatch_spec", None)}
         self.functions[function.__name__] = function
 
 

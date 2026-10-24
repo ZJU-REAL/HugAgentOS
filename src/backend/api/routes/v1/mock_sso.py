@@ -1610,30 +1610,27 @@ async def _handle_register_submit(
         return _bounce("两次输入的密码不一致")
 
     try:
-        from core.db.engine import SessionLocal
         from core.auth.local_users import LocalUserService
+        from core.db.threads import run_in_session
     except Exception as exc:
         logger.warning("local auth module unavailable: %s", exc)
         return _bounce("注册服务暂不可用")
 
-    db = SessionLocal()
     try:
-        service = LocalUserService(db)
-        result = service.register(
-            code=code,
-            username=username,
-            nickname=nickname,
-            email=email,
-            password=password,
-            real_name=real_name,
-            phone=phone,
+        result = await run_in_session(
+            lambda db: LocalUserService(db).register(
+                code=code,
+                username=username,
+                nickname=nickname,
+                email=email,
+                password=password,
+                real_name=real_name,
+                phone=phone,
+            )
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("register failed: %s", exc)
-        db.close()
         return _bounce("注册失败，请稍后重试")
-    finally:
-        db.close()
 
     if not result.ok or not result.user_info:
         return _bounce(result.message or "注册失败")

@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from api.deps import require_system_settings
 from api.routes.v1.models import router
 from core.db.engine import get_db
+from tests.db_support import share_session
 
 
 def test_model_settings_save_read_and_reject_invalid_default(db_session, monkeypatch):
@@ -23,6 +24,7 @@ def test_model_settings_save_read_and_reject_invalid_default(db_session, monkeyp
     app.include_router(router)
     app.dependency_overrides[require_system_settings] = lambda: None
     app.dependency_overrides[get_db] = lambda: db_session
+    share_session(monkeypatch, db_session)
     payload = {
         "display_name": "Vision",
         "provider_type": "chat",

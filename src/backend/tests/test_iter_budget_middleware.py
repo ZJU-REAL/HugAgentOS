@@ -5,7 +5,7 @@ agent.react_config.max_iters / agent.state.{cur_iter, reply_id, context},
 which can be faked with SimpleNamespace.
 """
 from core.evolution.profiles import agent_profile as agent_profile_module
-from core.evolution.profiles import agent_profile_state as agent_profile_state_module
+from core.evolution.profiles import agent_profile_constants as agent_profile_state_module
 
 from types import SimpleNamespace
 

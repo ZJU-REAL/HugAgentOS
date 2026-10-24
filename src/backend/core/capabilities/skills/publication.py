@@ -13,6 +13,7 @@ import shutil
 import tempfile
 import threading
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 from core.infra.file_lock import locked as file_lock
@@ -223,17 +224,13 @@ def _publish_selected(backend, user_id, private_only, wanted_shared, wanted_priv
         (wanted_private if owner else wanted_shared).add(info.skill_id)
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class PublicationState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    thread_lock: object = state_field(default_factory=lambda: threading.RLock())
+    thread_lock: object = field(default_factory=lambda: threading.RLock())
 
-@state_cache(maxsize=1)
+
+_STATE = PublicationState()
+
+
 def process_state() -> PublicationState:
-    return PublicationState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

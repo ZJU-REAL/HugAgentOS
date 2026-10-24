@@ -6,7 +6,6 @@ import typing as _typing
 from typing import Optional
 
 import core.chat.runtime.handoff as handoff
-import core.db.engine as engine
 import core.runs.events.writer as writer
 import core.runs.ownership as ownership
 import core.runs.runtime as runtime
@@ -14,6 +13,7 @@ import core.runs.settings as settings
 import core.chat.service as services_ChatService_module
 from core.infra.logging import get_logger
 from core.runs.journal import RecoveryDecision
+from core.db.threads import run_in_session
 
 logger = get_logger(__name__)
 
@@ -35,7 +35,7 @@ async def _commit_recovered_chat_snapshot(decision: RecoveryDecision) -> Optiona
     from sqlalchemy.exc import SQLAlchemyError
 
     try:
-        with engine.SessionLocal() as db:
+        def _restore_context(db):
             restored_context = validate_recovery_context(
                 db,
                 recovered_run,
@@ -43,9 +43,11 @@ async def _commit_recovered_chat_snapshot(decision: RecoveryDecision) -> Optiona
                 user_id=decision.user_id,
                 chat_id=decision.chat_id,
             )
+            return restored_context
+        restored_context = await run_in_session(_restore_context)
         worker_args = snapshot.get("worker_args")
         if isinstance(worker_args, dict) and "context" in worker_args:
-            with engine.SessionLocal() as db:
+            def _check_worker_context(db):
                 validate_recovery_context(
                     db,
                     recovered_run,
@@ -53,6 +55,7 @@ async def _commit_recovered_chat_snapshot(decision: RecoveryDecision) -> Optiona
                     user_id=decision.user_id,
                     chat_id=decision.chat_id,
                 )
+            await run_in_session(_check_worker_context)
     except (ValueError, SQLAlchemyError):
         paused = journal.needs_attention(
             decision.run_id, reason="agent API recovery scope is unavailable or inconsistent"

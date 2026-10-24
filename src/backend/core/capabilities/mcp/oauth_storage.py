@@ -1,4 +1,4 @@
-"""oauth storage responsibilities."""
+"""Encrypted token storage that backs the MCP SDK's OAuth provider."""
 from __future__ import annotations
 import json
 import time
@@ -101,7 +101,6 @@ def build_oauth_provider(
         storage=actual_storage,
         redirect_handler=redirect_handler,
         callback_handler=callback_handler,
-        timeout=300.0,
     )
 
     async def _validate_oauth_request(request) -> None:

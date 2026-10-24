@@ -1,10 +1,11 @@
-"""cycle extras responsibilities."""
+"""Run the cycle's secondary engines in one call."""
 from __future__ import annotations
 from typing import Any, Dict, Optional, Sequence
 import logging
+from core.evolution.cycle import extra_findings
+from core.evolution.cycle import memory_findings
+
 logger = logging.getLogger(__name__)
-from core.evolution.cycle import extra_findings as extra_findings_module
-from core.evolution.cycle import memory_findings as memory_findings_module
 
 def run_extras(
     views: Sequence[Dict[str, Any]],
@@ -19,9 +20,9 @@ def run_extras(
     """
     report: Dict[str, Any] = {}
     for name, fn in (
-        ("intent", lambda: extra_findings_module.intent_findings(views)),
-        ("decremental", lambda: extra_findings_module.decremental_findings(views)),
-        ("memory", lambda: memory_findings_module.memory_findings(views, scan_findings=scan_findings)),
+        ("intent", lambda: extra_findings.intent_findings(views)),
+        ("decremental", lambda: extra_findings.decremental_findings(views)),
+        ("memory", lambda: memory_findings.memory_findings(views, scan_findings=scan_findings)),
     ):
         try:
             report[name] = fn()

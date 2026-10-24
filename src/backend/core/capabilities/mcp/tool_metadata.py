@@ -5,13 +5,7 @@ from core.capabilities.manifest_protocol import public_tool_schema
 
 
 def snapshot_tool(tool):
-    raw = getattr(tool, "_tool", tool)
-    if hasattr(raw, "model_dump"):
-        data = raw.model_dump(by_alias=True, mode="json")
-    else:
-        data = {"name": tool.name, "description": getattr(tool, "description", ""),
-                "inputSchema": getattr(tool, "inputSchema", None) or getattr(tool, "input_schema", {})}
-    return public_tool_schema(data)
+    return public_tool_schema(tool.model_dump(by_alias=True, mode="json"))
 
 
 def tool_snapshot_hash(tools):

@@ -44,20 +44,16 @@ S3 服务部署在本机时，请使用容器可达的服务地址。
 撤回团队权限。确认该用户无法访问该团队目录。
 验证成功后恢复用户操作。
 
+## 限制
 
-## 验证范围
-
-S3 挂载通过本地独立 MinIO、控制器、沙盒和浏览器验证。
-测试覆盖上传、下载、目录列表、只读写入拒绝、目录隔离和挂载撤销。
-OSS 和 OBS 适配尚需在各自的测试桶中验证。
-对象存储目录移动包含多个对象操作。它不是原子的文件系统重命名。
+对象存储目录移动包含多个对象操作，不是原子的文件系统重命名。
 
 OBS 的 V4 配置依据[华为云说明](https://support.huaweicloud.com/obs_faq/obs_faq_0274.html)。
 OSS 的 S3 V2 签名依据[阿里云说明](https://www.alibabacloud.com/help/tc/oss/user-guide/0002-00000307)。
 
 ## 本机 S3 服务（CE / EE）
 
-将 `docker/compose.object-storage.yml` 加入 `COMPOSE_FILE`。
+将 `docker/object-storage/compose.object-storage.yml` 加入 `COMPOSE_FILE`。
 该服务使用独立数据卷。它不发布宿主端口，也不使用 Milvus 的数据卷。
 配置 `S3_ENDPOINT=http://object-storage:9000` 和 `S3_BUCKET=hugagent-files`。
 分别生成随机 `S3_ACCESS_KEY` 与 `S3_SECRET_KEY`，写入权限为 600 的环境文件。
@@ -114,4 +110,4 @@ MCP 接口位于 `src/backend/extensions/mcp_servers/space_files_mcp/`。
 缺失、过期或参数变更的票据不能发出网关请求。
 桌面升级需同时交付新版内置后端和云端后端，并重新同步能力清单。
 
-对象存储镜像使用 MinIO 官方 GitHub Release 中固定 SHA-256 的二进制文件。Docker 通过 docker/Dockerfile.object-storage 构建此镜像。已有 Milvus 镜像和数据卷保持独立。
+对象存储镜像使用 MinIO 官方 GitHub Release 中固定 SHA-256 的二进制文件。Docker 通过 docker/object-storage/Dockerfile.object-storage 构建此镜像。已有 Milvus 镜像和数据卷保持独立。

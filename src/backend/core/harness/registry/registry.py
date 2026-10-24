@@ -36,14 +36,6 @@ class AgentProfile:
     native_skill_prompt: bool = True
 
 
-
-
-
-
-
-
-
-
 def mark_enabled(name: str) -> None:
     registration_state().enabled.add(name)
 
@@ -119,9 +111,6 @@ class SandboxCredentials:
     prepare_order: int = 0
 
 
-
-
-
 def register_sandbox_credentials(provider: SandboxCredentials) -> None:
     registration_state().sandbox_credentials[provider.name] = provider
 
@@ -150,9 +139,6 @@ class NativeToolContribution:
     stage: str
 
 
-
-
-
 def register_tool(name, factory, enabled, *, stage):
     """Register a conditional tool at an ordered native assembly stage."""
     registration_state().tools[name] = NativeToolContribution(name, factory, enabled, stage)
@@ -164,26 +150,20 @@ async def install_tools(stage, toolkit, context):
             await contribution.factory(toolkit, context)
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-
-@state_dataclass
+@dataclass
 class RegistrationState:
-    """Process-owned registrations; replace only while the host is quiescent."""
-    enabled: set[str] = state_field(default_factory=set)
-    agent_profiles: dict[str, AgentProfile] = state_field(default_factory=dict)
-    sandbox_routes: list[tuple[str, Callable[[], Any]]] = state_field(default_factory=list)
-    channel_routes: list[tuple[Callable[[Any, Any], bool], Callable[..., Awaitable[None]]]] = state_field(default_factory=list)
-    lifecycle: list[tuple[Callable[[], Awaitable[None]], Callable[[], Awaitable[None]]]] = state_field(default_factory=list)
-    routers: list[tuple[Any, Optional[str]]] = state_field(default_factory=list)
-    sandbox_credentials: dict[str, SandboxCredentials] = state_field(default_factory=dict)
-    tools: dict[str, NativeToolContribution] = state_field(default_factory=dict)
+    enabled: set[str] = field(default_factory=set)
+    agent_profiles: dict[str, AgentProfile] = field(default_factory=dict)
+    sandbox_routes: list[tuple[str, Callable[[], Any]]] = field(default_factory=list)
+    channel_routes: list[tuple[Callable[[Any, Any], bool], Callable[..., Awaitable[None]]]] = field(default_factory=list)
+    lifecycle: list[tuple[Callable[[], Awaitable[None]], Callable[[], Awaitable[None]]]] = field(default_factory=list)
+    routers: list[tuple[Any, Optional[str]]] = field(default_factory=list)
+    sandbox_credentials: dict[str, SandboxCredentials] = field(default_factory=dict)
+    tools: dict[str, NativeToolContribution] = field(default_factory=dict)
 
 
-@state_cache(maxsize=1)
+_REGISTRATIONS = RegistrationState()
+
+
 def registration_state() -> RegistrationState:
-    return RegistrationState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-registration_state()
+    return _REGISTRATIONS

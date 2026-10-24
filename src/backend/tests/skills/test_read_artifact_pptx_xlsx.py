@@ -88,14 +88,12 @@ def test_is_pptx_meta_detects_by_mime_and_extension():
 @pytest.fixture
 def registered_tool():
     """Register read_artifact onto a fresh Toolkit and return the callable."""
-    from core.llm.runtime.tool_collector import ToolCollector
+    from core.llm.factory.tools.definitions import ToolAssembly
     from core.llm.tools.read_artifact_tool import register_read_artifact
 
-    # AgentScope 2.0: register_* writes into the ToolCollector (duck-compatible with register_tool_function);
-    # the tool's original callable lives at AllowedFunctionTool._func.
-    c = ToolCollector()
+    c = ToolAssembly()
     register_read_artifact(c, user_id="u1")
-    return c.get_tool("read_artifact")._func
+    return next(t for t in c if t.name == "read_artifact")._func
 
 
 async def _call(func, **kwargs) -> Dict[str, Any]:

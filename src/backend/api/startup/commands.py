@@ -21,6 +21,9 @@ async def _run():
 async def startup_commands():
     global _task
     runtime.bind_loop()
+    bind = getattr(get_sandbox_provider(), "bind_loop", None)
+    if bind is not None:
+        bind()
     _task = asyncio.create_task(_run(), name="background-command-reconciliation")
 
 async def shutdown_commands():

@@ -3,6 +3,7 @@
 from features.workbench.coordination import runtime
 
 
+from core.db.threads import run_in_session
 import asyncio
 import logging
 from copy import deepcopy
@@ -106,13 +107,8 @@ def _external_tickets(db, user_id):
     )
 
 
-async def revoke_user_workbench(db, user_id, session_hash=None):
-    """Revoke all user-owned credentials atomically; then attempt every worker.
-
-    Resources and grants are user-owned, not browser-session-owned. Logout
-    therefore revokes all matching host tickets, including other tab tickets.
-    Third-party sessions remain outside this host boundary.
-    """
+def _revoke_credentials(db, user_id):
+    """Revoke every user-owned credential in one transaction; return the live rows."""
     _lock(db, user_id)
     rows = (
         db.query(PluginResource)
@@ -128,7 +124,20 @@ async def revoke_user_workbench(db, user_id, session_hash=None):
     _revoke_worker_credentials(db, user_id, rows)
     # No external shutdown or independently committing helper before this barrier.
     db.commit()
-    return await _close_workers(db, rows)
+    for row in rows:
+        db.refresh(row)
+        db.expunge(row)
+    return rows
+
+
+async def revoke_user_workbench(user_id, session_hash=None):
+    """Revoke all user-owned credentials atomically; then attempt every worker.
+
+    Resources and grants are user-owned, not browser-session-owned. Logout
+    therefore revokes all matching host tickets, including other tab tickets.
+    Third-party sessions remain outside this host boundary.
+    """
+    return await _close_workers(await run_in_session(_revoke_credentials, user_id))
 
 
 def stage_unavailable(db, user_id):
@@ -231,17 +240,16 @@ def _release_background_reservation(db, row):
     db.commit()
 
 
-async def _close_workers(db, rows):
+async def _close_workers(rows):
+    """Stop each worker, then release its reservation; no session spans a shutdown."""
     closed = 0
     failures = []
-    # Never share a database session across concurrent close operations.
     for row in rows:
         try:
-            await asyncio.wait_for(service.close(db, row), timeout=10)
-            _release_background_reservation(db, row)
+            await asyncio.wait_for(service.close(row), timeout=10)
+            await run_in_session(_release_background_reservation, row)
             closed += 1
         except Exception as exc:
-            db.rollback()
             failures.append(type(exc).__name__)
     if failures:
         logging.getLogger(__name__).warning("Workbench worker cleanup deferred: %s", len(failures))

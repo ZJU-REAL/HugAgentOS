@@ -1,5 +1,6 @@
 """Marketplace-owned listings, grants and installation operations."""
 from __future__ import annotations
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 class MarketplaceCatalog(Protocol):
@@ -7,7 +8,7 @@ class MarketplaceCatalog(Protocol):
     def mcp_version(self, db: Any, slug: str) -> tuple[Any, Any]: ...
     def normalize_auth_config(self, config: Any, schema: list) -> dict: ...
     def installation_secrets(self, version: Any, credentials: dict, existing: dict, *, auth_method: str) -> dict: ...
-    async def install_market_item(self, db: Any, slug: str, **kwargs: Any) -> dict: ...
+    async def install_market_item(self, slug: str, **kwargs: Any) -> dict: ...
     def market_package(self, db: Any, slug: str) -> Any: ...
     def publish_package(self, db: Any, slug: str, fields: dict, *, created_by: str | None, now: Any) -> str: ...
     def delete_package(self, db: Any, slug: str) -> None: ...
@@ -21,7 +22,6 @@ class MarketplaceCatalog(Protocol):
     def install_marketplace_agent(self, db: Any, slug: str, *, owner_user_id: str | None) -> dict: ...
 
 
-
 def register_marketplace_catalog(provider: MarketplaceCatalog) -> None:
     pass
     registration_state().provider = provider
@@ -32,19 +32,13 @@ def marketplace_catalog() -> MarketplaceCatalog:
     return registration_state().provider
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-
-@state_dataclass
+@dataclass
 class RegistrationState:
-    """Process-owned registrations; replace only while the host is quiescent."""
     provider: MarketplaceCatalog | None = None
 
 
-@state_cache(maxsize=1)
-def registration_state() -> RegistrationState:
-    return RegistrationState()
+_REGISTRATIONS = RegistrationState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-registration_state()
+
+def registration_state() -> RegistrationState:
+    return _REGISTRATIONS

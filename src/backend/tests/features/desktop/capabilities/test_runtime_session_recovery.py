@@ -205,14 +205,14 @@ async def test_revoked_grant_is_decided_by_the_gateway_call(index_db, caps_root,
     """撤权由云端在真实网关调用时裁决：401 立刻清掉本机的桥状态。"""
     import httpx
     import mcp.types
-    from core.llm.mcp.manager import GatewayMCPTool
+    from core.llm.tools.cloud_gateway import GatewayMCPTool
 
     current = [_state_v2("a")]
     monkeypatch.setattr(bridge_identity, 'get_state', lambda: current[0])
     monkeypatch.setattr(bridge_identity, 'clear_state', lambda: current.__setitem__(0, None))
     tool = GatewayMCPTool(
         mcp_name="search",
-        tool=mcp.types.Tool(name="search", inputSchema={"type": "object"}),
+        tool={"name": "search", "inputSchema": {"type": "object"}},
         invoke_url="https://cloud.example/api/v1/desktop/capability/gateway/search/call",
         schema_hash="frozen",
         headers=bridge_identity.cloud_headers(current[0]),
@@ -230,7 +230,7 @@ async def test_running_gateway_uses_rotated_token_but_rejects_new_account(
 ):
     import httpx
     import mcp.types
-    from core.llm.mcp.manager import GatewayMCPTool
+    from core.llm.tools.cloud_gateway import GatewayMCPTool
     from core.harness.capability_errors import CloudUnavailable
 
     current = [_state_v2("a")]
@@ -243,7 +243,7 @@ async def test_running_gateway_uses_rotated_token_but_rejects_new_account(
 
     tool = GatewayMCPTool(
         mcp_name="search",
-        tool=mcp.types.Tool(name="search", inputSchema={"type": "object"}),
+        tool={"name": "search", "inputSchema": {"type": "object"}},
         invoke_url="https://cloud.example/api/v1/desktop/capability/gateway/search/call",
         schema_hash="frozen",
         headers=bridge_identity.cloud_headers(current[0]),

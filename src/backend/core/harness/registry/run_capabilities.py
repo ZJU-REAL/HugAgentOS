@@ -1,6 +1,7 @@
 """Per-run capability contracts supplied by an installed execution environment."""
 from __future__ import annotations
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 
@@ -17,7 +18,7 @@ class PreparedCapabilities(Protocol):
     def record_tool_scope(self, tool_call_id: str, tool_name: str) -> None: ...
     def child_scope(self, kind: str, *identities: str) -> str: ...
     def skill_loader(self) -> Any: ...
-    def wrap_mcp_clients(self, clients: list, *, scope_id: str) -> list: ...
+    def tool_guard(self, *, scope_id: str): ...
     def bind_mcp(self, servers: dict, resolution: Any) -> dict: ...
     def preflight(self, **context: Any) -> PreparedCapabilities: ...
 
@@ -56,7 +57,6 @@ class CloudCapabilities:
 
 
 _default = CloudCapabilities()
-
 
 
 def register_run_capability_provider(name, provider, *, enabled):
@@ -102,19 +102,13 @@ def cloud_plugin_selection(plugin_id, user_id):
     return run_capability_provider().cloud_plugin_selection(plugin_id, user_id)
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-
-@state_dataclass
+@dataclass
 class RegistrationState:
-    """Process-owned registrations; replace only while the host is quiescent."""
-    providers: dict[str, tuple[Callable[[], bool], RunCapabilityProvider]] = state_field(default_factory=dict)
+    providers: dict[str, tuple[Callable[[], bool], RunCapabilityProvider]] = field(default_factory=dict)
 
 
-@state_cache(maxsize=1)
+_REGISTRATIONS = RegistrationState()
+
+
 def registration_state() -> RegistrationState:
-    return RegistrationState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-registration_state()
+    return _REGISTRATIONS

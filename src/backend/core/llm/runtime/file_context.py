@@ -1,4 +1,4 @@
-"""file context responsibilities."""
+"""Turn file attachments into context: text, images and spreadsheet previews."""
 from __future__ import annotations
 from core.files import artifact_bytes
 import base64

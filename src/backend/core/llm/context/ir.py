@@ -1,11 +1,11 @@
-"""ir responsibilities."""
+"""Assemble context items into the window sent to the model."""
 from __future__ import annotations
 from dataclasses import replace
 from typing import Any, Iterable, Mapping, Optional, Sequence
 from core.harness.execution_manifest import stable_hash
-from core.llm.context import content as content_module
-from core.llm.context import ir_state as ir_state_module
-from core.llm.context import items as items_module
+from core.llm.context import content
+from core.llm.context import ir_constants
+from core.llm.context.items import ContextAssembly, ContextItem
 
 class ContextAssembler:
     """Explicit, unit-level selection in context order.
@@ -43,15 +43,15 @@ class ContextAssembler:
         }
 
     @staticmethod
-    def _mandatory(item: items_module.ContextItem) -> bool:
-        if item.visibility == ir_state_module.VISIBILITY_MANIFEST_ONLY:
+    def _mandatory(item: ContextItem) -> bool:
+        if item.visibility == ir_constants.VISIBILITY_MANIFEST_ONLY:
             return True
-        if item.kind in ir_state_module.STEP_KINDS:
+        if item.kind in ir_constants.STEP_KINDS:
             return False
-        return item.truncation_policy == ir_state_module.POLICY_NEVER
+        return item.truncation_policy == ir_constants.POLICY_NEVER
 
     @staticmethod
-    def _unit_key(items: Sequence[items_module.ContextItem]) -> tuple[Any, ...]:
+    def _unit_key(items: Sequence[ContextItem]) -> tuple[Any, ...]:
         return (
             -max(item.priority for item in items),
             -max(item.created_seq for item in items),
@@ -59,23 +59,23 @@ class ContextAssembler:
         )
 
     @staticmethod
-    def _tokens(item: items_module.ContextItem) -> int:
-        return 0 if item.visibility == ir_state_module.VISIBILITY_MANIFEST_ONLY else item.token_estimate
+    def _tokens(item: ContextItem) -> int:
+        return 0 if item.visibility == ir_constants.VISIBILITY_MANIFEST_ONLY else item.token_estimate
 
     def _cap_item(
         self,
-        item: items_module.ContextItem,
+        item: ContextItem,
         records: dict[str, dict[str, Any]],
-    ) -> Optional[items_module.ContextItem]:
+    ) -> Optional[ContextItem]:
         original = item.token_estimate
         # Media still contributes to whole-context occupancy, but cannot spend
         # or be cut by the per-item text allowance.
         budget = item.token_budget + sum(
-            content_module.estimate_context_tokens(block) for block in content_module.tool_result_images(item.content)
+            content.estimate_context_tokens(block) for block in content.tool_result_images(item.content)
         )
         if (
-            item.visibility == ir_state_module.VISIBILITY_MANIFEST_ONLY
-            or item.truncation_policy == ir_state_module.POLICY_NEVER
+            item.visibility == ir_constants.VISIBILITY_MANIFEST_ONLY
+            or item.truncation_policy == ir_constants.POLICY_NEVER
             or original <= budget
         ):
             records[item.item_id] = {
@@ -84,10 +84,10 @@ class ContextAssembler:
                 "final_tokens": original,
             }
             return item
-        if item.truncation_policy in {ir_state_module.POLICY_HEAD_TAIL, ir_state_module.POLICY_TAIL} and item.token_budget > 0:
+        if item.truncation_policy in {ir_constants.POLICY_HEAD_TAIL, ir_constants.POLICY_TAIL} and item.token_budget > 0:
             target = budget
             capped = item.with_content(
-                content_module.truncate_content(item.content, target, item.truncation_policy)
+                content.truncate_content(item.content, target, item.truncation_policy)
             )
             # JSON escaping of newlines/quotes can exceed the initial text
             # allowance. Refit using the measured cost, never discard an image
@@ -95,7 +95,7 @@ class ContextAssembler:
             while capped.token_estimate > budget and target > 1:
                 target = max(1, target - (capped.token_estimate - budget))
                 capped = item.with_content(
-                    content_module.truncate_content(item.content, target, item.truncation_policy)
+                    content.truncate_content(item.content, target, item.truncation_policy)
                 )
             if capped.token_estimate <= budget:
                 records[item.item_id] = {
@@ -113,21 +113,21 @@ class ContextAssembler:
         return None
 
     @staticmethod
-    def _tool_pairs_balanced(unit: Sequence[items_module.ContextItem]) -> bool:
-        pairs: dict[str, list[items_module.ContextItem]] = {}
+    def _tool_pairs_balanced(unit: Sequence[ContextItem]) -> bool:
+        pairs: dict[str, list[ContextItem]] = {}
         for item in unit:
-            if item.kind in ir_state_module.TOOL_KINDS:
+            if item.kind in ir_constants.TOOL_KINDS:
                 if not item.pair_id:
                     return False
                 pairs.setdefault(item.pair_id, []).append(item)
         for pair_items in pairs.values():
-            calls = [item for item in pair_items if item.kind == ir_state_module.KIND_TOOL_CALL]
-            results = [item for item in pair_items if item.kind == ir_state_module.KIND_TOOL_RESULT]
+            calls = [item for item in pair_items if item.kind == ir_constants.KIND_TOOL_CALL]
+            results = [item for item in pair_items if item.kind == ir_constants.KIND_TOOL_RESULT]
             if not calls or len(calls) != len(results):
                 return False
         return True
 
-    def assemble(self, items: Iterable[items_module.ContextItem]) -> items_module.ContextAssembly:
+    def assemble(self, items: Iterable[ContextItem]) -> ContextAssembly:
         raw_items = tuple(items)
         item_ids = [item.item_id for item in raw_items]
         duplicates = sorted(
@@ -138,9 +138,9 @@ class ContextAssembler:
         original_items = list(raw_items)
         arrival = {item.item_id: index for index, item in enumerate(original_items)}
         records: dict[str, dict[str, Any]] = {}
-        excluded: list[items_module.ContextItem] = []
+        excluded: list[ContextItem] = []
 
-        capped: list[items_module.ContextItem] = []
+        capped: list[ContextItem] = []
         for item in original_items:
             candidate = self._cap_item(item, records)
             if candidate is None:
@@ -153,21 +153,21 @@ class ContextAssembler:
         call_units: dict[str, str] = {}
         ambiguous_pairs: set[str] = set()
         for item in capped:
-            if item.kind == ir_state_module.KIND_TOOL_CALL and item.pair_id:
+            if item.kind == ir_constants.KIND_TOOL_CALL and item.pair_id:
                 # One pair id may name a provider parallel batch (several calls
                 # in one unit); the same id across two units is unresolvable.
                 if call_units.get(item.pair_id, item.unit_id) != item.unit_id:
                     ambiguous_pairs.add(item.pair_id)
                 call_units[item.pair_id] = item.unit_id
-        units: dict[str, list[items_module.ContextItem]] = {}
+        units: dict[str, list[ContextItem]] = {}
         for candidate in capped:
-            if candidate.kind in ir_state_module.TOOL_KINDS and candidate.pair_id in ambiguous_pairs:
+            if candidate.kind in ir_constants.TOOL_KINDS and candidate.pair_id in ambiguous_pairs:
                 records[candidate.item_id].update(
                     action="excluded", reason="malformed_tool_pair", final_tokens=0
                 )
                 excluded.append(candidate)
                 continue
-            if candidate.kind == ir_state_module.KIND_TOOL_RESULT and candidate.pair_id in call_units:
+            if candidate.kind == ir_constants.KIND_TOOL_RESULT and candidate.pair_id in call_units:
                 candidate = replace(candidate, unit_id=call_units[candidate.pair_id])
             units.setdefault(candidate.unit_id, []).append(candidate)
 
@@ -176,21 +176,21 @@ class ContextAssembler:
         request_index = -1
         for item in original_items:
             if (
-                item.kind == ir_state_module.KIND_USER_INPUT
-                and item.truncation_policy == ir_state_module.POLICY_NEVER
-                and item.visibility == ir_state_module.VISIBILITY_MODEL
+                item.kind == ir_constants.KIND_USER_INPUT
+                and item.truncation_policy == ir_constants.POLICY_NEVER
+                and item.visibility == ir_constants.VISIBILITY_MODEL
             ):
                 request_index = arrival[item.item_id]
 
-        def unit_start(unit: Sequence[items_module.ContextItem]) -> int:
+        def unit_start(unit: Sequence[ContextItem]) -> int:
             return min(arrival[item.item_id] for item in unit)
 
-        mandatory: list[list[items_module.ContextItem]] = []
-        protected: list[list[items_module.ContextItem]] = []
-        aside: list[list[items_module.ContextItem]] = []
-        conversation: list[list[items_module.ContextItem]] = []
+        mandatory: list[list[ContextItem]] = []
+        protected: list[list[ContextItem]] = []
+        aside: list[list[ContextItem]] = []
+        conversation: list[list[ContextItem]] = []
         for unit in units.values():
-            is_step = any(item.kind in ir_state_module.STEP_KINDS for item in unit)
+            is_step = any(item.kind in ir_constants.STEP_KINDS for item in unit)
             if any(self._mandatory(item) for item in unit):
                 mandatory.append(unit)
             elif is_step and request_index >= 0 and unit_start(unit) > request_index:
@@ -201,7 +201,7 @@ class ContextAssembler:
                         action="excluded", reason="malformed_tool_pair", final_tokens=0
                     )
                     excluded.append(item)
-            elif all(item.kind in ir_state_module.CONVERSATION_KINDS for item in unit):
+            elif all(item.kind in ir_constants.CONVERSATION_KINDS for item in unit):
                 conversation.append(unit)
             else:
                 aside.append(unit)
@@ -213,10 +213,10 @@ class ContextAssembler:
         # the output, which is re-sorted into context order.
         aside.sort(key=self._unit_key)
 
-        def unit_tokens(unit: Sequence[items_module.ContextItem]) -> int:
+        def unit_tokens(unit: Sequence[ContextItem]) -> int:
             return sum(self._tokens(item) for item in unit)
 
-        included: list[items_module.ContextItem] = []
+        included: list[ContextItem] = []
         used = 0
         for unit in mandatory + protected:
             included.extend(unit)
@@ -234,10 +234,10 @@ class ContextAssembler:
             if (
                 len(unit) == 1
                 and remaining > 0
-                and item.truncation_policy in {ir_state_module.POLICY_HEAD_TAIL, ir_state_module.POLICY_TAIL}
+                and item.truncation_policy in {ir_constants.POLICY_HEAD_TAIL, ir_constants.POLICY_TAIL}
             ):
                 shrunk = item.with_content(
-                    content_module.truncate_content(item.content, remaining, item.truncation_policy)
+                    content.truncate_content(item.content, remaining, item.truncation_policy)
                 )
                 if self._tokens(shrunk) < self._tokens(item) and self._tokens(shrunk) <= remaining:
                     records[item.item_id].update(
@@ -261,9 +261,9 @@ class ContextAssembler:
                 for index, item in enumerate(unit):
                     if used + conversation_tokens <= self.total_budget:
                         break
-                    if item.kind != ir_state_module.KIND_TOOL_RESULT or item.truncation_policy == ir_state_module.POLICY_NEVER:
+                    if item.kind != ir_constants.KIND_TOOL_RESULT or item.truncation_policy == ir_constants.POLICY_NEVER:
                         continue
-                    pruned = item.with_content(content_module.prune_tool_output(item.content, item.token_estimate))
+                    pruned = item.with_content(content.prune_tool_output(item.content, item.token_estimate))
                     if self._tokens(pruned) >= self._tokens(item):
                         continue
                     conversation_tokens -= self._tokens(item) - self._tokens(pruned)
@@ -301,7 +301,7 @@ class ContextAssembler:
                 excluded_manifest.append(entry)
 
         payload = {
-            "schema_version": ir_state_module.CONTEXT_SCHEMA_VERSION,
+            "schema_version": ir_constants.CONTEXT_SCHEMA_VERSION,
             "total_budget": self.total_budget,
             "used_tokens": used,
             "over_budget": over_budget,
@@ -314,7 +314,7 @@ class ContextAssembler:
         if self.budget_details:
             payload["budget_details"] = dict(self.budget_details)
         manifest_hash = stable_hash(payload)
-        return items_module.ContextAssembly(
+        return ContextAssembly(
             included=tuple(included),
             excluded=tuple(excluded),
             _manifest=payload,

@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from core.auth.backend import UserContext, get_current_user
 from core.capabilities.catalog.runtime import get_runtime_catalog
 from core.config.settings import settings
-from core.db.engine import get_db
+from core.db.threads import run_in_session
 from features.knowledge.repository import KBRepository
 from core.infra.exceptions import BadRequestError
 from core.infra.responses import success_response
@@ -459,11 +459,11 @@ def _get_catalog_items_sync(user: UserContext, db: Session):
 
 @router.get("", summary="获取能力目录")
 async def get_catalog_items(
-    user: UserContext = Depends(get_current_user), db: Session = Depends(get_db)
+    user: UserContext = Depends(get_current_user),
 ):
     """Build the synchronous catalog outside the Uvicorn event loop."""
     await _ensure_external_cache_ready()
-    return await run_in_threadpool(_get_catalog_items_sync, user, db)
+    return await run_in_session(lambda db: _get_catalog_items_sync(user, db))
 
 
 

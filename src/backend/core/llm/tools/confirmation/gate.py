@@ -7,9 +7,10 @@ import time
 from typing import Any, Dict, Optional
 from . import state
 
-logger = logging.getLogger(__name__)
 from .shared import _load_session_grants, _save_session_grant
 from .pending import _register_pending, _wait_pending
+
+logger = logging.getLogger(__name__)
 
 
 async def gate(

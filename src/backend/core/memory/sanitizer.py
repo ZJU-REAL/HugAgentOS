@@ -87,8 +87,6 @@ class SanitizeResult:
 _RULES_CACHE_TTL = 300  # seconds
 
 
-
-
 def invalidate_rules_cache() -> None:
     """Called proactively after an admin adds/removes rules; the next sanitize re-pulls from the DB."""
     with process_state().rules_lock:
@@ -179,18 +177,14 @@ def sanitize(text: str) -> SanitizeResult:
     return SanitizeResult(text=cleaned, hits=hits, reject=False)
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class SanitizerState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    rules_cache: dict = state_field(default_factory=lambda: {'patterns': None, 'classified': None, 'loaded_at': 0.0})
-    rules_lock: object = state_field(default_factory=lambda: Lock())
+    rules_cache: dict = field(default_factory=lambda: {'patterns': None, 'classified': None, 'loaded_at': 0.0})
+    rules_lock: object = field(default_factory=lambda: Lock())
 
-@state_cache(maxsize=1)
+
+_STATE = SanitizerState()
+
+
 def process_state() -> SanitizerState:
-    return SanitizerState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

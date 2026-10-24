@@ -5,12 +5,13 @@ the tool coroutine ``await``s the user's click on the frontend DesignPickerCard,
 resumes in place once chosen. Conditionally registered by agent_factory only in
 site-building chats (site-builder skill enabled).
 """
+from core.llm.factory.tools.definitions import function_tool
 
 import logging
 from typing import Any, Dict, List, Optional
 
 from agentscope.tool import Toolkit
-from agentscope.tool._response import ToolChunk as ToolResponse
+from agentscope.tool._response import ToolChunk
 
 from core.llm.tools import confirmation as _mc
 from core.llm.tools._common import resp_json
@@ -40,7 +41,7 @@ def skill_uses_choose_design(skill_id: str) -> bool:
     )
 
 
-def _err(msg: str) -> ToolResponse:
+def _err(msg: str) -> ToolChunk:
     return resp_json({"ok": False, "error": msg})
 
 
@@ -61,7 +62,7 @@ def register_choose_design(
     instead of erroring out on a missing tool.
     """
 
-    async def choose_design(question: str, options: List[Dict[str, Any]]) -> ToolResponse:
+    async def choose_design(question: str, options: List[Dict[str, Any]]) -> ToolChunk:
         """让用户从多个设计方案预览图中选择一个（**会挂起等待用户点选**）。
 
         仅在建站流程中使用：先为同一站点做出 2-4 个（推荐 3 个）风格迥异的
@@ -218,10 +219,7 @@ def register_choose_design(
                 ))
         return intents
 
-    toolkit.register_tool_function(
-        choose_design, namesake_strategy="override",
-        permission=ToolPermissionSpec("design-preview-paths", resolve_image_paths),
-    )
+    toolkit.append(function_tool(choose_design, dispatch_spec=ToolPermissionSpec("design-preview-paths", resolve_image_paths)))
     logger.info("[factory] Registered choose_design tool (site-builder session)")
 
 

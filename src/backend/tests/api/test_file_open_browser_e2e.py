@@ -22,6 +22,7 @@ from core.auth.backend import UserContext, get_current_user
 from core.config import settings as settings_module
 from core.db.engine import Base, get_db
 from core.db.models import Artifact
+from tests.db_support import share_factory
 
 
 @pytest.mark.skipif(sys.platform != "linux" or not shutil.which("node"),
@@ -98,6 +99,7 @@ else:
 
     app.dependency_overrides[get_current_user] = fixture_user
     app.dependency_overrides[get_db] = fixture_db
+    share_factory(monkeypatch, sessions)
 
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))

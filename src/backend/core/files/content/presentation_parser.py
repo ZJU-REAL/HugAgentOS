@@ -1,4 +1,4 @@
-"""presentation parser responsibilities."""
+"""Parse PPTX files into markdown."""
 from __future__ import annotations
 import io
 

@@ -20,7 +20,9 @@ class _Toolkit:
     def __init__(self):
         self.fns = {}
 
-    def register_tool_function(self, fn, **kw):
+    def append(self, tool):
+        fn = tool._func
+        kw = {"func_description": tool.description, "permission": getattr(tool, "dispatch_spec", None)}
         self.fns[fn.__name__] = fn
 
 

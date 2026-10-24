@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from tests._capability_index import bind_capability_index
 from tests.features.desktop.capabilities._cloud_identity import CLOUD_BASE, CLOUD_USER, cloud_token
+from tests.db_support import share_session
 
 
 @pytest.fixture
@@ -55,6 +56,7 @@ def hybrid_catalog_client(tmp_path, index_db, caps_root, monkeypatch):
     app = FastAPI()
     app.include_router(catalog_router)
     app.dependency_overrides[get_db] = lambda: session
+    share_session(monkeypatch, session)
     app.dependency_overrides[get_current_user] = lambda: UserContext(
         user_id=CLOUD_USER, user_center_id=CLOUD_USER, username=CLOUD_USER
     )

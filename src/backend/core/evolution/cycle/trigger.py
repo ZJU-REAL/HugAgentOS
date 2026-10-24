@@ -31,7 +31,8 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
 
 from core.db.engine import SessionLocal
@@ -67,10 +68,6 @@ DEBOUNCE_SECONDS = _env_int("EVOLUTION_TRIGGER_DEBOUNCE_S", 600)
 # Per-user debounce, so a busy person cannot crowd out everyone else's cycle.
 
 
-
-
-
-
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -78,7 +75,7 @@ def _now() -> datetime:
 def _episode_count() -> int:
     """Cheap indexed count of mineable episodes."""
     from core.db.models.evolution import EvolutionEpisode
-    from core.evolution.profiles.user_settings_state import PRIVACY_PRIVATE
+    from core.evolution.profiles.user_settings_constants import PRIVACY_PRIVATE
 
     with SessionLocal() as db:
         return (
@@ -267,21 +264,17 @@ def reset_for_tests() -> None:
         process_state().personal_last_run.clear()
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class TriggerState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    state_lock: object = state_field(default_factory=lambda: threading.Lock())
-    personal_last_run: Dict[str, datetime] = state_field(default_factory=lambda: {})
+    state_lock: object = field(default_factory=lambda: threading.Lock())
+    personal_last_run: Dict[str, datetime] = field(default_factory=lambda: {})
     last_cycle_at: Optional[datetime] = None
     last_cycle_episode_count: int = 0
     running: object = False
 
-@state_cache(maxsize=1)
-def process_state() -> TriggerState:
-    return TriggerState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+_STATE = TriggerState()
+
+
+def process_state() -> TriggerState:
+    return _STATE

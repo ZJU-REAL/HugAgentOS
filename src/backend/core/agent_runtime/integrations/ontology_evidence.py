@@ -1,15 +1,13 @@
-"""core agent_runtime integrations ontology_evidence responsibilities."""
+"""Collect and summarise ontology governance evidence for the final answer review."""
 
 from __future__ import annotations
-from core.ontology import output_review_state as output_review_state_module
-from core.llm.citations import allocator as allocator_module
+from core.ontology import output_review_state
+from core.llm.citations.allocator import collect_citation_dicts
 
 import json
 import logging
 from typing import Any, Dict, List, Optional
 
-import core.llm.citations.anchor as citation_anchor
-import core.ontology.validator as validator
 from core.llm.citations.allocator import AnchorAllocator
 
 logger = logging.getLogger(__name__)
@@ -89,7 +87,7 @@ def _ontology_governance_summary(runtime: Dict[str, Any]) -> Optional[Dict[str, 
     review_state["committee_size"] = _ontology_review_event_context(runtime)["committee_size"]
     if not activations and not gates and review_state.get("status") == "pending":
         return None
-    if review_state.get("status") == "pending" and not output_review_state_module.requires_output_review(runtime):
+    if review_state.get("status") == "pending" and not output_review_state.requires_output_review(runtime):
         review_state["status"] = "skipped"
     return {
         "governance_run_id": runtime.get("governance_run_id"),
@@ -215,7 +213,7 @@ def _capture_nested_ontology_evidence(
         return []
 
     result = _parse_tool_result_value(payload.get("output"))
-    cit_dicts = allocator_module.collect_citation_dicts(tool_id, allocator)
+    cit_dicts = collect_citation_dicts(tool_id, allocator)
     citations.extend(cit_dicts)
     trace.append(
         {

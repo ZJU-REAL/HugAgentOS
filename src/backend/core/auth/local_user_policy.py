@@ -1,8 +1,8 @@
-"""local user policy responsibilities."""
+"""Whether the CE bootstrap owner still has to finish web onboarding."""
 from __future__ import annotations
 from typing import Any, Dict, Optional
 from core.config.settings import settings
-from core.auth import local_users_state
+from core.auth import local_users_constants
 
 def ce_onboarding_required(metadata: Optional[Dict[str, Any]]) -> bool:
     """Return whether the CE bootstrap owner must finish the current Web setup flow."""
@@ -13,4 +13,4 @@ def ce_onboarding_required(metadata: Optional[Dict[str, Any]]) -> bool:
         completed_version = int(meta.get("onboarding_completed_version") or 0)
     except (TypeError, ValueError):
         completed_version = 0
-    return bool(meta.get("onboarding_required")) and completed_version < local_users_state.CE_ONBOARDING_VERSION
+    return bool(meta.get("onboarding_required")) and completed_version < local_users_constants.CE_ONBOARDING_VERSION

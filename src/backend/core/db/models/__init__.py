@@ -5,11 +5,7 @@ so `from core.db.models import X` and `from core.db.models import *` both stay u
 """
 
 from core.db.engine import Base
-from sqlalchemy import JSON, String
-from sqlalchemy.dialects.postgresql import INET, JSONB
-
-JSONType = JSON().with_variant(JSONB(), "postgresql")
-INETType = String(45).with_variant(INET(), "postgresql")
+from core.db.models.column_types import INETType, JSONType
 
 from core.db.edition import EDITION_MODEL_EXPORTS
 from core.db.models.chat import ChatCompactionState, ChatMessage, ChatSession
@@ -68,9 +64,19 @@ from core.db.models.ontology import (
 )
 from core.db.models.command import CommandTask
 from core.db.models.job import JOB_LIVE_STATUSES, JOB_TERMINAL_STATUSES, Job, JobCall, JobItem
-from core.db.edition import edition_model_exports
-_edition_models = edition_model_exports()
-globals().update(_edition_models)
+from core.db.edition import EDITION_MODEL_NAMES, edition_model_exports
+globals().update(edition_model_exports())
+
+
+def __getattr__(name):
+    # Edition models are absent above only when the edition model package
+    # itself started this import; it has finished loading by first access.
+    if name in EDITION_MODEL_NAMES:
+        value = edition_model_exports()[name]
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     'ChatMode',
@@ -146,13 +152,10 @@ __all__ = [
     'OntologyEnforcementEvent',
     'OntologyReviewRun',
     'OntologyDraft',
-    *_edition_models,
+    *EDITION_MODEL_NAMES,
 ]
-
-
-
 
 
 from .plugin_resource import PluginResource, PluginResourceTicket, PluginResourceCheckpoint
 
-__all__ = [name for name in __all__ if name in globals()]
+__all__ = [name for name in __all__ if name in globals() or name in EDITION_MODEL_NAMES]

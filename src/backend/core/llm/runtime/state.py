@@ -44,6 +44,7 @@ class AgentRuntimeState(AgentState):
     # drained by the streaming adapter into ``model_step`` events. Each entry
     # is one ``core.llm.runtime.model_steps`` assistant record.
     pending_model_steps: List[dict] = Field(default_factory=list)
+    pending_mcp_progress: List[dict] = Field(default_factory=list)
 
     def apply_request_context(self, context: dict, user_message_text: str) -> None:
         """Populate per-request runtime fields from the request ``context`` dict (replaces the 1.x agent._jx_context).

@@ -14,8 +14,7 @@ AgentScope 的 ``FormatterBase.convert_tool_result_to_string`` 对工具结果�
 :class:`NoDiskToolMediaMixin` 堵掉落盘和静默降级，两条线都用。**图放在哪一条消息上
 则按协议走各自的原生机制**：
 
-- **Responses**：折回 ``function_call_output`` 自己的 ``output``（
-  :class:`ResponsesToolMediaMixin`）。该协议的函数输出本就能载图，codex 也是这么做的
+- **Responses**：由 AgentScope 原生写入 ``function_call_output`` 自己的 ``output``。该协议的函数输出本就能载图，codex 也是这么做的
   （``FunctionCallOutputContentItem::InputImage``，见
   ``codex-rs/core/src/tools/handlers/view_image.rs``），图与 ``call_id`` 直接绑定，
   多图并发天然不串。
@@ -117,59 +116,3 @@ class NoDiskToolMediaMixin(_MixinBase):
             patterns or "纯文本",
         )
         return False
-
-
-class ResponsesToolMediaMixin(NoDiskToolMediaMixin):
-    """把媒体折回它所属的那条 ``function_call_output``（Responses 协议）。
-
-    父类 formatter 会把媒体提升成紧跟其后的一条 user 消息。那条消息与产出它的调用
-    之间只剩位置关系，多图并发时要靠额外的编号文案才能对上号；Responses 的函数输出
-    本身就能载内容部件，折回去即可与 ``call_id`` 直接绑定。
-    """
-
-    async def format(self, msgs: list[Msg]) -> list[dict[str, Any]]:
-        # 逐条消息格式化后再折叠：父类对每条消息的处理彼此独立，逐条与整批结果一致，
-        # 而逐条能保证「函数输出后面那条纯媒体 user 项」只可能是本条消息的提升产物，
-        # 不会误收下一轮真实的用户消息。
-        items: list[dict[str, Any]] = []
-        for msg in msgs:
-            # Concrete SDK formatter follows this mixin in each bound class MRO.
-            formatted = await super().format([msg])  # type: ignore[safe-super]
-            items.extend(_fold_media_into_function_output(formatted))
-        return items
-
-
-def _fold_media_into_function_output(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    folded: list[dict[str, Any]] = []
-    for item in items:
-        target = folded[-1] if folded else None
-        if (
-            target is not None
-            and target.get("type") == "function_call_output"
-            and _is_media_only(item)
-        ):
-            target["output"] = _as_output_parts(target.get("output")) + list(item["content"])
-            continue
-        folded.append(item)
-    return folded
-
-
-def _is_media_only(item: dict[str, Any]) -> bool:
-    """这条 user 项是不是上一条函数输出提升出来的纯媒体项。
-
-    ``convert_tool_result_to_string`` 只交出 ``DataBlock``，不再带任何说明文案，
-    所以提升出来的项必然是「清一色非文本的内容部件」——据此判定，不去认父类内部
-    给这条消息起的名字。
-    """
-    content = item.get("content")
-    if item.get("role") != "user" or not isinstance(content, list) or not content:
-        return False
-    return all(isinstance(part, dict) and part.get("type") != "input_text" for part in content)
-
-
-def _as_output_parts(output: Any) -> list[dict[str, Any]]:
-    if isinstance(output, list):
-        return list(output)
-    if output:
-        return [{"type": "input_text", "text": output}]
-    return []

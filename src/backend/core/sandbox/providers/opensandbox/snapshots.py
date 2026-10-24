@@ -94,7 +94,7 @@ class _OpenSandboxSnapshotsMixin:
 
         return await asyncio.to_thread(_upsert)
 
-    async def _delete_snapshot_row(self, chat_id: str) -> None:
+    async def _delete_snapshot_row(self, chat_id: str, snapshot_id: str) -> None:
         """Delete the chat_sandbox_snapshots row (leaves the remote snapshot untouched)."""
 
         def _delete() -> None:
@@ -102,7 +102,8 @@ class _OpenSandboxSnapshotsMixin:
             ChatSandboxSnapshot = _get_snapshot_model()
             with SessionLocal() as db:
                 db.query(ChatSandboxSnapshot).filter(
-                    ChatSandboxSnapshot.chat_id == chat_id
+                    ChatSandboxSnapshot.chat_id == chat_id,
+                    ChatSandboxSnapshot.snapshot_id == snapshot_id,
                 ).delete()
                 db.commit()
 
@@ -213,6 +214,7 @@ class _OpenSandboxSnapshotsMixin:
         The idle threshold starts snapshotting; server expiry includes a grace
         period so that the scan and snapshot can finish before container removal.
         """
+        await self._discover_idle_sessions()
         threshold = settings.sandbox.idle_ttl_s
         now = time.monotonic()
         candidates: list[tuple[str, _Session]] = []
@@ -233,9 +235,13 @@ class _OpenSandboxSnapshotsMixin:
             candidates.append((chat_id, sess))
             if len(candidates) >= self._PARK_BATCH_LIMIT:
                 break
-        for chat_id, sess in candidates:
+        for chat_id, _ in candidates:
             self._parking_in_flight.add(chat_id)
-            asyncio.create_task(self._park_session_via_snapshot(chat_id, sess))
+        # Children belong to the maintenance task: losing leadership cancels
+        # and joins every in-flight snapshot before releasing ownership.
+        async with asyncio.TaskGroup() as group:
+            for chat_id, sess in candidates:
+                group.create_task(self._park_session_via_snapshot(chat_id, sess))
 
     async def _park_session_via_snapshot(self, chat_id: str, sess: _Session) -> None:
         """take snapshot → wait Ready → upsert DB → release the session.
@@ -309,7 +315,7 @@ class _OpenSandboxSnapshotsMixin:
                 )
             # Clean up the old remote snapshot outside the lock (async)
             if old_snap:
-                asyncio.create_task(self._delete_snapshot(old_snap))
+                await self._delete_snapshot(old_snap)
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
@@ -383,7 +389,7 @@ class _OpenSandboxSnapshotsMixin:
             if not ok:
                 continue
             try:
-                await self._delete_snapshot_row(chat_id)
+                await self._delete_snapshot_row(chat_id, snapshot_id)
             except Exception as e:  # noqa: BLE001
                 logger.warning(
                     "[opensandbox] gc: delete db row chat=%s failed: %s",

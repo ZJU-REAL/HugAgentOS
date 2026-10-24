@@ -1,9 +1,9 @@
-"""skill drafting responsibilities."""
+"""Prompt, parse and validate a model-drafted skill body."""
 from __future__ import annotations
 import re
 from typing import Any, List, Sequence, Tuple
-from core.evolution.generators import skill_evidence as skill_evidence_module
-from core.evolution.generators import skill_gen_state as skill_gen_state_module
+from core.evolution.generators import skill_evidence
+from core.evolution.generators import skill_gen_constants
 
 def format_list(items: Sequence[Any], empty: str = "（无）") -> str:
     if not items:
@@ -19,7 +19,7 @@ def format_list(items: Sequence[Any], empty: str = "（无）") -> str:
     return "\n".join(lines)
 
 
-def build_prompt(pack: skill_evidence_module.EvidencePack, violations: Sequence[str]) -> str:
+def build_prompt(pack: skill_evidence.EvidencePack, violations: Sequence[str]) -> str:
     exclusion_hint = (
         f"证据显示本技能在以下任务类型中被推翻，必须写进不适用范围：{'、'.join(pack.excluded_task_types)}。"
         if pack.excluded_task_types
@@ -32,7 +32,7 @@ def build_prompt(pack: skill_evidence_module.EvidencePack, violations: Sequence[
             + "\n".join(f"- {v}" for v in violations)
             + "\n"
         )
-    return skill_gen_state_module.DRAFT_PROMPT.format(
+    return skill_gen_constants.DRAFT_PROMPT.format(
         objective_count=len(pack.objectives),
         objectives=format_list(pack.objectives[:10]),
         tools=format_list([f"`{t}`" for t in pack.tools]),
@@ -57,7 +57,7 @@ def build_prompt(pack: skill_evidence_module.EvidencePack, violations: Sequence[
             ]
         ),
         exclusion_hint=exclusion_hint,
-        max_chars=skill_gen_state_module.MAX_BODY_CHARS,
+        max_chars=skill_gen_constants.MAX_BODY_CHARS,
         retry_hint=retry_hint,
     )
 
@@ -99,28 +99,28 @@ def validate_draft(
     violations: List[str] = []
 
     if not body.strip():
-        return [skill_gen_state_module.REJECT_EMPTY]
+        return [skill_gen_constants.REJECT_EMPTY]
     if not display_name.strip() or not description.strip():
-        violations.append(skill_gen_state_module.REJECT_NO_FRONTMATTER)
-    if not skill_gen_state_module.FRONTMATTER_NAME.match(skill_id or ""):
+        violations.append(skill_gen_constants.REJECT_NO_FRONTMATTER)
+    if not skill_gen_constants.FRONTMATTER_NAME.match(skill_id or ""):
         # The loader treats ``name`` as the id and rejects anything outside
         # ``[a-z0-9_-]``. A skill that fails this still appears in the capability
         # list — that metadata comes from table columns — while loading returns
         # nothing, so it is present and inert, which is the hardest failure of
         # all to notice.
-        violations.append(skill_gen_state_module.REJECT_BAD_NAME)
+        violations.append(skill_gen_constants.REJECT_BAD_NAME)
 
-    if skill_gen_state_module.CODE_FENCE.search(body):
-        violations.append(skill_gen_state_module.REJECT_CODE_BLOCK)
-    if skill_gen_state_module.URL.search(body):
-        violations.append(skill_gen_state_module.REJECT_EXTERNAL_URL)
-    if len(body) > skill_gen_state_module.MAX_BODY_CHARS:
-        violations.append(skill_gen_state_module.REJECT_TOO_LONG)
-    if len(body) < skill_gen_state_module.MIN_BODY_CHARS:
-        violations.append(skill_gen_state_module.REJECT_TOO_SHORT)
+    if skill_gen_constants.CODE_FENCE.search(body):
+        violations.append(skill_gen_constants.REJECT_CODE_BLOCK)
+    if skill_gen_constants.URL.search(body):
+        violations.append(skill_gen_constants.REJECT_EXTERNAL_URL)
+    if len(body) > skill_gen_constants.MAX_BODY_CHARS:
+        violations.append(skill_gen_constants.REJECT_TOO_LONG)
+    if len(body) < skill_gen_constants.MIN_BODY_CHARS:
+        violations.append(skill_gen_constants.REJECT_TOO_SHORT)
 
     if "## 不适用范围" not in body:
-        violations.append(skill_gen_state_module.REJECT_NO_SCOPE)
+        violations.append(skill_gen_constants.REJECT_NO_SCOPE)
     else:
         # The exclusion has to precede anything the model could copy: measured,
         # withholding a contradicted rule was not enough, because the step list
@@ -128,12 +128,12 @@ def validate_draft(
         scope_at = body.index("## 不适用范围")
         earlier_section = re.search(r"^## ", body[:scope_at], re.MULTILINE)
         if earlier_section:
-            violations.append(skill_gen_state_module.REJECT_NO_SCOPE)
+            violations.append(skill_gen_constants.REJECT_NO_SCOPE)
     if "## 常见失败与处理" not in body and "## 步骤" not in body:
-        violations.append(skill_gen_state_module.REJECT_NO_CHECKPOINTS)
+        violations.append(skill_gen_constants.REJECT_NO_CHECKPOINTS)
 
     allowed = {str(t) for t in allowed_tools}
-    mentioned = {m for m in skill_gen_state_module.TOOL_MENTION.findall(body)}
+    mentioned = {m for m in skill_gen_constants.TOOL_MENTION.findall(body)}
     # Only identifiers that look like tool names are checked: prose in backticks
     # (a field name, a value) must not be mistaken for a tool grant, and a real
     # tool name always appears verbatim in the evidence.
@@ -143,7 +143,7 @@ def validate_draft(
         if name not in allowed and "_" in name and name.islower()
     )
     if unknown:
-        violations.append(f"{skill_gen_state_module.REJECT_UNKNOWN_TOOL}: {unknown}")
+        violations.append(f"{skill_gen_constants.REJECT_UNKNOWN_TOOL}: {unknown}")
 
     return violations
 

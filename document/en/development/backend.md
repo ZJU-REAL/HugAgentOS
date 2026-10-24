@@ -68,10 +68,10 @@ The version list pins a compatible mem0, pymilvus and Milvus Lite combination. D
 
 ## Alembic migration flow
 
-1. Change the ORM models in `src/backend/core/db/models.py`;
+1. Change the ORM models in `src/backend/core/db/models/`;
 2. `make migrate-new msg="add xxx table"` to autogenerate the migration (**review the output by hand** — autogenerate cannot be fully trusted);
 3. Apply with `make migrate` (or `alembic upgrade head` inside the container);
-4. If the table is **EE-only**: add its name to `core/db/edition_tables.py::EE_ONLY_TABLES` (CE does not create empty EE tables; names in the set are existence-asserted).
+4. If the table is **EE-only**: add its name to `edition_ee/db/edition_tables.py::EE_ONLY_TABLES` (CE does not create empty EE tables; names in the set are existence-asserted).
 
 Note: the main-repo alembic chain is the EE chain; the CE derived tree uses its own `ce_0001` baseline chain (see [CE Build Pipeline](../editions/build-ce.md#ce-database-differences)) — new main-repo migrations never enter CE.
 
@@ -188,7 +188,7 @@ A **marketplace skill** goes under `extensions/skills/marketplace/<skill-id>/` w
 
 ## New-feature checklist
 
-- [ ] ORM model + indexes + timestamps (`core/db/models.py`); EE tables added to `EE_ONLY_TABLES`
+- [ ] ORM model + indexes + timestamps (`core/db/models/`); EE tables added to `EE_ONLY_TABLES`
 - [ ] Repository filters soft deletes; Service carries business logic and permission checks
 - [ ] Routes use envelope responses; errors go through `core/infra/exceptions`
 - [ ] Route registered in `CE_ROUTERS` / `EE_ROUTERS` (EE with a feature bit + manifest exclusion)
@@ -205,10 +205,10 @@ A **marketplace skill** goes under `extensions/skills/marketplace/<skill-id>/` w
 | Response envelope | `src/backend/core/infra/responses.py` |
 | Exception hierarchy | `src/backend/core/infra/exceptions.py` |
 | Dependency injection | `src/backend/api/deps.py` |
-| ORM / table boundary | `src/backend/core/db/models.py`, `src/backend/core/db/edition_tables.py` |
+| ORM / table boundary | `src/backend/core/db/models/`, `src/backend/edition_ee/db/edition_tables.py` |
 | MCP port table / connection config | `src/backend/extensions/mcp_servers/_ports.py`, `src/backend/core/config/mcp_config.py` |
 | Capability catalog | `src/backend/core/config/catalog.json` |
 | Skill loading | `src/backend/core/capabilities/skills/` (`config.py` / `loader.py` / `registry.py`) |
-| Workflow orchestration | `src/backend/orchestration/workflow.py` |
+| Workflow orchestration | `src/backend/core/agent_runtime/runner.py` |
 
 See also: [Frontend Development Guide](frontend.md) · [API Overview](../api/overview.md) · [MCP Tools](../modules/mcp-tools.md) · [Agent Skills](../modules/agent-skills.md)

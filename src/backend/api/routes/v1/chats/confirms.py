@@ -3,12 +3,10 @@
 import core.chat.operations.schemas as chat_models
 import api.routes.v1.chats.pending_access as chat_pending_access
 import core.auth.backend as auth_backend
-import core.db.engine as db_engine
 from core.auth.backend import UserContext
 from core.infra.responses import success_response
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from starlette.concurrency import run_in_threadpool
+from core.db.threads import run_in_session
 
 router = APIRouter()
 
@@ -16,7 +14,6 @@ router = APIRouter()
 @router.get("/pending-confirms", summary="批量查询本人会话的待确认我的空间写操作")
 async def list_pending_confirms(
     user: UserContext = Depends(auth_backend.get_current_user),
-    db: Session = Depends(db_engine.get_db),
 ):
     """前端刷新/首屏加载时一次性拉取——用于在侧边栏对应会话上点亮蓝点。
 
@@ -30,8 +27,7 @@ async def list_pending_confirms(
 
     items = []
     for cid in await _mc.list_pending_chat_ids_shared():
-        if not await run_in_threadpool(
-            chat_pending_access._owns_pending_chat, db, cid, user.user_id
+        if not await run_in_session(chat_pending_access._owns_pending_chat, cid, user.user_id
         ):
             continue
         # Cannot just take "the latest one" (get_pending): when the latest is a
@@ -52,11 +48,9 @@ async def list_pending_confirms(
 async def get_pending_confirm(
     chat_id: str,
     user: UserContext = Depends(auth_backend.get_current_user),
-    db: Session = Depends(db_engine.get_db),
 ):
     """前端刷新/切回该会话时恢复确认条（§13）。无待确认项时 pendings=[]。"""
-    if not await run_in_threadpool(
-        chat_pending_access._owns_pending_chat, db, chat_id, user.user_id
+    if not await run_in_session(chat_pending_access._owns_pending_chat, chat_id, user.user_id
     ):
         raise HTTPException(status_code=404, detail="会话不存在或无权访问")
 
@@ -76,7 +70,6 @@ async def file_confirm(
     chat_id: str,
     body: chat_models.FileConfirmBody,
     user: UserContext = Depends(auth_backend.get_current_user),
-    db: Session = Depends(db_engine.get_db),
 ):
     """用户带外批准/拒绝一次对「我的空间」的 Write/Edit/Delete/Move（§13）。
 
@@ -84,8 +77,7 @@ async def file_confirm(
     不重试整个操作；拒绝则模型据工具反馈调整后续行为。
     """
     # Ownership check: must be the caller's own session
-    if not await run_in_threadpool(
-        chat_pending_access._owns_pending_chat, db, chat_id, user.user_id
+    if not await run_in_session(chat_pending_access._owns_pending_chat, chat_id, user.user_id
     ):
         raise HTTPException(status_code=404, detail="会话不存在或无权访问")
 
@@ -103,8 +95,7 @@ async def file_confirm(
             # server restart". The latter needs a clearer message for the user (not "confirmation
             # timed out" but "session was interrupted, please resend"); the frontend shows a more
             # prominent notice for it instead of silently dismissing the bar.
-            chat_interrupted = await run_in_threadpool(
-                chat_pending_access._detect_chat_run_interrupted, db, chat_id
+            chat_interrupted = await run_in_session(chat_pending_access._detect_chat_run_interrupted, chat_id
             )
             return success_response(
                 data={

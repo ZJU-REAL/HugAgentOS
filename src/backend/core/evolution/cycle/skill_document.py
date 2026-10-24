@@ -1,4 +1,4 @@
-"""skill document responsibilities."""
+"""Render distilled skills as SKILL.md documents."""
 from __future__ import annotations
 from typing import Any, Dict, List, Sequence
 import logging

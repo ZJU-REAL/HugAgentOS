@@ -30,7 +30,6 @@ metaDurationMs: number | null;
 compactionPending: boolean;
 parseBuffer: string;
 deferredThinkingText: DeferredThinkingTextFragment | undefined;
-toolPending: boolean;
 ontologySidebarAutoOpened: boolean;
 aborted: boolean;
 thinkingPhaseActive: boolean;

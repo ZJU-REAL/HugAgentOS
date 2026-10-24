@@ -14,7 +14,7 @@ import types
 import pytest
 
 from agentscope.message import ToolResultState
-from core.evolution.profiles.agent_profile_state import ACTION_CHANGE_STRATEGY, SIGNAL_REPEATED_ACTIONS, SIGNAL_TOOL_ERROR_STREAK
+from core.evolution.profiles.agent_profile_constants import ACTION_CHANGE_STRATEGY, SIGNAL_REPEATED_ACTIONS, SIGNAL_TOOL_ERROR_STREAK
 from core.evolution.profiles.agent_profile import InterventionRule
 from core.evolution.profiles.stall_hook import stall_hooks
 from tests.orchestration.hook_support import make_adapter

@@ -73,7 +73,8 @@ try {
    await page.locator('#capabilities .jx-tcr-capabilityIcon img[src="/' + icon + '.svg"]').first().waitFor();
  }
  assert.equal(await page.locator('#capabilities img[src="/plugin.svg"]').count(), 3, 'Plugin skills and tools inherit plugin logo');
- assert.equal(await page.locator('#capabilities .anticon-loading').count(), 1, 'Connector spinner is separate from its logo');
+ assert.equal(await page.locator('#capabilities .anticon-loading').count(), 0, 'Capability rows show their logo, no separate spinner');
+ assert.equal(await page.locator('#capabilities .jx-tcr-prefix--shimmer').count(), 1, 'The running connector row scans its label');
  const skillRow = page.locator('#capabilities .jx-tcr-header').first();
  await skillRow.click();
  assert.equal(await page.locator('aside').count(), 0, 'Capability icons retain inline expansion');

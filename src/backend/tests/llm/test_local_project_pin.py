@@ -17,10 +17,11 @@ from core.db.models import Project, UserShadow, Artifact
 
 from core.llm.runtime import workspace
 
-from core.llm.runtime.tool_collector import ToolCollector
+from core.llm.factory.tools.definitions import ToolAssembly
 
 
 from tests.llm.local_project_test_support import local_project, pin_tool
+from tests.db_support import share_session
 
 
 def test_pin_local_path_opens_original_and_deduplicates(local_project, db_session, tmp_path):
@@ -67,9 +68,9 @@ def test_existing_export_then_pin_does_not_copy_project_file(
             return len(data)
 
     monkeypatch.setattr("core.sandbox.get_sandbox_provider", lambda: Provider())
-    collector = ToolCollector()
+    collector = ToolAssembly()
     register_sandbox_get_artifact(collector, chat_id="pin-chat", user_id="pin-user", scope=scope)
-    export = collector.get_tool("sandbox_get_artifact")._func
+    export = next(t for t in collector if t.name == "sandbox_get_artifact")._func
     result = json.loads(asyncio.run(export(src_path=str(source))).content[0].text)
     assert result.get("ok"), result
     assert get_artifact(result["file_id"])["path"] == str(source)
@@ -95,14 +96,12 @@ def test_pinned_file_remains_readable_across_turns_and_saves_to_project(
     assert load_artifact_meta(fid, "pin-user")["name"] == "report.txt"
     assert fetch_parsed_text(fid, "pin-user") == "original report"
     monkeypatch.setenv("HUGAGENT_HOME", str(tmp_path / "home"))
-    result = asyncio.run(
-        overwrite_file(
+    result = overwrite_file(
             fid,
             UploadFile(filename="report.txt", file=io.BytesIO(b"saved from Canvas")),
             SimpleNamespace(user_id="pin-user"),
             db_session,
         )
-    )
     assert result["file_id"] == fid
     assert source.read_text() == "saved from Canvas"
     assert fetch_parsed_text(fid, "pin-user") == "saved from Canvas"
@@ -175,10 +174,10 @@ def test_live_spreadsheet_sheet_read_and_artifact_input(local_project):
     fid = json.loads(asyncio.run(pin_tool(scope)(file_paths=[str(sheet)])).content[0].text)[
         "pinned"
     ][0]["file_id"]
-    collector = ToolCollector()
+    collector = ToolAssembly()
     register_read_artifact(collector, user_id="pin-user")
     response = json.loads(
-        asyncio.run(collector.get_tool("read_artifact")._func(file_id=fid, sheet_name="预算"))
+        asyncio.run(next(t for t in collector if t.name == "read_artifact")._func(file_id=fid, sheet_name="预算"))
         .content[0]
         .text
     )
@@ -228,11 +227,11 @@ def test_scratch_export_references_original(local_project, monkeypatch, tmp_path
             return Path(dst).stat().st_size
 
     monkeypatch.setattr("core.sandbox.get_sandbox_provider", lambda: Provider())
-    collector = ToolCollector()
+    collector = ToolAssembly()
     register_sandbox_get_artifact(collector, chat_id="pin-chat", user_id="pin-user", scope=scope)
     result = json.loads(
         asyncio.run(
-            collector.get_tool("sandbox_get_artifact")._func(
+            next(t for t in collector if t.name == "sandbox_get_artifact")._func(
                 src_path="/workspace/scratch/output.txt"
             )
         )
@@ -257,7 +256,7 @@ def test_write_delivers_original_project_file(local_project, monkeypatch):
     monkeypatch.setattr(
         "core.sandbox.get_sandbox_provider", lambda: SimpleNamespace(name="script_runner")
     )
-    collector = ToolCollector()
+    collector = ToolAssembly()
     register_write(
         collector, chat_id="pin-chat", user_id="pin-user", state=ReadStateTracker(), scope=scope
     )
@@ -273,7 +272,7 @@ def test_write_delivers_original_project_file(local_project, monkeypatch):
     try:
         response = json.loads(
             asyncio.run(
-                collector.get_tool("Write")._func(
+                next(t for t in collector if t.name == "Write")._func(
                     file_path=str(target), content="created in project", register_as_artifact=True
                 )
             )
@@ -310,10 +309,10 @@ def test_export_rejects_project_symlink_escape(local_project, tmp_path, monkeypa
                 str(outside) if value == path else original_resolve(value, user, **kwargs)
             ),
         )
-    collector = ToolCollector()
+    collector = ToolAssembly()
     register_sandbox_get_artifact(collector, chat_id="pin-chat", user_id="pin-user", scope=scope)
     result = json.loads(
-        asyncio.run(collector.get_tool("sandbox_get_artifact")._func(src_path=path)).content[0].text
+        asyncio.run(next(t for t in collector if t.name == "sandbox_get_artifact")._func(src_path=path)).content[0].text
     )
     assert "error" in result and "file_id" not in result
 
@@ -344,6 +343,7 @@ def test_desktop_bridge_previews_pinned_html_through_http(local_project, db_sess
     app = FastAPI()
     app.include_router(files.router)
     app.dependency_overrides[get_db] = lambda: db_session
+    share_session(monkeypatch, db_session)
     headers = {
         "x-desktop-bridge": "fixture-only-bridge",
         "x-desktop-bridge-user": base64.b64encode(

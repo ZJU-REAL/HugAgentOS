@@ -1,4 +1,4 @@
-"""word parser responsibilities."""
+"""Parse DOCX, DOC and WPS files into markdown."""
 from __future__ import annotations
 import os
 import subprocess

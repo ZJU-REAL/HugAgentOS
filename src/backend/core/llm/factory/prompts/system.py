@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from core.llm.tools.plugin_activation import register_load_plugin
-from core.llm import prompt_rendering as prompt_rendering_module
+from core.llm import prompt_rendering
 
 import os
 from typing import Any, Dict
@@ -148,14 +148,13 @@ async def system_prompt(
         # 能配自己的提示词。之前把它写在 turbo 分支里，非收窄模式配了也不生效。
         _mode_prompt = ""
         if request.mode_spec is not None:
-            from core.llm import prompt_versions as _pvs_mode
 
             _mode_prompt_text = getattr(request.mode_spec, "prompt_text", None)
             _mode_prompt_kind = getattr(request.mode_spec, "prompt_kind", None)
             if _mode_prompt_text:
                 _mode_prompt = str(_mode_prompt_text)
             elif _mode_prompt_kind and _mode_prompt_kind != "turbo":
-                _mode_prompt = prompt_rendering_module.render_kind_segment(_mode_prompt_kind, fs_fallback=False)
+                _mode_prompt = prompt_rendering.render_kind_segment(_mode_prompt_kind, fs_fallback=False)
 
         if request.turbo_mode and not _turbo_code_exec:
             # Turbo swaps in the standalone prompt (DB "turbo" active version →
@@ -164,10 +163,9 @@ async def system_prompt(
             # （开了代码执行位的收窄模式不进这条：装配确实带沙箱/文件工具，
             # turbo 正文"秒级检索、不执行代码"的叙事反而是错的——没配专属
             # 提示词时走默认装配，工具段按实际 toolkit 动态生成。）
-            from core.llm import prompt_versions as _pvs_turbo
 
             # 收窄模式没配专属提示词时退回历史的 turbo 正文——极速模式绑的就是它。
-            system_prompt = _mode_prompt or prompt_rendering_module.render_turbo_system_prompt()
+            system_prompt = _mode_prompt or prompt_rendering.render_turbo_system_prompt()
             from core.config.local_mode import local_mode_enabled
 
             if local_mode_enabled():
@@ -279,7 +277,7 @@ async def system_prompt(
             try:
                 from core.llm import prompt_versions as _pvs
 
-                _code_exec_text = prompt_rendering_module.render_kind_segment("code_exec")
+                _code_exec_text = prompt_rendering.render_kind_segment("code_exec")
             except Exception:
                 _code_exec_text = ""
             if _code_exec_text:

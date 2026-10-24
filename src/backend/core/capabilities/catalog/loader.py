@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+from dataclasses import dataclass, field
 from time import monotonic
 from typing import Any, Dict, List
 
@@ -310,18 +311,14 @@ def load_catalog(*, include_runtime_details: bool = True) -> Dict[str, Any]:
     return data
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class LoaderState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    CATALOG_CACHE: Dict[bool, Dict[str, Any]] = state_field(default_factory=lambda: {})
-    CATALOG_CACHE_TIME: Dict[bool, float] = state_field(default_factory=lambda: {})
+    CATALOG_CACHE: Dict[bool, Dict[str, Any]] = field(default_factory=lambda: {})
+    CATALOG_CACHE_TIME: Dict[bool, float] = field(default_factory=lambda: {})
 
-@state_cache(maxsize=1)
+
+_STATE = LoaderState()
+
+
 def process_state() -> LoaderState:
-    return LoaderState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

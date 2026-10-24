@@ -65,7 +65,9 @@ class Collector:
     def __init__(self):
         self.tools = {}
 
-    def register_tool_function(self, func, **kwargs):
+    def append(self, tool):
+        func = tool._func
+        kwargs = {"func_description": tool.description, "permission": getattr(tool, "dispatch_spec", None)}
         self.tools[func.__name__] = func
 
 
@@ -136,15 +138,15 @@ async def test_pin_rejects_private_artifact_and_only_accepts_file_ids(monkeypatc
     import inspect
     import json
     import core.llm.api_runtime.agent_tools as tools
-    from core.llm.runtime.tool_collector import ToolCollector
+    from core.llm.factory.tools.definitions import ToolAssembly
 
     parsed = parse_api_scope(
         scope(), owner_user_id="owner", chat_id="api_chat", agent_id="agent_123"
     )
-    collector = ToolCollector()
+    collector = ToolAssembly()
     tools.register_agent_api_tools(collector, parsed)
     assert all(
-        collector.get_tool(name) is not None
+        any(t.name == name for t in collector)
         for name in (
             "Bash",
             "write_stdin",
@@ -153,7 +155,7 @@ async def test_pin_rejects_private_artifact_and_only_accepts_file_ids(monkeypatc
             "pin_to_workspace",
         )
     )
-    pin = collector.get_tool("pin_to_workspace")._func
+    pin = next(t for t in collector if t.name == "pin_to_workspace")._func
     assert "file_paths" not in inspect.signature(pin).parameters
     monkeypatch.setattr(tools, "artifact_in_scope", lambda *_: False)
     result = await pin(["private"])
@@ -297,7 +299,6 @@ async def test_api_sandbox_never_uses_general_pool_or_host_mounts(monkeypatch):
     user_pool = SimpleNamespace(acquire=AsyncMock(return_value=SimpleNamespace(id="api-container")))
     general_pool = SimpleNamespace(acquire=AsyncMock())
     host = SimpleNamespace(_jupyter_user_pool=user_pool, _pool=general_pool)
-    monkeypatch.setattr(sessions, "_user_bound_sandbox_required", lambda: False)
     result = await sessions._OpenSandboxCreationMixin._create_session(host, "api_ak_123")
     assert result.user_id == "api_ak_123"
     user_pool.acquire.assert_awaited_once_with("api_ak_123")
@@ -317,7 +318,8 @@ async def test_api_sandbox_never_uses_general_pool_or_host_mounts(monkeypatch):
     )
     host = sessions._OpenSandboxCreationMixin()
     host._make_config = lambda: None
-    host._ttl_s = 60
+    host._create_owned_sandbox = create
+    host._session_expiry_s = lambda: 60
     host._image = "image"
     host._repoint_execd_direct = AsyncMock()
     # Even if the workspace hook offers a mount, API principals must receive none.

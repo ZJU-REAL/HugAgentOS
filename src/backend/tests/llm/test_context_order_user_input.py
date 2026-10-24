@@ -12,7 +12,7 @@ from agentscope.message import Msg, ToolCallBlock, ToolResultBlock
 
 from core.llm.context.adapter import AgentScopeContextAdapter
 from core.llm.context.rendering import next_request_sequence, render_context_item
-from core.llm.context.ir_state import KIND_USER_INPUT, POLICY_NEVER
+from core.llm.context.ir_constants import KIND_USER_INPUT, POLICY_NEVER
 from core.llm.context.ir import ContextAssembler
 from core.llm.context.items import ContextItem
 

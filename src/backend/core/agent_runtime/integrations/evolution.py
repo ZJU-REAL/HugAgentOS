@@ -1,4 +1,4 @@
-"""core agent_runtime integrations evolution responsibilities."""
+"""Hand a finished turn's evidence to the evolution loop after the stream closes."""
 
 from __future__ import annotations
 

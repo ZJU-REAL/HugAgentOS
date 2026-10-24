@@ -1,13 +1,12 @@
 """Agent assembly: capabilities. """
 
 from __future__ import annotations
-from core.capabilities.skills import loader_factory as loader_factory_module
+from core.capabilities.skills import loader_factory
 from core.harness.registry import execution_account as skill_account
 from core.harness.registry import run_capabilities as skills
 
 from typing import Optional
 
-import core.capabilities.skills.loader as skill_loader
 import core.capabilities.catalog.api as catalog
 
 
@@ -182,7 +181,7 @@ def effective_main_available_skills() -> list[str]:
         return []
 
     try:
-        loader = loader_factory_module.get_skill_loader()
+        loader = loader_factory.get_skill_loader()
         discovered = sorted(loader.load_all_metadata().keys())
         if discovered:
             return available(discovered)
@@ -198,7 +197,7 @@ def _mcp_ids_bound_to_skills(skill_ids: list[str]) -> list[str]:
     if not skill_ids:
         return []
     try:
-        metadata = loader_factory_module.get_skill_loader().load_all_metadata()
+        metadata = loader_factory.get_skill_loader().load_all_metadata()
     except Exception:
         return []
     result: list[str] = []

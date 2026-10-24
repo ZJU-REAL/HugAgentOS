@@ -254,17 +254,17 @@ def test_snapshot_readiness_timeout_bounds_a_blocked_http_request(monkeypatch):
 
 def test_lost_shared_claim_interrupts_owner_without_deleting_another_token(monkeypatch, sandbox_session_store):
     monkeypatch.setattr(session_registry,"_LOCK_RENEW_INTERVAL_S",0.001)
-    original_hold=sandbox_session_store.hold
+    original_hold=sandbox_session_store.compare_exchange
     calls=0
-    async def hold(key,token,*,ttl):
+    async def hold(key,expected,token,*,ttl):
         nonlocal calls
         calls+=1
-        if calls > 1:
+        if calls >= 1:
             await sandbox_session_store.drop(key)
             await sandbox_session_store.put(key,"new-owner",ttl=ttl)
             return False
-        return await original_hold(key,token,ttl=ttl)
-    monkeypatch.setattr(sandbox_session_store,"hold",hold)
+        return await original_hold(key,expected,token,ttl=ttl)
+    monkeypatch.setattr(sandbox_session_store,"compare_exchange",hold)
     async def scenario():
         with pytest.raises(RuntimeError,match="claim lost"):
             async with session_registry.claim("chat"):

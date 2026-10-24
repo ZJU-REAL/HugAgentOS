@@ -20,9 +20,7 @@ def require_edit(chat_id, user_id):
 
 
 async def authorize(request, chat_id, expected_user=None):
-    with store.SessionLocal() as db:
-        credentials = await security(request)
-        user = await get_current_user(request, credentials=credentials, db=db)
+    user = await get_current_user(request, await security(request))
     if user.api_key_id or user.public_chat_visitor:
         raise HTTPException(403, "Command events require an account session")
     if expected_user is not None and user.user_id != expected_user:

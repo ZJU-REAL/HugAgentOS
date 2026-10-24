@@ -1,4 +1,4 @@
-"""validation models responsibilities."""
+"""Validation issues, reports and gate decisions."""
 from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any

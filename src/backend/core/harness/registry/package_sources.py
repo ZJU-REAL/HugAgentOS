@@ -1,5 +1,6 @@
 """Source and upgrade contracts for plugin packages."""
 from __future__ import annotations
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 
@@ -13,10 +14,6 @@ class PackageUpgradePolicy(Protocol):
     def prepare(self, db: Any, existing: Any, package: Any, source: str, approved_revision: str | None) -> Any: ...
     def reserve_local(self, existing: Any, revision: str, files: Any) -> None: ...
     def prepare_local(self, db: Any, current: Any, prepared: Any) -> Any: ...
-
-
-
-
 
 
 def register_package_source(name: str, source: PackageSource) -> None:
@@ -38,20 +35,14 @@ def package_upgrade_policy() -> PackageUpgradePolicy:
     return registration_state().upgrade_policy
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-
-@state_dataclass
+@dataclass
 class RegistrationState:
-    """Process-owned registrations; replace only while the host is quiescent."""
-    sources: dict[str, PackageSource] = state_field(default_factory=dict)
+    sources: dict[str, PackageSource] = field(default_factory=dict)
     upgrade_policy: PackageUpgradePolicy | None = None
 
 
-@state_cache(maxsize=1)
-def registration_state() -> RegistrationState:
-    return RegistrationState()
+_REGISTRATIONS = RegistrationState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-registration_state()
+
+def registration_state() -> RegistrationState:
+    return _REGISTRATIONS

@@ -1,25 +1,18 @@
-"""journal responsibilities."""
+"""Synchronous transaction boundary behind the tool effect gateway."""
 from __future__ import annotations
 from core.runs.tool_effects import intent_transactions
 from core.runs.tool_effects import result_transactions
 from core.runs.tool_effects import invocation_claims
 from core.runs.tool_effects import retention
 from core.runs.tool_effects import recovery_claims
-import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Callable, Mapping, Optional
 from core.db.engine import SessionLocal
 from core.db.models import ChatRun, ToolEffectLease, ToolEffectLedger
-from core.runs.journal import LIVE_STATUSES, RunJournal, RunLeaseLost, RunNotFound
-from sqlalchemy import and_, case, or_
-from sqlalchemy.exc import IntegrityError, OperationalError
-from sqlalchemy.orm import Session, aliased, sessionmaker
-from core.runs.tool_effects import arguments as arguments_module
-from core.runs.tool_effects import errors as errors_module
-from core.runs.tool_effects import journal_state as journal_state_module
-from core.runs.tool_effects import journal_time as journal_time_module
-from core.runs.tool_effects import registry as registry_module
-from core.runs.tool_effects import types as types_module
+from core.runs.journal import RunJournal
+from sqlalchemy.orm import Session, sessionmaker
+from core.runs.tool_effects import types
+from core.infra.time import utc_now
 
 class ToolEffectJournal:
     """Small synchronous transaction boundary behind the async gateway."""
@@ -28,14 +21,14 @@ class ToolEffectJournal:
         self,
         session_factory: sessionmaker = SessionLocal,
         *,
-        clock: Callable[[], datetime] = journal_time_module.utc_now,
+        clock: Callable[[], datetime] = utc_now,
     ) -> None:
         self._sessions = session_factory
         self._clock = clock
         self._runs = RunJournal(session_factory, clock=clock)
 
     @staticmethod
-    def _intent_from_row(row: ToolEffectLedger) -> types_module.ToolIntent:
+    def _intent_from_row(row: ToolEffectLedger) -> types.ToolIntent:
         return intent_transactions.intent_from_row(row)
 
     @staticmethod
@@ -44,8 +37,8 @@ class ToolEffectJournal:
 
     @staticmethod
     def _decision_from_terminal(
-        intent: types_module.ToolIntent, terminal: ToolEffectLedger
-    ) -> types_module.IntentDecision:
+        intent: types.ToolIntent, terminal: ToolEffectLedger
+    ) -> types.IntentDecision:
         return intent_transactions.decision_from_terminal(intent, terminal)
 
     @staticmethod
@@ -94,7 +87,7 @@ class ToolEffectJournal:
         tool_name: str,
         args_hash: str,
         lease_seconds: int,
-    ) -> types_module.IntentDecision:
+    ) -> types.IntentDecision:
         return intent_transactions.existing_decision(self, key=key, caller_run_id=caller_run_id, run_owner=run_owner, claim_owner=claim_owner, tool_name=tool_name, args_hash=args_hash, lease_seconds=lease_seconds)
 
     def begin_intent(
@@ -110,7 +103,7 @@ class ToolEffectJournal:
         idempotency_key: Optional[str] = None,
         lease_seconds: int = 300,
         _conflict_retries: int = 4,
-    ) -> types_module.IntentDecision:
+    ) -> types.IntentDecision:
         return intent_transactions.begin_intent(self, run_id=run_id, owner=owner, claim_owner=claim_owner, tool_call_id=tool_call_id, tool_name=tool_name, args=args, recovery_policy=recovery_policy, idempotency_key=idempotency_key, lease_seconds=lease_seconds, _conflict_retries=_conflict_retries)
 
     def acquire_invocation_claim(
@@ -190,7 +183,7 @@ class ToolEffectJournal:
     ) -> None:
         return result_transactions.mark_unknown(self, effect_id, owner=owner, claim_owner=claim_owner, reason=reason)
 
-    def terminal_decision(self, effect_id: str) -> Optional[types_module.IntentDecision]:
+    def terminal_decision(self, effect_id: str) -> Optional[types.IntentDecision]:
         return result_transactions.terminal_decision(self, effect_id)
 
     def pending_effect_ids(self) -> list[str]:
@@ -199,7 +192,7 @@ class ToolEffectJournal:
     def prune_settled(self, *, retention_days: int = 7) -> int:
         return retention.prune_settled(self, retention_days=retention_days)
 
-    def settle_terminal_run_intent(self, effect_id: str) -> Optional[types_module.ToolIntent]:
+    def settle_terminal_run_intent(self, effect_id: str) -> Optional[types.ToolIntent]:
         return retention.settle_terminal_run_intent(self, effect_id)
 
     def claim_recovery_intent(
@@ -208,7 +201,7 @@ class ToolEffectJournal:
         *,
         recovery_owner: str,
         lease_seconds: int = 120,
-    ) -> Optional[types_module.ToolIntent]:
+    ) -> Optional[types.ToolIntent]:
         return recovery_claims.claim_recovery_intent(self, effect_id, recovery_owner=recovery_owner, lease_seconds=lease_seconds)
 
     def commit_recovered_result(

@@ -186,7 +186,7 @@ def complete_my_onboarding(
     final, idempotent checkpoint that unlocks the normal application shell.
     """
     from core.db.models import ModelProvider, ModelRoleAssignment
-    from core.auth.local_users_state import CE_ONBOARDING_VERSION
+    from core.auth.local_users_constants import CE_ONBOARDING_VERSION
 
     if settings.edition.edition != "ce":
         raise AccessDeniedError(
@@ -282,7 +282,7 @@ def _persist_avatar_url(
 
 
 @router.post("/me/avatar", summary="上传自定义头像（multipart）")
-async def upload_my_avatar(
+def upload_my_avatar(
     file: UploadFile = File(..., description="头像图片，≤2MB，支持 png/jpg/webp/gif"),
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -296,7 +296,7 @@ async def upload_my_avatar(
             message="头像仅支持 PNG / JPG / WEBP / GIF",
         )
 
-    file_bytes = await file.read()
+    file_bytes = file.file.read()
     if not file_bytes:
         raise ValidationError(
             errors=[{"field": "file", "message": "文件内容为空"}],

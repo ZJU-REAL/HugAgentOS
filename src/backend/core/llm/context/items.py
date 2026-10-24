@@ -1,11 +1,11 @@
-"""items responsibilities."""
+"""Context items and their provenance metadata."""
 from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Any, Mapping, Optional
 from core.infra.immutable import FrozenDict, freeze_json, thaw_json
 from core.harness.execution_manifest import stable_hash
-from core.llm.context import content as content_module
-from core.llm.context import ir_state as ir_state_module
+from core.llm.context.content import estimate_context_tokens, normalize_context_content
+from core.llm.context import ir_constants
 
 @dataclass(frozen=True)
 class ContextItem:
@@ -61,12 +61,12 @@ class ContextItem:
         render_name: str = "",
         metadata: Optional[Mapping[str, Any]] = None,
     ) -> "ContextItem":
-        normalized_content = content_module.normalize_context_content(content)
+        normalized_content = normalize_context_content(content)
         if (
             isinstance(normalized_content, Mapping)
             and str(normalized_content.get("type") or "") == "data"
         ):
-            truncation_policy = ir_state_module.POLICY_DROP
+            truncation_policy = ir_constants.POLICY_DROP
         computed_hash = stable_hash(normalized_content)
         supplied_hash = str(content_hash or "")
         external_reference = normalized_content is None and bool(supplied_hash)
@@ -74,7 +74,7 @@ class ContextItem:
         estimate = (
             max(0, int(token_estimate or 0))
             if external_reference
-            else content_module.estimate_context_tokens(normalized_content)
+            else estimate_context_tokens(normalized_content)
         )
         reference = (
             str(content_ref)
@@ -106,14 +106,14 @@ class ContextItem:
         )
 
     def with_content(self, content: Any) -> "ContextItem":
-        normalized_content = content_module.normalize_context_content(content)
+        normalized_content = normalize_context_content(content)
         digest = stable_hash(normalized_content)
         return replace(
             self,
             content=freeze_json(normalized_content),
             content_hash=digest,
             content_ref=f"sha256:{digest}",
-            token_estimate=content_module.estimate_context_tokens(normalized_content),
+            token_estimate=estimate_context_tokens(normalized_content),
         )
 
     def to_manifest(self) -> dict[str, Any]:
@@ -149,7 +149,7 @@ def make_text_context_item(
     created_seq: int,
     priority: int = 700,
     token_budget: int = 4_000,
-    truncation_policy: str = ir_state_module.POLICY_HEAD_TAIL,
+    truncation_policy: str = ir_constants.POLICY_HEAD_TAIL,
     render_role: str = "user",
     cache_class: str = "dynamic",
 ) -> ContextItem:
@@ -159,7 +159,7 @@ def make_text_context_item(
         kind=kind,
         origin=origin,
         trust=trust,
-        visibility=ir_state_module.VISIBILITY_MODEL,
+        visibility=ir_constants.VISIBILITY_MODEL,
         priority=priority,
         token_budget=token_budget,
         truncation_policy=truncation_policy,

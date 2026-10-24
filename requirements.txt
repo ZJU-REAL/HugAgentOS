@@ -1,10 +1,10 @@
 # Core Web Framework
 fastapi==0.115.12
 uvicorn>=0.27.0
-pydantic>=2.6.0
+pydantic>=2.12.0
 
 # Async & Utilities
-anyio>=4.2.0
+anyio>=4.9.0
 python-dotenv>=1.0.0
 requests>=2.31.0
 httpx>=0.27.0
@@ -13,11 +13,11 @@ httpx>=0.27.0
 jsonschema>=4.20.0
 
 # AgentScope (replaces LangChain ecosystem)
-# 已迁移到 2.0：Agent/Toolkit/Middleware/MCP 全面重写，固定 ==2.0.0（GitHub main 已与 2.0.0 分叉，不兼容）
-agentscope==2.0.0
+# Pin the reviewed MCP 2.x implementation for reproducible builds.
+agentscope @ https://github.com/agentscope-ai/agentscope/archive/ed357feb78a45ff02df155bb5610eab9bf543832.tar.gz
 
 # 多厂商模型渠道所需 SDK（均为惰性 import，未装只影响对应渠道，不影响其余功能）：
-#   - anthropic / dashscope / openai 已随 agentscope==2.0.0 内置，无需在此重复声明
+#   - anthropic / dashscope / openai 已由 AgentScope 声明依赖，无需在此重复声明
 #   - 以下为 agentscope 未捆绑、需显式安装的渠道 SDK：
 # litellm —— 非 OpenAI 协议且 AgentScope 无原生类的厂商（如 AWS Bedrock）
 litellm>=1.50.0
@@ -27,7 +27,9 @@ google-genai>=0.3.0
 ollama>=0.3.0
 
 # MCP Integration
-mcp>=1.0.0,<2.0.0
+mcp==2.3.0
+# Keep the SSE dependency within FastAPI 0.115 Starlette constraints.
+sse-starlette==3.0.3
 
 # Additional Tools
 tavily-python>=0.5.0
@@ -67,9 +69,8 @@ botocore>=1.34.0
 werkzeug>=3.0.0
 python-multipart>=0.0.9
 
-# Logging & Rate Limiting
+# Logging
 structlog>=23.2.0
-slowapi>=0.1.9
 
 # Security
 safety>=3.0.0

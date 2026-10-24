@@ -1,18 +1,20 @@
 """Progressive plugin runtime: activation."""
 
 from __future__ import annotations
+from core.llm.factory.tools.definitions import function_tool
 
 import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Set
 
-logger = logging.getLogger(__name__)
 
 
 from core.capabilities.plugins.runtime import activation_history as plugin_activation_history
 from core.capabilities.plugins.runtime import models as plugin_runtime_models
 from core.capabilities.plugins.runtime import resolution as plugin_resolution
+
+logger = logging.getLogger(__name__)
 
 
 class _ActivationStage:
@@ -21,9 +23,7 @@ class _ActivationStage:
     A device capability run must never expose half a plugin: if the authorized
     closure stops holding — or an MCP turns out to be unreachable — after some
     clients already connected, the run has to end up exactly as it started, so
-    everything lands in a buffer that is published only on success. The legacy
-    cloud path has no such checkpoint and keeps appending straight to the live
-    group.
+    everything lands in a buffer that is published only on success.
     """
 
     def __init__(self, live_group: Any, runtime: Dict[str, Any], prepared: Any) -> None:
@@ -33,10 +33,9 @@ class _ActivationStage:
         self._runtime = runtime
         self._prepared = prepared
         self._staged_clients: List[Any] = []
-        self.staged = prepared is not None
-        self.group = SimpleNamespace(mcps=[], skills_or_loaders=[]) if self.staged else live_group
+        self.group = SimpleNamespace(tools=[], skills_or_loaders=[])
         current = runtime.setdefault("connected_keys", set())
-        self.connected: Set[str] = set(current) if self.staged else current
+        self.connected: Set[str] = set(current)
 
     async def checkpoint(self) -> None:
         """Re-assert the authorized closure between steps of the activation."""
@@ -47,27 +46,23 @@ class _ActivationStage:
         await asyncio.to_thread(validate, self._prepared)
 
     def add_client(self, key: str, client: Any) -> None:
-        self.group.mcps.append(client)
+        self.group.tools.extend(client.tools)
         self.connected.add(key)
-        if self.staged:
-            self._staged_clients.append(client)
-            return
-        close_list = self._runtime.get("close_list")
-        if isinstance(close_list, list):
-            close_list.append(client)
+        self._staged_clients.append(client)
 
     async def discard(self) -> None:
-        for client in self._staged_clients:
-            try:
-                await client.close()
-            except Exception as exc:  # noqa: BLE001 — one bad close must not leak the rest
-                logger.warning("[plugin-loader] staged MCP close failed: %s", exc)
-        self._staged_clients.clear()
+        from core.llm.mcp.manager import close_clients
+
+        try:
+            await close_clients(self._staged_clients)
+        finally:
+            self._staged_clients.clear()
 
     def commit(self) -> None:
-        if not self.staged:
-            return
-        self._live.mcps.extend(self.group.mcps)
+        names = [t.name for t in [*self._live.tools, *self.group.tools]]
+        if len(names) != len(set(names)):
+            raise ValueError("Plugin tool name collision")
+        self._live.tools.extend(self.group.tools)
         self._live.skills_or_loaders.extend(self.group.skills_or_loaders)
         self._runtime["connected_keys"] = self.connected
         close_list = self._runtime.get("close_list")
@@ -84,7 +79,11 @@ async def _activation_stage(live_group: Any, runtime: Dict[str, Any], prepared: 
     except BaseException:
         await stage.discard()
         raise
-    stage.commit()
+    try:
+        stage.commit()
+    except BaseException:
+        await stage.discard()
+        raise
 
 
 def register_load_plugin(
@@ -117,10 +116,10 @@ def register_load_plugin(
     Deferred clients inherit the current run's read-only setting.
     """
     from agentscope.message import TextBlock
-    from agentscope.tool._response import ToolChunk as ToolResponse
+    from agentscope.tool._response import ToolChunk
 
     def _text(msg: str) -> Any:
-        return ToolResponse(content=[TextBlock(type="text", text=msg)])
+        return ToolChunk(content=[TextBlock(type="text", text=msg)])
 
     async def load_plugin(plugin: str) -> Any:
         """加载插件目录中列出的插件，激活其包含的全部工具与技能。
@@ -201,7 +200,7 @@ def register_load_plugin(
             ]
             if mcp_ids:
                 from core.llm.factory.tools.mcp_config import inject_runtime_headers as _inject_runtime_headers
-                from core.llm.mcp.pool import make_client
+                from core.llm.mcp.lifetime import discover
                 from core.capabilities.mcp.service import McpServerConfigService
 
                 if prepared is not None:
@@ -229,35 +228,36 @@ def register_load_plugin(
                 )
 
                 async def _connect(key: str, cfg: dict) -> None:
-                    if not stage.staged and not plugin_resolution._http_transport(cfg):
-                        failed_servers.append(key)
-                        return
                     client = None
                     try:
                         from core.harness.registry.local_publication import ensure_native_servers
 
                         await stage.checkpoint()
                         await ensure_native_servers({key: cfg})
-                        client = make_client(
+                        from core.llm.mcp.callbacks import Interactions
+                        # Runtimes bound before agent construction have no request yet;
+                        # their sessions stay run-owned and decline server interactions.
+                        request = runtime.get("request")
+                        interactions = (Interactions(request, key, bool(runtime.get("approval_available")),
+                                                     agent=runtime.get("agent"))
+                                        if request is not None else None)
+                        scope = ((request.current_user_id, request.chat_id, request.capability_scope)
+                                 if request is not None and request.current_user_id and request.chat_id
+                                 and not request.isolated else None)
+                        client = await discover(
                             key, {**cfg, "read_only": bool(runtime.get("read_only"))},
-                            is_stateful=False,
+                            interactions=interactions, scope=scope,
                         )
-                        if stage.staged and not plugin_resolution._http_transport(cfg):
-                            await client.connect()
-                        tools = await client.list_tools()
+                        tools = client.tools
                         await stage.checkpoint()
                     except (
                         BaseException
                     ) as exc:  # noqa: BLE001 — SSE cleanup may raise CancelledError
                         if client is not None:
-                            await client.close()
+                            from core.llm.mcp.manager import close_clients
+                            await close_clients([client])
                         if isinstance(exc, asyncio.CancelledError):
-                            current = asyncio.current_task()
-                            if (
-                                current is not None
-                                and getattr(current, "cancelling", lambda: 0)() > 0
-                            ):
-                                raise
+                            raise
                         logger.warning("[plugin-loader] MCP '%s' connect failed: %s", key, exc)
                         failed_servers.append(key)
                         return
@@ -271,7 +271,7 @@ def register_load_plugin(
                         failed_servers.append(key)
 
             await stage.checkpoint()
-            if stage.staged and failed_servers:
+            if failed_servers:
                 raise RuntimeError("插件 MCP 服务不可用：" + "、".join(failed_servers))
 
             # ── Skills: materialize and append loaders in place ──
@@ -290,13 +290,13 @@ def register_load_plugin(
                     if not d:
                         continue
                     if prepared is not None:
-                        from core.llm.runtime.tool_collector import RuntimeNamedSkillLoader
+                        from core.capabilities.skills.runtime_loader import RuntimeNamedSkillLoader
 
                         stage.group.skills_or_loaders.append(
                             RuntimeNamedSkillLoader(d, sid, prepared)
                         )
                     else:
-                        from core.llm.runtime.tool_collector import RuntimeNamedSkillLoader
+                        from core.capabilities.skills.runtime_loader import RuntimeNamedSkillLoader
 
                         stage.group.skills_or_loaders.append(RuntimeNamedSkillLoader(d, sid))
                     item = meta.get(sid)
@@ -370,4 +370,4 @@ def register_load_plugin(
             parts.append("该插件本轮没有可加载的组件（可能均已被禁用）。")
         return _text("\n".join(parts))
 
-    toolkit.register_tool_function(load_plugin, namesake_strategy="override")
+    toolkit.append(function_tool(load_plugin))

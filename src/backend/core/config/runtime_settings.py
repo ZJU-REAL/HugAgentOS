@@ -1,11 +1,9 @@
 """Environment-backed configuration values."""
 from __future__ import annotations
 import os
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
-from .environment import _env, _bool, _int, _float, _REPO_ROOT, DEFAULT_CHAT_MODEL_ALIAS, _load_env_files
+from .environment import _env, _bool, _int, _float
 
 @dataclass(frozen=True)
 class LLMSettings:
@@ -186,29 +184,6 @@ class ServerSettings:
     @property
     def is_prod(self) -> bool:
         return self.env in ("prod", "production")
-
-@dataclass(frozen=True)
-class RateLimitSettings:
-    enabled: bool = field(default_factory=lambda: _bool(_env("RATE_LIMIT_ENABLED", "true")))
-    storage: str = field(default_factory=lambda: _env("RATE_LIMIT_STORAGE", "memory://"))
-    cb_user_center_threshold: int = field(
-        default_factory=lambda: _int(_env("CB_USER_CENTER_THRESHOLD", "5"), 5)
-    )
-    cb_user_center_timeout: int = field(
-        default_factory=lambda: _int(_env("CB_USER_CENTER_TIMEOUT", "60"), 60)
-    )
-    cb_model_api_threshold: int = field(
-        default_factory=lambda: _int(_env("CB_MODEL_API_THRESHOLD", "10"), 10)
-    )
-    cb_model_api_timeout: int = field(
-        default_factory=lambda: _int(_env("CB_MODEL_API_TIMEOUT", "30"), 30)
-    )
-    cb_storage_threshold: int = field(
-        default_factory=lambda: _int(_env("CB_STORAGE_THRESHOLD", "5"), 5)
-    )
-    cb_storage_timeout: int = field(
-        default_factory=lambda: _int(_env("CB_STORAGE_TIMEOUT", "60"), 60)
-    )
 
 @dataclass(frozen=True)
 class RoutingSettings:

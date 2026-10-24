@@ -14,6 +14,7 @@ import base64
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from core.db.engine import Base
 import core.db.models  # noqa: F401  ensures all models are registered (FK depends on users_shadow)
@@ -22,12 +23,17 @@ from integrations.email.models import EmailConnection
 from integrations.email.repository import EmailConnectionRepository
 from integrations.email import service as es
 from integrations.email.service import EmailService, detect_provider, render_config_toml, get_email_config_bundle
+from tests.db_support import share_factory
 
 
 @pytest.fixture
-def db():
-    eng = create_engine("sqlite:///:memory:")
+def db(monkeypatch):
+    eng = create_engine(
+        "sqlite:///:memory:", poolclass=StaticPool, connect_args={"check_same_thread": False}
+    )
     Base.metadata.create_all(eng)
+    # The service's repository opens its own sessions, one per step, on this database.
+    share_factory(monkeypatch, sessionmaker(bind=eng))
     s = sessionmaker(bind=eng)()
     s.add(UserShadow(user_id="u1", username="alice"))
     s.commit()
@@ -126,8 +132,9 @@ def test_repo_ensure_and_update(db):
     assert rec2.status == "connected" and rec2.email_address == "a@b.com" and rec2.imap_port == 993
 
 
-def test_status_dict_shape(db):
-    data = EmailService(db).get_status("u1")
+@pytest.mark.asyncio
+async def test_status_dict_shape(db):
+    data = await EmailService().get_status("u1")
     assert data["status"] == "disconnected"
     for k in ("email_address", "provider", "imap_host", "smtp_host", "last_error"):
         assert k in data
@@ -144,7 +151,7 @@ async def test_connect_success(monkeypatch, db, tmp_path):
     monkeypatch.setattr(es, "_verify", fake_verify)
     _redirect_storage(monkeypatch, tmp_path)
 
-    svc = EmailService(db)
+    svc = EmailService()
     data = await svc.connect("u1", email_address="alice@gmail.com", secret="app-pw", display_name="Alice")
     assert data["status"] == "connected"
     assert data["provider"] == "gmail"
@@ -165,7 +172,7 @@ async def test_connect_success(monkeypatch, db, tmp_path):
 async def test_connect_custom_needs_server(monkeypatch, db, tmp_path):
     _redirect_storage(monkeypatch, tmp_path)
 
-    svc = EmailService(db)
+    svc = EmailService()
     # Unknown domain with no server given → error guiding manual entry; must not attempt verification
     data = await svc.connect("u1", email_address="user@self-hosted.example", secret="pw")
     assert data["status"] == "error"
@@ -179,7 +186,7 @@ async def test_connect_verify_failure_purges(monkeypatch, db, tmp_path):
     monkeypatch.setattr(es, "_verify", fake_verify)
     _redirect_storage(monkeypatch, tmp_path)
 
-    svc = EmailService(db)
+    svc = EmailService()
     data = await svc.connect("u1", email_address="alice@gmail.com", secret="wrong")
     assert data["status"] == "error"
     assert "AUTHENTICATIONFAILED" in (data["last_error"] or "")
@@ -191,7 +198,7 @@ async def test_connect_verify_failure_purges(monkeypatch, db, tmp_path):
 
 @pytest.mark.asyncio
 async def test_connect_validates_input(db):
-    svc = EmailService(db)
+    svc = EmailService()
     assert (await svc.connect("u1", email_address="bad", secret="x"))["status"] == "error"
     assert (await svc.connect("u1", email_address="a@b.com", secret=""))["status"] == "error"
 
@@ -203,7 +210,7 @@ async def test_disconnect_clears(monkeypatch, db, tmp_path):
     monkeypatch.setattr(es, "_verify", fake_verify)
     _redirect_storage(monkeypatch, tmp_path)
 
-    svc = EmailService(db)
+    svc = EmailService()
     await svc.connect("u1", email_address="alice@gmail.com", secret="app-pw")
     data = await svc.disconnect("u1")
     assert data["status"] == "disconnected"
@@ -222,7 +229,7 @@ async def test_config_bundle_export(monkeypatch, db, tmp_path):
     monkeypatch.setattr(es, "_verify", fake_verify)
     _redirect_storage(monkeypatch, tmp_path)
 
-    svc = EmailService(db)
+    svc = EmailService()
     await svc.connect("u1", email_address="alice@gmail.com", secret="app-pw")
     # get_email_config_bundle uses its own SessionLocal — here we read the repo's bundle directly to verify its shape
     rec = EmailConnectionRepository(db).get("u1")
@@ -331,6 +338,7 @@ def test_email_routes_e2e(monkeypatch, tmp_path):
         user_id="u1", user_center_id="c1", username="alice", email="a@e.com",
     )
     app.dependency_overrides[get_db] = _override_db
+    share_factory(monkeypatch, Session)
     client = TestClient(app)
     try:
         r = client.get("/v1/integrations/email/status")

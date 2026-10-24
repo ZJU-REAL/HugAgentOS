@@ -1,5 +1,6 @@
 """Native tools for an API agent: private account data is never mounted."""
 from __future__ import annotations
+from core.llm.factory.tools.definitions import function_tool
 
 import asyncio
 import base64
@@ -77,11 +78,11 @@ def register_agent_api_tools(toolkit, scope: AgentApiExecutionScope, *, read_onl
         """读取当前 API 会话中生成的文件，不能读取账号其他文件。"""
         if not await asyncio.to_thread(artifact_in_scope, file_id, scope):
             return _resp_json({"error": "文件不属于当前 API 会话或已删除"})
-        from core.llm.runtime.tool_collector import ToolCollector
+        from core.llm.factory.tools.definitions import ToolAssembly
         from core.llm.tools.read_artifact_tool import register_read_artifact
-        collector = ToolCollector()
+        collector = ToolAssembly()
         register_read_artifact(collector, user_id=scope.owner_user_id)
-        return await collector.get_tool("read_artifact")._func(
+        return await next(t for t in collector if t.name == "read_artifact")._func(
             file_id=file_id, offset=offset, limit=limit,
             sheet_name=sheet_name, slide_index=slide_index,
         )
@@ -192,7 +193,7 @@ def register_agent_api_tools(toolkit, scope: AgentApiExecutionScope, *, read_onl
                 target.unlink(missing_ok=True)
 
     for tool in (read_artifact, sandbox_get_artifact, pin_to_workspace):
-        toolkit.register_tool_function(tool, namesake_strategy="override")
+        toolkit.append(function_tool(tool))
     if not read_only:
         for tool in (Bash, write_stdin, sandbox_put_artifact):
-            toolkit.register_tool_function(tool, namesake_strategy="override")
+            toolkit.append(function_tool(tool))

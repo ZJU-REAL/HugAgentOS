@@ -256,5 +256,7 @@ def delete_chat(chat_id, user=None, db=None):
     if not can_delete_session(db, user_id, session):
         raise HTTPException(status_code=403, detail="共享会话仅创建者或项目管理员可删")
 
+    from core.llm.mcp.chat_sessions import invalidate_chat
+    invalidate_chat(chat_id)
     chat_service.delete_session_force(chat_id, actor_user_id=user_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

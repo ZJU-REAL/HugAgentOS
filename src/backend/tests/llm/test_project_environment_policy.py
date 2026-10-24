@@ -47,7 +47,9 @@ def test_dynamic_plugin_loader_refuses_components_outside_frozen_environment():
     from core.capabilities.plugins.runtime.models import DeferredPlugin
 
     class Collector:
-        def register_tool_function(self, fn, **_):
+        def append(self, tool):
+            fn = tool._func
+            _ = {"func_description": tool.description, "permission": getattr(tool, "dispatch_spec", None)}
             self.invoke = fn
 
     collector = Collector()

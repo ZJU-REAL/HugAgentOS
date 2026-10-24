@@ -2,29 +2,19 @@
 from core.db.utc_datetime import UTCDateTime
 from core.infra.time import utc_now
 
-from datetime import datetime, timezone
 
 from core.db.engine import Base
 from core.db.edition import ProjectEditionFields, project_edition_table_args
 from sqlalchemy import (
-    JSON,
-    BigInteger,
     Boolean,
     CheckConstraint,
     Column,
     ForeignKey,
     Index,
-    Integer,
-    Numeric,
     String,
     Text,
-    UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import INET, JSONB
-from sqlalchemy.orm import mapped_column, relationship
-
-JSONType = JSON().with_variant(JSONB(), "postgresql")
-INETType = String(45).with_variant(INET(), "postgresql")
+from core.db.models.column_types import JSONType
 
 
 class Project(ProjectEditionFields, Base):

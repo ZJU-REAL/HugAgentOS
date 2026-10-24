@@ -1,9 +1,8 @@
 """Optional domain-owned option lists used by agent administration."""
 from __future__ import annotations
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any
-
-
 
 
 def register_catalog_options(kind: str, provider: Callable[[Any], list[dict]]) -> None:
@@ -15,19 +14,13 @@ def catalog_options(kind: str, db: Any) -> list[dict]:
     return provider(db) if provider is not None else []
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-
-@state_dataclass
+@dataclass
 class RegistrationState:
-    """Process-owned registrations; replace only while the host is quiescent."""
-    providers: dict[str, Callable[[Any], list[dict]]] = state_field(default_factory=dict)
+    providers: dict[str, Callable[[Any], list[dict]]] = field(default_factory=dict)
 
 
-@state_cache(maxsize=1)
+_REGISTRATIONS = RegistrationState()
+
+
 def registration_state() -> RegistrationState:
-    return RegistrationState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-registration_state()
+    return _REGISTRATIONS

@@ -1,4 +1,4 @@
-"""local users responsibilities."""
+"""Local account registration, login, password changes and profile edits."""
 from __future__ import annotations
 from core.infra.time import utc_now
 import secrets
@@ -12,8 +12,25 @@ from core.config.settings import settings
 from core.db.models import LocalUser, UserShadow
 from core.db.repository import AuditLogRepository, LocalUserRepository, UserRepository
 from core.auth import local_user_policy
-from core.auth import local_user_types
-from core.auth import local_users_state
+from core.auth import local_users_constants
+from dataclasses import dataclass
+
+
+@dataclass
+class RegisterResult:
+    ok: bool
+    message: str
+    user_id: Optional[str] = None
+    user_info: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class LoginResult:
+    ok: bool
+    message: str
+    user_id: Optional[str] = None
+    user_info: Optional[Dict[str, Any]] = None
+
 
 class LocalUserService:
     """Encapsulates local account registration, login, and disabling logic. Transactions are completed within this service."""
@@ -34,7 +51,7 @@ class LocalUserService:
         email: Optional[str] = None,
         real_name: Optional[str] = None,
         phone: Optional[str] = None,
-    ) -> local_user_types.RegisterResult:
+    ) -> RegisterResult:
         username = (username or "").strip()
         nickname = (nickname or "").strip()
         email = (email or "").strip().lower() or None
@@ -42,37 +59,37 @@ class LocalUserService:
         code = (code or "").strip()
 
         if not username:
-            return local_user_types.RegisterResult(False, "账号不能为空")
-        if not local_users_state.USERNAME_PATTERN.match(username):
-            return local_user_types.RegisterResult(False, "账号只能包含英文、数字、下划线，长度 2-32 位")
+            return RegisterResult(False, "账号不能为空")
+        if not local_users_constants.USERNAME_PATTERN.match(username):
+            return RegisterResult(False, "账号只能包含英文、数字、下划线，长度 2-32 位")
         if not nickname:
-            return local_user_types.RegisterResult(False, "用户名不能为空")
+            return RegisterResult(False, "用户名不能为空")
         if len(nickname) > 32:
-            return local_user_types.RegisterResult(False, "用户名长度不能超过 32 位")
+            return RegisterResult(False, "用户名长度不能超过 32 位")
         if not email:
-            return local_user_types.RegisterResult(False, "邮箱不能为空")
-        if not local_users_state.EMAIL_PATTERN.match(email):
-            return local_user_types.RegisterResult(False, "邮箱格式不正确")
+            return RegisterResult(False, "邮箱不能为空")
+        if not local_users_constants.EMAIL_PATTERN.match(email):
+            return RegisterResult(False, "邮箱格式不正确")
         if len(password) < settings.auth.password_min_length:
-            return local_user_types.RegisterResult(False, f"密码长度至少 {settings.auth.password_min_length} 位")
+            return RegisterResult(False, f"密码长度至少 {settings.auth.password_min_length} 位")
 
         # Account uniqueness
         if self.db.query(UserShadow).filter(UserShadow.username == username).first() is not None:
-            return local_user_types.RegisterResult(False, "账号已被占用")
+            return RegisterResult(False, "账号已被占用")
         # Email uniqueness
         if self.db.query(UserShadow).filter(UserShadow.email == email).first() is not None:
-            return local_user_types.RegisterResult(False, "邮箱已被使用")
+            return RegisterResult(False, "邮箱已被使用")
 
         from core.auth.edition import account_capacity_block_reason
 
         seat_block = account_capacity_block_reason(self.db)
         if seat_block:
-            return local_user_types.RegisterResult(False, seat_block)
+            return RegisterResult(False, seat_block)
 
         # First only validate the registration code (no state change); consume it after the user is successfully created
         ok, reason, invite = validate_registration_credential(self.db, code)
         if not ok:
-            return local_user_types.RegisterResult(False, reason or "注册码无效")
+            return RegisterResult(False, reason or "注册码无效")
 
         user_id = f"user_{uuid.uuid4().hex[:16]}"
         try:
@@ -109,7 +126,7 @@ class LocalUserService:
             claimed_ok, claim_reason = claim_registration_credential(self.db, code, user_id)
             if not claimed_ok:
                 self.db.rollback()
-                return local_user_types.RegisterResult(False, claim_reason or "注册码已被使用")
+                return RegisterResult(False, claim_reason or "注册码已被使用")
 
             # Audit
             self.audit_repo.create(
@@ -126,9 +143,9 @@ class LocalUserService:
             self.db.commit()
         except Exception as exc:  # noqa: BLE001
             self.db.rollback()
-            return local_user_types.RegisterResult(False, f"注册失败：{exc}")
+            return RegisterResult(False, f"注册失败：{exc}")
 
-        return local_user_types.RegisterResult(
+        return RegisterResult(
             ok=True,
             message="注册成功",
             user_id=user_id,
@@ -149,7 +166,7 @@ class LocalUserService:
         scope_id: Optional[str] = None,
         scope_role: str = "member",
         actor: Optional[str] = None,
-    ) -> local_user_types.RegisterResult:
+    ) -> RegisterResult:
         """Create a local account directly from the Config console.
 
         Differences from :meth:`register`: no registration code required, email optional,
@@ -163,36 +180,36 @@ class LocalUserService:
         scope_role = (scope_role or "member").strip() or "member"
 
         if not username:
-            return local_user_types.RegisterResult(False, "账号不能为空")
-        if not local_users_state.USERNAME_PATTERN.match(username):
-            return local_user_types.RegisterResult(False, "账号只能包含英文、数字、下划线，长度 2-32 位")
+            return RegisterResult(False, "账号不能为空")
+        if not local_users_constants.USERNAME_PATTERN.match(username):
+            return RegisterResult(False, "账号只能包含英文、数字、下划线，长度 2-32 位")
         if len(nickname) > 32:
-            return local_user_types.RegisterResult(False, "用户名长度不能超过 32 位")
-        if email and not local_users_state.EMAIL_PATTERN.match(email):
-            return local_user_types.RegisterResult(False, "邮箱格式不正确")
+            return RegisterResult(False, "用户名长度不能超过 32 位")
+        if email and not local_users_constants.EMAIL_PATTERN.match(email):
+            return RegisterResult(False, "邮箱格式不正确")
         if len(password) < settings.auth.password_min_length:
-            return local_user_types.RegisterResult(False, f"密码长度至少 {settings.auth.password_min_length} 位")
+            return RegisterResult(False, f"密码长度至少 {settings.auth.password_min_length} 位")
         if status not in ("active", "disabled", "pending"):
-            return local_user_types.RegisterResult(False, "状态不合法")
+            return RegisterResult(False, "状态不合法")
 
         # Account uniqueness
         if self.db.query(UserShadow).filter(UserShadow.username == username).first() is not None:
-            return local_user_types.RegisterResult(False, "账号已被占用")
+            return RegisterResult(False, "账号已被占用")
         # Email uniqueness (only when an email is provided)
         if (
             email
             and self.db.query(UserShadow).filter(UserShadow.email == email).first() is not None
         ):
-            return local_user_types.RegisterResult(False, "邮箱已被使用")
+            return RegisterResult(False, "邮箱已被使用")
 
         if not validate_account_scope(self.db, scope_id):
-            return local_user_types.RegisterResult(False, "目标范围不存在")
+            return RegisterResult(False, "目标范围不存在")
 
         from core.auth.edition import account_capacity_block_reason
 
         seat_block = account_capacity_block_reason(self.db)
         if seat_block:
-            return local_user_types.RegisterResult(False, seat_block)
+            return RegisterResult(False, seat_block)
 
         user_id = f"user_{uuid.uuid4().hex[:16]}"
         try:
@@ -241,9 +258,9 @@ class LocalUserService:
             self.db.commit()
         except Exception as exc:  # noqa: BLE001
             self.db.rollback()
-            return local_user_types.RegisterResult(False, f"创建失败：{exc}")
+            return RegisterResult(False, f"创建失败：{exc}")
 
-        return local_user_types.RegisterResult(
+        return RegisterResult(
             ok=True,
             message="创建成功",
             user_id=user_id,
@@ -341,11 +358,11 @@ class LocalUserService:
         return shadow, True
 
     # ── Login ──────────────────────────────────────────────────
-    def authenticate(self, identifier: str, password: str) -> local_user_types.LoginResult:
+    def authenticate(self, identifier: str, password: str) -> LoginResult:
         """Log in. identifier can be an account name (username) or an email."""
         identifier = (identifier or "").strip()
         if not identifier or not password:
-            return local_user_types.LoginResult(False, "账号或密码为空")
+            return LoginResult(False, "账号或密码为空")
 
         # An identifier with @ takes the email branch; otherwise the account branch (falling back to email if the account branch misses)
         row = None
@@ -357,18 +374,18 @@ class LocalUserService:
                 row = self.local_repo.get_by_email(identifier.lower())
 
         if not row:
-            return local_user_types.LoginResult(False, "账号或密码错误")
+            return LoginResult(False, "账号或密码错误")
         local, shadow = row
 
         if local.status == "disabled":
-            return local_user_types.LoginResult(False, "账号已被禁用")
+            return LoginResult(False, "账号已被禁用")
         if local.status == "pending":
-            return local_user_types.LoginResult(False, "账号待审核")
+            return LoginResult(False, "账号待审核")
 
         if not verify_password(password, local.password_hash):
-            return local_user_types.LoginResult(False, "账号或密码错误")
+            return LoginResult(False, "账号或密码错误")
 
-        return local_user_types.LoginResult(
+        return LoginResult(
             ok=True,
             message="登录成功",
             user_id=shadow.user_id,
@@ -378,16 +395,16 @@ class LocalUserService:
         )
 
     # ── Password change ────────────────────────────────────────
-    def change_password(self, user_id: str, old_password: str, new_password: str) -> local_user_types.LoginResult:
+    def change_password(self, user_id: str, old_password: str, new_password: str) -> LoginResult:
         local = self.local_repo.get(user_id)
         if not local:
-            return local_user_types.LoginResult(False, "账号不存在")
+            return LoginResult(False, "账号不存在")
         if not verify_password(old_password, local.password_hash):
-            return local_user_types.LoginResult(False, "原密码错误")
+            return LoginResult(False, "原密码错误")
         if len(new_password or "") < settings.auth.password_min_length:
-            return local_user_types.LoginResult(False, f"新密码长度至少 {settings.auth.password_min_length} 位")
+            return LoginResult(False, f"新密码长度至少 {settings.auth.password_min_length} 位")
         if verify_password(new_password, local.password_hash):
-            return local_user_types.LoginResult(False, "新密码不能与原密码相同")
+            return LoginResult(False, "新密码不能与原密码相同")
 
         local.password_hash = hash_password(new_password)
         local.password_updated_at = utc_now()
@@ -399,7 +416,7 @@ class LocalUserService:
             shadow.extra_data = meta
             shadow.updated_at = utc_now()
         self.db.commit()
-        return local_user_types.LoginResult(True, "密码修改成功", user_id=user_id)
+        return LoginResult(True, "密码修改成功", user_id=user_id)
 
     def _build_user_info(
         self,
@@ -433,18 +450,18 @@ class LocalUserService:
         nickname: Optional[str] = None,
         real_name: Optional[str] = None,
         phone: Optional[str] = None,
-    ) -> local_user_types.LoginResult:
+    ) -> LoginResult:
         """Update the editable profile fields of a local account. A None field means leave unchanged."""
         local = self.local_repo.get(user_id)
         if not local:
-            return local_user_types.LoginResult(False, "账号不存在")
+            return LoginResult(False, "账号不存在")
 
         if nickname is not None:
             nickname = nickname.strip()
             if not nickname:
-                return local_user_types.LoginResult(False, "用户名不能为空")
+                return LoginResult(False, "用户名不能为空")
             if len(nickname) > 32:
-                return local_user_types.LoginResult(False, "用户名长度不能超过 32 位")
+                return LoginResult(False, "用户名长度不能超过 32 位")
             local.nickname = nickname
         if real_name is not None:
             rn = real_name.strip()
@@ -458,7 +475,7 @@ class LocalUserService:
         self.db.refresh(local)
 
         shadow = self.user_repo.get_by_id(user_id)
-        return local_user_types.LoginResult(
+        return LoginResult(
             ok=True,
             message="已更新",
             user_id=user_id,

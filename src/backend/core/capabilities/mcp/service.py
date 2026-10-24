@@ -1,7 +1,7 @@
 """MCP server configuration service (DB-driven, cached).
 
 Reads MCP server configs from the admin_mcp_servers table and provides
-them in the same dict format that MCPConnectionPool and agent_factory
+them in the same dict format that run-owned MCP discovery and agent_factory
 expect (compatible with the old MCP_SERVERS dict from mcp_config.py).
 
 Thread-safe singleton with a 30s TTL cache.
@@ -24,12 +24,12 @@ logger = logging.getLogger(__name__)
 _CACHE_TTL = 30.0
 
 
-def _rewrite_builtin_mcp_host(url: str) -> str:
+def rewrite_builtin_mcp_host(url: str) -> str:
     """Point built-in MCP URLs at the configured host.
 
     Plugin-provided MCP servers (automation_task / skill_manager / site_publish)
     hardcode the Docker service name in their manifests
-    (``http://mcp:<port>/mcp/``). That host only resolves inside the compose
+    (``http://mcp:<port>/mcp``). That host only resolves inside the compose
     network, so in the no-Docker local profile (``MCP_HOST=127.0.0.1``) the
     plugin's tool calls would be unreachable. Rewrite **only** the literal ``mcp``
     host to ``settings.server.mcp_host``: a no-op on compose (mcp_host == "mcp"),
@@ -55,7 +55,8 @@ def _rewrite_builtin_mcp_host(url: str) -> str:
 
             port = {base: PORTS[sid] for sid, base in _BASE_PORTS.items()}.get(port, port)
         netloc = f"{host}:{port}" if port else host
-        return urlunparse(parts._replace(netloc=netloc))
+        path = "/mcp" if parts.path == "/mcp/" else parts.path
+        return urlunparse(parts._replace(netloc=netloc, path=path))
     except Exception:
         return url
 
@@ -93,7 +94,6 @@ class McpServerConfigService:
             "env": {...},       # merged: env_inherit from OS + env_vars
             "url": "...",       # for HTTP/SSE
             "headers": {...},
-            "is_stable": True,
         }
         """
         if not use_cache:
@@ -170,7 +170,6 @@ class McpServerConfigService:
         """Convert a DB row to the config dict format."""
         cfg: Dict[str, Any] = {
             "transport": row.transport,
-            "is_stable": row.is_stable,
             # 来源元数据（桌面双端桥按组件基名做 logical 去重时消费；
             # 连接层不读这两个键）。
             "source_plugin": row.source_plugin,
@@ -196,7 +195,7 @@ class McpServerConfigService:
             runtime_url, runtime_headers = materialize_mcp_http_connection(
                 row.url or "", plaintext_headers
             )
-            cfg["url"] = _rewrite_builtin_mcp_host(runtime_url)
+            cfg["url"] = rewrite_builtin_mcp_host(runtime_url)
             if runtime_headers:
                 cfg["headers"] = runtime_headers
             oauth_raw = plaintext_headers.get(mcp_oauth_bundle_storage_key())
@@ -311,11 +310,6 @@ class McpServerConfigService:
         servers = self.get_all_servers(enabled_only=False)
         return servers.get(server_id)
 
-    def get_stable_server_ids(self) -> Set[str]:
-        """Return set of server_ids where is_stable=True."""
-        servers = self.get_all_servers(enabled_only=True)
-        return {k for k, v in servers.items() if v.get("is_stable")}
-
     def invalidate_cache(self) -> None:
         """Clear cache so next call re-reads from DB."""
         with self._lock:
@@ -344,8 +338,8 @@ class McpServerConfigService:
 # has since deleted, and it is a no-op on any DB that already has the catalog.
 #
 # The URL is templated per-server from ``extensions.mcp_servers._ports`` + ``settings.server.
-# mcp_host`` at seed time, so compose gets ``http://mcp:<port>/mcp/`` and local
-# gets ``http://127.0.0.1:<port>/mcp/`` from the same definition. Only the
+# mcp_host`` at seed time, so compose gets ``http://mcp:<port>/mcp`` and local
+# gets ``http://127.0.0.1:<port>/mcp`` from the same definition. Only the
 # built-in servers the ``mcp`` container / ``_launcher`` actually serves are
 # included; plugin-provided servers (automation_task / skill_manager /
 # site_publish) arrive via plugin install, and external-service ones (db_query /
@@ -440,7 +434,7 @@ def seed_builtin_mcp_servers_if_empty(db) -> List[str]:
     it bootstraps a fresh ``create_all`` DB (local profile) without touching a DB
     that alembic already seeded and without resurrecting admin-deleted rows.
     """
-    from core.config.settings import settings
+    from core.config.mcp_config import mcp_http_url
     from extensions.mcp_servers._ports import PORTS
 
     existing = (
@@ -454,7 +448,6 @@ def seed_builtin_mcp_servers_if_empty(db) -> List[str]:
     if existing is not None:
         return []
 
-    host = settings.server.mcp_host
     seeded: List[str] = []
     for spec in BUILTIN_MCP_SERVERS:
         sid = spec["server_id"]
@@ -468,8 +461,7 @@ def seed_builtin_mcp_servers_if_empty(db) -> List[str]:
                 description=spec.get("description", ""),
                 user_intro=spec.get("user_intro"),
                 transport="streamable_http",
-                url=f"http://{host}:{port}/mcp/",
-                is_stable=spec.get("is_stable", True),
+                url=mcp_http_url(sid),
                 is_enabled=spec.get("is_enabled", True),
                 sort_order=spec.get("sort_order", 0),
                 icon=spec.get("icon"),

@@ -1,14 +1,13 @@
-"""core agent_runtime skills responsibilities."""
+"""Turn explicitly invoked skills into the load-instruction message for a turn."""
 
 from __future__ import annotations
-from core.llm.context import ir_state as ir_state_module
-from core.llm.context import items as items_module
+from core.llm.context import ir_constants
+from core.llm.context import items
 
 import logging
 import typing as _typing
 from typing import Any, Dict, List, Optional
 
-import core.llm.context.ir as context_ir
 
 logger = logging.getLogger(__name__)
 
@@ -159,19 +158,19 @@ def _build_skill_injection(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         + "\n\n".join(sections)
         + "\n</explicit_invocation>"
     )
-    item = items_module.make_text_context_item(
+    item = items.make_text_context_item(
         content,
         item_id="harness:explicit_invocation",
-        kind=ir_state_module.KIND_REMINDER,
+        kind=ir_constants.KIND_REMINDER,
         origin="harness:explicit_invocation",
         trust="system",
         created_seq=0,
         priority=900,
         token_budget=8_000,
-        truncation_policy=ir_state_module.POLICY_HEAD_TAIL,
+        truncation_policy=ir_constants.POLICY_HEAD_TAIL,
     )
     return {
         "role": "user",
         "content": content,
-        ir_state_module.SESSION_CONTEXT_META_KEY: items_module.session_context_metadata(item),
+        ir_constants.SESSION_CONTEXT_META_KEY: items.session_context_metadata(item),
     }

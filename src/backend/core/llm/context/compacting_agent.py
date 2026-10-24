@@ -271,7 +271,7 @@ class CompactingAgent(ManifestBoundAgent):
 
     # ── MidTurn compaction ───────────────────────────────────────────────────
 
-    async def compress_context(self, context_config: ContextConfig | None = None) -> None:
+    async def compress_context(self, context_config: ContextConfig | None = None, instructions=None) -> None:
         """Compact at a ReAct step boundary without replacing failed work with a summary."""
         del context_config
         await enforce_context_budget(self)

@@ -11,7 +11,7 @@ from agentscope.message import Msg, TextBlock, ThinkingBlock, ToolCallBlock, Too
 from core.models.chat_models import ReasoningEchoChatFormatter
 from core.llm.context.adapter import AgentScopeContextAdapter
 from core.llm.context.rendering import next_request_sequence, render_context_item
-from core.llm.context.ir_state import KIND_THINKING, KIND_TOOL_CALL, KIND_TOOL_RESULT, KIND_USER_INPUT, POLICY_NEVER
+from core.llm.context.ir_constants import KIND_THINKING, KIND_TOOL_CALL, KIND_TOOL_RESULT, KIND_USER_INPUT, POLICY_NEVER
 from core.llm.context.ir import ContextAssembler
 from core.llm.context.items import ContextItem
 from core.llm.runtime.message_compat import session_to_msgs

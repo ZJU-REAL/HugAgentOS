@@ -343,7 +343,6 @@ def local_server_configs(doc: Optional[McpJson] = None) -> Dict[str, dict]:
             continue
         cfg: Dict[str, Any] = {
             "transport": entry["transport"],
-            "is_stable": False,
             "source_plugin": None,
             "owner_user_id": None,
             "origin": "mcp_json_local",

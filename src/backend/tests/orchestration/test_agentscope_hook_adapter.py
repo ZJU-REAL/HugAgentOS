@@ -10,6 +10,7 @@ from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultState, U
 from agentscope.middleware import MiddlewareBase
 from agentscope.tool._response import ToolResponse
 from core.harness.hooks import Decision, HookBus, HookContractError, HookSpec, HookStage
+from core.harness.observation_writer import flush_observations
 from core.harness.usage import MemoryUsageRecorder
 from core.llm.runtime.agentscope_hook_adapter import AgentScopeHookAdapter, adapt_agentscope_event
 from core.llm.middleware.migration_map import MIDDLEWARE_MIGRATION, deletion_checklist
@@ -237,6 +238,7 @@ async def test_neutral_policy_executes_through_adapter_and_is_accounted():
 
     events = [item async for item in adapter.on_reply(agent, {"inputs": None}, handler)]
     assert len(events) == 1
+    assert flush_observations()
     rows = usage.attempts("run-adapter")
     assert [(row.kind, row.operation_name, row.status) for row in rows] == [
         ("hook", "reply-policy", "success")

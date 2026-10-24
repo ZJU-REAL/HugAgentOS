@@ -85,7 +85,7 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 
 ### Run 解耦与断线续播
 
-每次发送消息会创建一条 `ChatRun` 并启动后台任务（`orchestration/chat_run_executor.py`），事件写入 Redis Stream（`maxlen=5000`；默认 TTL 为最长人机等待 7200 秒加 1800 秒恢复余量）。HTTP 连接只是"跟随者"，因此：
+每次发送消息会创建一条 `ChatRun` 并启动后台任务（`core/chat/runtime/`），事件写入 Redis Stream（`maxlen=5000`；默认 TTL 为最长人机等待 7200 秒加 1800 秒恢复余量）。HTTP 连接只是"跟随者"，因此：
 
 | 能力 | 端点 |
 |---|---|
@@ -133,7 +133,7 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 | 替我批准 | `auto` | 普通写入 / 编辑直接放行；**删除类操作**（`DESTRUCTIVE_OPS`）与本地策略标了 `danger:<类别>` 的命令仍然停下来问 |
 | 完全放开 | `full` | 所有工具确认一律不再询问 |
 
-档位在 `core/llm/tool_permissions.py` 里统一声明（`APPROVAL_ASK` / `APPROVAL_AUTO` / `APPROVAL_FULL`），随对话上下文传到 `PermissionRuntime`，是所有工具确认闸的唯一判据；任何一档都只跳过"问"这一步，本地安全策略判定的硬拒绝仍然拒绝。"这次危不危险"由 `core/sandbox/permissions/models.py::danger_categories()` 从裁决理由里的 `danger:` 前缀还原，不靠匹配提示文案。读到早期版本存下的 `standard` / `readonly` 时按最保守的 `ask` 兜底。
+档位在 `core/llm/tool_permissions/` 里统一声明（`APPROVAL_ASK` / `APPROVAL_AUTO` / `APPROVAL_FULL`），随对话上下文传到 `PermissionRuntime`，是所有工具确认闸的唯一判据；任何一档都只跳过"问"这一步，本地安全策略判定的硬拒绝仍然拒绝。"这次危不危险"由 `core/sandbox/permissions/models.py::danger_categories()` 从裁决理由里的 `danger:` 前缀还原，不靠匹配提示文案。读到早期版本存下的 `standard` / `readonly` 时按最保守的 `ask` 兜底。
 
 渠道机器人、定时任务这类无人值守入口走 `default_allow` 分支，不受该档位影响。
 
@@ -143,17 +143,17 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 
 `create_agent_executor()` 是所有模式（主对话、计划、批量、子智能体、自动化）共用的工厂：
 
-- **MCP 工具**：经 catalog + 用户覆盖 + 请求上下文三层过滤后（见 [能力目录](catalog.md)），stable 服务复用进程级连接池（`core/llm/mcp/pool.py`），per-request 服务（如 `retrieve_dataset_content` 需带每请求 HTTP header）每次新建；用户自助添加的私有 MCP 按 owner 现查合入。
+- **MCP 工具**：经 catalog + 用户覆盖 + 请求上下文三层过滤后（见 [能力目录](catalog.md)），stable 服务复用进程级连接池（`core/llm/mcp/`），per-request 服务（如 `retrieve_dataset_content` 需带每请求 HTTP header）每次新建；用户自助添加的私有 MCP 按 owner 现查合入。
 - **技能**：经 `core/capabilities/skills/loader.py` 注册为 AgentScope Agent Skills，并放行 `view_text_file` 读取 SKILL.md（详见 [技能系统](agent-skills.md)）。
 - **文件/沙箱工具**：`bash`、`sandbox_put_artifact`、`sandbox_get_artifact` 无条件注册；Read/Edit/Write/Glob/Grep/Delete/Move/mkdir + MySpace 工具受 `CODE_CAPABILITY_ENABLED` 门控，共享同一个 `ReadStateTracker` 维持「先 Read 才能 Edit」不变量。
-- **中间件**（洋葱模型，`core/llm/middlewares.py`）：`DynamicModelMiddleware`（按 chat_mode 切模型，见 [模型接入](model-providers.md)）、`FileContextMiddleware`（注入上传/历史文件上下文）、`SteerMiddleware`（工具结果之后、下一轮推理之前注入追加指令）、`WorkspacePinHintMiddleware`、`FinishPinGuardMiddleware`。
+- **中间件**（洋葱模型，`core/llm/runtime/`）：`DynamicModelMiddleware`（按 chat_mode 切模型，见 [模型接入](model-providers.md)）、`FileContextMiddleware`（注入上传/历史文件上下文）、`SteerMiddleware`（工具结果之后、下一轮推理之前注入追加指令）、`WorkspacePinHintMiddleware`、`FinishPinGuardMiddleware`。
 - **上下文压缩**：`CompactingAgent` 把轮前、轮内和轮末三个触发时机接入同一个持久化 checkpoint 引擎，并共用 Codex 风格交接提示词；`ContextConfig` 只保留工具结果限长。压缩只使用统一协调器，不再运行框架的第二条摘要回退。压缩失败时保留原始上下文；最终请求仍超预算时保存断点并暂停，不继续调用回复模型。
 - **权限**：所有已注册工具 seed 原生 `PermissionRule(ALLOW)`，保留 AgentScope 内置工具的危险操作检查（不使用一刀切 BYPASS）。
 - **迭代上限**：主智能体默认 `max_iters=50`，隔离子智能体默认 10。
 
 ## SSE 事件类型与负载
 
-`orchestration/streaming.py::StreamingAgent` 把 AgentScope 2.0 `reply_stream` 的细粒度事件归并为内部事件；工具参数小分片按 256 字符或 50ms 合批，兼顾实时可见与 SSE 事件量。`workflow.py` 与 `chats.py::_stream_sse_response` 再补充会话级字段后落到 wire 上。前端实际收到的事件：
+`core/llm/runtime/streaming.py::StreamingAgent` 把 AgentScope 2.0 `reply_stream` 的细粒度事件归并为内部事件；工具参数小分片按 256 字符或 50ms 合批，兼顾实时可见与 SSE 事件量。`workflow.py` 与 `chats.py::_stream_sse_response` 再补充会话级字段后落到 wire 上。前端实际收到的事件：
 
 | `type` | 含义 | 关键字段 |
 |---|---|---|
@@ -200,7 +200,7 @@ data: {"type":"meta","route":"main","citations":[...],"usage":{"prompt_tokens":3
 data: [DONE]
 ```
 
-`meta` 之后，`chat_run_executor.py` 持久化助手消息、回填 artifact，并起后台任务生成追问问题（`orchestration/followups.py`，结果写进消息 `extra_data.follow_up_questions`，前端经 `GET /v1/chats/{chat_id}/messages/{message_id}/followups` 拉取）。本体事件在前端汇总为独立的“领域本体治理”模块，不再写入或显示在“思考过程”中。模型草稿保持逐 token 流式展示；委员会仅在实际修订答案时发送一次 `content_replace`，前端原位替换正文，数据库只保存评审后的最终答案。`ontology_governance` 随助手消息持久化，刷新历史会话后仍可回显。
+`meta` 之后，`chat_run_executor.py` 持久化助手消息、回填 artifact，并起后台任务生成追问问题（`core/chat/followups.py`，结果写进消息 `extra_data.follow_up_questions`，前端经 `GET /v1/chats/{chat_id}/messages/{message_id}/followups` 拉取）。本体事件在前端汇总为独立的“领域本体治理”模块，不再写入或显示在“思考过程”中。模型草稿保持逐 token 流式展示；委员会仅在实际修订答案时发送一次 `content_replace`，前端原位替换正文，数据库只保存评审后的最终答案。`ontology_governance` 随助手消息持久化，刷新历史会话后仍可回显。
 
 `usage` 是本轮所有模型调用的累计计费数据；上下文仪表使用的是
 `context_usage`，即最近一次主模型调用的 `prompt_tokens + completion_tokens`，
@@ -233,9 +233,9 @@ data: [DONE]
 
 引用让回答里的每个事实可溯源到具体工具结果。编号权收归后端唯一真源——模型只**复制**编号、不做任何计算，链路分四段：
 
-1. **发号回注（后端中间件）**：`core/llm/middlewares.py::CitationAnchorMiddleware` 挂在 AgentScope 2.0 的 `on_acting` 钩子上，在工具结果回给模型前调用 `orchestration/citation_anchor.py` 完成 提取 → 发号 → 回注：为每条可引用条目分配会话内单调唯一的锚点 id（`e1`、`e2`、…，跨工具、跨调用、跨轮不重复，新一轮从该会话历史消息的最大锚点续号），并把 `"cite_id": "e7"` 就地写进结果 JSON（纯文本结果在文末追加 `[cite_id: e7]` 行）。**发号器绑在 agent 实例上**（`attach_allocator()` / `resolve_allocator()`）——编排层与中间件由此共享同一个计数器；ContextVar 只作子智能体链路的兜底，因为 `astream_chat_workflow` 是 async generator，其上下文与 agent 实际执行所在的 task 并不互通。提取按四层降级：工具自声明 `__citations__` → 工具规格注册表（`TOOL_SPECS` 配置，列表路径 + 中英字段别名）→ 通用启发式（唯一字典数组字段）→ 整份结果 1 个锚点；操作型工具（写文件、pin 等，`SKIP_TOOLS`）直接放行。任何异常原样放行、绝不阻断对话。
+1. **发号回注（后端中间件）**：`core/llm/runtime/` 挂在 AgentScope 2.0 的 `on_acting` 钩子上，在工具结果回给模型前调用 `core/llm/citations/hook.py` 完成 提取 → 发号 → 回注：为每条可引用条目分配会话内单调唯一的锚点 id（`e1`、`e2`、…，跨工具、跨调用、跨轮不重复，新一轮从该会话历史消息的最大锚点续号），并把 `"cite_id": "e7"` 就地写进结果 JSON（纯文本结果在文末追加 `[cite_id: e7]` 行）。**发号器绑在 agent 实例上**（`attach_allocator()` / `resolve_allocator()`）——编排层与中间件由此共享同一个计数器；ContextVar 只作子智能体链路的兜底，因为 `astream_chat_workflow` 是 async generator，其上下文与 agent 实际执行所在的 task 并不互通。提取按四层降级：工具自声明 `__citations__` → 工具规格注册表（`TOOL_SPECS` 配置，列表路径 + 中英字段别名）→ 通用启发式（唯一字典数组字段）→ 整份结果 1 个锚点；操作型工具（写文件、pin 等，`SKIP_TOOLS`）直接放行。任何异常原样放行、绝不阻断对话。
 2. **提示词约定**：系统提示词（`prompts/prompt_text/default/system/40_format.system.md` 的兜底版本，运行时以 DB 激活版本为准）只需一条与工具数量无关的通用规则：把结果里标注的 `cite_id` 原样复制进 `[锚文本](cite:e7)`（或句末 `[来源](cite:e7)`），禁止自行编号。
-3. **编排层消费**：每个 `tool_result` 事件经 `collect_citation_dicts()` 按 `tool_id` 从发号器注册表精确取 `CitationItem`（`id` / `tool_name` / `tool_id` / `title` / `url` / `snippet` / `source_type` / `item_index`）；发号器缺位（旧对话回放等）时回退 `orchestration/citations.py` 的旧偏移提取。`source_type` 取值：CE 内置 `internet`、`knowledge_base`、`database`；`industry_news`、`ai_news`、`chain_info`、`company_profile` 等行业引用类型由商业版 EE 扩展。
+3. **编排层消费**：每个 `tool_result` 事件经 `collect_citation_dicts()` 按 `tool_id` 从发号器注册表精确取 `CitationItem`（`id` / `tool_name` / `tool_id` / `title` / `url` / `snippet` / `source_type` / `item_index`）；发号器缺位（旧对话回放等）时回退 `core/llm/citations/` 的旧偏移提取。`source_type` 取值：CE 内置 `internet`、`knowledge_base`、`database`；`industry_news`、`ai_news`、`chain_info`、`company_profile` 等行业引用类型由商业版 EE 扩展。
 4. **前端渲染**：citations 随 `tool_result` 与 `meta` 事件下发并随消息持久化（落库的就是注号后的结果，回放/分享与生成时编号一致）。`components/citation/CitationMarkdownBlock.tsx` 并行识别三种标记——`[锚文本](cite:eN)`（渲染为带悬浮出处卡片的文字链接）、`[[eN]]`（obsidian 双链容错）、旧格式 `[ref:工具名-序号]`（历史消息，渲染为角标）；工具卡片条目上同步显示 `cite_id` 小徽章（`jx-tr-citeTag`），没有专属渲染器的工具由通用列表渲染器兜底成标准卡片。
 
 **工具开发约定**：需要精确控制引用粒度的工具（自研或 MCP），在返回 JSON 里带 `__citations__` 字段——`[{"title": "...", "url": "...", "snippet": "...", "source_type": "..."}, …]`，条目顺序与结果正文对应；中间件优先采用并就地注入 `cite_id`。未自声明的工具按注册表配置或启发式提取，最差整份结果 1 个锚点——**任何工具默认可引用**。详见《[MCP 工具](mcp-tools.md)》的引用声明一节。
@@ -258,7 +258,7 @@ data: [DONE]
 
 ## 计划模式（Plan Mode）
 
-计划模式把复杂任务拆成「生成计划 → 用户确认/编辑 → 逐步执行」两阶段，实现在 `orchestration/subagents/plan_mode.py`：
+计划模式把复杂任务拆成「生成计划 → 用户确认/编辑 → 逐步执行」两阶段，实现在 `orchestration/plans/`：
 
 - **生成**（`astream_generate_plan` / `POST /v1/plans/generate`）：以 `disable_tools=True` 的"裸模型"产出结构化 JSON 计划。系统提示词解析顺序：版本池 `plan_mode` 激活版本 → 旧版 `system/90_plan_mode` 分段 → 文件兜底 `prompts/prompt_text/plan_mode/plan_mode.system.md` → 硬编码最小提示。
 - **执行**（`astream_execute_plan` / `POST /v1/plans/{plan_id}/execute`）：每个步骤独立建 agent 顺序执行，支持步骤级 MCP/技能/子智能体绑定、取消（`is_run_cancelled` 轮询）；执行同样走 ChatRun + Redis Stream，可断线续播。
@@ -284,7 +284,7 @@ data: [DONE]
 
 上下文和工作区是两个独立维度：探索员、审查员能检查当前文件，但不会被主对话或执行过程锚定；执行员则需要完整继承用户约束和既有决定。主智能体的动态路由表只展示本轮最终启用且角色策略允许下放的技能、MCP、知识库和基础工具；主智能体已关闭、未授权或被运行时过滤的能力既不会展示，也不会传给默认子智能体。三个角色都不能继续调用子智能体。默认列表不含 planner：普通主对话已用 `update_plan` 维护计划，避免形成“计划里的计划”。角色提示词在运行时仍来自版本池 `subagents` kind 的 `explorer / worker / reviewer` 三个独立 part，随包提示词 `extensions/agents/default/<role>/system.md` 只负责种子和故障回退；该 kind 保留在后端与迁移快照中，以兼容既有环境。
 
-除此之外，用户自建子智能体（`api/routes/v1/agents.py`，DB 表 `UserAgent`）可绑定独立的系统提示词、MCP / 技能 / 插件 / KB 集合与模型参数（provider / temperature / max_tokens / max_iters）。创建或编辑时，资源选择器支持以下来源：
+除此之外，用户自建子智能体（`edition_ee/routes/agents.py`，DB 表 `UserAgent`）可绑定独立的系统提示词、MCP / 技能 / 插件 / KB 集合与模型参数（provider / temperature / max_tokens / max_iters）。创建或编辑时，资源选择器支持以下来源：
 
 - 已安装的技能与插件；
 - 技能市场和插件市场，安装完成后自动绑定到当前子智能体；需要凭据的市场资源仍先走原有凭据配置与安装权限校验；
@@ -335,7 +335,7 @@ Enter / Tab 确认和 Escape 返回或关闭。个人在能力中心关闭的技
 
 | 层次 | 实现 | 触发 |
 |---|---|---|
-| 会话标题摘要 | `core/llm/summarizer.py::ConversationSummarizer`（`summarizer` 模型角色，`ENABLE_SUMMARY` 开关），`POST /v1/summary` | 新会话标题自动生成 |
+| 会话标题摘要 | `core/models/completions/summarizer.py::ConversationSummarizer`（`summarizer` 模型角色，`ENABLE_SUMMARY` 开关），`POST /v1/summary` | 新会话标题自动生成 |
 | 统一上下文检查点 | `core/chat/compaction/service.py::run_compaction()`；轮前、轮内、轮末共用同一触发比例、交接提示词、替代历史结构和持久化 checkpoint | 上下文达到模型窗口的配置比例时 |
 | 确定性溢出保护 | `ContextConfig.tool_result_limit` 先限制单条工具结果；统一压缩失败时保留原始上下文，最终请求超预算则保存断点并暂停 | 单条工具结果过大，或统一压缩暂时不可用时 |
 
@@ -374,29 +374,29 @@ framing 的后端估算。当前回合结束后若后台压缩已启动，`meta.
 
 ## 其它入口
 
-同一编排底座还服务：消息重新生成（`POST /v1/chats/{chat_id}/regenerate`）、编辑重发（`POST /v1/chats/{chat_id}/edit`）、非流式 `POST /v1/agents/responses`（`stream: false`）与定时自动化（`orchestration/schedulers/`）。
+同一编排底座还服务：消息重新生成（`POST /v1/chats/{chat_id}/regenerate`）、编辑重发（`POST /v1/chats/{chat_id}/edit`）、非流式 `POST /v1/agents/responses`（`stream: false`）与定时自动化（`orchestration/automations/`）。
 
 ## 相关源码
 
 | 主题 | 路径 |
 |---|---|
 | 聊天路由 / SSE 出口 | `src/backend/api/routes/v1/chats/__init__.py` |
-| Run 解耦 / Redis Stream / 续播 | `src/backend/orchestration/chat_run_executor.py`，`api/routes/v1/chat_runs.py` |
-| 流式编排主流程 | `src/backend/orchestration/workflow.py` |
-| 事件映射（reply_stream → SSE） | `src/backend/orchestration/streaming.py` |
+| Run 解耦 / Redis Stream / 续播 | `src/backend/core/chat/runtime/`，`api/routes/v1/chat_runs.py` |
+| 流式编排主流程 | `src/backend/core/agent_runtime/runner.py` |
+| 事件映射（reply_stream → SSE） | `src/backend/core/llm/runtime/streaming.py` |
 | 运行时上下文装配 | `src/backend/core/chat/context.py` |
 | Agent 工厂 | `src/backend/core/llm/factory/build.py` |
-| 中间件 | `src/backend/core/llm/middlewares.py`（纯函数 helper 在 `core/llm/runtime/hooks.py`） |
-| 引用抽取 | `src/backend/orchestration/citations.py` |
+| 中间件 | `src/backend/core/llm/runtime/`（纯函数 helper 在 `core/harness/hooks.py`） |
+| 引用抽取 | `src/backend/core/llm/citations/` |
 | 跨会话引用（名片 / 摘要 / 分页） | `src/backend/core/chat/references.py` |
 | 跨会话历史工具 | `src/backend/core/llm/tools/chat_history_tool.py` |
 | 引用前端渲染 | `src/frontend/src/utils/citations.ts`，`src/frontend/src/components/citation/` |
-| 计划模式 | `src/backend/orchestration/subagents/plan_mode.py`，`api/routes/v1/plans.py` |
-| 子智能体工具 | `src/backend/core/llm/subagents/tool.py`，`api/routes/v1/agents.py` |
-| 标题摘要 / 上下文压缩 / 窗口保护 | `src/backend/core/llm/summarizer.py`、`compaction.py`、`core/chat/compaction/service.py`、`context_manager.py` |
+| 计划模式 | `src/backend/orchestration/plans/`，`api/routes/v1/plans.py` |
+| 子智能体工具 | `src/backend/core/llm/subagents/tool.py`，`edition_ee/routes/agents.py` |
+| 标题摘要 / 上下文压缩 / 窗口保护 | `src/backend/core/models/completions/summarizer.py`、`compaction.py`、`core/chat/compaction/service.py`、`context_manager.py` |
 | 超长结果 offload | `src/backend/core/llm/context/offloader.py` |
 | 会话分享 | `src/backend/api/routes/v1/chat_shares.py` |
-| 追问生成 | `src/backend/orchestration/followups.py` |
+| 追问生成 | `src/backend/core/chat/followups.py` |
 | 前端流式解析 / 追加消息 | `src/frontend/src/hooks/chatStream.ts`，`useStreaming.ts`，`components/chat/QueuedMessageCard.tsx` |
 
 ### 桌面端工具权限与操作确认

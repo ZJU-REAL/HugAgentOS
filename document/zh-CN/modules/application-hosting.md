@@ -6,11 +6,11 @@
 
 配置 `APPLICATION_DATABASE_URL` 指向独立数据库。不能指向平台 `DATABASE_URL` 的同一数据库。云部署未配置时，管理界面提示未启用；本地模式可使用 SQLite，但生产使用 PostgreSQL。首次使用先执行 `python -m core.services.application_hosting_setup` 初始化注册表。
 
-可选 Compose 覆盖文件 `docker-compose.application-hosting.yml` 包含独立 PostgreSQL、持久卷和一次性初始化任务。分别提供不同的 `APPLICATION_DB_PASSWORD`（初始化）与 `APPLICATION_OWNER_DB_PASSWORD`（运行账号），使用 URL 安全的密码或正确编码连接串；初始化任务使用与后端相同的 Dockerfile 构建目标，并只读挂载当前后端源码。部署时后端也必须使用本次源码构建的镜像，并按仓库部署流程重建前端，使 nginx 的 `/applications-mcp/` 转发配置生效。
+可选 Compose 覆盖文件 `docker/application-hosting/compose.application-hosting.yml` 包含独立 PostgreSQL、持久卷和一次性初始化任务。分别提供不同的 `APPLICATION_DB_PASSWORD`（初始化）与 `APPLICATION_OWNER_DB_PASSWORD`（运行账号），使用 URL 安全的密码或正确编码连接串；初始化任务使用与后端相同的 Dockerfile 构建目标，并只读挂载当前后端源码。部署时后端也必须使用本次源码构建的镜像，并按仓库部署流程重建前端，使 nginx 的 `/applications-mcp/` 转发配置生效。
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.application-hosting.yml config --quiet
-docker compose -f docker-compose.yml -f docker-compose.application-hosting.yml up -d
+docker compose -f docker-compose.yml -f docker/application-hosting/compose.application-hosting.yml config --quiet
+docker compose -f docker-compose.yml -f docker/application-hosting/compose.application-hosting.yml up -d
 ```
 
 实际启动、重建、迁移和部署仍遵守项目授权流程。存量迁移使用独立应用数据库。本地验证不代表远程环境已经升级。端到端验证使用独立数据库及平台的本地 mock 认证；该认证模式仅供本地测试。
@@ -47,27 +47,7 @@ PostgreSQL 每个应用使用独立 schema 与受限 NOLOGIN 角色；查询和�
 
 已实现结构化 SQL 表、约束与索引、原子批量写入、幂等重试、版本更新、受限查询、应用隔离、匿名表单和声明式 MCP 托管。请求有行大小、批量大小、分页和记录配额限制。CSV 流式导出全表。
 
-未实现任意用户代码 MCP 容器、OAuth 授权服务器、外键关系设计器、全量备份恢复控制台和完整用量计费。当前固定 Bearer 方案不可宣称已完成 OAuth。真实聊天端到端驱动位于 `src/backend/tests/application_hosting_e2e.py`，独立测试环境由同目录的 `application_hosting_e2e_setup.py` 准备。通过生产聊天 API 验证模型、工具、沙箱与发布，验收结果以实际运行记录为准。
-
-## 本地端到端复现
-
-使用已配置真实模型、产业来源和 OpenSandbox 的本地 Docker 环境；先构建当前前端。以下驱动使用生产 API 与真实工具，不替换文件工具或发布接口。测试服务仅绑定回环端口，使用独立 platform_e2e_verified / applications_e2e_verified 数据库和独立存储目录。
-
-```bash
-npm --prefix src/frontend run build
-PYTHONPATH=src/backend .venv/bin/python src/backend/tests/application_hosting_e2e_setup.py
-PYTHONPATH=src/backend .venv/bin/python src/backend/tests/application_hosting_e2e.py
-```
-
-在 `http://127.0.0.1:18533/site/e2e-form-1007/` 用测试信息提交一次，邮箱使用 `browser-e2e@example.test`。再运行：
-
-```bash
-PYTHONPATH=src/backend .venv/bin/python src/backend/tests/application_hosting_lifecycle_e2e.py
-```
-
-生命周期验证会重启上述独立测试服务，并轮换、回滚、撤销和重新发布测试 MCP 凭据。凭据只保存在 `/tmp/application-hosting-full-e2e-credentials.json`（0600），不放入网页或验收报告。已有批次不自动清库；完整聊天重跑应使用干净的独立数据库批次。该流程不升级主环境，也不执行远程部署。
-
-重跑完整聊天时，先停止并移除 `hugagent-application-e2e-backend` 和 `hugagent-application-e2e-mcp` 这两个测试容器，再以 `APPLICATION_E2E_BATCH=run2` 执行 setup。旧批次数据库保留，驱动仍使用相同的回环访问地址。不要删除主环境容器或数据库。
+未实现任意用户代码 MCP 容器、OAuth 授权服务器、外键关系设计器、全量备份恢复控制台和完整用量计费。当前固定 Bearer 方案不可宣称已完成 OAuth。
 
 ## 桌面端
 
@@ -128,9 +108,9 @@ project_synced=false；保留新草稿并报告同步失败，核对线上版本
 
 管理表单和回滚发布遇到尚未发布的项目草稿时返回冲突，不覆盖草稿。项目发布会等待文件工具登记，发布后刷新挂载文件的新版本；只有这些同步步骤完成才报告 project_synced=true。
 
-## 外部检验修复与升级
+## 部署要求与数据安全
 
-应用数据仍为可选模块。云端部署必须配置不同的 APPLICATION_DB_PASSWORD 与 APPLICATION_OWNER_DB_PASSWORD，并同时使用 docker-compose.yml 与 docker-compose.application-hosting.yml。首次部署及已有卷升级都执行 application-database-init；该步骤创建恢复历史表，把专用库对象交给 application_owner，并为已有应用角色补齐授权。后端仅使用 NOSUPERUSER、NOCREATEDB、CREATEROLE 的 application_owner；application_admin 只用于专用数据库初始化。CREATEROLE 是创建和回收应用隔离角色所需权限，因此必须使用独立 PostgreSQL 实例，不能复用业务平台数据库。初始化失败时不启动后端，不手工跳过依赖检查。
+应用数据仍为可选模块。云端部署必须配置不同的 APPLICATION_DB_PASSWORD 与 APPLICATION_OWNER_DB_PASSWORD，并同时使用 docker-compose.yml 与 docker/application-hosting/compose.application-hosting.yml。首次部署及已有卷升级都执行 application-database-init；该步骤创建恢复历史表，把专用库对象交给 application_owner，并为已有应用角色补齐授权。后端仅使用 NOSUPERUSER、NOCREATEDB、CREATEROLE 的 application_owner；application_admin 只用于专用数据库初始化。CREATEROLE 是创建和回收应用隔离角色所需权限，因此必须使用独立 PostgreSQL 实例，不能复用业务平台数据库。初始化失败时不启动后端，不手工跳过依赖检查。
 
 访客 API 的成功及错误响应均带 CORS。云端访客写入与密码尝试采用 Redis 原子共享计数；所有后端进程必须使用同一 Redis。Redis 未配置或不可用时返回 503。仅未配置 Redis 的本机单进程模式使用内存计数。
 

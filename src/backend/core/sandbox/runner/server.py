@@ -14,7 +14,6 @@ import mimetypes
 import os
 import shutil
 import signal
-import subprocess
 import sys
 import tempfile
 from pathlib import Path

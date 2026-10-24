@@ -18,7 +18,7 @@ def active(db):
 
 def app_config(db):
     if not active(db):
-        from core.files.content.content_blocks_state import DEFAULT_APP_CONFIG
+        from core.files.content.content_blocks_constants import DEFAULT_APP_CONFIG
         from core.files.content.branding import normalize_app_config
 
         row = db.get(ContentBlock, "app_config")
@@ -155,7 +155,7 @@ def build_docs_snapshot(db):
 
 
 def import_docs_snapshot(db, snapshot, *, overwrite=True, default_updated_by=None):
-    from core.files.content.content_blocks_state import DOCS_BLOCK_MAP
+    from core.files.content.content_blocks_constants import DOCS_BLOCK_MAP
     from core.files.content.content_blocks import import_docs_snapshot as original
     from core.files.content.content_blocks import normalize_docs_snapshot
 

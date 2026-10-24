@@ -1,6 +1,6 @@
 """No-storage audit repository for the community edition."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
 class AuditLogRepository:

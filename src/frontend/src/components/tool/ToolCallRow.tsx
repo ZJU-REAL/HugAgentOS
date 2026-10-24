@@ -4,21 +4,7 @@ import { useMemo, useState } from 'react';
 import { SubagentCallRow } from './SubagentCallRow';
 import { ForkedToolCallRow } from './ForkedToolCallRow';
 import type { ComponentType } from 'react';
-import {
-  LoadingOutlined,
-  PauseCircleOutlined,
-  SearchOutlined,
-  GlobalOutlined,
-  FileTextOutlined,
-  EditOutlined,
-  CodeOutlined,
-  DatabaseOutlined,
-  ThunderboltOutlined,
-  RobotOutlined,
-  FolderOutlined,
-  FileWordOutlined,
-  FileExcelOutlined,
-} from '@ant-design/icons';
+import { PauseCircleOutlined } from '@ant-design/icons';
 import type { ToolCall } from '../../types';
 import { useChatStore, useUIStore } from '../../stores';
 import { ElapsedTimer } from '../common';
@@ -34,6 +20,9 @@ import { useToolMessageIdentity } from './ToolMessageContext';
 import { t } from '../../i18n';
 import { useCollapseHeight } from '../../hooks/useCollapseHeight';
 import { EDITION_STEP_ICONS, getEditionToolRowLabel } from '../../toolEdition';
+import { ToolIcon } from './toolIcons';
+import { formatClock } from '../../utils/elapsed';
+import { toolIconKind } from '../../utils/toolActionLabel';
 import {
   resolvePluginToolLabel,
   resolvePluginToolStepText,
@@ -170,41 +159,17 @@ function getRunningCodeLabel(tool: ToolCall): { prefix: string; value: string } 
 }
 
 /**
- * Completed-step marker. Mirrors the reference design: instead of a generic
- * success tick, each row carries a quiet outline icon that signals *what kind*
- * of step it was (search / browse / file / code / …). Unknown tools fall back
- * to a small hollow dot.
+ * Step marker: the line icon for this kind of action (see `toolIcons.tsx`),
+ * grey once done and brand blue while running — the row's state reads from
+ * colour plus the label's scan, with no separate spinner.
  */
-const STEP_ICONS: Record<string, ComponentType<{ className?: string }>> = {
-  internet_search: SearchOutlined,
-  web_fetch: GlobalOutlined,
-  view_text_file: FileTextOutlined,
-  Write: EditOutlined,
-  Edit: EditOutlined,
-  Bash: CodeOutlined,
-  bash: CodeOutlined,
-  retrieve_dataset_content: DatabaseOutlined,
-  retrieve_local_kb: DatabaseOutlined,
-  list_datasets: DatabaseOutlined,
-  query_database: DatabaseOutlined,
-  load_skill: ThunderboltOutlined,
-  load_plugin: ThunderboltOutlined,
-  get_skills: ThunderboltOutlined,
-  get_mcp_tools: ThunderboltOutlined,
-  call_subagent: RobotOutlined,
-  get_agents: RobotOutlined,
-  ...EDITION_STEP_ICONS,
-  sandbox_put_artifact: FolderOutlined,
-  sandbox_get_artifact: FolderOutlined,
-  word_create_from_markdown: FileWordOutlined,
-  export_report_to_docx: FileWordOutlined,
-  export_table_to_excel: FileExcelOutlined,
-};
+const EDITION_ICONS: Record<string, ComponentType<{ className?: string }>> = EDITION_STEP_ICONS;
 
-function StepIcon({ name }: { name: string }) {
-  const Ico = STEP_ICONS[name];
-  if (!Ico) return <span className="jx-tcr-dot" aria-hidden="true" />;
-  return <Ico className="jx-tcr-icon jx-tcr-icon--step" />;
+function StepIcon({ name, running }: { name: string; running: boolean }) {
+  const className = `jx-tcr-kind${running ? ' jx-tcr-kind--running' : ''}`;
+  const Edition = EDITION_ICONS[name];
+  if (Edition) return <Edition className={className} />;
+  return <ToolIcon kind={toolIconKind(name)} className={className} />;
 }
 
 interface ToolCallRowProps {
@@ -352,13 +317,14 @@ function StandardToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
           key={isStreaming ? `st-${effectiveStatus}` : 'st'}
           className={`jx-tcr-status${isStreaming ? ' jx-anim-statusIn' : ''}`}
         >
-          {effectiveStatus === 'running' && <LoadingOutlined spin className="jx-tcr-icon jx-tcr-icon--running" />}
           {/* 结果始终没到的调用（被中止，或结果带着一个对不上任何卡片的 id 回来）挂
               暂停标而不是工具图标——否则它和一次正常完成的调用长得一模一样。 */}
-          {effectiveStatus === 'interrupted' && <PauseCircleOutlined className="jx-tcr-icon" aria-label={t('未取得结果')} />}
-          {effectiveStatus !== 'running' && effectiveStatus !== 'interrupted' && !capability && <StepIcon name={tool.name} />}
+          {effectiveStatus === 'interrupted'
+            ? <PauseCircleOutlined className="jx-tcr-icon" aria-label={t('未取得结果')} />
+            : capability
+              ? <ToolCapabilityIcon capability={capability} size={16} />
+              : <StepIcon name={tool.name} running={running} />}
         </span>
-        {capability && <ToolCapabilityIcon capability={capability} />}
         <span className="jx-tcr-label">
           <span className={`jx-tcr-prefix${running ? ' jx-tcr-prefix--shimmer' : ''}`}>{prefix}</span>
           {value && <span className="jx-tcr-value">{value}</span>}
@@ -371,6 +337,8 @@ function StandardToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
         ) : null}
         {running && tool.timestamp ? (
           <ElapsedTimer startTs={tool.timestamp} className="jx-tcr-timer" />
+        ) : !running && (tool.durationMs ?? 0) >= 1000 ? (
+          <span className="jx-tcr-timer">{formatClock(tool.durationMs! / 1000)}</span>
         ) : null}
         {canExpand && (
           <span className={`jx-tcr-arrow${expanded ? ' jx-tcr-arrow--open' : ''}`} />

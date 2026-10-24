@@ -80,7 +80,7 @@ def test_install_plugin_creates_rows_and_is_agent_visible(sm_env):
         mcp = mcps[0]
         assert mcp.owner_user_id == OWNER
         assert mcp.transport == "streamable_http"
-        assert mcp.url == "http://mcp:9112/mcp/"
+        assert mcp.url == "http://mcp:9112/mcp"
         assert mcp.is_enabled is True  # http MCP is not needs_runtime → enabled upon install
         assert len(mcp.tools_json) == 8
         assert plugin is not None

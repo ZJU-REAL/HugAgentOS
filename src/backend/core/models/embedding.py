@@ -1,4 +1,4 @@
-"""vector embedding responsibilities."""
+"""Call the configured embedding service."""
 from __future__ import annotations
 from core.models import embedding_state
 import os

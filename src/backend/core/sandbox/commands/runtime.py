@@ -43,6 +43,22 @@ class CommandRuntime:
         self.tasks = {}
         self.providers = {}
         self._locks = {}
+        self._heartbeat = None
+
+    def _ensure_heartbeat(self):
+        if self._heartbeat is None or self._heartbeat.done():
+            self._heartbeat = asyncio.create_task(self._renew_handles())
+
+    async def _renew_handles(self):
+        while self.providers:
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(store.renew_owned, list(self.providers), self.owner),
+                    timeout=store.LEASE_SECONDS / 3,
+                )
+            except Exception:
+                logger.exception("Command handle renewal failed")
+            await asyncio.sleep(store.LEASE_SECONDS / 3)
 
     def bind_loop(self):
         """Initialize every worker before a temporary agent thread can call it."""
@@ -65,24 +81,12 @@ class CommandRuntime:
             return await self._attach(tid, provider, req, result)
         except BaseException as exc:
             if result and result.get("status") == "running" and tid not in self.providers:
-                # Persistence can fail after launch (for example a hard-deleted chat).
-                stopped = await provider.write_stdin(
-                    result["session_id"],
-                    sandbox_session_id=req.session_id,
-                    user_id=req.user_id,
-                    chars="\x03",
-                    yield_time_ms=1000,
-                )
-                while stopped.get("status") == "running":
-                    stopped = await provider.write_stdin(
-                        result["session_id"],
-                        sandbox_session_id=req.session_id,
-                        user_id=req.user_id,
-                        chars="",
-                        yield_time_ms=1000,
-                    )
-                if stopped.get("status") != "exited":
-                    raise RuntimeError("Unattached process stop not confirmed") from exc
+                # Preserve control even if persistence or the first stop RPC fails.
+                self.providers[tid] = provider, req, result["session_id"]
+                self._ensure_heartbeat()
+                await self._interrupt(tid)
+                self.providers.pop(tid, None)
+                self._locks.pop(tid, None)
             try:
                 await asyncio.to_thread(
                     store.finish, tid, "unknown", "Launch state unknown; do not rerun: " + str(exc)
@@ -123,6 +127,7 @@ class CommandRuntime:
         )
         if row["status"] == "running":
             self.providers[tid] = provider, req, result["session_id"]
+            self._ensure_heartbeat()
             self.tasks[tid] = asyncio.create_task(self._monitor(tid, row))
             payload["next"] = (
                 "Command is managed in the background. Completion will notify this chat. Do independent work; do not poll or restart it. If no independent work remains, end this response once; completion will resume this chat."
@@ -168,66 +173,95 @@ class CommandRuntime:
     async def _monitor(self, tid, row):
         provider, req, pid = self.providers[tid]
         last_touch = 0
+        failures = 0
         try:
             while True:
-                if not await asyncio.to_thread(store.chat_available, tid):
-                    result = await self._interrupt(tid)
-                    try:
+                try:
+                    if not await asyncio.to_thread(store.chat_available, tid):
+                        result = await self._interrupt(tid)
+                        try:
+                            await asyncio.to_thread(
+                                store.control_result,
+                                tid,
+                                self.owner,
+                                "cancelled",
+                                "Conversation removed",
+                                True,
+                                result,
+                            )
+                        except LookupError:
+                            pass  # Physical deletion removed the row; the owned process was stopped.
+                        break
+                    row = await asyncio.to_thread(store.snapshot, tid)
+                    if row["status"] not in store.LIVE or row["owner"] != self.owner:
+                        if row["execution_ref"]:
+                            await release_execution(provider, pid, req)
+                        else:
+                            await self._interrupt(tid)
+                        break
+                    if row["cancel_requested"]:
+                        result = await self._interrupt(tid)
+                        await asyncio.to_thread(
+                            store.control_result, tid, self.owner, "cancelled", "", True, result
+                        )
+                        break
+                    if row["deadline_at"] and time.time() >= row["deadline_at"]:
+                        result = await self._interrupt(tid)
                         await asyncio.to_thread(
                             store.control_result,
                             tid,
                             self.owner,
-                            "cancelled",
-                            "Conversation removed",
-                            True,
+                            "failed",
+                            "Command execution deadline exceeded",
+                            False,
                             result,
                         )
-                    except LookupError:
-                        pass  # Physical deletion removed the row; the owned process was stopped.
-                    break
-                row = await asyncio.to_thread(store.snapshot, tid)
-                if row["status"] not in store.LIVE or row["owner"] != self.owner:
-                    await release_execution(provider, pid, req)
-                    break
-                if row["cancel_requested"]:
-                    result = await self._interrupt(tid)
-                    await asyncio.to_thread(
-                        store.control_result, tid, self.owner, "cancelled", "", True, result
-                    )
-                    break
-                if row["deadline_at"] and time.time() >= row["deadline_at"]:
-                    result = await self._interrupt(tid)
-                    await asyncio.to_thread(
-                        store.control_result,
-                        tid,
-                        self.owner,
-                        "failed",
-                        "Command execution deadline exceeded",
-                        False,
-                        result,
-                    )
-                    break
-                async with self._locks.setdefault(tid, asyncio.Lock()):
-                    result = await provider.write_stdin(
-                        pid,
-                        sandbox_session_id=req.session_id,
-                        user_id=req.user_id,
-                        chars="",
-                        yield_time_ms=250,
-                    )
-                    row = await asyncio.to_thread(store.collect, tid, self.owner, result)
-                if row["status"] not in store.LIVE:
-                    break
-                if time.monotonic() - last_touch >= 10:
-                    await provider.touch_session(req.session_id)
-                    last_touch = time.monotonic()
-                await asyncio.sleep(0.5)
+                        break
+                    async with self._locks.setdefault(tid, asyncio.Lock()):
+                        result = await provider.write_stdin(
+                            pid,
+                            sandbox_session_id=req.session_id,
+                            user_id=req.user_id,
+                            chars="",
+                            yield_time_ms=250,
+                        )
+                        row = await asyncio.to_thread(store.collect, tid, self.owner, result)
+                    if row["status"] not in store.LIVE:
+                        break
+                    if time.monotonic() - last_touch >= 10:
+                        await provider.touch_session(req.session_id)
+                        last_touch = time.monotonic()
+                    failures = 0
+                    await asyncio.sleep(0.5)
+                except Exception:
+                    failures += 1
+                    logger.warning("Command observation failed task=%s attempt=%s",
+                                   tid, failures, exc_info=True)
+                    if failures >= 3:
+                        if row["execution_ref"]:
+                            # Durable recovery can retry without rerunning the command.
+                            await release_execution(provider, pid, req)
+                            await asyncio.to_thread(store.release_lease, tid, self.owner)
+                            break
+                        # A nonrecoverable local process must be stopped, never
+                        # reported terminal merely because observation failed.
+                        result = await self._interrupt(tid)
+                        await asyncio.to_thread(
+                            store.control_result, tid, self.owner, "failed",
+                            "Command observation failed", False, result,
+                        )
+                        break
+                    await asyncio.sleep(2 ** (failures - 1))
         except asyncio.CancelledError:
             if row["execution_ref"]:
                 await release_execution(provider, pid, req)
+                self.providers.pop(tid, None)
+                self._locks.pop(tid, None)
                 await asyncio.to_thread(store.release_lease, tid, self.owner)
             else:
                 result = await self._interrupt(tid)
+                self.providers.pop(tid, None)
+                self._locks.pop(tid, None)
                 await asyncio.to_thread(
                     store.control_result,
                     tid,
@@ -238,13 +272,11 @@ class CommandRuntime:
                     result,
                 )
             raise
-        except Exception as exc:
-            logger.exception("Command monitor lost task=%s", tid)
-            await asyncio.to_thread(store.finish, tid, "unknown", str(exc), owner=self.owner)
-        finally:
+        else:
             self.providers.pop(tid, None)
-            self.tasks.pop(tid, None)
             self._locks.pop(tid, None)
+        finally:
+            self.tasks.pop(tid, None)
 
     async def _interrupt(self, tid):
         provider, req, pid = self.providers[tid]
@@ -259,8 +291,8 @@ class CommandRuntime:
             while result.get("status") == "running":
                 try:
                     await asyncio.to_thread(store.collect, tid, self.owner, result)
-                except LookupError:
-                    pass  # A hard-deleted chat still owns a process that must stop.
+                except Exception:
+                    logger.warning("Command stop bookkeeping deferred task=%s", tid)
                 next_result = await provider.write_stdin(
                     pid,
                     sandbox_session_id=req.session_id,
@@ -291,6 +323,11 @@ class CommandRuntime:
 
     @service_loop
     async def recover(self, provider):
+        # Failed local stops remain owned and are retried by this worker's
+        # existing recovery supervisor before any no-reference classification.
+        for tid in list(self.providers):
+            if tid not in self.tasks:
+                self.tasks[tid] = asyncio.create_task(self._stop_retained(tid))
         for row in await asyncio.to_thread(store.pending_recovery):
             tid = row["task_id"]
             if tid in self.tasks and not self.tasks[tid].done():
@@ -313,6 +350,7 @@ class CommandRuntime:
                 session_id=row["sandbox_session_id"],
                 user_id=row["user_id"],
             )
+            result = None
             try:
                 result = await recover_execution(provider, row["execution_ref"], req)
                 ref = {**row["execution_ref"], "cursor": result["execution_cursor"]}
@@ -321,9 +359,43 @@ class CommandRuntime:
                 )
                 if recovered["status"] == "running":
                     self.providers[tid] = provider, req, result["session_id"]
+                    self._ensure_heartbeat()
                     self.tasks[tid] = asyncio.create_task(self._monitor(tid, recovered))
-            except Exception as exc:
-                await asyncio.to_thread(store.finish, tid, "unknown", str(exc), owner=self.owner)
+            except BaseException as exc:
+                if result and result.get("status") == "running":
+                    await release_execution(provider, result["session_id"], req)
+                await asyncio.to_thread(store.release_lease, tid, self.owner)
+                if isinstance(exc, asyncio.CancelledError):
+                    raise
+                logger.warning("Command recovery deferred task=%s", tid, exc_info=True)
+
+    async def _stop_retained(self, tid):
+        try:
+            try:
+                row = await asyncio.to_thread(store.snapshot, tid)
+            except LookupError:
+                row = None
+            if row and row["execution_ref"]:
+                provider, req, pid = self.providers[tid]
+                await release_execution(provider, pid, req)
+                self.providers.pop(tid, None)
+                self._locks.pop(tid, None)
+                await asyncio.to_thread(store.release_lease, tid, self.owner)
+                return
+            result = await self._interrupt(tid)
+            self.providers.pop(tid, None)
+            self._locks.pop(tid, None)
+            try:
+                await asyncio.to_thread(
+                    store.control_result, tid, self.owner, "failed",
+                    "Command observation failed", False, result,
+                )
+            except LookupError:
+                pass
+        except Exception:
+            logger.exception("Command stop requires another recovery pass task=%s", tid)
+        finally:
+            self.tasks.pop(tid, None)
 
     @service_loop
     async def shutdown(self):
@@ -334,28 +406,44 @@ class CommandRuntime:
         results = await asyncio.gather(*tasks, return_exceptions=True)
         # A task cancelled before its first instruction cannot run its finally.
         for tid, (provider, req, pid) in list(self.providers.items()):
-            row = await asyncio.to_thread(store.snapshot, tid)
-            if row["execution_ref"]:
-                await release_execution(provider, pid, req)
-                await asyncio.to_thread(store.release_lease, tid, self.owner)
-            else:
-                result = await self._interrupt(tid)
-                await asyncio.to_thread(
-                    store.control_result,
-                    tid,
-                    self.owner,
-                    "cancelled",
-                    "Command owner stopped",
-                    True,
-                    result,
-                )
-            self.providers.pop(tid, None)
-            self._locks.pop(tid, None)
+            try:
+                await self._shutdown_handle(tid, provider, req, pid)
+            except Exception as exc:
+                results.append(exc)
         for result in results:
             if isinstance(result, BaseException) and not isinstance(result, asyncio.CancelledError):
                 raise result
         self.tasks.clear()
+        if self._heartbeat is not None:
+            self._heartbeat.cancel()
+            await asyncio.gather(self._heartbeat, return_exceptions=True)
+            self._heartbeat = None
         self.loop = None
+
+    async def _shutdown_handle(self, tid, provider, req, pid):
+        try:
+            row = await asyncio.to_thread(store.snapshot, tid)
+        except LookupError:
+            await self._interrupt(tid)
+            self.providers.pop(tid, None)
+            self._locks.pop(tid, None)
+            return
+        if row["execution_ref"]:
+            await release_execution(provider, pid, req)
+            await asyncio.to_thread(store.release_lease, tid, self.owner)
+        else:
+            result = await self._interrupt(tid)
+            await asyncio.to_thread(
+                store.control_result,
+                tid,
+                self.owner,
+                "cancelled",
+                "Command owner stopped",
+                True,
+                result,
+            )
+        self.providers.pop(tid, None)
+        self._locks.pop(tid, None)
 
 
 runtime = CommandRuntime()

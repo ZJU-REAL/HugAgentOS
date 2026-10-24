@@ -71,7 +71,7 @@
 
 ## 相关代码
 
-- 驱动器 `orchestration/autonomous_loop.py`、规划器 `orchestration/loop_planner.py`、评审员 `orchestration/subagents/loop_reviewer.py`
-- ChatRun 接入 `orchestration/chat_run_executor.py`（`start_autonomous_loop_run` / 启动对账 `resume_running_loops`）
-- 服务 `core/services/loop_service.py`（账本镜像 / 启动参数 / steering 队列）、API `api/routes/v1/loops.py`
+- 驱动器 `orchestration/loops/driver.py`、规划器 `orchestration/loops/planner.py`、评审员 `orchestration/loops/reviewer.py`
+- ChatRun 接入 `core/chat/runtime/`（`start_autonomous_loop_run` / 启动对账 `resume_running_loops`）
+- 服务 `orchestration/loops/run.py`（账本镜像 / 启动参数 / steering 队列）、API `api/routes/v1/loops.py`
 - 数据表 `agent_loops` / `loop_iterations`

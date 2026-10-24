@@ -24,7 +24,7 @@ from core.auth.backend import UserContext, get_current_user
 from api.routes.v1 import catalog, plugins, me_capabilities
 from features.desktop.local.plugins import service as local_plugin_service
 from features.desktop.capabilities.local_plugin_runtime import configs
-from core.llm.mcp.pool import make_client
+from core.llm.mcp.client import make_client
 
 engine = create_engine(os.environ["DATABASE_URL"], connect_args={"check_same_thread": False})
 Base.metadata.create_all(engine)
@@ -63,9 +63,8 @@ def health():
 @app.post("/test/tool/{manager}/{operation}")
 async def tool(manager: str, operation: str, arguments: dict):
     server = next((sid, cfg) for sid, cfg in configs(user).items() if cfg.get("gateway_plugin") == manager)
-    client = make_client(*server, is_stateful=False)
-    handler = await client.get_tool(operation)
-    result = await handler(**arguments)
+    async with make_client(*server) as client:
+        result = await client.call_tool(operation, arguments)
     return json.loads(result.content[0].text)
 
 @app.post("/test/package/{kind}")

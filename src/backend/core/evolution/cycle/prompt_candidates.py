@@ -1,18 +1,19 @@
-"""prompt candidates responsibilities."""
+"""Prompt-fragment candidates for failures attributed to the prompt."""
 from __future__ import annotations
 import hashlib
 from typing import Any, Dict, List
 from core.evolution.evidence.credit import CreditFeatures, assign_credit
 from core.evolution.ir import RISK_HIGH, EvolutionIR, InvariantViolation, Rollback, validate_ir
 import logging
+from core.evolution.cycle import candidate_records
+
 logger = logging.getLogger(__name__)
-from core.evolution.cycle import candidate_records as candidate_records_module
 
 def prompt_candidates(views: List[Dict[str, Any]], *, dry_run: bool) -> List[Dict[str, Any]]:
     """Prompt fragments, for the failures attribution already blames on the prompt."""
     from core.evolution.generators.prompt_gen import generate_prompt_candidate
 
-    payload, evidence, draft = candidate_records_module.run_async(
+    payload, evidence, draft = candidate_records.run_async(
         generate_prompt_candidate(
             views,
             cause="归因判定该失败源于提示词未声明相关约束",
@@ -58,7 +59,7 @@ def prompt_candidates(views: List[Dict[str, Any]], *, dry_run: bool) -> List[Dic
         return [{"kind": "prompt", "written": False, "why_not": {"code": violation.code}}]
     if dry_run:
         return [{"dry_run": True, "kind": "prompt", "asset_id": asset_id}]
-    candidate_id = candidate_records_module.persist_candidate(
+    candidate_id = candidate_records.persist_candidate(
         ir,
         credit=decision.to_dict(),
         proposer="prompt_engine",

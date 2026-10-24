@@ -1,6 +1,5 @@
-"""types responsibilities."""
+"""Value types for tool intents, decisions and outcomes."""
 from __future__ import annotations
-from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Awaitable, Callable, Mapping, Optional

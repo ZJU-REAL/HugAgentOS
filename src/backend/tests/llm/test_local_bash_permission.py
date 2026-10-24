@@ -72,7 +72,9 @@ def _capture_policy(captured: dict):
 class _Toolkit:
     fn = None
 
-    def register_tool_function(self, fn, **_kwargs):
+    def append(self, tool):
+        fn = tool._func
+        _kwargs = {"func_description": tool.description, "permission": getattr(tool, "dispatch_spec", None)}
         self.fn = fn
 
 
@@ -81,7 +83,6 @@ def _bash():
     register_bash(
         toolkit,
         loader=None,
-        loaded_skill_ids=set(),
         chat_id="chat-1", user_id="user-1",
     )
     assert toolkit.fn is not None

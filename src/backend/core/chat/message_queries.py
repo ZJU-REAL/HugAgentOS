@@ -1,4 +1,4 @@
-"""message queries operations."""
+"""Read chat messages, with access checks."""
 from __future__ import annotations
 from typing import List, Optional, Tuple
 from core.db.models import ChatMessage

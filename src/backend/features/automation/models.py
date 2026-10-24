@@ -4,7 +4,7 @@ from core.infra.time import utc_now
 
 from datetime import datetime, timezone
 
-from core.db.engine import Base
+from core.db.models import Base, Plan, UserShadow
 from sqlalchemy import (
     JSON,
     BigInteger,
@@ -79,8 +79,8 @@ class ScheduledTask(Base):
     updated_at = Column(UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     # Relationships
-    user = relationship("UserShadow")
-    plan = relationship("Plan")
+    user = relationship(UserShadow)
+    plan = relationship(Plan)
     run_history = relationship(
         "ScheduledTaskRun",
         back_populates="task",
@@ -134,7 +134,7 @@ class ScheduledTaskRun(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "status IN ('running', 'success', 'failed')",
+            "status IN ('pending', 'running', 'success', 'failed')",
             name="scheduled_task_runs_status_check",
         ),
         Index("idx_scheduled_task_runs_task_id", "task_id"),

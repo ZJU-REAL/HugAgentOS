@@ -136,8 +136,7 @@ def test_gateway_transfers_local_build_bytes_and_returns_cloud_url(caps_root, mo
     import asyncio
 
     import httpx
-    import mcp.types
-    from core.llm.mcp.manager import GatewayMCPTool
+    from core.llm.tools.cloud_gateway import GatewayMCPTool
     from features.desktop.bridge import client as bridge
     from features.sites.packaging import safe_extract_tar
     from tests.features.desktop.capabilities.test_runtime_recovery import state
@@ -188,7 +187,7 @@ def test_gateway_transfers_local_build_bytes_and_returns_cloud_url(caps_root, mo
     tool = GatewayMCPTool(
         mcp_name="sites-site_publish",
         source_plugin="sites",
-        tool=mcp.types.Tool(name="publish_site", inputSchema={"type": "object"}),
+        tool={"name": "publish_site", "inputSchema": {"type": "object"}},
         invoke_url=st["cloud_base"] + "/api/v1/desktop/capability/gateway/sites-site_publish/call",
         schema_hash="a" * 64,
         timeout=120,

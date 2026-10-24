@@ -67,9 +67,9 @@ ORM 定义在 `src/backend/core/db/models/knowledge.py`：
 | `kb_chunks` | **父块**原文（检索命中后返回给 LLM），含标签 `tags` 与关联问题 `questions` |
 | `kb_assets` | 文档里的**媒体资产**（版面解析切出的图片、单独上传的图片）：字节在对象存储，本表存归属分块、原文位置 `locator`、图注/OCR `text_content`、模型生成的描述 `caption` |
 
-Wiki 相关的三张表（`kb_wiki_pages` / `kb_wiki_folders` / `kb_wiki_jobs`）定义在 `core/db/models/kb_wiki.py`，见 [知识库 Wiki](./knowledge-base-wiki.md)。
+Wiki 相关的三张表（`kb_wiki_pages` / `kb_wiki_folders` / `kb_wiki_jobs`）定义在 `features/knowledge/models.py`，见 [知识库 Wiki](./knowledge-base-wiki.md)。
 
-子块不入关系库——向量化后写 Milvus collection `hugagent_kb_private`（`core/kb/kb_vector.py`），每行带 `user_id` / `kb_id` 字段做归属隔离，`row_type` 区分 chunk 行、question 行与 image 行。
+子块不入关系库——向量化后写 Milvus collection `hugagent_kb_private`（`features/knowledge/kb_vector.py`），每行带 `user_id` / `kb_id` 字段做归属隔离，`row_type` 区分 chunk 行、question 行与 image 行。
 
 ### 分块与索引
 
@@ -87,12 +87,12 @@ Wiki 相关的三张表（`kb_wiki_pages` / `kb_wiki_folders` / `kb_wiki_jobs`�
 
 ### 多模态：图片检索
 
-文档里的图不再被丢弃。索引时走 `core/kb/kb_assets.py`：
+文档里的图不再被丢弃。索引时走 `features/knowledge/kb_assets.py`：
 
 1. **抽图**——PDF 经外部解析服务的版面切分拿回图片本体、图注、页码与 bbox；单独上传的
    图片自身即一个资产（此前会被当作纯文本硬解成乱码入库，现已修复）。字节存对象存储，
    正文里原本指向解析服务临时路径的死链被改写成真实资产 URL。
-2. **图像理解**——复用[视觉桥](./model-providers.md#视觉桥让纯文本模型能读图)（`core/vision`），和对话里「纯文本主模型读图」
+2. **图像理解**——复用[视觉桥](./model-providers.md#视觉桥让纯文本模型能读图)（`core/models/vision`），和对话里「纯文本主模型读图」
    走的是同一条通路、同一个 `vision` 模型角色，因此白得三样东西：按图片内容哈希的**证据缓存**
    （重新索引同一篇文档不用再付一次钱）、三协议与结构化输出降级、以及「该角色只能指派多模态模型」
    的硬约束。产出映射：`summary` → `caption`，`ocr.full_text` 并入 `text_content`（与原图注共存），
@@ -134,7 +134,7 @@ ASR 转写写进 `text_content`，其后的索引与检索完全复用。
 
 ### API 路由
 
-用户侧路由前缀 `/v1/catalog/kb`（`src/backend/api/routes/v1/kb.py`，请求模型在 `kb_models.py`）：
+用户侧路由前缀 `/v1/catalog/kb`（`src/backend/features/knowledge/api/kb.py`，请求模型在 `kb_models.py`）：
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -150,7 +150,7 @@ ASR 转写写进 `text_content`，其后的索引与检索完全复用。
 | GET / PATCH | `/v1/catalog/kb/{kb_id}/chunks[/{chunk_id}]` | 分块列表 / 编辑标签与问题 |
 | GET | `/v1/catalog/kb/assets/{asset_id}` | 读取媒体资产原始字节（可见性跟随所属空间） |
 
-业务逻辑集中在 `core/services/kb_service.py::KBService`。
+业务逻辑集中在 `features/knowledge/service.py::KBService`。
 
 ### 系统托管知识库：我的空间同步
 
@@ -158,13 +158,13 @@ ASR 转写写进 `text_content`，其后的索引与检索完全复用。
 
 ### 管理员公共知识库（商业版 EE）
 
-`/v1/admin/kb/*` 管理台路由在 `src/backend/api/routes/v1/admin_kb.py`，挂 `content_admin` 能力位（EE 路由表见 `api/routes/v1/__init__.py`）。公共知识库由合成系统账号 `system_public_kb` 持有（`kb_service.py::SYSTEM_KB_OWNER_ID`），`visibility=public`，对全体用户可见可检索。管理端额外提供原始文件下载、Office 转 PDF 在线预览、分块内容编辑 / 删除等能力。
+`/v1/admin/kb/*` 管理台路由在 `src/backend/edition_ee/routes/admin_kb.py`，挂 `content_admin` 能力位（EE 路由表见 `api/routes/v1/__init__.py`）。公共知识库由合成系统账号 `system_public_kb` 持有（`kb_service.py::SYSTEM_KB_OWNER_ID`），`visibility=public`，对全体用户可见可检索。管理端额外提供原始文件下载、Office 转 PDF 在线预览、分块内容编辑 / 删除等能力。
 
 公有知识库检索 `retrieve_dataset_content` 严格按平台配置选择一种来源：自建模式（`knowledge_base.provider=custom`）只检索当前用户有权访问的本地公有/共享库，排除个人私有库；外部模式只检索当前选择的 Dify、FastGPT 或 WeKnora 数据集，连接配置也按后端隔离。两种来源不合并，空结果或服务错误均不触发跨来源回退。公有知识库列表遵循相同的来源选择；私有知识库仍通过独立的 `retrieve_local_kb` 入口访问。
 
 ## Dify 外接知识库（商业版 EE）
 
-商业版客户端位于 `src/backend/edition_ee/kb/dify.py`，共享路由通过 `core/kb/external_provider.py` 接缝调用。CE 派生树把该接缝替换为禁用实现，且不包含 Dify 客户端。启用判定 `is_dify_enabled()` 的优先级：
+商业版客户端位于 `src/backend/edition_ee/kb/dify.py`，共享路由通过 `features/knowledge/extension.py` 接缝调用。CE 派生树把该接缝替换为禁用实现，且不包含 Dify 客户端。启用判定 `is_dify_enabled()` 的优先级：
 
 1. DB 系统配置 `knowledge_base.provider == "dify"`（Config 管理台可改）；
 2. 环境变量 `KNOWLEDGE_BASE=dify`；
@@ -196,17 +196,17 @@ DIFY_API_KEY=dataset-...               # 兼容别名 DIFY_AUTH_TOKEN
 
 | 路径 | 职责 |
 |---|---|
-| `src/backend/core/kb/kb_parser.py` | 文档解析 + 父子分块（5 种 chunk_method） |
-| `src/backend/core/kb/kb_vector.py` | Milvus collection、embedding、混合检索、重排 |
-| `src/backend/core/kb/kb_assets.py` | 媒体资产：落盘、图像理解（调用视觉桥）、检索行、结果附图 |
+| `src/backend/features/knowledge/kb_parser.py` | 文档解析 + 父子分块（5 种 chunk_method） |
+| `src/backend/features/knowledge/kb_vector.py` | Milvus collection、embedding、混合检索、重排 |
+| `src/backend/features/knowledge/kb_assets.py` | 媒体资产：落盘、图像理解（调用视觉桥）、检索行、结果附图 |
 | `src/backend/edition_ee/kb/dify.py` | Dify datasets 客户端与启用判定（仅 EE） |
-| `src/backend/core/kb/external_provider.py` | 版本中立的外部知识库接缝；CE overlay 将其禁用 |
-| `src/backend/core/files/content/kb_processing.py` | 后台向量化任务、LLM 关键词 / 问题增强 |
+| `src/backend/features/knowledge/extension.py` | 版本中立的外部知识库接缝；CE overlay 将其禁用 |
+| `src/backend/features/knowledge/processing.py` | 后台向量化任务、LLM 关键词 / 问题增强 |
 | `src/backend/core/files/content/file_validation.py` | 上传文件校验（扩展名 + magic bytes） |
 | `src/backend/core/files/content/file_parser.py` | 通用文件解析器 |
-| `src/backend/core/services/kb_service.py` | 知识库业务逻辑（含系统托管同步库） |
-| `src/backend/api/routes/v1/kb.py` + `kb_models.py` | 用户侧 `/v1/catalog/kb` 路由 |
-| `src/backend/api/routes/v1/admin_kb.py` | 管理台公共知识库路由（商业版 EE） |
+| `src/backend/features/knowledge/service.py` | 知识库业务逻辑（含系统托管同步库） |
+| `src/backend/features/knowledge/api/kb.py` + `kb_models.py` | 用户侧 `/v1/catalog/kb` 路由 |
+| `src/backend/edition_ee/routes/admin_kb.py` | 管理台公共知识库路由（商业版 EE） |
 | `src/backend/api/routes/v1/catalog.py` | 能力目录聚合（CE 仅私有库；EE 追加 Dify / 公共库） |
 | `src/backend/extensions/mcp_servers/retrieve_dataset_content_mcp/` | 检索 MCP server（两个工具） |
 | `src/backend/core/db/models/knowledge.py` | `KBSpace` / `KBDocument` / `KBChunk` / `KBAsset` ORM |

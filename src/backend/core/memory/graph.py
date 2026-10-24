@@ -1,4 +1,4 @@
-"""graph responsibilities."""
+"""Read and write L3 graph relations in Neo4j."""
 from __future__ import annotations
 import asyncio
 import hashlib
@@ -7,19 +7,20 @@ from core.config.settings import settings
 from core.memory.context import MemoryContext
 from core.memory.executor import run_effect
 import logging
+from core.memory import graph_contract
+from core.memory import graph_state
+
 logger = logging.getLogger(__name__)
-from core.memory import graph_contract as graph_contract_module
-from core.memory import graph_state as graph_state_module
 
 def get_driver():
     """Lazily create the thread-safe Neo4j driver; failures are retryable."""
     if not (settings.memory.enabled and settings.memory.graph_enabled):
         return None
-    if graph_state_module.process_state().driver is not None:
-        return graph_state_module.process_state().driver
-    with graph_state_module.process_state().driver_lock:
-        if graph_state_module.process_state().driver is not None:
-            return graph_state_module.process_state().driver
+    if graph_state.process_state().driver is not None:
+        return graph_state.process_state().driver
+    with graph_state.process_state().driver_lock:
+        if graph_state.process_state().driver is not None:
+            return graph_state.process_state().driver
         try:
             from neo4j import GraphDatabase
 
@@ -29,24 +30,24 @@ def get_driver():
                 connection_timeout=3.0,
             )
             driver.verify_connectivity()
-            graph_state_module.process_state().driver = driver
-            if not graph_state_module.process_state().schema_ready:
+            graph_state.process_state().driver = driver
+            if not graph_state.process_state().schema_ready:
                 ensure_schema(driver)
-                graph_state_module.process_state().schema_ready = True
+                graph_state.process_state().schema_ready = True
             logger.info("[GraphMemory] Neo4j L3 initialized")
-            return graph_state_module.process_state().driver
+            return graph_state.process_state().driver
         except Exception as exc:  # noqa: BLE001 - optional memory layer
             logger.warning(
                 "[GraphMemory] initialization failed; L3 disabled for this attempt: %s", exc
             )
-            graph_state_module.process_state().driver = None
+            graph_state.process_state().driver = None
             return None
 
 
 def reset_driver() -> None:
-    with graph_state_module.process_state().driver_lock:
-        current, graph_state_module.process_state().driver = graph_state_module.process_state().driver, None
-        graph_state_module.process_state().schema_ready = False
+    with graph_state.process_state().driver_lock:
+        current, graph_state.process_state().driver = graph_state.process_state().driver, None
+        graph_state.process_state().schema_ready = False
     if current is not None:
         try:
             current.close()
@@ -70,7 +71,7 @@ def ensure_schema(driver) -> None:
         logger.warning("[GraphMemory] schema setup skipped: %s", exc)
 
 
-def write_sync(ctx: MemoryContext, relations: Sequence[graph_contract_module.GraphRelation]) -> list[Dict[str, Any]]:
+def write_sync(ctx: MemoryContext, relations: Sequence[graph_contract.GraphRelation]) -> list[Dict[str, Any]]:
     driver = get_driver()
     if driver is None:
         return []
@@ -81,19 +82,19 @@ def write_sync(ctx: MemoryContext, relations: Sequence[graph_contract_module.Gra
     try:
         with driver.session() as session:
             for relation in relations:
-                relation_id = graph_contract_module.relation_id_for(
+                relation_id = graph_contract.relation_id_for(
                     relation,
                     scope_user_id=ctx.effective_scope_user_id,
                     workspace_id=ctx.workspace_id,
                 )
                 record = session.run(
-                    graph_state_module.UPSERT_CYPHER,
+                    graph_state.UPSERT_CYPHER,
                     scope_user_id=ctx.effective_scope_user_id,
                     workspace_id=ctx.workspace_id or "default",
-                    source_key=graph_contract_module.entity_key(relation.source, relation.source_type),
+                    source_key=graph_contract.entity_key(relation.source, relation.source_type),
                     source=relation.source,
                     source_type=relation.source_type,
-                    target_key=graph_contract_module.entity_key(relation.target, relation.target_type),
+                    target_key=graph_contract.entity_key(relation.target, relation.target_type),
                     target=relation.target,
                     target_type=relation.target_type,
                     relation_id=relation_id,
@@ -124,7 +125,7 @@ def write_sync(ctx: MemoryContext, relations: Sequence[graph_contract_module.Gra
 
 
 async def write_graph_relations(
-    ctx: MemoryContext, relations: Sequence[graph_contract_module.GraphRelation]
+    ctx: MemoryContext, relations: Sequence[graph_contract.GraphRelation]
 ) -> list[Dict[str, Any]]:
     """Persist validated relations without blocking the event loop."""
     if not relations:
@@ -138,7 +139,7 @@ def read_sync(
     driver = get_driver()
     if driver is None:
         return []
-    statement = graph_state_module.SEARCH_CYPHER if query.strip() else graph_state_module.LIST_CYPHER
+    statement = graph_state.SEARCH_CYPHER if query.strip() else graph_state.LIST_CYPHER
     try:
         with driver.session() as session:
             result = session.run(

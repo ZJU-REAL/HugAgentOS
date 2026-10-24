@@ -1,12 +1,13 @@
-"""memory candidates responsibilities."""
+"""Memory and intent candidates built from per-user memory scans."""
 from __future__ import annotations
 import hashlib
 from typing import Any, Dict, List
 from core.evolution.evidence.credit import T_MEMORY, T_SKILL, aggregate_finding, confidence_from_evidence
 from core.evolution.ir import RISK_HIGH, RISK_MEDIUM, EvolutionIR, InvariantViolation, Rollback, validate_ir
 import logging
+from core.evolution.cycle import candidate_records
+
 logger = logging.getLogger(__name__)
-from core.evolution.cycle import candidate_records as candidate_records_module
 
 def memory_scan_findings(views: List[Dict[str, Any]]) -> List[Any]:
     """Scan every contributing user's store.
@@ -29,7 +30,7 @@ def memory_scan_findings(views: List[Dict[str, Any]]) -> List[Any]:
     findings: List[Any] = []
     for user_id, refs in retrieved.items():
         try:
-            _, user_findings = candidate_records_module.run_async(scan_user_memories(user_id, retrieved_refs=refs))
+            _, user_findings = candidate_records.run_async(scan_user_memories(user_id, retrieved_refs=refs))
         except Exception as exc:  # noqa: BLE001
             logger.warning("[evolution-loop] memory scan failed for %s: %s", user_id, exc)
             continue
@@ -114,7 +115,7 @@ def memory_candidates(
         if dry_run:
             created.append({"dry_run": True, "kind": "memory", "user_id": user_id})
             continue
-        candidate_id = candidate_records_module.persist_candidate(
+        candidate_id = candidate_records.persist_candidate(
             ir,
             credit=decision.to_dict(),
             proposer="memory_engine",
@@ -193,7 +194,7 @@ def intent_skill_candidates(
             write_document=True,
         )
         outcome = create_skill_candidate(
-            spec, credit=decision.to_dict(), dry_run=dry_run, run_async=candidate_records_module.run_async
+            spec, credit=decision.to_dict(), dry_run=dry_run, run_async=candidate_records.run_async
         )
         status = outcome.get("status")
         if status == STATUS_NOT_WRITTEN:
@@ -256,7 +257,7 @@ def procedures_for_cluster(
         try:
             from core.memory.service import get_all_memories
 
-            raw = candidate_records_module.run_async(get_all_memories(user_id, top_k=500))
+            raw = candidate_records.run_async(get_all_memories(user_id, top_k=500))
         except Exception as exc:  # noqa: BLE001
             logger.debug("[evolution-loop] procedure lookup failed for %s: %s", user_id, exc)
             continue

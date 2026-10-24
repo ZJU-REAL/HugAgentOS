@@ -1,7 +1,7 @@
-"""message defaults operations."""
+"""Default kind and truncation policy for each message role and block type."""
 from __future__ import annotations
 from typing import Any
-from core.llm.context.ir_state import KIND_ASSISTANT, KIND_ATTACHMENT, KIND_SYSTEM_RULE, KIND_THINKING, KIND_TOOL_CALL, KIND_TOOL_RESULT, KIND_USER_INPUT, POLICY_DROP, POLICY_HEAD_TAIL, POLICY_NEVER
+from core.llm.context.ir_constants import KIND_ASSISTANT, KIND_ATTACHMENT, KIND_SYSTEM_RULE, KIND_THINKING, KIND_TOOL_CALL, KIND_TOOL_RESULT, KIND_USER_INPUT, POLICY_DROP, POLICY_HEAD_TAIL, POLICY_NEVER
 
 def defaults(role: str, block_type: str) -> dict[str, Any]:
     if block_type == "thinking":

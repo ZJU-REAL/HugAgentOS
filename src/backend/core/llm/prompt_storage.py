@@ -1,12 +1,12 @@
-"""prompt storage responsibilities."""
+"""Load and cache the stored prompt pool for this worker."""
 from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
-from core.files.content.content_blocks_state import DEFAULT_PROMPT_VERSIONS, PROMPT_VERSIONS_BLOCK_ID
+from core.files.content.content_blocks_constants import DEFAULT_PROMPT_VERSIONS, PROMPT_VERSIONS_BLOCK_ID
 from core.db.engine import SessionLocal
 from core.db.models import ContentBlock
 from sqlalchemy.orm import Session
-from core.llm import prompt_versions_state as prompt_versions_state_module
+from core.llm import prompt_versions_state
 
 def load_payload(db: Optional[Session] = None) -> Dict[str, Any]:
     """Read the committed pool revision before reusing a worker-local payload.
@@ -27,9 +27,9 @@ def load_payload(db: Optional[Session] = None) -> Dict[str, Any]:
             .first()
         )
         cache_key = (db.get_bind(), tuple(revision) if revision is not None else None)
-        with prompt_versions_state_module.process_state().payload_cache_lock:
-            if prompt_versions_state_module.process_state().payload_cache is not None and prompt_versions_state_module.process_state().payload_cache_key == cache_key:
-                return clone(prompt_versions_state_module.process_state().payload_cache)
+        with prompt_versions_state.process_state().payload_cache_lock:
+            if prompt_versions_state.process_state().payload_cache is not None and prompt_versions_state.process_state().payload_cache_key == cache_key:
+                return clone(prompt_versions_state.process_state().payload_cache)
 
         row = (
             db.query(ContentBlock.updated_at, ContentBlock.payload)
@@ -44,9 +44,9 @@ def load_payload(db: Optional[Session] = None) -> Dict[str, Any]:
         # A write may have committed between the two SELECTs. Cache the revision
         # returned with the payload, never the earlier revision probe.
         cache_key = (db.get_bind(), (row.updated_at,) if row is not None else None)
-        with prompt_versions_state_module.process_state().payload_cache_lock:
-            prompt_versions_state_module.process_state().payload_cache = payload
-            prompt_versions_state_module.process_state().payload_cache_key = cache_key
+        with prompt_versions_state.process_state().payload_cache_lock:
+            prompt_versions_state.process_state().payload_cache = payload
+            prompt_versions_state.process_state().payload_cache_key = cache_key
         return clone(payload)
     finally:
         if own_session:
@@ -88,9 +88,9 @@ def save_payload(
 def invalidate_cache() -> None:
     """Drop this worker's cache; other workers detect the DB revision on read."""
     pass  # State is owned by its responsibility module.
-    with prompt_versions_state_module.process_state().payload_cache_lock:
-        prompt_versions_state_module.process_state().payload_cache = None
-        prompt_versions_state_module.process_state().payload_cache_key = None
+    with prompt_versions_state.process_state().payload_cache_lock:
+        prompt_versions_state.process_state().payload_cache = None
+        prompt_versions_state.process_state().payload_cache_key = None
 
 
 def clone(obj: Any) -> Any:

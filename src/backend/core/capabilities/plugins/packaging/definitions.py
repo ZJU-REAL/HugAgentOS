@@ -1,4 +1,4 @@
-"""Plugin definitions responsibilities."""
+"""Paths, size limits and metadata keys for plugin bundles."""
 
 from __future__ import annotations
 

@@ -180,12 +180,11 @@ async def test_legacy_binding_leaves_validation_to_receiver(monkeypatch):
 
 def test_qr_binding_preserves_user_for_new_and_existing_bot(api, monkeypatch):
     from core.infra.ephemeral import LocalEphemeralState
-    from integrations.channels.service import ChannelService
     from integrations.channels.models import ChannelConnection
 
     state = LocalEphemeralState()
     monkeypatch.setattr("core.infra.ephemeral.get_ephemeral_state", lambda: state)
-    monkeypatch.setattr(ChannelService, "_start_long_conn", lambda *args: None)
+    monkeypatch.setattr("integrations.channels.service._start_long_conn", lambda *args: None)
 
     async def start():
         return {"qrcode": "fixture-qr", "qrcode_img_content": "png"}

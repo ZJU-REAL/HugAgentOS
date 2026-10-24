@@ -55,7 +55,9 @@ async def test_local_skill_uses_login_workspace(tmp_path, monkeypatch):
     file = tmp_path / "login.md"
     file.write_text("cd /home/ubuntu/yida-workspace && openyida login --agent-qr")
     class Tools:
-        def register_tool_function(self, function, **kwargs):
+        def append(self, tool):
+            function = tool._func
+            kwargs = {"func_description": tool.description, "permission": getattr(tool, "dispatch_spec", None)}
             self.read = function
     tools = Tools()
     register_sandboxed_view_text_file(tools, [str(tmp_path)], SimpleNamespace(), user_id="owner")

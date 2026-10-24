@@ -1,77 +1,81 @@
-"""Regression: 「立即执行」必须真的执行。
-
-路由原本直接 `asyncio.create_task(scheduler.execute_task(...))`，在生产的多 worker +
-同步路由下 100% 失败（503 或 `no running event loop`），而定时触发照常——所以这条路径
-必须单独有测试。改成经 `manual_trigger_at` 交接后，这里盯的就是交接本身。
-"""
-
+"""Triggers and durable run acceptance commit or roll back together."""
+import pytest
+from datetime import timedelta
+from sqlalchemy import event
+from core.infra.time import utc_now
+from features.automation.admission import admit
+from features.automation.models import ScheduledTaskRun
 from features.automation.service import AutomationService
 
 
 def _task(db, **kw):
     svc = AutomationService(db)
-    return svc, svc.create_task(
-        user_id="u1",
-        task_type="prompt",
-        prompt="跑一次",
-        cron_expression="30 10 29 6 *",
-        **kw,
-    )
+    return svc, svc.create_task(user_id="u1", task_type="prompt", prompt="run",
+                               cron_expression="30 10 29 6 *", **kw)
 
 
-def test_request_marks_task_and_drain_takes_it_once(db_session):
-    svc, task = _task(db_session)
-    assert task.manual_trigger_at is None
-
-    svc.request_manual_trigger(task)
-    db_session.refresh(task)
-    assert task.manual_trigger_at is not None
-
-    assert svc.take_manual_triggers() == [(task.task_id, "u1")]
-
-    # 取走即清空：第二次排空不能把同一次点击再发一遍。
-    db_session.refresh(task)
-    assert task.manual_trigger_at is None
-    assert svc.take_manual_triggers() == []
-
-
-def test_repeated_clicks_queue_once(db_session):
-    svc, task = _task(db_session)
-    svc.request_manual_trigger(task)
-    svc.request_manual_trigger(task)
-    svc.request_manual_trigger(task)
-
-    assert svc.take_manual_triggers() == [(task.task_id, "u1")]
-
-
-def test_paused_task_can_still_be_queued(db_session):
-    """暂停中的任务允许手动跑一次——状态校验在路由，这里确认交接本身不挑状态。"""
-    svc, task = _task(db_session)
-    svc.pause_task(task.task_id, "u1")
-
-    svc.request_manual_trigger(task)
-    assert svc.take_manual_triggers() == [(task.task_id, "u1")]
-
-
-def test_manual_trigger_does_not_move_the_schedule(db_session):
-    """手动跑一次不该打乱 cron 排期——next_run_at 由调度器推进，这条路径不碰它。"""
+def test_manual_acceptance_is_durable_and_does_not_move_schedule(db_session):
     svc, task = _task(db_session)
     before = task.next_run_at
-
     svc.request_manual_trigger(task)
-    svc.take_manual_triggers()
-    db_session.refresh(task)
-
+    svc.request_manual_trigger(task)
+    ids = admit(db_session, 8)
+    assert len(ids) == 1
+    run = db_session.get(ScheduledTaskRun, ids[0])
+    assert run.status == "pending"
+    assert task.manual_trigger_at is None
+    assert task.run_count == 1
     assert task.next_run_at == before
+    assert admit(db_session, 8) == []
 
 
-def test_bump_run_count_increments_in_place(db_session):
-    """排空时补的计数是原地自增，不是读-改-写，免得和 advance_next_run 互相覆盖。"""
+def test_busy_task_retains_manual_trigger_for_after_completion(db_session):
     svc, task = _task(db_session)
-    assert (task.run_count or 0) == 0
-
-    svc.bump_run_count(task.task_id)
-    svc.bump_run_count(task.task_id)
-    db_session.refresh(task)
-
+    svc.request_manual_trigger(task)
+    run_id = admit(db_session, 8)[0]
+    svc.request_manual_trigger(task)
+    assert admit(db_session, 8) == []
+    assert task.manual_trigger_at is not None
+    db_session.get(ScheduledTaskRun, run_id).status = "success"
+    db_session.commit()
+    assert len(admit(db_session, 8)) == 1
     assert task.run_count == 2
+
+
+def test_paused_task_manual_trigger_is_accepted(db_session):
+    svc, task = _task(db_session)
+    svc.pause_task(task.task_id, "u1")
+    svc.request_manual_trigger(task)
+    assert len(admit(db_session, 8)) == 1
+
+
+@pytest.mark.parametrize("manual", [True, False])
+def test_failed_acceptance_does_not_consume_trigger(db_session, manual):
+    svc, task = _task(db_session, schedule_type="once")
+    task.next_run_at = utc_now() - timedelta(seconds=5)
+    if manual:
+        svc.request_manual_trigger(task)
+    db_session.commit()
+    before = task.next_run_at
+    def fail(*args):
+        raise RuntimeError("storage failed")
+    event.listen(db_session, "before_commit", fail)
+    try:
+        with pytest.raises(RuntimeError):
+            admit(db_session, 8)
+    finally:
+        event.remove(db_session, "before_commit", fail)
+        db_session.rollback()
+    db_session.refresh(task)
+    assert task.run_count == 0
+    assert task.next_run_at == before
+    assert bool(task.manual_trigger_at) == manual
+    assert db_session.query(ScheduledTaskRun).count() == 0
+
+
+def test_admission_is_bounded(db_session):
+    for _ in range(4):
+        svc, task = _task(db_session)
+        svc.request_manual_trigger(task)
+    assert len(admit(db_session, 2)) == 2
+    assert len(admit(db_session, 2)) == 2

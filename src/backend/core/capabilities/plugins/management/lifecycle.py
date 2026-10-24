@@ -1,4 +1,4 @@
-"""Plugin lifecycle responsibilities."""
+"""Uninstall plugins and toggle them or their components, globally or per user."""
 
 from __future__ import annotations
 

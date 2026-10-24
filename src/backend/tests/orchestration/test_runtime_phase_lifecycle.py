@@ -11,7 +11,7 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-from core.agent_runtime import budget, resources, runner, targets
+from core.agent_runtime import budget, runner, targets
 from core.agent_runtime.integrations import evolution, memory
 from core.capabilities.catalog import resolver as catalog_resolver
 from core.llm.citations import anchor as citation_anchor
@@ -113,7 +113,6 @@ def runtime(monkeypatch):
     monkeypatch.setattr(log_writer, 'start_subagent_log', empty)
     monkeypatch.setattr(log_writer, 'finish_subagent_log', finish)
     monkeypatch.setattr(evolution, "_assemble_episode_background", lambda **_: None)
-    monkeypatch.setattr(resources.process_state(), 'persistent_clients', [])
     return observed
 
 

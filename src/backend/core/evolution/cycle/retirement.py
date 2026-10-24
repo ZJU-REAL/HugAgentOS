@@ -1,8 +1,8 @@
-"""retirement responsibilities."""
+"""Find assets to retire and activations that caused negative transfer."""
 from __future__ import annotations
 from typing import Any, Dict, List, Sequence
-from core.evolution.cycle import promotion_state as promotion_state_module
-from core.evolution.cycle import promotion_types as promotion_types_module
+from core.evolution.cycle import promotion_constants
+from core.evolution.cycle import promotion_types
 
 def find_retirement_candidates(
     usage: Dict[str, Dict[str, Any]],
@@ -44,8 +44,8 @@ def find_retirement_candidates(
             out.append(
                 {
                     "asset_id": asset_id,
-                    "reason": promotion_state_module.REASON_HARMFUL,
-                    "action": promotion_state_module.ACTION_ROLLBACK,
+                    "reason": promotion_constants.REASON_HARMFUL,
+                    "action": promotion_constants.ACTION_ROLLBACK,
                     "explanation": (
                         f"成对比较显示有它反而更差（{float(uplift):+.0%}）——"
                         "这是唯一需要立即停止曝光的情况"
@@ -55,20 +55,20 @@ def find_retirement_candidates(
             )
             continue
 
-        if exposure_days < promotion_state_module.MIN_EXPOSURE_DAYS:
+        if exposure_days < promotion_constants.MIN_EXPOSURE_DAYS:
             # Too new to judge. Saying nothing is the honest output; the old
             # rule's answer here was "retire it", which punished every skill for
             # having just shipped.
             continue
 
         if opens == 0:
-            if offers < promotion_state_module.MIN_OFFERS_BEFORE_JUDGING:
+            if offers < promotion_constants.MIN_OFFERS_BEFORE_JUDGING:
                 continue
             out.append(
                 {
                     "asset_id": asset_id,
-                    "reason": promotion_state_module.REASON_NEVER_OPENED,
-                    "action": promotion_state_module.ACTION_LOWER_EXPOSURE,
+                    "reason": promotion_constants.REASON_NEVER_OPENED,
+                    "action": promotion_constants.ACTION_LOWER_EXPOSURE,
                     "explanation": (
                         f"已被挂载 {offers} 次、"
                         # A hand-authored skill has no release record and so no
@@ -87,16 +87,16 @@ def find_retirement_candidates(
             )
             continue
 
-        if opens < promotion_state_module.MIN_OPENS_BEFORE_JUDGING:
+        if opens < promotion_constants.MIN_OPENS_BEFORE_JUDGING:
             continue
 
         follow_through = stats.get("follow_through")
-        if follow_through is not None and float(follow_through) < promotion_state_module.FOLLOW_THROUGH_FLOOR:
+        if follow_through is not None and float(follow_through) < promotion_constants.FOLLOW_THROUGH_FLOOR:
             out.append(
                 {
                     "asset_id": asset_id,
-                    "reason": promotion_state_module.REASON_IGNORED_WHEN_OPENED,
-                    "action": promotion_state_module.ACTION_REWRITE,
+                    "reason": promotion_constants.REASON_IGNORED_WHEN_OPENED,
+                    "action": promotion_constants.ACTION_REWRITE,
                     "explanation": (
                         f"被打开 {opens} 次，但只有 {float(follow_through):.0%} 的情况"
                         "后续动作真的照它说的做——文档本身需要重写，不是该退役"
@@ -107,12 +107,12 @@ def find_retirement_candidates(
             continue
 
         success_rate = float(stats.get("success_rate", 0.0) or 0.0)
-        if success_rate < promotion_state_module.SUCCESS_FLOOR:
+        if success_rate < promotion_constants.SUCCESS_FLOOR:
             out.append(
                 {
                     "asset_id": asset_id,
-                    "reason": promotion_state_module.REASON_LOW_SUCCESS,
-                    "action": promotion_state_module.ACTION_RETIRE,
+                    "reason": promotion_constants.REASON_LOW_SUCCESS,
+                    "action": promotion_constants.ACTION_RETIRE,
                     "explanation": (
                         f"被打开 {opens} 次、照做了，但成功率只有 {success_rate:.0%}"
                     ),
@@ -129,7 +129,7 @@ def detect_negative_transfer(
     before: Dict[str, float],
     after: Dict[str, float],
     threshold: float = 0.05,
-) -> List[promotion_types_module.NegativeTransfer]:
+) -> List[promotion_types.NegativeTransfer]:
     """Find task types that got worse after an activation *and are unrelated to it*.
 
     Only unrelated tasks are examined. A dip on the task the change targeted is
@@ -139,7 +139,7 @@ def detect_negative_transfer(
     changes.
     """
     related = set(related_task_types)
-    findings: List[promotion_types_module.NegativeTransfer] = []
+    findings: List[promotion_types.NegativeTransfer] = []
     for task_type, after_value in (after or {}).items():
         if task_type in related:
             continue
@@ -148,7 +148,7 @@ def detect_negative_transfer(
             continue
         if before_value - after_value >= threshold:
             findings.append(
-                promotion_types_module.NegativeTransfer(
+                promotion_types.NegativeTransfer(
                     asset_id=asset_id,
                     task_type=task_type,
                     before=before_value,

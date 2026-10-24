@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from features.workbench import activity, background
 from core.auth.backend import UserContext, require_auth
 from core.db.engine import get_db
+from core.db.threads import run_in_session
 from core.infra.responses import success_response
 
 
@@ -44,6 +45,14 @@ def private(response: Response):
     response.headers["Cache-Control"] = "private, no-store"
 
 
+def _check_declared(db, user_id, key, instance_id, capabilities):
+    _, row, item = activity.authorize(db, user_id, key, instance_id)
+    if set(capabilities) - activity.declared(item, db, user_id, row.get("moduleId")):
+        from features.workbench.external import fail
+
+        fail(403, "capability_not_declared")
+
+
 def routes(route_class, json_write):
     router = APIRouter(
         route_class=route_class, dependencies=[Depends(require_auth()), Depends(private)]
@@ -54,11 +63,10 @@ def routes(route_class, json_write):
     async def projection(
         response: Response,
         user: UserContext = Depends(require_auth()),
-        db: Session = Depends(get_db),
     ):
         response.headers["Cache-Control"] = "private, no-store"
-        await background.reconcile(db, user.user_id)
-        return success_response(data=activity.projection(db, user.user_id))
+        await background.reconcile(user.user_id)
+        return success_response(data=await run_in_session(activity.projection, user.user_id))
 
     @router.post(path, dependencies=[Depends(json_write)])
     def register(
@@ -97,17 +105,14 @@ def routes(route_class, json_write):
         instance_id: str,
         body: Consent,
         user: UserContext = Depends(require_auth()),
-        db: Session = Depends(get_db),
     ):
-        _, row, item = activity.authorize(db, user.user_id, key, instance_id)
-        if set(body.capabilities) - activity.declared(item, db, user.user_id, row.get("moduleId")):
-            from features.workbench.external import fail
-
-            fail(403, "capability_not_declared")
+        await run_in_session(_check_declared, user.user_id, key, instance_id, body.capabilities)
         if "background" not in body.capabilities:
-            await background.stop_all(db, user.user_id, application_key=key)
+            await background.stop_all(user.user_id, application_key=key)
         return success_response(
-            data=activity.consent(db, user.user_id, key, instance_id, body.capabilities)
+            data=await run_in_session(
+                activity.consent, user.user_id, key, instance_id, body.capabilities
+            )
         )
 
     @router.put(path + "/badge", dependencies=[Depends(json_write)])
@@ -161,10 +166,9 @@ def routes(route_class, json_write):
         instance_id: str,
         body: Background,
         user: UserContext = Depends(require_auth()),
-        db: Session = Depends(get_db),
     ):
         return success_response(
-            data=await background.start(db, user.user_id, key, instance_id, body.resourceId)
+            data=await background.start(user.user_id, key, instance_id, body.resourceId)
         )
 
     @router.post(path + "/background/{resource_id}/lease", dependencies=[Depends(json_write)])
@@ -173,10 +177,9 @@ def routes(route_class, json_write):
         instance_id: str,
         resource_id: str,
         user: UserContext = Depends(require_auth()),
-        db: Session = Depends(get_db),
     ):
         return success_response(
-            data=await background.renew(db, user.user_id, key, instance_id, resource_id)
+            data=await background.renew(user.user_id, key, instance_id, resource_id)
         )
 
     @router.delete(path + "/background/{resource_id}")
@@ -185,9 +188,8 @@ def routes(route_class, json_write):
         instance_id: str,
         resource_id: str,
         user: UserContext = Depends(require_auth()),
-        db: Session = Depends(get_db),
     ):
-        await background.stop(db, user.user_id, key, instance_id, resource_id)
+        await background.stop(user.user_id, key, instance_id, resource_id)
         return success_response(data={})
 
     return router

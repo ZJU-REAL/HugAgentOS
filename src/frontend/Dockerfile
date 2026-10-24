@@ -29,7 +29,6 @@ COPY packages/workbench-protocol /build/packages/workbench-protocol
 COPY packages/workbench-sdk /build/packages/workbench-sdk
 COPY packages/chat-sdk /build/packages/chat-sdk
 RUN cd /build/packages/chat-sdk && npm ci --ignore-scripts && npm run build
-COPY examples/customer-chat /build/examples/customer-chat
 
 # Install dependencies (including dev dependencies for build)
 RUN npm ci

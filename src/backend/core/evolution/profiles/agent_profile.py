@@ -1,8 +1,8 @@
-"""agent profile responsibilities."""
+"""Agent profiles: one ReAct configuration expressed as data, with validation."""
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
-from core.evolution.profiles import agent_profile_state as agent_profile_state_module
+from core.evolution.profiles import agent_profile_constants
 
 @dataclass
 class InterventionRule:
@@ -85,7 +85,7 @@ class AgentProfile:
     # 0 = 不限（默认）。See UNBOUNDED_REACT_TURNS: the main agent's round ceiling
     # was removed, so a turn budget here is an opt-in narrowing a published
     # profile performs deliberately, not a floor every profile inherits.
-    max_react_turns: int = agent_profile_state_module.UNBOUNDED_REACT_TURNS
+    max_react_turns: int = agent_profile_constants.UNBOUNDED_REACT_TURNS
     budget_multiplier: float = 1.0
     reviewer_checkpoints: List[str] = field(default_factory=list)
     intervention_rules: List[InterventionRule] = field(default_factory=list)
@@ -135,7 +135,7 @@ class AgentProfile:
             # Missing key → unbounded, not an invented ceiling: a profile
             # published for unrelated reasons (tool allowlist, memory budget)
             # must not silently re-fence the main loop.
-            max_react_turns=int(raw.get("max_react_turns") or agent_profile_state_module.UNBOUNDED_REACT_TURNS),
+            max_react_turns=int(raw.get("max_react_turns") or agent_profile_constants.UNBOUNDED_REACT_TURNS),
             budget_multiplier=float(raw.get("budget_multiplier") or 1.0),
             reviewer_checkpoints=[str(c) for c in (raw.get("reviewer_checkpoints") or [])],
             intervention_rules=[
@@ -166,15 +166,15 @@ def builtin_profile() -> AgentProfile:
         # The main agent's runtime default, reproduced exactly — which is now
         # "no cap". This field only bounds the loop when a published profile
         # sets it on purpose.
-        max_react_turns=agent_profile_state_module.UNBOUNDED_REACT_TURNS,
+        max_react_turns=agent_profile_constants.UNBOUNDED_REACT_TURNS,
         budget_multiplier=1.0,
         loop_max_attempts_per_requirement=6,
         loop_strategy_change_after=2,
         intervention_rules=[
-            InterventionRule(agent_profile_state_module.SIGNAL_NO_PROGRESS, 2, agent_profile_state_module.ACTION_CHANGE_STRATEGY),
-            InterventionRule(agent_profile_state_module.SIGNAL_REPEATED_ACTIONS, 3, agent_profile_state_module.ACTION_NARROW_SCOPE),
-            InterventionRule(agent_profile_state_module.SIGNAL_TOOL_ERROR_STREAK, 3, agent_profile_state_module.ACTION_CHANGE_STRATEGY),
-            InterventionRule(agent_profile_state_module.SIGNAL_BUDGET_LOW, 1, agent_profile_state_module.ACTION_ESCALATE),
+            InterventionRule(agent_profile_constants.SIGNAL_NO_PROGRESS, 2, agent_profile_constants.ACTION_CHANGE_STRATEGY),
+            InterventionRule(agent_profile_constants.SIGNAL_REPEATED_ACTIONS, 3, agent_profile_constants.ACTION_NARROW_SCOPE),
+            InterventionRule(agent_profile_constants.SIGNAL_TOOL_ERROR_STREAK, 3, agent_profile_constants.ACTION_CHANGE_STRATEGY),
+            InterventionRule(agent_profile_constants.SIGNAL_BUDGET_LOW, 1, agent_profile_constants.ACTION_ESCALATE),
         ],
     )
 
@@ -220,38 +220,38 @@ def validate_profile(
             problems.append(f"路由指向不存在的子智能体: {route.agent_id}")
 
     for rule in profile.intervention_rules:
-        if rule.signal not in agent_profile_state_module.ALLOWED_SIGNALS:
+        if rule.signal not in agent_profile_constants.ALLOWED_SIGNALS:
             problems.append(f"未知信号 {rule.signal}")
-        if rule.action not in agent_profile_state_module.ALLOWED_ACTIONS:
+        if rule.action not in agent_profile_constants.ALLOWED_ACTIONS:
             problems.append(f"未知动作 {rule.action}")
         if rule.threshold < 1:
             problems.append(f"{rule.signal} 阈值必须 ≥1（0 会让干预立刻触发）")
 
-    if not (agent_profile_state_module.MIN_BUDGET_MULTIPLIER <= profile.budget_multiplier <= agent_profile_state_module.MAX_BUDGET_MULTIPLIER):
+    if not (agent_profile_constants.MIN_BUDGET_MULTIPLIER <= profile.budget_multiplier <= agent_profile_constants.MAX_BUDGET_MULTIPLIER):
         problems.append(
             f"预算倍数 {profile.budget_multiplier} 超出 "
-            f"[{agent_profile_state_module.MIN_BUDGET_MULTIPLIER}, {agent_profile_state_module.MAX_BUDGET_MULTIPLIER}]"
+            f"[{agent_profile_constants.MIN_BUDGET_MULTIPLIER}, {agent_profile_constants.MAX_BUDGET_MULTIPLIER}]"
         )
-    if profile.max_react_turns != agent_profile_state_module.UNBOUNDED_REACT_TURNS and not (
-        agent_profile_state_module.MIN_REACT_TURNS <= profile.max_react_turns <= agent_profile_state_module.MAX_REACT_TURNS
+    if profile.max_react_turns != agent_profile_constants.UNBOUNDED_REACT_TURNS and not (
+        agent_profile_constants.MIN_REACT_TURNS <= profile.max_react_turns <= agent_profile_constants.MAX_REACT_TURNS
     ):
         problems.append(
             f"最大轮数 {profile.max_react_turns} 超出 "
-            f"[{agent_profile_state_module.MIN_REACT_TURNS}, {agent_profile_state_module.MAX_REACT_TURNS}]（{agent_profile_state_module.UNBOUNDED_REACT_TURNS} 表示不限）"
+            f"[{agent_profile_constants.MIN_REACT_TURNS}, {agent_profile_constants.MAX_REACT_TURNS}]（{agent_profile_constants.UNBOUNDED_REACT_TURNS} 表示不限）"
         )
-    if not (agent_profile_state_module.MIN_MEMORY_BUDGET_MS <= profile.memory_budget_ms <= agent_profile_state_module.MAX_MEMORY_BUDGET_MS):
+    if not (agent_profile_constants.MIN_MEMORY_BUDGET_MS <= profile.memory_budget_ms <= agent_profile_constants.MAX_MEMORY_BUDGET_MS):
         problems.append(
             f"记忆检索预算 {profile.memory_budget_ms}ms 超出 "
-            f"[{agent_profile_state_module.MIN_MEMORY_BUDGET_MS}, {agent_profile_state_module.MAX_MEMORY_BUDGET_MS}]"
+            f"[{agent_profile_constants.MIN_MEMORY_BUDGET_MS}, {agent_profile_constants.MAX_MEMORY_BUDGET_MS}]"
         )
     if not (
-        agent_profile_state_module.MIN_LOOP_ATTEMPTS
+        agent_profile_constants.MIN_LOOP_ATTEMPTS
         <= profile.loop_max_attempts_per_requirement
-        <= agent_profile_state_module.MAX_LOOP_ATTEMPTS
+        <= agent_profile_constants.MAX_LOOP_ATTEMPTS
     ):
         problems.append(
             f"单需求最大尝试次数 {profile.loop_max_attempts_per_requirement} 超出 "
-            f"[{agent_profile_state_module.MIN_LOOP_ATTEMPTS}, {agent_profile_state_module.MAX_LOOP_ATTEMPTS}]"
+            f"[{agent_profile_constants.MIN_LOOP_ATTEMPTS}, {agent_profile_constants.MAX_LOOP_ATTEMPTS}]"
         )
     if profile.loop_strategy_change_after < 1:
         problems.append("换策略阈值必须 ≥1（0 会让每一轮都换策略）")

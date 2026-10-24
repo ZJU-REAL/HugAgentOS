@@ -13,11 +13,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.mcpserver import Context, MCPServer
 
 from extensions.mcp_servers.automation_task_mcp import impl
 
-mcp = FastMCP("hugagent-automation-task")
+mcp = MCPServer("hugagent-automation-task")
 
 _HDR_USER = "x-current-user-id"
 _HDR_CHANNEL = "x-channel-id"

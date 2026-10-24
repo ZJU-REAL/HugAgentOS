@@ -1,21 +1,21 @@
-"""prompt rendering responsibilities."""
+"""Render the active prompt version, or the file defaults, into text."""
 from __future__ import annotations
-from core.llm import prompt_versions as prompt_versions_module_
+from core.llm import prompt_versions
 from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 import logging
+from core.llm import prompt_files
+from core.llm import prompt_kinds
+from core.llm import prompt_versions_state
+
 logger = logging.getLogger(__name__)
-from core.llm import prompt_files as prompt_files_module
-from core.llm import prompt_kinds as prompt_kinds_module
-from core.llm import prompt_versions as prompt_versions_module
-from core.llm import prompt_versions_state as prompt_versions_state_module
 
 def render_active_prompt(kind: str, db: Optional[Session] = None) -> Optional[str]:
     """Concatenate enabled parts of the active version into a single string.
 
     Returns None if no active version exists in DB (caller should fall back).
     """
-    v = prompt_versions_module_.get_active_version(kind, db=db)
+    v = prompt_versions.get_active_version(kind, db=db)
     if not v:
         return None
     parts = v.get("parts") or []
@@ -44,7 +44,7 @@ def render_active_prompt_part(
     receive the wrong prompt.
     Returns None if no active version / no match (caller falls back to fs).
     """
-    v = prompt_versions_module_.get_active_version(kind, db=db)
+    v = prompt_versions.get_active_version(kind, db=db)
     if not v:
         return None
     parts = v.get("parts") or []
@@ -90,11 +90,11 @@ def render_kind_segment(
             return rendered
     except Exception:
         logger.debug("render %s active prompt failed", kind, exc_info=True)
-    if not fs_fallback or kind not in prompt_kinds_module.KIND_SPECS:
+    if not fs_fallback or kind not in prompt_kinds.KIND_SPECS:
         return ""
     chunks = [
         (p.get("content") or "").strip()
-        for p in prompt_files_module.read_fs_parts(kind)
+        for p in prompt_files.read_fs_parts(kind)
         if p.get("is_enabled", True)
         and (p.get("content") or "").strip()
         and (p.get("part_id") or "") not in skip
@@ -106,7 +106,7 @@ def render_active_parts(kind: str, *, db: Optional[Session], skip: set) -> Optio
     """激活版本的正文，按 ``skip`` 剔除若干段。``skip`` 为空时等同 render_active_prompt。"""
     if not skip:
         return render_active_prompt(kind, db=db)
-    version = prompt_versions_module_.get_active_version(kind, db=db)
+    version = prompt_versions.get_active_version(kind, db=db)
     if not version:
         return None
     chunks = [
@@ -124,14 +124,14 @@ def render_turbo_system_prompt(db: Optional[Session] = None) -> str:
 
     极速模式不做常规装配：智能体只带检索类工具，默认提示词的工具/流程段都不适用。
     """
-    return render_kind_segment("turbo", db=db) or prompt_versions_state_module.TURBO_LAST_RESORT
+    return render_kind_segment("turbo", db=db) or prompt_versions_state.TURBO_LAST_RESORT
 
 
 def effective_parts(kind: str, db: Optional[Session] = None) -> List[Dict[str, Any]]:
     """Read the active version, with whole-version filesystem fallback only."""
     try:
-        version = prompt_versions_module_.get_active_version(kind, db=db)
+        version = prompt_versions.get_active_version(kind, db=db)
     except Exception:
         logger.warning("Prompt version unavailable for %s; using filesystem", kind, exc_info=True)
         version = None
-    return version.get("parts", []) if version is not None else prompt_files_module.read_fs_parts(kind)
+    return version.get("parts", []) if version is not None else prompt_files.read_fs_parts(kind)

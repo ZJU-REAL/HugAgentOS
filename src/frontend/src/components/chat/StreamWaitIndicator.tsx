@@ -4,7 +4,6 @@ import { EASE } from '../../utils/motionTokens';
 
 interface StreamWaitIndicatorProps {
   signature: string | number;
-  forceWait?: boolean;
   suppressed?: boolean;
   stallMs?: number;
   anchorTs?: number;
@@ -20,7 +19,6 @@ const STATE_MOTION = {
 /** Show streaming dots during output; silent waits add no text or timer. */
 export function StreamWaitIndicator({
   signature,
-  forceWait,
   suppressed,
   stallMs = 2500,
   anchorTs,
@@ -30,7 +28,7 @@ export function StreamWaitIndicator({
 
   return (
     <AnimatePresence mode="wait" initial={false}>
-      {!forceWait && !stall.waiting ? (
+      {!stall.waiting ? (
         <motion.span key="dots" className="jx-streamingIndicator" aria-hidden="true" {...STATE_MOTION}>
           <span className="jx-streamingDot" />
           <span className="jx-streamingDot" />

@@ -25,7 +25,7 @@ The controller needs no host FUSE mount or shared-propagation directory.
 
 ## Local S3 service (CE / EE)
 
-Add docker/compose.object-storage.yml to COMPOSE_FILE.
+Add docker/object-storage/compose.object-storage.yml to COMPOSE_FILE.
 Set S3_ENDPOINT=http://object-storage:9000 and S3_BUCKET=hugagent-files.
 Generate separate random S3_ACCESS_KEY and S3_SECRET_KEY values.
 Store credentials in a protected environment file with mode 600.
@@ -48,8 +48,6 @@ Test upload, download and listing with an editor account.
 Confirm that a read-only account cannot write or delete.
 Revoke team access and confirm that the directory is unavailable.
 
-Local S3 has passed isolated MinIO, controller, sandbox and browser tests.
-Live OSS and OBS mounts need verification in dedicated test buckets.
 Object-store directory moves use multiple object operations. They are not atomic filesystem renames.
 
 ## File page
@@ -101,4 +99,4 @@ Missing, expired, or changed-argument tickets cannot send a gateway request.
 Desktop rollout requires the bundled backend, cloud backend, and a refreshed
 capability manifest.
 
-The object-storage image uses checksum-pinned binaries from the official MinIO GitHub release. Docker builds this image from docker/Dockerfile.object-storage. Existing Milvus images and volumes are separate.
+The object-storage image uses checksum-pinned binaries from the official MinIO GitHub release. Docker builds this image from docker/object-storage/Dockerfile.object-storage. Existing Milvus images and volumes are separate.

@@ -22,7 +22,9 @@ class FakeToolkit:
     def __init__(self):
         self.tools = {}
 
-    def register_tool_function(self, fn, **_kwargs):
+    def append(self, tool):
+        fn = tool._func
+        _kwargs = {"func_description": tool.description, "permission": getattr(tool, "dispatch_spec", None)}
         self.tools[fn.__name__] = fn
 
 
@@ -37,15 +39,7 @@ def wired(tmp_path, monkeypatch):
     engine = create_engine(
         f"sqlite:///{tmp_path / 'tool.db'}", connect_args={"check_same_thread": False}
     )
-    Base.metadata.create_all(
-        engine,
-        tables=[
-            ChatSession.__table__,
-            ChatMessage.__table__,
-            ChatCompactionState.__table__,
-            Project.__table__,
-        ],
-    )
+    Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
     with Session() as db:
         db.add_all(

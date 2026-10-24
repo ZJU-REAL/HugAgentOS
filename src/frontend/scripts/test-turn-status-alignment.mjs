@@ -45,7 +45,7 @@ try{
  await page.goto('http://127.0.0.1:'+server.address().port);
  await page.waitForSelector('#message .jx-turnStatusText');
  const measure=selector=>page.locator(selector).evaluate(el=>{
-  const row=el.querySelector('.jx-turnStatusRow'),mark=el.querySelector('.jx-turnStatusMark'),text=el.querySelector('.jx-turnStatusText');
+  const row=el.querySelector('.jx-turnStatusRow'),mark=el.querySelector('.jx-agentSlot,.jx-turnStatusMark'),text=el.querySelector('.jx-turnStatusText');
   const r=row.getBoundingClientRect(),m=mark.getBoundingClientRect(),t=text.getBoundingClientRect(),s=getComputedStyle(text);
   return {rowHeight:r.height,markX:m.x-r.x,markY:m.y-r.y,markWidth:m.width,markHeight:m.height,textX:t.x,textY:t.y,textHeight:t.height,fontSize:s.fontSize,fontWeight:s.fontWeight,lineHeight:s.lineHeight};
  });

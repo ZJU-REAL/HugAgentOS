@@ -2,13 +2,13 @@
 from __future__ import annotations
 import asyncio
 import logging
+from dataclasses import dataclass, field
 
 from core.db import engine as db_engine
 from core.db.models import ChatMessage, ChatSession
 from core.models.completions.summarizer import get_summarizer
 
 logger = logging.getLogger(__name__)
-
 
 
 def _claim(chat_id: str, user_id: str, run_id: str) -> str | None:
@@ -110,17 +110,13 @@ def schedule_first_title(chat_id: str, user_id: str, run_id: str) -> asyncio.Tas
     return task
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class TitlesState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    tasks: set[asyncio.Task] = state_field(default_factory=lambda: set())
+    tasks: set[asyncio.Task] = field(default_factory=lambda: set())
 
-@state_cache(maxsize=1)
+
+_STATE = TitlesState()
+
+
 def process_state() -> TitlesState:
-    return TitlesState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

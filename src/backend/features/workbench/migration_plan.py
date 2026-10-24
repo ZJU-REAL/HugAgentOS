@@ -8,7 +8,7 @@ from features.workbench import external, preferences
 from features.workbench.catalog import BUILTINS
 from features.workbench.migration_snapshot import digest
 from features.workbench.protocol import validate_application
-from core.files.content.content_blocks_state import DEFAULT_PAGE_CONFIG
+from core.files.content.content_blocks_constants import DEFAULT_PAGE_CONFIG
 from fastapi import HTTPException
 
 FIXED = {"chat", "settings", "docs", "plan_mode"}

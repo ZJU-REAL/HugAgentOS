@@ -56,7 +56,6 @@ def test_rerun_model_and_mode_survive_admission(monkeypatch, tmp_path, operation
                     "chat-1",
                     models.EditAndResendRequest(message_index=0, new_content="short", **options),
                     user=_user(),
-                    db=db,
                 )
             )
         else:
@@ -65,7 +64,6 @@ def test_rerun_model_and_mode_survive_admission(monkeypatch, tmp_path, operation
                     "chat-1",
                     models.RegenerateRequest(message_index=1, **options),
                     user=_user(),
-                    db=db,
                 )
             )
     with Session() as db:
@@ -82,7 +80,7 @@ def test_rerun_model_and_mode_survive_admission(monkeypatch, tmp_path, operation
         with Session() as db:
             asyncio.run(
                 reruns.regenerate_message(
-                    "chat-1", models.RegenerateRequest(message_index=1), user=_user(), db=db
+                    "chat-1", models.RegenerateRequest(message_index=1), user=_user()
                 )
             )
         with Session() as db:

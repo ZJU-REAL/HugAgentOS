@@ -1,11 +1,11 @@
-"""provider conversion operations."""
+"""Carry context provenance through provider-formatted messages."""
 from __future__ import annotations
 from core.models.constants import PROVIDER_CONTEXT_META_KEY
 from typing import Any, Iterable, Mapping, Sequence
 from agentscope.message import Msg
 from core.infra.immutable import thaw_json
 from core.harness.execution_manifest import stable_hash
-from core.llm.context.ir_state import CONTEXT_SEQUENCE_STRIDE, KIND_ASSISTANT, KIND_ATTACHMENT, KIND_SYSTEM_RULE, KIND_TOOL_CALL, KIND_TOOL_RESULT, KIND_USER_INPUT, POLICY_NEVER, VISIBILITY_MODEL
+from core.llm.context.ir_constants import CONTEXT_SEQUENCE_STRIDE, KIND_ASSISTANT, KIND_ATTACHMENT, KIND_SYSTEM_RULE, KIND_TOOL_CALL, KIND_TOOL_RESULT, KIND_USER_INPUT, POLICY_NEVER, VISIBILITY_MODEL
 from core.llm.context.items import ContextItem
 from core.llm.context.content import estimate_context_tokens
 

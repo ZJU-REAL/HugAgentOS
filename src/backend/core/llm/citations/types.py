@@ -1,4 +1,4 @@
-"""types responsibilities."""
+"""Citation item and per-tool extraction spec types."""
 from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, Optional, Tuple
@@ -18,8 +18,6 @@ class AnchorCitation:
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
-
-
 
 
 DEFAULT_TITLE_KEYS: Tuple[str, ...] = (

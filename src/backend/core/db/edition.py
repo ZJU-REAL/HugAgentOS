@@ -2,6 +2,8 @@
 from core.db.personal_model_fields import ProjectEditionFields, project_edition_table_args, ArtifactEditionFields, artifact_edition_table_args, UserAgentEditionFields, user_agent_edition_table_args, ChatSessionEditionFields, chat_session_edition_table_args, MarketplaceListingEditionFields, EDITION_MODEL_EXPORTS
 from core.db.personal_schema import ce_create_all, ce_reconcile_schema
 
+EDITION_MODEL_NAMES = ()
+
 
 def personal_artifact_scope_fields() -> dict[str, None]:
     return {}

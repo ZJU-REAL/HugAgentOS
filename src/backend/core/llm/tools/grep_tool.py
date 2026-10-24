@@ -7,7 +7,7 @@ Three output_modes (aligned with Claude Code):
 """
 
 from __future__ import annotations
-from core.files.edition import is_shared_scope
+from core.llm.factory.tools.definitions import function_tool
 
 import logging
 from typing import Optional
@@ -177,5 +177,5 @@ def register_grep(
         "             num_matches, truncated}``。\n"
     )
 
-    toolkit.register_tool_function(Grep, namesake_strategy="override")
+    toolkit.append(function_tool(Grep))
     logger.info("[factory] Registered Grep tool (chat_id=%s)", chat_id)

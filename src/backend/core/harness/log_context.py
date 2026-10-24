@@ -1,4 +1,4 @@
-"""log context responsibilities."""
+"""Shared helpers for call logs: ids, truncation and the current log scope."""
 from __future__ import annotations
 import json
 import os

@@ -9,6 +9,7 @@
 """
 
 from __future__ import annotations
+from core.llm.factory.tools.definitions import function_tool
 
 import asyncio
 import logging
@@ -89,5 +90,5 @@ def register_chat_history_tools(
 
     list_related_chats.__doc__ = (list_related_chats.__doc__ or "").format(scope=scope_hint)
 
-    toolkit.register_tool_function(list_related_chats)
-    toolkit.register_tool_function(read_chat)
+    toolkit.append(function_tool(list_related_chats))
+    toolkit.append(function_tool(read_chat))

@@ -12,10 +12,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.db.models import Artifact, UserFolder
-from core.db.repository import ArtifactRepository, AuditLogRepository
-from core.files.edition import personal_artifact_create_fields
-from core.db.artifact_scope import is_personal_artifact
+from core.db.models import UserFolder
+from core.db.repository import AuditLogRepository
 from core.files.storage import get_storage
 from sqlalchemy.orm import Session
 

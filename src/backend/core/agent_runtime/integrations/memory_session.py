@@ -1,15 +1,14 @@
-"""memory session responsibilities."""
+"""Open, assemble and inject the chat's session-frozen memory and identity blocks."""
 from __future__ import annotations
-from core.agent_runtime.integrations import memory as memory_module_
+from core.agent_runtime.integrations import memory
 import asyncio
 from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Optional
-from core.llm.context.ir_state import KIND_IDENTITY, KIND_MEMORY, SESSION_CONTEXT_META_KEY
+from core.llm.context.ir_constants import KIND_IDENTITY, KIND_MEMORY, SESSION_CONTEXT_META_KEY
 from core.llm.context.items import make_text_context_item
 from core.memory.session_snapshot import SessionMemorySnapshot, load_session_memory_snapshot, save_session_memory_snapshot
 import logging
 logger = logging.getLogger(__name__)
-from core.agent_runtime.integrations import memory as memory_module
 
 @dataclass(frozen=True)
 class SessionMemory:
@@ -70,7 +69,7 @@ async def open_session_memory(
         )
         return replace(handle, snapshot=snapshot)
 
-    task = await memory_module_.launch_memory_retrieval(
+    task = await memory.launch_memory_retrieval(
         scope_user_id,
         user_message,
         memory_enabled,
@@ -95,7 +94,7 @@ async def resolve_session_memory(handle: SessionMemory) -> str:
     if handle.snapshot is not None:
         return handle.snapshot.text
 
-    built = await memory_module_.build_frozen_memory_block(
+    built = await memory.build_frozen_memory_block(
         handle.scope_user_id,
         handle.workspace_id,
         handle.retrieval_task,

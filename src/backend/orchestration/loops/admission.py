@@ -4,12 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-import core.db.engine as engine
 import core.runs.ownership as ownership
-import core.runs.runtime as runtime
-import orchestration.loops.run as _orchestration_loops_run
 from core.db.models import ChatRun
 from core.infra.logging import get_logger
+from core.db.threads import run_in_session
 
 logger = get_logger(__name__)
 
@@ -31,6 +29,7 @@ async def start_autonomous_loop_run(
     is_resume: bool = False,
     project_id: Optional[str] = None,
     automation_run: bool = False,
+    on_accept=None,
 ) -> ChatRun:
     """Start an autonomous-loop run (background task + Redis Stream, mirroring start_plan_execute_run)."""
     if not chat_id:
@@ -61,7 +60,7 @@ async def start_autonomous_loop_run(
     try:
         from features.automation.loops import LoopService as _LoopSvc
 
-        with engine.SessionLocal() as db:
+        def _save_start_params(db):
             _LoopSvc(db).save_start_params(
                 loop_id,
                 {
@@ -75,14 +74,32 @@ async def start_autonomous_loop_run(
                     "automation_run": automation_run,
                 },
             )
+        await run_in_session(_save_start_params)
     except Exception:  # noqa: BLE001 - 参数存档失败不阻塞启动
         logger.warning("loop start_params persist failed", exc_info=True)
+    initial_args = {
+        "loop_id": loop_id,
+        "goal_spec": goal_spec,
+        "budget": budget,
+        "model_name": model_name,
+        "model_provider_id": model_provider_id,
+        "evaluator_model": evaluator_model,
+        "worker_max_iters": worker_max_iters,
+        "hitl_enabled": hitl_enabled,
+        "enable_thinking": enable_thinking,
+        "chat_mode": chat_mode,
+        "is_resume": is_resume,
+        "project_id": project_id,
+        "automation_run": automation_run,
+    }
     run = ownership.create_run_record(
+        on_accept=on_accept,
         chat_id=chat_id,
         user_id=user_id,
         request_payload=request_payload,
         recovery_snapshot={
             "kind": "autonomous_loop",
+            "initial_args": initial_args,
             "worker_args": {
                 "context": {
                     "model_name": model_name,
@@ -94,31 +111,8 @@ async def start_autonomous_loop_run(
             },
         },
     )
-    journal_owner = ownership.new_worker_owner(run.run_id)
-    runtime.register_run_task(
-        run.run_id,
-        _orchestration_loops_run._run_autonomous_loop_workflow(
-            run_id=run.run_id,
-            loop_id=loop_id,
-            chat_id=chat_id,
-            user_id=user_id,
-            message_id=run.message_id,
-            goal_spec=goal_spec,
-            budget=budget,
-            model_name=model_name,
-            model_provider_id=model_provider_id,
-            evaluator_model=evaluator_model,
-            worker_max_iters=worker_max_iters,
-            hitl_enabled=hitl_enabled,
-            enable_thinking=enable_thinking,
-            chat_mode=chat_mode,
-            is_resume=is_resume,
-            project_id=project_id,
-            automation_run=automation_run,
-            journal_owner=journal_owner,
-        ),
-        name=f"autoloop_run:{run.run_id}",
-    )
+    from orchestration.pending import dispatch_pending
+    await dispatch_pending(run)
     logger.info(
         "autonomous_loop_run_started",
         run_id=run.run_id,

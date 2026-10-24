@@ -9,6 +9,7 @@ from starlette.requests import ClientDisconnect
 from core.auth.capabilities import resolve_user_capabilities
 from core.auth.backend import UserContext, require_auth
 from core.db.engine import get_db
+from core.db.threads import run_in_session
 from core.infra.responses import success_response
 from core.chat.audio_transcription import MAX_BYTES, MAX_SECONDS, resolve_audio_model, transcribe, validate_wav
 
@@ -47,11 +48,13 @@ async def _until_disconnect(request: Request):
 
 
 @router.post("/transcriptions")
-async def audio_transcription(request: Request,
-        user: UserContext = Depends(require_auth()), db: Session = Depends(get_db)):
-    if not _can_use_voice(user, db):
-        raise HTTPException(403, "未开通语音输入权限，请联系管理员")
-    model = resolve_audio_model(db)
+async def audio_transcription(request: Request, user: UserContext = Depends(require_auth())):
+    def admit(db: Session):
+        if not _can_use_voice(user, db):
+            raise HTTPException(403, "未开通语音输入权限，请联系管理员")
+        return resolve_audio_model(db)
+
+    model = await run_in_session(admit)
     if model is None:
         raise HTTPException(503, "尚未配置音频转写模型，请管理员在模型管理中配置")
     user_key = f"{user.user_id}:{user.public_chat_visitor or ''}"

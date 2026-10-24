@@ -1,4 +1,4 @@
-"""chat responsibilities."""
+"""ORM models for chat sessions, messages and compaction state, plus sequence allocation."""
 from __future__ import annotations
 from core.db.utc_datetime import UTCDateTime
 from core.infra.time import utc_now
@@ -8,7 +8,7 @@ from core.db.edition import ChatSessionEditionFields, chat_session_edition_table
 from sqlalchemy import JSON, BigInteger, Boolean, CheckConstraint, Column, Computed, ForeignKey, Index, Integer, String, Text, UniqueConstraint, event, case, func, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import deferred, relationship
-from core.db.models import chat_state as chat_state_module
+from core.db.models.column_types import JSONType
 
 class ChatSession(ChatSessionEditionFields, Base):
     """Chat session table."""
@@ -31,7 +31,7 @@ class ChatSession(ChatSessionEditionFields, Base):
     favorite = Column(Boolean, default=False)
     archived = Column(Boolean, default=False)
     deleted_at = Column(UTCDateTime(timezone=True))
-    extra_data = Column("metadata", chat_state_module.JSONType, default={})
+    extra_data = Column("metadata", JSONType, default={})
     # Project mode: the chat is mounted on a specific project (NULL = ordinary chat)
     project_id = Column(
         String(64),
@@ -118,8 +118,8 @@ class ChatMessage(Base):
     # 拼进 content 落库的，结果思考把正文顶出 content 的 10 万字上限、截断切掉闭合
     # 标签后整段漏成正文。NULL = 老消息，思考仍内联在 content 里。
     # 展示顺序不在这里——它记在 ``metadata.segments``（见下）。
-    thinking = Column(chat_state_module.JSONType)
-    tool_calls = Column(chat_state_module.JSONType)
+    thinking = Column(JSONType)
+    tool_calls = Column(JSONType)
     # Nullable derived preview; NULL safely falls back to the canonical result.
     from core.db.history_projection import display_default
     tool_calls_display = deferred(Column(
@@ -129,15 +129,15 @@ class ChatMessage(Base):
     # 模型回放用的规范记录：按发生顺序的每一步（模型响应块 / 工具结果），见
     # ``core/llm/runtime/model_steps.py``。上面三列是给界面看的投影，模型上下文从这一列恢复。
     # NULL = 该行写入时还没有这份记录，回放退回 segments / 历史摘要。
-    model_steps = Column(chat_state_module.JSONType)
-    usage = Column(chat_state_module.JSONType)
-    error = Column(chat_state_module.JSONType)
+    model_steps = Column(JSONType)
+    usage = Column(JSONType)
+    error = Column(JSONType)
     # ``metadata.segments`` 记这条消息的展示顺序，形如
     # ``[{"type":"text","text":str} | {"type":"thinking","index":int}
     #    | {"type":"tool","index":int}]``：顺序在实时流式的那一刻就已确定，原样记下，
     # 刷新后照着渲染。正文片段内联，思考与工具卡片按下标引用上面两列，长推理不存两份。
     # 缺失 = 段落表上线之前的老消息，展示退化成「正文 + 工具卡片」，不做顺序反推。
-    extra_data = Column("metadata", chat_state_module.JSONType, default={})
+    extra_data = Column("metadata", JSONType, default={})
     usage_is_history = Column(
         Boolean, Computed("coalesce(CAST(metadata ->> 'forked_history' AS BOOLEAN), false)", persisted=True)
     )

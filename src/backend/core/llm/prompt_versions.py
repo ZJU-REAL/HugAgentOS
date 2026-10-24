@@ -1,17 +1,18 @@
-"""prompt versions responsibilities."""
+"""Create, activate and seed prompt versions."""
 from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 import logging
+from core.llm import prompt_files
+from core.llm import prompt_kinds
+from core.llm import prompt_storage
+from core.llm import prompt_versions_state
+
 logger = logging.getLogger(__name__)
-from core.llm import prompt_files as prompt_files_module
-from core.llm import prompt_kinds as prompt_kinds_module
-from core.llm import prompt_storage as prompt_storage_module
-from core.llm import prompt_versions_state as prompt_versions_state_module
 
 def list_versions(kind: Optional[str] = None, db: Optional[Session] = None) -> List[Dict[str, Any]]:
-    payload = prompt_storage_module.load_payload(db)
+    payload = prompt_storage.load_payload(db)
     versions = payload.get("versions") or []
     active = payload.get("active") or {}
     items = []
@@ -36,13 +37,13 @@ def list_versions(kind: Optional[str] = None, db: Optional[Session] = None) -> L
 def get_version(
     kind: str, version_id: str, db: Optional[Session] = None
 ) -> Optional[Dict[str, Any]]:
-    if not prompt_kinds_module.is_valid_kind(kind, db):
+    if not prompt_kinds.is_valid_kind(kind, db):
         return None
-    payload = prompt_storage_module.load_payload(db)
+    payload = prompt_storage.load_payload(db)
     active = payload.get("active") or {}
     for v in payload.get("versions") or []:
         if v.get("kind") == kind and v.get("id") == version_id:
-            data = prompt_storage_module.clone(v)
+            data = prompt_storage.clone(v)
             data["is_active"] = active.get(kind) == version_id
             return data
     return None
@@ -50,15 +51,15 @@ def get_version(
 
 def get_active_version(kind: str, db: Optional[Session] = None) -> Optional[Dict[str, Any]]:
     """Return the active version for a kind, or None if not found / DB empty."""
-    if not prompt_kinds_module.is_valid_kind(kind, db):
+    if not prompt_kinds.is_valid_kind(kind, db):
         return None
-    payload = prompt_storage_module.load_payload(db)
+    payload = prompt_storage.load_payload(db)
     active_id = (payload.get("active") or {}).get(kind)
     if not active_id:
         return None
     for v in payload.get("versions") or []:
         if v.get("kind") == kind and v.get("id") == active_id:
-            return prompt_storage_module.clone(v)
+            return prompt_storage.clone(v)
     return None
 
 
@@ -73,12 +74,12 @@ def upsert_version(
     db: Optional[Session] = None,
     updated_by: str = "admin",
 ) -> Dict[str, Any]:
-    if not prompt_kinds_module.is_valid_kind(kind, db):
+    if not prompt_kinds.is_valid_kind(kind, db):
         raise ValueError(f"invalid kind: {kind}")
     if not version_id:
         raise ValueError("version_id required")
 
-    payload = prompt_storage_module.clone(prompt_storage_module.load_payload(db))
+    payload = prompt_storage.clone(prompt_storage.load_payload(db))
     versions: List[Dict[str, Any]] = payload.setdefault("versions", [])
     now = datetime.now(timezone.utc).isoformat()
 
@@ -91,7 +92,7 @@ def upsert_version(
     if from_id:
         src = next((v for v in versions if v.get("kind") == kind and v.get("id") == from_id), None)
         if src:
-            source_parts = prompt_storage_module.clone(src.get("parts") or [])
+            source_parts = prompt_storage.clone(src.get("parts") or [])
             if name is None:
                 name = f"{src.get('name') or from_id} 副本"
             if description is None:
@@ -127,14 +128,14 @@ def upsert_version(
         }
         versions.append(saved)
 
-    prompt_storage_module.save_payload(payload, db=db, updated_by=updated_by)
+    prompt_storage.save_payload(payload, db=db, updated_by=updated_by)
     return saved
 
 
 def delete_version(kind: str, version_id: str, db: Optional[Session] = None) -> None:
-    if not prompt_kinds_module.is_valid_kind(kind, db):
+    if not prompt_kinds.is_valid_kind(kind, db):
         raise ValueError(f"invalid kind: {kind}")
-    payload = prompt_storage_module.clone(prompt_storage_module.load_payload(db))
+    payload = prompt_storage.clone(prompt_storage.load_payload(db))
     active = payload.get("active") or {}
     if active.get(kind) == version_id:
         raise ValueError("cannot delete the currently active version; activate another first")
@@ -144,18 +145,18 @@ def delete_version(kind: str, version_id: str, db: Optional[Session] = None) -> 
     if len(new_list) == len(versions):
         raise KeyError(f"version not found: {kind}/{version_id}")
     payload["versions"] = new_list
-    prompt_storage_module.save_payload(payload, db=db)
+    prompt_storage.save_payload(payload, db=db)
 
 
 def activate_version(kind: str, version_id: str, db: Optional[Session] = None) -> None:
-    if not prompt_kinds_module.is_valid_kind(kind, db):
+    if not prompt_kinds.is_valid_kind(kind, db):
         raise ValueError(f"invalid kind: {kind}")
-    payload = prompt_storage_module.clone(prompt_storage_module.load_payload(db))
+    payload = prompt_storage.clone(prompt_storage.load_payload(db))
     versions: List[Dict[str, Any]] = payload.get("versions") or []
     if not any(v.get("kind") == kind and v.get("id") == version_id for v in versions):
         raise KeyError(f"version not found: {kind}/{version_id}")
     payload.setdefault("active", {})[kind] = version_id
-    prompt_storage_module.save_payload(payload, db=db)
+    prompt_storage.save_payload(payload, db=db)
     # Downstream prompt builders cache by (active_id, updated_at); poke their cache too.
     try:
         from prompts.prompt_runtime import invalidate_prompt_cache
@@ -193,7 +194,7 @@ def seed_from_filesystem(
     db: Optional[Session] = None,
 ) -> Dict[str, Any]:
     """Create default versions from filesystem if not already present."""
-    payload = prompt_storage_module.clone(prompt_storage_module.load_payload(db))
+    payload = prompt_storage.clone(prompt_storage.load_payload(db))
     versions: List[Dict[str, Any]] = payload.setdefault("versions", [])
     active: Dict[str, str] = payload.setdefault("active", {})
     changed = False
@@ -266,30 +267,30 @@ def seed_from_filesystem(
     # 每个内置 kind 的默认版本：没有就按文件系统建；已有就把**新增**的 md 文件补进去。
     # 补这一步是因为默认版本只在首次冷启动时从文件系统建一次，之后新加的 *.system.md
     # 再也进不了已建库的部署。已有 part 的正文原样保留，管理员改过的不会被覆盖。
-    for kind in list(prompt_kinds_module.KIND_SPECS):
-        if not exists(kind, prompt_versions_state_module.DEFAULT_VERSION_ID):
-            default_row = prompt_files_module.default_version_for_kind(kind, prompt_versions_state_module.DEFAULT_VERSION_ID)
+    for kind in list(prompt_kinds.KIND_SPECS):
+        if not exists(kind, prompt_versions_state.DEFAULT_VERSION_ID):
+            default_row = prompt_files.default_version_for_kind(kind, prompt_versions_state.DEFAULT_VERSION_ID)
             versions.append(default_row)
-            added.append(f"{kind}/{prompt_versions_state_module.DEFAULT_VERSION_ID}")
+            added.append(f"{kind}/{prompt_versions_state.DEFAULT_VERSION_ID}")
             changed = True
         else:
             default_row = next(
-                v for v in versions if v.get("kind") == kind and v.get("id") == prompt_versions_state_module.DEFAULT_VERSION_ID
+                v for v in versions if v.get("kind") == kind and v.get("id") == prompt_versions_state.DEFAULT_VERSION_ID
             )
             existing_pids = {
                 (p.get("part_id") or "").strip() for p in default_row.get("parts") or []
             }
-            for fs_part in prompt_files_module.read_fs_parts(kind):
+            for fs_part in prompt_files.read_fs_parts(kind):
                 if fs_part["part_id"] not in existing_pids:
                     default_row.setdefault("parts", []).append(fs_part)
-                    added.append(f"{kind}/{prompt_versions_state_module.DEFAULT_VERSION_ID}:{fs_part['part_id']}")
+                    added.append(f"{kind}/{prompt_versions_state.DEFAULT_VERSION_ID}:{fs_part['part_id']}")
                     changed = True
         if kind not in active:
-            active[kind] = prompt_versions_state_module.DEFAULT_VERSION_ID
+            active[kind] = prompt_versions_state.DEFAULT_VERSION_ID
             changed = True
 
     if added or changed:
-        prompt_storage_module.save_payload(payload, db=db, updated_by="system_seed")
+        prompt_storage.save_payload(payload, db=db, updated_by="system_seed")
         if added:
             logger.info("[prompt_version_service] seeded: %s", ", ".join(added))
     return {"added": added, "active": active}

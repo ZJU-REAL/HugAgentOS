@@ -1,7 +1,5 @@
 """Conditional ownership writes for scheduled execution records."""
 
-import uuid
-
 from core.infra.time import utc_now
 from features.automation.models import ScheduledTaskRun
 
@@ -9,19 +7,6 @@ from features.automation.models import ScheduledTaskRun
 class AutomationRunRepository:
     def __init__(self, db):
         self.db = db
-
-    def start(self, task_id, lease_token=None):
-        run = ScheduledTaskRun(
-            run_id=f"run_{uuid.uuid4().hex[:16]}",
-            task_id=task_id,
-            status="running",
-            lease_token=lease_token,
-            started_at=utc_now(),
-        )
-        self.db.add(run)
-        self.db.commit()
-        self.db.refresh(run)
-        return run
 
     def claim(self, run_id, lease_token, *, expected_token):
         """Only a scheduler holding Redis ownership may transfer a running row."""
@@ -31,10 +16,10 @@ class AutomationRunRepository:
             self.db.query(ScheduledTaskRun)
             .filter(
                 ScheduledTaskRun.run_id == run_id,
-                ScheduledTaskRun.status == "running",
+                ScheduledTaskRun.status.in_(("pending", "running")),
                 ScheduledTaskRun.lease_token == expected_token,
             )
-            .update({ScheduledTaskRun.lease_token: lease_token}, synchronize_session=False)
+            .update({ScheduledTaskRun.lease_token: lease_token, ScheduledTaskRun.status: "running"}, synchronize_session=False)
         )
         self.db.commit()
         return count == 1

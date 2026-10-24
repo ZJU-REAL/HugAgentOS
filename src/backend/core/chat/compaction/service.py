@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from core.chat import inflight
 from core.config import settings as config_settings
 from core.llm.context import compaction as C
-from core.models.context_window import AUTO_COMPACT_MAX_RATIO, resolve_model_context_window, usable_context_window
+from core.models.context_window import AUTO_COMPACT_MAX_RATIO, resolve_model_context_window
 from core.llm.context.budget import estimate_context_budget, should_compact
 from core.chat.compaction.history import normalize_rows
 from core.chat.compaction.summary import _load_base_system_prompt, summarize_without_checkpoint

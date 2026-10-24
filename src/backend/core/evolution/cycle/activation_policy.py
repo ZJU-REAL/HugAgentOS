@@ -1,9 +1,9 @@
-"""activation policy responsibilities."""
+"""Gates on activation: freeze switch, pacing, entry stage and rollback snapshots."""
 from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
-from core.evolution.cycle import activation_state as activation_state_module
-from core.evolution.cycle import activation_types as activation_types_module
+from core.evolution.cycle import activation_constants
+from core.evolution.cycle import activation_types
 
 def capture_previous(db, skill_id: str) -> Optional[Dict[str, Any]]:
     """Snapshot the current state so rollback has a concrete target."""
@@ -36,7 +36,7 @@ def is_frozen(db) -> bool:
 
         row = (
             db.query(SystemConfig.config_value)
-            .filter(SystemConfig.config_key == activation_state_module.FREEZE_CONFIG_KEY)
+            .filter(SystemConfig.config_key == activation_constants.FREEZE_CONFIG_KEY)
             .first()
         )
         return bool(row) and str(row[0]).strip().lower() in ("1", "true", "yes", "on")
@@ -93,7 +93,7 @@ def check_pace(db, *, tenant_id: str, layer: str = "skill") -> None:
         layer, tenant=tenant_id or "default", concurrent_activations=in_flight
     )
     if not allowed:
-        raise activation_types_module.ActivationError("pace_limited", f"节奏闸门拒绝本次激活：{reason}")
+        raise activation_types.ActivationError("pace_limited", f"节奏闸门拒绝本次激活：{reason}")
 
 
 def entry_stage(
@@ -126,12 +126,12 @@ def entry_stage(
         # verification requirement is replay alone. Waiving it for a tier that
         # also owes shadow and canary is not a shortcut, it is the whole gate.
         if not force:
-            raise activation_types_module.ActivationError(
+            raise activation_types.ActivationError(
                 "verification_incomplete",
                 f"候选尚未通过回放（当前 {candidate.status}）",
             )
         if risk != RISK_LOW:
-            raise activation_types_module.ActivationError(
+            raise activation_types.ActivationError(
                 "force_forbidden_for_risk",
                 f"force 只允许用于 low 风险候选，本候选为 {risk}；"
                 f"需完成 {list(required_verification(risk))}",
@@ -182,6 +182,8 @@ def source_candidate_for(db, skill_id: str) -> str:
     Memory demotions are recorded against that candidate, so it is the key that
     finds them again when the skill is retired.
     """
+    from core.db.models.evolution import EvolutionRelease
+
     row = (
         db.query(EvolutionRelease)
         .filter(

@@ -1,24 +1,10 @@
-"""prompt versions state responsibilities."""
+"""Default version id and caches for prompt versions."""
 from __future__ import annotations
+from dataclasses import dataclass, field
 from threading import Lock
 from typing import Any, Dict, Optional
 
 DEFAULT_VERSION_ID = "default"
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 TURBO_LAST_RESORT = (
@@ -28,21 +14,17 @@ TURBO_LAST_RESORT = (
 )
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
-class PromptVersionsStateState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
+@dataclass
+class PromptVersionsState:
     payload_cache: Optional[Dict[str, Any]] = None
     payload_cache_key: Optional[tuple] = None
-    payload_cache_lock: object = state_field(default_factory=lambda: Lock())
-    fs_parts_cache: Dict[str, tuple] = state_field(default_factory=lambda: {})
-    fs_parts_cache_lock: object = state_field(default_factory=lambda: Lock())
+    payload_cache_lock: object = field(default_factory=lambda: Lock())
+    fs_parts_cache: Dict[str, tuple] = field(default_factory=lambda: {})
+    fs_parts_cache_lock: object = field(default_factory=lambda: Lock())
 
-@state_cache(maxsize=1)
-def process_state() -> PromptVersionsStateState:
-    return PromptVersionsStateState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+_STATE = PromptVersionsState()
+
+
+def process_state() -> PromptVersionsState:
+    return _STATE

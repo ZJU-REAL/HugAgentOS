@@ -52,7 +52,8 @@ def _make_agent(
     agent.model = SimpleNamespace(context_size=window)
     agent.offloader = offloader
     agent.context_config = ContextConfig()
-    agent.state = SimpleNamespace(
+    from core.llm.runtime.state import AgentRuntimeState
+    agent.state = AgentRuntimeState(
         context=list(context), summary="", chat_id=chat_id, session_id="sess-1"
     )
     agent._jx_compaction_system_prompt = sys_prompt

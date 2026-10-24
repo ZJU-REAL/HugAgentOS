@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from tests.features.hosted_apps.test_application_hosting import create, data, hosted, table
+from tests.db_support import share_factory
 
 
 @pytest.fixture
@@ -35,6 +36,7 @@ def personal(hosted, tmp_path, monkeypatch):
             yield db
 
     client.app.dependency_overrides[get_db] = db_dependency
+    share_factory(monkeypatch, factory)
     client.app.include_router(application_transports.internal_router)
     client.app.include_router(application_transports.mcp_router)
     monkeypatch.setattr('features.sites.api.internal_site_auth._check_internal_token', lambda _: None)
@@ -219,9 +221,9 @@ def test_publish_tool_has_typed_tools_and_requires_injected_identity(monkeypatch
     from extensions.mcp_servers.site_publish_mcp.server import mcp, publish_mcp
 
     tool = next(item for item in asyncio.run(mcp.list_tools()) if item.name == "publish_mcp")
-    assert set(tool.inputSchema["required"]) == {"app_id", "tools"}
-    assert "user_id" not in tool.inputSchema["properties"]
-    assert "ToolDefinition" in tool.inputSchema["$defs"]
+    assert set(tool.input_schema["required"]) == {"app_id", "tools"}
+    assert "user_id" not in tool.input_schema["properties"]
+    assert "ToolDefinition" in tool.input_schema["$defs"]
     assert asyncio.run(publish_mcp("a" * 32, [])) == {"error": "Current user identity is required"}
 
 

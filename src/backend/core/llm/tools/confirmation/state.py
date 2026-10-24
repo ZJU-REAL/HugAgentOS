@@ -108,10 +108,6 @@ def _scope_covers(kind: str, granted: str, logical_path: str) -> bool:
     return True
 
 
-
-
-
-
 def _gc(now: float) -> None:
     """Lazily clean up expired chat state (call while holding the lock). Chats with pending items / suspended waiters are not cleaned."""
     dead = [c for c, st in process_state().CHATS.items() if now - st.last_ts > _TTL_S and (not st.pending)]
@@ -368,18 +364,14 @@ def _intercept_message(kind: str, phase: str, op: str, logical_path: str, summar
     }[phase]
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
+@dataclass
+class State:
+    LOCK: object = field(default_factory=lambda: threading.RLock())
+    CHATS: Dict[str, _ChatConfirm] = field(default_factory=lambda: {})
 
-@state_dataclass
-class StateState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    LOCK: object = state_field(default_factory=lambda: threading.RLock())
-    CHATS: Dict[str, _ChatConfirm] = state_field(default_factory=lambda: {})
 
-@state_cache(maxsize=1)
-def process_state() -> StateState:
-    return StateState()
+_STATE = State()
 
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+
+def process_state() -> State:
+    return _STATE

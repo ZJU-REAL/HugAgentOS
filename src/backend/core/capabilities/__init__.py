@@ -1,1 +1,1 @@
-"""capabilities domain package."""
+"""Capabilities an agent can use: skills, plugins, MCP servers, sub-agents and their catalog."""

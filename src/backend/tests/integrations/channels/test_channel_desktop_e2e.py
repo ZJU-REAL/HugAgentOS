@@ -10,6 +10,7 @@ import json
 from contextvars import Context
 
 import core.agent_runtime.runner as runner
+import core.db.engine as db_engine
 import httpx
 import pytest
 from core.files.artifacts import store
@@ -22,11 +23,11 @@ from core.llm.runtime import workspace
 from integrations.channels import desktop_worker as worker
 from core.files.artifacts.service import persist_artifacts
 from integrations.channels.relay_dispatch import dispatch_to_desktop
-from integrations.channels.service import ChannelService
 from core.files.storage import LocalStorageBackend
 from httpx import _client
 from tests.integrations.channels.test_channel_desktop_http import cloud  # noqa: F401
 from tests.integrations.channels.test_channel_desktop_relay_api import api  # noqa: F401
+from tests.integrations.channels.test_channel_desktop_relay_api import IN_CLOUD
 from tests.integrations.channels.test_channel_desktop_worker import runtime  # noqa: F401
 
 # Restore the actual methods overridden by the older API fixture.
@@ -89,13 +90,19 @@ async def test_binding_ingress_local_run_reply_file_and_complete(
     tmp_path,
 ):
     client, cloud_sessions, _ = api
+    local_sessions = db_engine.SessionLocal
+    # One process plays both sides: cloud requests get the cloud database.
+    monkeypatch.setattr(
+        "core.db.engine.SessionLocal",
+        lambda: (cloud_sessions if IN_CLOUD.get() else local_sessions)(),
+    )
     identity = bridge_identity.get_identity_state()
     with runtime() as db:
         db.get(UserShadow, "local-owner").user_center_id = "center"
         db.commit()
     for name, method in LARK_METHODS.items():
         monkeypatch.setattr(LarkAdapter, name, method)
-    monkeypatch.setattr(ChannelService, "_start_long_conn", lambda *args: None)
+    monkeypatch.setattr("integrations.channels.service._start_long_conn", lambda *args: None)
     ephemeral = LocalEphemeralState()
     monkeypatch.setattr("core.infra.ephemeral.get_ephemeral_state", lambda: ephemeral)
     provider_requests = []
@@ -197,8 +204,7 @@ async def test_binding_ingress_local_run_reply_file_and_complete(
         "AsyncClient",
         lambda **kw: _client.AsyncClient(transport=httpx.MockTransport(respond), **kw),
     )
-    with runtime() as db:
-        grant = await worker.prepare_binding(db, "local-owner")
+    grant = await worker.prepare_binding("local-owner")
     if channel == "weixin":
         start = client.post(
             "/v1/channels/weixin/bind/start",

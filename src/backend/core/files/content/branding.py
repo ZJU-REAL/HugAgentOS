@@ -1,4 +1,4 @@
-"""branding responsibilities."""
+"""Product branding and page configuration stored as content."""
 from __future__ import annotations
 import re
 from datetime import datetime, timezone
@@ -6,7 +6,7 @@ from typing import Any
 from core.config.settings import settings
 from core.db.models import ContentBlock
 from sqlalchemy.orm import Session
-from core.files.content import content_blocks_state
+from core.files.content import content_blocks_constants
 
 def normalize_app_config(payload: Any) -> dict[str, Any]:
     """Normalize app_config payload to the canonical `{"apps": [...]}` shape.
@@ -15,7 +15,7 @@ def normalize_app_config(payload: Any) -> dict[str, Any]:
     falls back to any default entries.
     """
     if not isinstance(payload, dict):
-        return {"apps": list(content_blocks_state.DEFAULT_APP_CONFIG["apps"])}
+        return {"apps": list(content_blocks_constants.DEFAULT_APP_CONFIG["apps"])}
 
     apps_raw = payload.get("apps")
     if isinstance(apps_raw, list):
@@ -38,17 +38,17 @@ def normalize_app_config(payload: Any) -> dict[str, Any]:
             )
         return {"apps": apps}
 
-    return {"apps": list(content_blocks_state.DEFAULT_APP_CONFIG["apps"])}
+    return {"apps": list(content_blocks_constants.DEFAULT_APP_CONFIG["apps"])}
 
 
 def default_payload(alias: str) -> Any:
     if alias == "page_config":
-        return content_blocks_state.DEFAULT_PAGE_CONFIG
+        return content_blocks_constants.DEFAULT_PAGE_CONFIG
     if alias == "app_config":
-        return content_blocks_state.DEFAULT_APP_CONFIG
+        return content_blocks_constants.DEFAULT_APP_CONFIG
     if alias == "prompt_versions":
-        return content_blocks_state.DEFAULT_PROMPT_VERSIONS
-    return {} if alias in content_blocks_state.DICT_PAYLOAD_BLOCKS else []
+        return content_blocks_constants.DEFAULT_PROMPT_VERSIONS
+    return {} if alias in content_blocks_constants.DICT_PAYLOAD_BLOCKS else []
 
 
 def seed_page_config_if_missing(db: Session) -> bool:
@@ -59,7 +59,7 @@ def seed_page_config_if_missing(db: Session) -> bool:
     db.add(
         ContentBlock(
             id="page_config",
-            payload=content_blocks_state.DEFAULT_PAGE_CONFIG,
+            payload=content_blocks_constants.DEFAULT_PAGE_CONFIG,
             updated_at=datetime.now(timezone.utc),
             updated_by="system_seed",
         )
@@ -141,10 +141,10 @@ def backfill_navigation_entries(db: Session) -> int:
     if not isinstance(nav, dict):
         return 0  # malformed payload — leave it alone, admin UI will surface
 
-    default_nav = content_blocks_state.DEFAULT_PAGE_CONFIG["navigation"]
+    default_nav = content_blocks_constants.DEFAULT_PAGE_CONFIG["navigation"]
 
     changed = 0
-    for entry in content_blocks_state.NAV_BACKFILL_ENTRIES:
+    for entry in content_blocks_constants.NAV_BACKFILL_ENTRIES:
         key = entry["key"]
         bucket_field = "menu_items" if entry["bucket"] == "menu" else "sidebar_items"
         items = nav.get(bucket_field)
@@ -174,7 +174,7 @@ def backfill_navigation_entries(db: Session) -> int:
                 changed += 1
 
     # 旧出厂文案改名（能力中心统一表述），与上面的补齐共用一次提交
-    for field, renames in content_blocks_state.LEGACY_PANEL_TEXT_RENAMES.items():
+    for field, renames in content_blocks_constants.LEGACY_PANEL_TEXT_RENAMES.items():
         target = nav.get(field)
         if not isinstance(target, dict):
             continue
@@ -204,8 +204,8 @@ def get_branding_info() -> dict[str, str]:
     own DB session internally.
     """
     defaults = {
-        "product_name": content_blocks_state.DEFAULT_PAGE_CONFIG["branding"]["product_name"],
-        "logo_url": content_blocks_state.DEFAULT_PAGE_CONFIG["branding"]["logo_url"],
+        "product_name": content_blocks_constants.DEFAULT_PAGE_CONFIG["branding"]["product_name"],
+        "logo_url": content_blocks_constants.DEFAULT_PAGE_CONFIG["branding"]["logo_url"],
     }
     try:
         from core.db.engine import SessionLocal
@@ -261,7 +261,7 @@ def get_admin_platform_info() -> dict[str, str]:
     mergeAdminPlatform normalization. Reused by server-side rendering paths
     (Swagger / ReDoc doc page titles etc.); manages its own DB session internally.
     """
-    ap_def = content_blocks_state.DEFAULT_PAGE_CONFIG["navigation"]["admin_platform"]
+    ap_def = content_blocks_constants.DEFAULT_PAGE_CONFIG["navigation"]["admin_platform"]
     defaults = {
         "product_name": ap_def["product_name"],
         "content_label": ap_def["content_label"],

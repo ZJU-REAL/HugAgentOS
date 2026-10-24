@@ -1,5 +1,6 @@
 """Reserved execution policy installed by the evaluation host."""
 from __future__ import annotations
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 
@@ -10,9 +11,6 @@ class EvaluationPolicy(Protocol):
     def current_paths(self) -> Any: ...
     def register_tools(self, toolkit: Any, scope: Any, **options: Any) -> None: ...
     async def authorize(self, request: Any, user_id: str, *, agent_scoped: bool = False) -> None: ...
-
-
-
 
 
 def register_evaluation_policy(policy: EvaluationPolicy) -> None:
@@ -62,19 +60,13 @@ async def authorize(request, user_id, *, agent_scoped=False):
     await require_policy().authorize(request, user_id, agent_scoped=agent_scoped)
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-
-@state_dataclass
+@dataclass
 class RegistrationState:
-    """Process-owned registrations; replace only while the host is quiescent."""
     policy: EvaluationPolicy | None = None
 
 
-@state_cache(maxsize=1)
-def registration_state() -> RegistrationState:
-    return RegistrationState()
+_REGISTRATIONS = RegistrationState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-registration_state()
+
+def registration_state() -> RegistrationState:
+    return _REGISTRATIONS

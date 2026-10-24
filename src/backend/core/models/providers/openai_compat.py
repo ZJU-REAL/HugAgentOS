@@ -432,7 +432,7 @@ class OpenAICompatChatModel(ToolCallIdentityMixin, ImageTokenCountingMixin, Open
             return _stream_with_bounded_retry(
                 self,
                 reissue=lambda: client.chat.completions.create(**kwargs),
-                parse=lambda started, raw: self._parse_stream_response(started, raw, audio_fmt),
+                parse=lambda started, raw: self._parse_stream_response(started, raw),
                 model_name=model_name,
                 start_datetime=start_datetime,
                 response=response,

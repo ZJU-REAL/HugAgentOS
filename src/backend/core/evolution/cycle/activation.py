@@ -1,14 +1,15 @@
-"""activation responsibilities."""
+"""Materialise an approved skill candidate at the release stage it has earned."""
 from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from core.db.engine import SessionLocal
 import logging
+from core.evolution.cycle import activation_policy
+from core.evolution.cycle import activation_constants
+from core.evolution.cycle import activation_types
+from core.evolution.cycle import skill_document
+
 logger = logging.getLogger(__name__)
-from core.evolution.cycle import activation_policy as activation_policy_module
-from core.evolution.cycle import activation_state as activation_state_module
-from core.evolution.cycle import activation_types as activation_types_module
-from core.evolution.cycle import skill_document as skill_document_module
 
 def materialise_skill_candidate(
     candidate_id: str,
@@ -39,33 +40,33 @@ def materialise_skill_candidate(
     """
     from core.db.models import AdminSkill
     from core.db.models.evolution import EvolutionCandidate, EvolutionRelease
-    from core.evolution.cycle.release import ACTIVE, IN_FLIGHT_STAGES, REPLAY_PASSED, ROLLBACK_MANUAL, new_release_id
+    from core.evolution.cycle.release import ACTIVE, IN_FLIGHT_STAGES, REPLAY_PASSED, new_release_id
 
     with SessionLocal() as db:
         candidate = db.get(EvolutionCandidate, candidate_id)
         if candidate is None:
-            raise activation_types_module.ActivationError("candidate_not_found", f"候选不存在: {candidate_id}")
+            raise activation_types.ActivationError("candidate_not_found", f"候选不存在: {candidate_id}")
         if candidate.target_kind != "skill":
-            raise activation_types_module.ActivationError(
+            raise activation_types.ActivationError(
                 "unsupported_kind", f"暂不支持物化 {candidate.target_kind} 候选"
             )
 
         # Separation of duties. No force path — see the docstring.
         if approver and approver == (candidate.proposer or ""):
-            raise activation_types_module.ActivationError(
+            raise activation_types.ActivationError(
                 "self_approval_forbidden", "生成者不能激活自己提出的候选"
             )
         if not approver:
-            raise activation_types_module.ActivationError("approver_required", "激活必须署名")
+            raise activation_types.ActivationError("approver_required", "激活必须署名")
 
-        stage, traffic = activation_policy_module.entry_stage(
+        stage, traffic = activation_policy.entry_stage(
             candidate, approver=approver, force=force, owner_user_id=owner_user_id
         )
         # Pace and freeze apply to anything that becomes live immediately. A
         # shadow entry changes nothing users can see, so holding it back would
         # only delay measurement.
         if stage == ACTIVE and not owner_user_id:
-            activation_policy_module.check_pace(db, tenant_id=tenant_id)
+            activation_policy.check_pace(db, tenant_id=tenant_id)
 
         ir = candidate.ir or {}
         changes = ir.get("changes") or []
@@ -96,14 +97,14 @@ def materialise_skill_candidate(
         # 图谱证据自相矛盾的候选可以存在、可以进 shadow 观测，但不允许自动
         # 走到 ACTIVE：冲突意味着「适用条件」本身不可信，必须先由人裁决。
         if manifest and manifest.get("graph_conflict") and stage == ACTIVE:
-            raise activation_types_module.ActivationError(
+            raise activation_types.ActivationError(
                 "graph_conflict_requires_review",
                 f"L3 图谱证据存在冲突，禁止直接激活：{manifest.get('graph_conflicts')}",
             )
 
         skill_id = candidate.target_asset_id
-        if not skill_id.startswith(activation_state_module.EVOLUTION_PREFIX):
-            skill_id = activation_state_module.EVOLUTION_PREFIX + skill_id.replace("auto-", "")
+        if not skill_id.startswith(activation_constants.EVOLUTION_PREFIX):
+            skill_id = activation_constants.EVOLUTION_PREFIX + skill_id.replace("auto-", "")
         if owner_user_id:
             # Distinct id per owner: a personal activation must never overwrite
             # the global asset, nor another user's copy of the same candidate.
@@ -121,7 +122,7 @@ def materialise_skill_candidate(
             tools = [str(t) for t in (document.get("allowed_tools") or [])]
             display_name = str(document.get("display_name") or "")
             description = str(document.get("description") or "")
-            body = skill_document_module.body_of(str(document.get("content") or ""))
+            body = skill_document.body_of(str(document.get("content") or ""))
             violations = validate_draft(
                 skill_id=skill_id,
                 display_name=display_name,
@@ -130,7 +131,7 @@ def materialise_skill_candidate(
                 allowed_tools=tools,
             )
             if violations:
-                raise activation_types_module.ActivationError(
+                raise activation_types.ActivationError(
                     "draft_failed_validation",
                     f"技能正文未通过机器校验，拒绝物化: {violations}",
                 )
@@ -150,14 +151,14 @@ def materialise_skill_candidate(
             # ordering recurring across different tool sets is not.
             rules_only = not tools and bool(constraints)
             if rules_only:
-                tools = skill_document_module.tools_from_constraints(constraints)
+                tools = skill_document.tools_from_constraints(constraints)
             if not tools:
-                raise activation_types_module.ActivationError(
+                raise activation_types.ActivationError(
                     "no_tool_sequence", "候选既未声明工具顺序、也未携带顺序约束，无法物化"
                 )
-            display_name = skill_document_module.skill_label(tools, rules_only=rules_only)
-            description = skill_document_module.skill_description(tools, constraints, rules_only=rules_only)
-            content = skill_document_module.skill_markdown(
+            display_name = skill_document.skill_label(tools, rules_only=rules_only)
+            description = skill_document.skill_description(tools, constraints, rules_only=rules_only)
+            content = skill_document.skill_markdown(
                 skill_id=skill_id,
                 label=display_name,
                 description=description,
@@ -168,7 +169,7 @@ def materialise_skill_candidate(
                 rules_only=rules_only,
             )
 
-        previous = activation_policy_module.capture_previous(db, skill_id)
+        previous = activation_policy.capture_previous(db, skill_id)
 
         # One release in flight per asset. Two concurrent ramps on the same skill
         # make any measured effect unattributable and leave rollback without a
@@ -182,7 +183,7 @@ def materialise_skill_candidate(
             .first()
         )
         if conflicting is not None:
-            raise activation_types_module.ActivationError(
+            raise activation_types.ActivationError(
                 "release_in_flight",
                 f"该资产已有进行中的发布 {conflicting.release_id}（{conflicting.stage}）",
             )
@@ -196,20 +197,20 @@ def materialise_skill_candidate(
         row.skill_content = content
         row.display_name = display_name
         row.description = description
-        row.version = activation_policy_module.next_version(previous)
-        row.tags = sorted(set((previous or {}).get("tags", [])) | {activation_state_module.EVOLUTION_TAG})
+        row.version = activation_policy.next_version(previous)
+        row.tags = sorted(set((previous or {}).get("tags", [])) | {activation_constants.EVOLUTION_TAG})
         # The distilled ordering, in the shape the runtime reads.
         extra_files = {
             **(previous or {}).get("extra_files", {}),
-            "tool_sequence.json": activation_policy_module.json(tools),
+            "tool_sequence.json": activation_policy.json(tools),
             # The transferable part. A consumer that only understands sequences
             # still works; one that understands rules gets the wider benefit.
-            "ordering_constraints.json": activation_policy_module.json(constraints),
+            "ordering_constraints.json": activation_policy.json(constraints),
         }
         if manifest:
             # 机器读 manifest（边界/依赖/证据引用），Agent 读 SKILL.md —— 两者
             # 职责分离。作用域以本次激活实际发生的为准，而不是候选申报的。
-            extra_files["evolution_manifest.json"] = activation_policy_module.json(
+            extra_files["evolution_manifest.json"] = activation_policy.json(
                 {
                     **manifest,
                     "scope": "personal" if owner_user_id else str(

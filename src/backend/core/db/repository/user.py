@@ -6,13 +6,10 @@ import XxxRepository`` keeps working unchanged.
 """
 from core.infra.time import utc_now
 
-import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-import sqlalchemy as sa
 from core.db.models import LocalUser, UserShadow
-from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 

@@ -13,7 +13,7 @@ from agentscope.model import OpenAIChatModel
 from core.capabilities.skills.loader_factory import get_skill_loader
 from core.capabilities.skills.registry import AgentSkillMetadata
 from core.llm.context.adapter import AgentScopeContextAdapter
-from core.llm.context.ir_state import KIND_SYSTEM_RULE, KIND_USER_INPUT, POLICY_HEAD_TAIL, POLICY_NEVER
+from core.llm.context.ir_constants import KIND_SYSTEM_RULE, KIND_USER_INPUT, POLICY_HEAD_TAIL, POLICY_NEVER
 from core.llm.context.ir import ContextAssembler
 from core.llm.context.items import make_text_context_item
 from core.models.context_window import FALLBACK_CONTEXT_WINDOW, usable_context_window

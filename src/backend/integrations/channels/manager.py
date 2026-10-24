@@ -19,6 +19,7 @@ import asyncio
 import logging
 import threading
 from typing import Dict, Optional
+from core.db.threads import off_loop
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,8 @@ class ChannelManager:
         await self._reconcile_connections()
         self._reconcile_task = asyncio.create_task(self._reconcile_loop())
 
-    async def _reconcile_connections(self) -> None:
+    @off_loop
+    def _reconcile_connections(self) -> None:
         # The elected process alone runs this loop. HTTP workers persist desired
         # state; they must not start competing receivers or rely on process memory.
         from core.db.engine import SessionLocal

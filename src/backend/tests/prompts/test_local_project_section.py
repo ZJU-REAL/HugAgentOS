@@ -82,10 +82,12 @@ def test_desktop_prompt_and_bash_describe_effective_session(monkeypatch):
     functions = {}
 
     class Toolkit:
-        def register_tool_function(self, fn, **kwargs):
+        def append(self, tool):
+            fn = tool._func
+            kwargs = {"func_description": tool.description, "permission": getattr(tool, "dispatch_spec", None)}
             functions[fn.__name__] = fn
 
-    register_bash(Toolkit(), loader=None, loaded_skill_ids=set(), **ctx)
+    register_bash(Toolkit(), loader=None, **ctx)
     description = functions["Bash"].__doc__
     expected = session_root(root, "effective-session")
     assert expected in prompt and expected in description
@@ -104,10 +106,12 @@ def test_cloud_bash_description_keeps_container_paths(monkeypatch):
     functions = {}
 
     class Toolkit:
-        def register_tool_function(self, fn, **kwargs):
+        def append(self, tool):
+            fn = tool._func
+            kwargs = {"func_description": tool.description, "permission": getattr(tool, "dispatch_spec", None)}
             functions[fn.__name__] = fn
 
-    register_bash(Toolkit(), loader=None, loaded_skill_ids=set(), chat_id="cloud-chat")
+    register_bash(Toolkit(), loader=None, chat_id="cloud-chat")
     doc = functions["Bash"].__doc__
     assert "工作目录默认 /workspace" in doc
     assert "/workspace/skills" in doc

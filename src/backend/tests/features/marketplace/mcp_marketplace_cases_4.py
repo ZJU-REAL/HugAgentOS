@@ -81,7 +81,6 @@ async def test_curated_templates_seed_once_and_materialize_user_query_key(db, mo
     actual_tools = _tools("maps_geo", "maps_weather")
     _patch_probe(monkeypatch, tools=actual_tools)
     installed = await mcp_installation.install_market_item(
-        db,
         "amap-maps",
         owner_user_id="u2",
         installed_by="u2",
@@ -107,7 +106,6 @@ async def test_curated_bearer_token_gets_prefix_and_can_be_rotated(db, monkeypat
     _patch_probe(monkeypatch, tools=_tools("metaso_web_search"))
 
     installed = await mcp_installation.install_market_item(
-        db,
         "metaso-search",
         owner_user_id="u2",
         installed_by="u2",
@@ -117,7 +115,6 @@ async def test_curated_bearer_token_gets_prefix_and_can_be_rotated(db, monkeypat
     assert decrypt_mcp_headers(server.headers)["Authorization"] == "Bearer first-key"
 
     updated = await mcp_installation.install_market_item(
-        db,
         "metaso-search",
         owner_user_id="u2",
         installed_by="u2",
@@ -134,7 +131,6 @@ async def test_tool_drift_pauses_new_installation(db, monkeypatch):
     _patch_probe(monkeypatch, tools=_tools("search_documents", "delete_documents"))
     with pytest.raises(BadRequestError, match="发生变化"):
         await mcp_installation.install_market_item(
-            db,
             "acme-search",
             owner_user_id="u2",
             installed_by="u2",
@@ -150,7 +146,6 @@ async def test_failed_update_probe_never_commits_plaintext_credentials(db, monke
     _approved_market(db)
     _patch_probe(monkeypatch)
     installed = await mcp_installation.install_market_item(
-        db,
         "acme-search",
         owner_user_id="u2",
         installed_by="u2",
@@ -160,7 +155,6 @@ async def test_failed_update_probe_never_commits_plaintext_credentials(db, monke
 
     with pytest.raises(BadRequestError, match="发生变化"):
         await mcp_installation.install_market_item(
-            db,
             "acme-search",
             owner_user_id="u2",
             installed_by="u2",
@@ -178,14 +172,12 @@ async def test_security_suspension_disables_all_derived_servers(db, monkeypatch)
     _approved_market(db)
     _patch_probe(monkeypatch)
     await mcp_installation.install_market_item(
-        db,
         "acme-search",
         owner_user_id="u2",
         installed_by="u2",
         credentials={"Authorization": "Bearer u2"},
     )
     await mcp_installation.install_market_item(
-        db,
         "acme-search",
         owner_user_id="u3",
         installed_by="u3",
@@ -207,7 +199,6 @@ async def test_review_rechecks_live_snapshot(db, monkeypatch):
     source = _private_server(db)
     _patch_probe(monkeypatch)
     submitted = await mcp_submissions.submit_to_marketplace(
-        db,
         source.server_id,
         owner_user_id="u1",
         submitter_name="Alice",
@@ -218,7 +209,6 @@ async def test_review_rechecks_live_snapshot(db, monkeypatch):
 
     with pytest.raises(BadRequestError, match="重新提交"):
         await mcp_submissions.review_submission(
-            db,
             submitted["submission_id"],
             approve=True,
             reviewed_by="admin",
@@ -232,7 +222,7 @@ async def test_review_rechecks_live_snapshot(db, monkeypatch):
 async def test_missing_source_revalidates_from_reviewed_version(db, monkeypatch):
     _approved_market(db)
     _patch_probe(monkeypatch)
-    result = await mcp_revalidation.revalidate_market_item(db, "acme-search")
+    result = await mcp_revalidation.revalidate_market_item("acme-search")
 
     assert result["status"] == "active"
     assert result["status_reason"] == ""
@@ -243,7 +233,7 @@ async def test_missing_source_still_detects_live_snapshot_drift(db, monkeypatch)
     _approved_market(db)
     _patch_probe(monkeypatch, tools=_tools("changed_after_review"))
 
-    result = await mcp_revalidation.revalidate_market_item(db, "acme-search")
+    result = await mcp_revalidation.revalidate_market_item("acme-search")
 
     assert result["status"] == "changed"
     assert "需发布新版本" in result["status_reason"]
@@ -260,7 +250,6 @@ async def test_manual_admin_revalidation_accepts_drift_as_new_version(db, monkey
     _patch_probe(monkeypatch, tools=changed_tools)
 
     result = await mcp_revalidation.revalidate_market_item(
-        db,
         "acme-search",
         accept_changes=True,
     )
@@ -288,7 +277,7 @@ async def test_periodic_revalidation_never_auto_accepts_drift(db, monkeypatch):
     db.commit()
     _patch_probe(monkeypatch, tools=_tools("changed_after_review"))
 
-    result = await mcp_revalidation.revalidate_market_item(db, "acme-search")
+    result = await mcp_revalidation.revalidate_market_item("acme-search")
 
     assert result["status"] == "changed"
     assert db.query(McpMarketVersion).filter_by(slug="acme-search").count() == 1
@@ -304,7 +293,6 @@ async def test_manual_revalidation_rejects_empty_tool_snapshot(db, monkeypatch):
     _patch_probe(monkeypatch, tools=[])
 
     result = await mcp_revalidation.revalidate_market_item(
-        db,
         "acme-search",
         accept_changes=True,
     )
@@ -346,7 +334,6 @@ async def test_delisted_item_blocks_user_install_but_not_admin_install(db, monke
 
     with pytest.raises(ResourceNotFoundError):
         await mcp_installation.install_market_item(
-            db,
             item.slug,
             owner_user_id="u2",
             installed_by="u2",
@@ -354,7 +341,6 @@ async def test_delisted_item_blocks_user_install_but_not_admin_install(db, monke
         )
 
     installed = await mcp_installation.install_market_item(
-        db,
         item.slug,
         owner_user_id=None,
         installed_by="admin",
@@ -369,7 +355,6 @@ async def test_user_installs_admin_published_private_network_mcp(db, monkeypatch
     _patch_install_side_effects(monkeypatch)
 
     installed = await mcp_installation.install_market_item(
-        db,
         "builtin-search",
         owner_user_id="u2",
         installed_by="u2",
@@ -399,7 +384,6 @@ async def test_installer_cannot_redirect_an_admin_item_to_another_private_host(d
 
     with pytest.raises(BadRequestError, match="本机、内网或保留地址"):
         await mcp_installation.install_market_item(
-            db,
             "builtin-search",
             owner_user_id="u2",
             installed_by="u2",
@@ -425,7 +409,6 @@ async def test_installer_may_keep_the_admin_host_when_overriding_the_endpoint(db
     _patch_install_side_effects(monkeypatch)
 
     await mcp_installation.install_market_item(
-        db,
         "builtin-search",
         owner_user_id="u2",
         installed_by="u2",

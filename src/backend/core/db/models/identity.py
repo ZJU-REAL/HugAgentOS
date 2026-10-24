@@ -2,29 +2,21 @@
 from core.db.utc_datetime import UTCDateTime
 from core.infra.time import utc_now
 
-from datetime import datetime, timezone
 
 from core.db.engine import Base
 from sqlalchemy import (
-    JSON,
-    BigInteger,
     Boolean,
     CheckConstraint,
     Column,
     ForeignKey,
     Index,
-    Integer,
-    Numeric,
     String,
     Text,
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import INET, JSONB
-from sqlalchemy.orm import mapped_column, relationship
-
-JSONType = JSON().with_variant(JSONB(), "postgresql")
-INETType = String(45).with_variant(INET(), "postgresql")
+from sqlalchemy.orm import relationship
+from core.db.models.column_types import JSONType
 
 
 class UserShadow(Base):
@@ -183,18 +175,6 @@ class UserApiKey(Base):
         CheckConstraint("agent_id IS NULL OR project_id IS NULL", name="ck_user_api_keys_single_scope"),
         Index("idx_user_api_keys_key_hash", "key_hash"),
     )
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # Optional modules own their dependent rows; all cleanups share this transaction.

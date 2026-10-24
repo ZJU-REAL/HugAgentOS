@@ -31,7 +31,7 @@ class StallHook:
         return self.intervene(invocation)
 
     def intervene(self, invocation):
-        from core.evolution.profiles.agent_profile_state import ACTION_CHANGE_STRATEGY, ACTION_DELEGATE, ACTION_ESCALATE, ACTION_NARROW_SCOPE, ACTION_RETRY, ACTION_ROLLBACK_AND_FORK, ACTION_STOP
+        from core.evolution.profiles.agent_profile_constants import ACTION_CHANGE_STRATEGY, ACTION_DELEGATE, ACTION_ESCALATE, ACTION_NARROW_SCOPE, ACTION_RETRY, ACTION_ROLLBACK_AND_FORK, ACTION_STOP
 
         applicable = [
             rule

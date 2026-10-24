@@ -57,7 +57,9 @@ async def test_skill_runtime_hint_runs_in_current_directory_with_spaces(monkeypa
     (skill / "run.py").write_text("from pathlib import Path; Path('output.txt').write_text('ok')")
 
     class Toolkit:
-        def register_tool_function(self, fn, **kwargs):
+        def append(self, tool):
+            fn = tool._func
+            kwargs = {"func_description": tool.description, "permission": getattr(tool, "dispatch_spec", None)}
             self.fn = fn
 
     loader = SimpleNamespace(
@@ -124,12 +126,6 @@ async def test_desktop_relative_artifact_roundtrip(monkeypatch, tmp_path):
                 )
             )
 
-        async def get_file_to_path(self, session_id, path, destination, **kwargs):
-            result = await server.get_file(server.GetFileRequest(session_id=session_id, path=path))
-            data = base64.b64decode(result.content_b64)
-            destination.write_bytes(data)
-            return len(data)
-
     monkeypatch.setattr("core.sandbox.get_sandbox_provider", lambda: Provider())
     monkeypatch.setattr(
         "core.llm.tools.sandbox_artifact_tools._resolve_artifact_files",
@@ -138,32 +134,47 @@ async def test_desktop_relative_artifact_roundtrip(monkeypatch, tmp_path):
             None,
         ),
     )
-    captured = []
+    from types import SimpleNamespace
+    from core.llm.factory.tools.definitions import ToolAssembly
+    from core.llm.tool_permissions import ToolPermissionService
+    from core.sandbox.permissions.tool_specs import ToolPermissionRegistry
+    from core.sandbox.permissions.dispatch_models import (
+        CURRENT_PERMISSION_TICKET, PermissionRuntime, PermissionEnforcementError,
+    )
+    from core.files.artifacts import store
+    from core.files.artifacts.local_reference import authorized_reference
+    from features.desktop.local.grants import add_grant
 
-    def store(path, **kwargs):
-        captured.append(path.read_bytes())
-        return dict(
-            file_id="result",
-            name="output.txt",
-            url="/files/result",
-            mime_type="text/plain",
-            size=10,
-        )
+    monkeypatch.setenv("HUGAGENT_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(store, "_STORE_DIR", tmp_path / "artifacts")
+    root = Path(_paths.workspace_directory("chat"))
+    root.mkdir(parents=True)
+    add_grant(str(root))
+    tools = ToolAssembly()
+    sandbox_tool.register_sandbox_put_artifact(tools, chat_id="chat", user_id="owner")
+    sandbox_tool.register_sandbox_get_artifact(tools, chat_id="chat", user_id="owner")
+    registry = ToolPermissionRegistry()
+    for name, spec in tools.permission_specs.items():
+        registry.register(name, spec, source="test")
+    permissions = ToolPermissionService(registry, PermissionRuntime(
+        chat_id="chat", user_id="owner", interactive=False, approval_available=False,
+    ))
+    functions = {tool.name: tool._func for tool in tools}
 
-    monkeypatch.setattr("core.llm.tools.sandbox_artifact_tools._store_generated_file_path", store)
-
-    class Toolkit:
-        def register_tool_function(self, fn, **kwargs):
-            self.fn = fn
-
-    put, get = Toolkit(), Toolkit()
-    sandbox_tool.register_sandbox_put_artifact(put, chat_id="chat", user_id="owner")
-    sandbox_tool.register_sandbox_get_artifact(get, chat_id="chat", user_id="owner")
+    async def invoke(name, **args):
+        outcome = await permissions.authorize(SimpleNamespace(name=name, id="artifact-call", input=args))
+        if not outcome.proceed:
+            raise PermissionError(str(outcome.payload))
+        token = CURRENT_PERMISSION_TICKET.set(outcome.ticket)
+        try:
+            return await functions[name](**args)
+        finally:
+            CURRENT_PERMISSION_TICKET.reset(token)
 
     def payload(result):
         return json.loads(result.content[0].text)
 
-    assert payload(await put.fn("upload", "input.txt"))["ok"]
+    assert payload(await invoke("sandbox_put_artifact", artifact_id="upload", dest_path="input.txt"))["ok"]
     result = await run_runner(
         server.ProcessRequest(
             session_id="chat",
@@ -173,9 +184,25 @@ async def test_desktop_relative_artifact_roundtrip(monkeypatch, tmp_path):
         )
     )
     assert result.exit_code == 0, result.stderr
-    assert payload(await get.fn("output.txt"))["ok"]
-    assert captured == [b"input-data"]
-    assert "error" in payload(await get.fn("../outside.txt"))
+    with pytest.raises(PermissionEnforcementError):
+        await functions["sandbox_get_artifact"]("output.txt")
+    result = payload(await invoke("sandbox_get_artifact", src_path="output.txt"))
+    assert result["ok"]
+    reference = authorized_reference(result["file_id"], "owner")
+    assert reference["path"] == str(root / "output.txt")
+    assert Path(reference["path"]).read_bytes() == b"input-data"
+    assert authorized_reference(result["file_id"], "other-user") is None
+    with pytest.raises(PermissionError):
+        await invoke("sandbox_get_artifact", src_path="../outside.txt")
+    other_root = Path(_paths.workspace_directory("other-chat"))
+    other_root.mkdir(parents=True)
+    other = other_root / "secret.txt"
+    other.write_text("another session")
+    with pytest.raises(PermissionError):
+        await invoke("sandbox_get_artifact", src_path=str(other))
+    (root / "escape.txt").symlink_to(other)
+    with pytest.raises(PermissionError):
+        await invoke("sandbox_get_artifact", src_path="escape.txt")
 
 
 def test_desktop_runner_creates_no_aliases(monkeypatch, tmp_path):

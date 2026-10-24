@@ -280,18 +280,14 @@ def test_collector_unavailability_fails_closed_without_raw_error(monkeypatch):
 async def test_actual_invocation_checks_successful_result(monkeypatch):
     from types import SimpleNamespace
 
-    from core.llm.mcp import pool as mcp_pool
-
-    async def fake_tool(**kwargs):
-        return SimpleNamespace(
-            metadata={}, model_dump=lambda **kwargs: {"content": [{"text": CANARY}]}
-        )
+    from core.llm.mcp import client as mcp_pool
 
     class Client:
-        execution_timeout = 1
-
-        async def get_tool(self, name):
-            return fake_tool
+        async def __aenter__(self): return self
+        async def __aexit__(self, *exc): pass
+        async def call_tool(self, name, arguments):
+            from mcp.types import CallToolResult, TextContent
+            return CallToolResult(content=[TextContent(text=CANARY)])
 
     monkeypatch.setattr(mcp_pool, "make_client", lambda *args, **kwargs: Client())
     with pytest.raises(cap.CapabilityContentRejected):
@@ -365,20 +361,16 @@ def test_userinfo_token_without_password_is_guarded():
 async def test_actual_invocation_checks_custom_header_echo(monkeypatch):
     from types import SimpleNamespace
 
-    from core.llm.mcp import pool as mcp_pool
+    from core.llm.mcp import client as mcp_pool
 
     monkeypatch.setattr(security, "_known_cloud_secrets", lambda uid: set())
 
-    async def fake_tool(**kwargs):
-        return SimpleNamespace(
-            metadata={}, model_dump=lambda **kwargs: {"content": [{"text": CANARY}]}
-        )
-
     class Client:
-        execution_timeout = 1
-
-        async def get_tool(self, name):
-            return fake_tool
+        async def __aenter__(self): return self
+        async def __aexit__(self, *exc): pass
+        async def call_tool(self, name, arguments):
+            from mcp.types import CallToolResult, TextContent
+            return CallToolResult(content=[TextContent(text=CANARY)])
 
     monkeypatch.setattr(mcp_pool, "make_client", lambda *args, **kwargs: Client())
     with pytest.raises(cap.CapabilityContentRejected):

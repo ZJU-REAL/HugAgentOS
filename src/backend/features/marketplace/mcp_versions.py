@@ -158,7 +158,6 @@ def version_probe_candidate(item: McpMarketItem, version: McpMarketVersion) -> A
         env_vars={},
         env_inherit=[],
         headers={},
-        is_stable=False,
         is_enabled=False,
         sort_order=0,
         extra_config={},

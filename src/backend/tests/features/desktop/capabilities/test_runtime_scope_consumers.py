@@ -136,12 +136,14 @@ async def test_bash_preserves_prepared_scope(monkeypatch, command_tool_state):
     )
 
     class Toolkit:
-        def register_tool_function(self, fn, **kwargs):
+        def append(self, tool):
+            fn = tool._func
+            kwargs = {"func_description": tool.description, "permission": getattr(tool, "dispatch_spec", None)}
             self.fn = fn
 
     toolkit = Toolkit()
     loader = SimpleNamespace(capability_run=SimpleNamespace(run_id="run-1", scope_id="step:two"))
-    sandbox_tool.register_bash(toolkit, loader=loader, loaded_skill_ids=set(), chat_id="chat-1", user_id="user-1")
+    sandbox_tool.register_bash(toolkit, loader=loader, chat_id="chat-1", user_id="user-1")
     await toolkit.fn(command="echo ok")
     assert captured[0].capability_run_id == "run-1"
     assert captured[0].capability_scope == "step:two"

@@ -1,4 +1,4 @@
-"""reviewer state responsibilities."""
+"""Verdicts, perspectives and repair limits for ontology review."""
 from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any

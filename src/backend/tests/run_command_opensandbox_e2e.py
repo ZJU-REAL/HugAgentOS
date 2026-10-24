@@ -70,11 +70,11 @@ def main():
     domain = os.environ["COMMAND_E2E_OPENSANDBOX_DOMAIN"]
     with tempfile.TemporaryDirectory(prefix="command-cloud-e2e-") as folder:
         env = {"DATABASE_URL":"sqlite:///" + str(Path(folder)/"test.db"),
-            "HUGAGENT_HOME":folder,"STORAGE_PATH":str(Path(folder)/"storage"),
+            "HUGAGENT_HOME":folder,"STORAGE_PATH":os.environ["COMMAND_E2E_STORAGE_PATH"],
             "DEPLOY_PROFILE":"team","AUTH_MODE":"mock","SANDBOX_PROVIDER":"opensandbox",
             "OPENSANDBOX_DOMAIN":domain,"OPENSANDBOX_IMAGE":image,
             "OPENSANDBOX_DIRECT_EXECD":"false","OPENSANDBOX_MYSPACE_BIND_MOUNT_ENABLED":"false",
-            "OPENSANDBOX_SNAPSHOT_ENABLED":"false","HOST_STORAGE_PATH":"",
+            "OPENSANDBOX_SNAPSHOT_ENABLED":"false","HOST_STORAGE_PATH":os.environ["COMMAND_E2E_HOST_STORAGE_PATH"],
             "SCRIPT_RUNNER_WORKSPACE":"/workspace","REDIS_URL":"",
             "NO_PROXY":"127.0.0.1,localhost","no_proxy":"127.0.0.1,localhost"}
         for name in ("DWS","LARK","EMAIL","YIDA"):

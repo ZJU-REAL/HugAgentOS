@@ -1,12 +1,14 @@
-"""runtime pack responsibilities."""
+"""Compile active ontology packs into the runtime policy for a request."""
 from __future__ import annotations
 import json
 import re
 import uuid
-from dataclasses import field
 from typing import Any, Iterable
 from core.ontology.schemas import Constraint, OntologyPackDocument, Workflow
-from core.ontology import validator_state as validator_state_module
+
+
+REVIEW_RANK = {"none": 0, "checkpoint": 1, "committee": 2}
+
 
 def select_workflows(document: OntologyPackDocument, task: str) -> list[Workflow]:
     """Select workflows by case-insensitive lexical trigger match."""
@@ -150,7 +152,7 @@ def build_runtime_payload(
     for document in documents:
         workflows = select_workflows(document, task)
         for workflow in workflows:
-            if validator_state_module.REVIEW_RANK[workflow.review_level] > validator_state_module.REVIEW_RANK[review_level]:
+            if REVIEW_RANK[workflow.review_level] > REVIEW_RANK[review_level]:
                 review_level = workflow.review_level
             ref = f"{document.pack_id}:{workflow.id}"
             activated_workflows.append(ref)
@@ -274,7 +276,7 @@ def activate_runtime_for_asset(
                 current["version_id"] = fragment["version_id"]
 
         level = str(candidate.get("review_level") or "none")
-        if validator_state_module.REVIEW_RANK.get(level, 0) > validator_state_module.REVIEW_RANK.get(runtime.get("review_level"), 0):
+        if REVIEW_RANK.get(level, 0) > REVIEW_RANK.get(runtime.get("review_level"), 0):
             runtime["review_level"] = level
         activated.add(ref)
         runtime["activated_workflows"] = sorted(activated)
@@ -335,7 +337,7 @@ def render_runtime_prompt(runtime: dict[str, Any]) -> str:
                 compact_pack["relations"].pop()
                 continue
             if compact_pack["concepts"]:
-                removed = compact_pack["concepts"].pop()
+                compact_pack["concepts"].pop()
                 remaining = {item["id"] for item in compact_pack["concepts"]}
                 compact_pack["relations"] = [
                     relation

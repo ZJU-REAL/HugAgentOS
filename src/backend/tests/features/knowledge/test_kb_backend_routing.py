@@ -7,7 +7,6 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from mcp import types
 
 from features.knowledge import edition as external_provider, kb_vector
 from core.config.store.system_config import SystemConfigService
@@ -144,29 +143,40 @@ def test_external_selection_never_falls_back_to_local(monkeypatch, local_data, p
     assert local_data == []
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize("provider", ["custom", "dify", "fastgpt", "weknora"])
-def test_public_tool_remains_available_for_selected_backend(monkeypatch, provider):
+async def test_public_tool_remains_available_for_selected_backend(monkeypatch, provider):
+    from core.llm.mcp.lifetime import discover
+    from tests.llm.test_mcp_parallel_execution import probe_server
+
     configure(monkeypatch, provider)
     monkeypatch.setattr(wiki_impl, "wiki_supported", lambda: False)
-    handler = server.mcp._mcp_server.request_handlers[types.ListToolsRequest]
-    result = asyncio.run(handler(types.ListToolsRequest(method="tools/list")))
-    names = {tool.name for tool in result.root.tools}
-    assert {"retrieve_dataset_content", "retrieve_local_kb", "list_datasets"} <= names
+    async with probe_server(server.mcp) as (url, _):
+        resource = await discover("retrieval", {"transport": "streamable_http", "url": url})
+        try:
+            names = {tool.name for tool in resource.tools}
+            assert {"retrieve_dataset_content", "retrieve_local_kb", "list_datasets"} <= names
+        finally:
+            await resource.close()
 
 
-def test_local_public_result_survives_mcp_protocol(monkeypatch, local_data):
+@pytest.mark.asyncio
+async def test_local_public_result_survives_mcp_protocol(monkeypatch, local_data):
+    from core.llm.mcp.lifetime import discover
+    from tests.llm.test_mcp_parallel_execution import probe_server
+
     configure(monkeypatch, "custom")
-    monkeypatch.setenv("CURRENT_USER_ID", "reader")
-    handler = server.mcp._mcp_server.request_handlers[types.CallToolRequest]
-    request = types.CallToolRequest(
-        method="tools/call",
-        params=types.CallToolRequestParams(
-            name="retrieve_dataset_content", arguments={"query": "乘法定义"}
-        ),
-    )
-    result = asyncio.run(handler(request))
-    payload = json.loads(result.root.content[0].text)
-    assert payload["items"][0]["content"] == "3 × 4 = 12"
+    async with probe_server(server.mcp) as (url, _):
+        resource = await discover("retrieval", {"transport": "streamable_http", "url": url,
+                                                "headers": {"X-Current-User-Id": "reader"}})
+        try:
+            tool = next(t for t in resource.tools if t.name == "retrieve_dataset_content")
+            result = await tool(query="乘法定义")
+            payload = result.metadata["mcp"]["structuredContent"]["result"]
+            assert "items" in payload, payload
+            assert payload["items"][0]["content"] == "3 × 4 = 12"
+        finally:
+            await resource.close()
 
 
 @pytest.mark.parametrize("provider", ["custom", "fastgpt"])

@@ -248,3 +248,14 @@ def renew_launch(task_id, owner):
         if row.owner != owner or row.status != "starting":
             raise RuntimeError("Command launch ownership lost")
         row.lease_until = time.time() + LAUNCH_LEASE_SECONDS
+
+
+def renew_owned(task_ids, owner):
+    """Keep live local handles fenced even while output/stop RPCs are blocked."""
+    now = time.time()
+    with SessionLocal() as db:
+        db.execute(update(CommandTask).where(
+            CommandTask.task_id.in_(task_ids), CommandTask.owner == owner,
+            CommandTask.status.in_(LIVE), CommandTask.lease_until > now,
+        ).values(lease_until=now + LEASE_SECONDS))
+        db.commit()

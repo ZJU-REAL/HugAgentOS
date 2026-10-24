@@ -10,7 +10,6 @@ if TYPE_CHECKING:
 HookFactory = Callable[[Any], Iterable["HookSpec"]]
 
 
-
 def register_hook_factory(factory: HookFactory) -> None:
     """Register once; invoke afresh for each agent assembly."""
     if factory not in registration_state().factories:
@@ -23,7 +22,7 @@ def hook_specs(request: Any) -> Iterator[HookSpec]:
 
 
 # Run-domain policies are created at assembly time, never shared between agents.
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 
 
@@ -58,19 +57,13 @@ def command_completion_hooks():
     return factory()
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-
-@state_dataclass
+@dataclass
 class RegistrationState:
-    """Process-owned registrations; replace only while the host is quiescent."""
-    factories: list[HookFactory] = state_field(default_factory=list)
+    factories: list[HookFactory] = field(default_factory=list)
 
 
-@state_cache(maxsize=1)
+_REGISTRATIONS = RegistrationState()
+
+
 def registration_state() -> RegistrationState:
-    return RegistrationState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-registration_state()
+    return _REGISTRATIONS

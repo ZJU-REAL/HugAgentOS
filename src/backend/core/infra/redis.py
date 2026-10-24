@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from dataclasses import dataclass, field
 from weakref import WeakKeyDictionary
 
 import redis.asyncio as aioredis
@@ -30,7 +31,6 @@ _redis_pools: WeakKeyDictionary[asyncio.AbstractEventLoop, aioredis.Redis] = (
 _stream_pools: WeakKeyDictionary[asyncio.AbstractEventLoop, aioredis.Redis] = (
     WeakKeyDictionary()
 )
-
 
 
 def redis_configured() -> bool:
@@ -140,17 +140,13 @@ async def close_redis() -> None:
     logger.info("redis_pool_closed", event_loop=id(loop))
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class RedisState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    redis_pools_lock: object = state_field(default_factory=lambda: threading.Lock())
+    redis_pools_lock: object = field(default_factory=lambda: threading.Lock())
 
-@state_cache(maxsize=1)
+
+_STATE = RedisState()
+
+
 def process_state() -> RedisState:
-    return RedisState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

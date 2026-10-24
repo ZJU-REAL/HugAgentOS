@@ -5,11 +5,12 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Sequence
 
-logger = logging.getLogger(__name__)
 
 
 from core.capabilities.plugins.runtime import activation_history as plugin_activation_history
 from core.capabilities.plugins.runtime import models as plugin_runtime_models
+
+logger = logging.getLogger(__name__)
 
 
 def _http_transport(cfg: Any) -> bool:

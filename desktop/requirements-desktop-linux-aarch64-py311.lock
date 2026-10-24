@@ -1,8 +1,8 @@
 # This file is generated. Do not edit it by hand.
 # Regenerate with: npm --prefix desktop run lock:desktop
-# input-sha256: d18da0b813b601a5c727eb280b730ddb3b307fb487ab2a2bb28d4c568a336990
+# input-sha256: b9680ef14192ea099c4a7159c08c064cbd555bd681c00c49c5c74b1f7f3d4046
 # Target: CPython 3.11 on Linux aarch64 (UOS 1070 / manylinux 2.28)
-agentscope==2.0.0
+agentscope @ https://github.com/agentscope-ai/agentscope/archive/ed357feb78a45ff02df155bb5610eab9bf543832.tar.gz
     # via -r desktop/requirements-desktop.txt
 aiofiles==25.1.0
     # via agentscope
@@ -105,8 +105,6 @@ defusedxml==0.7.1
     # via
     #   -r desktop/requirements-desktop.txt
     #   markitdown
-deprecated==1.3.1
-    # via limits
 dingtalk-stream==0.24.3
     # via -r desktop/requirements-desktop.txt
 distro==1.9.0
@@ -183,18 +181,18 @@ httpx==0.28.1
     #   huggingface-hub
     #   lark-oapi
     #   litellm
-    #   mcp
     #   mem0ai
     #   ollama
     #   openai
     #   qdrant-client
     #   tavily-python
 httpx-sse==0.4.3
-    # via
-    #   dashscope
-    #   mcp
+    # via dashscope
 httpx2==2.12.0
-    # via anthropic
+    # via
+    #   agentscope
+    #   anthropic
+    #   mcp
 huggingface-hub==1.28.0
     # via tokenizers
 hyperframe==6.1.0
@@ -220,7 +218,7 @@ jmespath==1.1.0
     # via
     #   boto3
     #   botocore
-json-repair==0.63.3
+json-repair==0.64.1
     # via agentscope
 json5==0.15.0
     # via agentscope
@@ -228,6 +226,7 @@ jsonschema==4.26.0
     # via
     #   -r desktop/requirements-desktop.txt
     #   agentscope
+    #   json-repair
     #   litellm
     #   mcp
 jsonschema-specifications==2025.9.1
@@ -236,8 +235,6 @@ kiwisolver==1.5.0
     # via matplotlib
 lark-oapi==1.7.3
     # via -r desktop/requirements-desktop.txt
-limits==5.8.0
-    # via slowapi
 linkify-it-py==2.1.0
     # via markdown-it-py
 litellm==1.98.0
@@ -270,10 +267,12 @@ matplotlib==3.11.1
     # via
     #   -r desktop/requirements-desktop.txt
     #   seaborn
-mcp==1.29.0
+mcp==2.3.0
     # via
     #   -r desktop/requirements-desktop.txt
     #   agentscope
+mcp-types==2.3.0
+    # via mcp
 mdit-py-plugins==0.6.1
     # via textual
 mdurl==0.1.2
@@ -316,6 +315,7 @@ openpyxl==3.1.5
 opentelemetry-api==1.44.0
     # via
     #   agentscope
+    #   mcp
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-exporter-otlp-proto-http
     #   opentelemetry-sdk
@@ -348,7 +348,6 @@ packaging==26.3
     # via
     #   faiss-cpu
     #   huggingface-hub
-    #   limits
     #   matplotlib
     #   onnxruntime
     #   pikepdf
@@ -415,8 +414,10 @@ pydantic==2.13.4
     #   dashscope
     #   fastapi
     #   google-genai
+    #   json-repair
     #   litellm
     #   mcp
+    #   mcp-types
     #   mem0ai
     #   ollama
     #   openai
@@ -425,9 +426,7 @@ pydantic==2.13.4
 pydantic-core==2.46.4
     # via pydantic
 pydantic-settings==2.15.0
-    # via
-    #   litellm
-    #   mcp
+    # via litellm
 pyee==13.0.1
     # via playwright
 pygments==2.21.0
@@ -441,7 +440,9 @@ pymilvus==2.5.18
 pyparsing==3.3.2
     # via matplotlib
 pypdf==6.16.2
-    # via -r desktop/requirements-desktop.txt
+    # via
+    #   -r desktop/requirements-desktop.txt
+    #   agentscope
 pypdf2==3.0.1
     # via -r desktop/requirements-desktop.txt
 pypdfium2==5.13.0
@@ -518,11 +519,10 @@ requests-toolbelt==1.0.0
     # via lark-oapi
 rich==15.0.0
     # via
+    #   agentscope
     #   dashscope
     #   textual
     #   typer
-ripgrep==14.1.0
-    # via agentscope
 rpds-py==2026.6.3
     # via
     #   jsonschema
@@ -549,8 +549,6 @@ six==1.17.0
     # via
     #   markdownify
     #   python-dateutil
-slowapi==0.1.10
-    # via -r desktop/requirements-desktop.txt
 sniffio==1.3.1
     # via
     #   anthropic
@@ -564,7 +562,9 @@ sqlalchemy==2.0.52
     #   alembic
     #   mem0ai
 sse-starlette==3.0.3
-    # via mcp
+    # via
+    #   -r desktop/requirements-desktop.txt
+    #   mcp
 starlette==0.46.2
     # via
     #   fastapi
@@ -615,8 +615,8 @@ typing-extensions==4.16.0
     #   grpcio
     #   httpx2
     #   huggingface-hub
-    #   limits
     #   mcp
+    #   mcp-types
     #   openai
     #   opentelemetry-api
     #   opentelemetry-exporter-otlp-proto-grpc
@@ -639,6 +639,8 @@ typing-inspection==0.4.4
     #   mcp
     #   pydantic
     #   pydantic-settings
+tzdata==2026.5
+    # via agentscope
 uc-micro-py==2.0.0
     # via linkify-it-py
 ujson==5.13.0
@@ -667,8 +669,6 @@ werkzeug==3.1.8
     # via -r desktop/requirements-desktop.txt
 wheel==0.48.0
     # via -r desktop/requirements-desktop.txt
-wrapt==2.3.0
-    # via deprecated
 wsproto==1.3.2
     # via simple-websocket
 xlsxwriter==3.2.9

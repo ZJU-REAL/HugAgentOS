@@ -1,11 +1,11 @@
-"""chat runs responsibilities."""
+"""ORM models for chat runs, their operation journal and the steering queue."""
 from __future__ import annotations
 from core.db.utc_datetime import UTCDateTime
 from datetime import datetime, timezone
 from core.db.engine import Base
 from sqlalchemy import BigInteger, CheckConstraint, Column, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import deferred
-from core.db.models import chat_state as chat_state_module
+from core.db.models.column_types import BigIntPK, JSONType
 
 class ChatRun(Base):
     """Chat Run — decouples AI tasks from the HTTP connection lifecycle.
@@ -36,11 +36,11 @@ class ChatRun(Base):
     writer_slot = Column(String(20))
     status = Column(String(20), nullable=False, default="pending")
     request_payload = Column(
-        chat_state_module.JSONType
+        JSONType
     )  # serialized ChatRequest (for the worker to rebuild the context)
     last_event_offset = Column(Integer, default=0, nullable=False)
     error_message = Column(Text)
-    usage = Column(chat_state_module.JSONType)
+    usage = Column(JSONType)
     # Durable run-journal state. Redis remains an event projection only; these
     # columns decide ownership, recovery and terminal CAS after a restart.
     run_phase = Column(String(40), nullable=False, default="accepted")
@@ -50,7 +50,7 @@ class ChatRun(Base):
     snapshot_version = Column(Integer, nullable=False, default=0)
     # Holds the whole in-flight run payload (megabytes on long chats); loading it
     # with every ChatRun row decodes that JSON again, so it is fetched on access.
-    recovery_snapshot = deferred(Column(chat_state_module.JSONType))
+    recovery_snapshot = deferred(Column(JSONType))
     last_operation_safety = Column(String(40), nullable=False, default="replayable")
     failure_reason = Column(Text)
     updated_at = Column(
@@ -89,7 +89,7 @@ class ChatRunOperation(Base):
 
     __tablename__ = "chat_run_operations"
 
-    operation_id = Column(chat_state_module.BigIntPK, primary_key=True, autoincrement=True)
+    operation_id = Column(BigIntPK, primary_key=True, autoincrement=True)
     run_id = Column(
         String(64), ForeignKey("chat_runs.run_id", ondelete="CASCADE"), nullable=False
     )
@@ -99,7 +99,7 @@ class ChatRunOperation(Base):
     safety = Column(String(40), nullable=False)
     owner = Column(String(160))
     snapshot_version = Column(Integer, nullable=False, default=0)
-    payload = Column(chat_state_module.JSONType)
+    payload = Column(JSONType)
     created_at = Column(
         UTCDateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

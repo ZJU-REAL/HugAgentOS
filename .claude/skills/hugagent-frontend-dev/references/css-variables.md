@@ -1,153 +1,174 @@
-# CSS 变量与样式规范参考
+# CSS 变量、命名与样式模式
 
-> **重要**: 颜色、圆角、间距等视觉规范以 `references/ui-design-spec.md` 为权威来源。本文件侧重 CSS 实践模式。
+真源：`src/frontend/src/styles/variables.css`（`:root` 浅色 + 文件末尾 `:root[data-theme="dark"]` 深色覆盖 +
+`:root[data-font-platform=…]` 字体优先级）。TS 镜像：`utils/motionTokens.ts`（动效）、`appTheme.ts`（antd token）。
+三处同步改。设计规则见 `ui-design-spec.md`（v2）。
 
-## 全局变量 (variables.css)
+---
 
-以下变量需与 UI 设计规范对齐（参见 `ui-design-spec.md` 第 12 节的完整映射）。
+## 1. v1 → v2 令牌对照（写新代码先查这张表）
 
-```css
-:root {
-  /* 主色 */
-  --color-primary: #126DFF;
-  --color-primary-hover: #3C87FF;
-  --color-primary-active: #0862F3;
-  --color-primary-disabled: #A0C5FF;
-  --color-primary-bg: #DBE9FF;
-  --color-primary-light: #EBF2FF;
+v2 令牌**尚未全部合入** `variables.css`。写代码前先 `grep -n -- '--令牌名' src/frontend/src/styles/variables.css` 确认：
 
-  /* 边框与填充 */
-  --color-fill-heavy: #8C94A2;
-  --color-fill-deep: #B3BAC8;
-  --color-fill: #D8DBE2;
-  --color-border: #E3E6EA;
-  --color-fill-hover: #EBEDEE;
-  --color-bg-gray: #F5F6F7;
+- **已存在** → 直接用；
+- **不存在、而你的改动需要它** → 按迁移清单第 1 项把它加进 `variables.css`（浅色 `:root` 和深色覆盖块**两处都加**，
+  值取自 `assets/design-v2/tokens/hugagentos-tokens.v2.css`），同步 `appTheme.ts`（如涉及 antd），然后再用。
+  **不要**写死色值、**不要**引用未定义的变量名、**不要**写 `var(--x, #fff)` 兜底（深色门禁会拦）。
 
-  /* 文字 */
-  --color-text: #101828;
-  --color-text-secondary: #475467;
-  --color-text-tertiary: #667085;
-  --color-text-placeholder: #98A2B3;
-  --color-text-white: #FFFFFF;
+| 用途 | v1（现行代码） | v2（目标） | 说明 |
+|---|---|---|---|
+| 强调填充 | `--color-primary` #126DFF（深色 #3E8BFF） | `--color-primary`（深色也 #126DFF） | 深色值待迁移 #6 |
+| 强调文字 / 链接 | `--color-primary` | `--color-primary-text` #0F62E6 / 深 #5C9BFF | 新增 |
+| 主色上的文字 | `--color-text-white` | `--color-on-primary` | 新增 |
+| 悬停 / 按下 | `--color-*-hover` / `--color-*-active` 色阶 | `--state-hover` / `--state-press` / `--state-on-fill-hover` / `--state-on-fill-press` 叠加层 | **新代码禁用色阶** |
+| 禁用 | `--color-*-disabled` | `opacity: .4` | |
+| 成功/警告/错误 文字 | `--color-success` 等直接当文字 | `--color-success-text` / `--color-warning-text` / `--color-error-text` | P0 对比度 |
+| 成功/警告/错误 浅底 | `--color-*-light`（v1 的 `*-bg` 是更深一档） | `--color-success-bg` #E6FFF9 等 | **注意：v2 的 `*-bg` 取 v1 `*-light` 的值** |
+| 破坏性实心按钮 | — | `--color-danger-fill` #D92D20 | 新增 |
+| 占位符 | `--color-text-placeholder` #98A2B3 | 同名，值改为 #667085（= 三级文字） | 迁移 #7 |
+| 分隔线 | `--color-border` #E3E8EF | `--color-separator` | 改名，值相同 |
+| 输入框边框 | `--color-border` / `--color-fill` | `--color-control-border` #C5CCD8 | 新增 |
+| 次要按钮 / 胶囊 / 用户气泡 | `--color-bg-gray` / `--color-fill-hover` | `--color-fill-quiet` #F2F4F7 | 新增 |
+| 浮层材质 | 各处自写半透明 | `--material` + `backdrop-filter: blur(20px)` | 新增 |
+| 模态遮罩 | antd 默认 | `--scrim` | 新增 |
+| 静止卡片投影 | `--shadow-card` | **无投影** | 迁移 #9 |
+| 悬停卡片 / 对话输入区 | `--shadow-card-hover` / `--shadow-card` | `--shadow-raised` | 调整 |
+| 菜单 / 弹窗 | `--shadow-dropdown` | `--shadow-floating` | 调整 |
+| 分类色 | tint × 7（purple/cyan/teal/amber/green/red/blue） | tint × 4（blue/purple/teal/amber） | cyan/green/red 不新增引用 |
+| 胶囊圆角 | 写 `999px` | `--radius-full` | 新增 |
+| 间距 | `--space-xs/sm/md/lg/xl` = 4/8/16/**20**/**40** | `--space-1/2/3/4/6/8/12/16` = 4/8/12/16/24/32/48/64 | 20/40 不在栅格上 |
+| 字号 | `--font-size-xs/sm/md/lg/xl/xxl` = 12/14/16/18/22/44（px） | 九级角色：display / title-1/2/3 / headline / body-lg / body / footnote / caption（rem） | 见 ui-design-spec §2 |
+| 品牌火花绿 | — | `--color-brand-spark` | 仅标志，界面禁用 |
+| 弹簧 | `SPRING.pop / ink / panel` | `SPRING.smooth / snappy` | 迁移 #2 |
 
-  /* 语义色 */
-  --color-success: #02B589;
-  --color-warning: #F8AB42;
-  --color-error: #FC5D5D;
+在 v2 间距令牌合入前：4/8/16 用 `--space-xs/sm/md`，12/24/32/48/64 可直接写 px（门禁只管颜色），
+**不要**在新代码里用 `--space-lg`(20) / `--space-xl`(40)。
 
-  /* 圆角 */
-  --radius-xs: 6px;   /* 标签等小面积 */
-  --radius-sm: 10px;  /* 按钮、输入框、下拉框 */
-  --radius-md: 16px;  /* 卡片视图、背景卡片 */
-  --radius-lg: 24px;  /* 弹窗、大输入框 */
+---
 
-  /* 间距 (4px 基准) */
-  --space-xs: 4px;
-  --space-sm: 8px;
-  --space-md: 16px;
-  --space-lg: 20px;
-  --space-xl: 40px;
+## 2. 现行令牌速查（variables.css 当前值）
 
-  /* 字体（后一条定义生效：系统栈优先，中文回退 PingFang/雅黑） */
-  --font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
-    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
-  --font-family-number: "DingTalk Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+### 背景四级 + 对话底
 
-  /* Motion 令牌（TS 侧镜像在 utils/motionTokens.ts） */
-  --motion-duration-instant: 100ms;
-  --motion-duration-fast: 160ms;
-  --motion-duration-normal: 240ms;
-  --motion-duration-slow: 320ms;
-  /* easing: --motion-ease-brand-out cubic-bezier(.16,1,.3,1) / --motion-ease-standard cubic-bezier(.4,0,.2,1) */
-}
-```
+| 令牌 | 浅色 | 深色 |
+|---|---|---|
+| `--color-bg-base` | #FFFFFF | #0F141B |
+| `--color-bg-container` | #FFFFFF | #161C25 |
+| `--color-bg-elevated` | #FFFFFF | #1C2330 |
+| `--color-bg-layout` | #F5F7FB | #12171F |
+| `--color-bg-chat` | #FDFDFC | #111720 |
 
-> 阴影令牌：`--shadow-card` / `--shadow-card-hover` / `--shadow-dropdown`（双层 ambient + key-light）。
-> 底部还有 legacy 别名（`--primary` / `--bg` / `--text` / `--muted` / `--border` 等），新代码不要使用。
+### 文字
 
-## CSS 类名前缀
+`--color-text` #101828 · `--color-text-secondary` #475467 · `--color-text-tertiary` #667085 ·
+`--color-text-placeholder` #98A2B3（v2 改 #667085）· `--color-text-white` #FFFFFF
 
-所有自定义类使用 `.jx-` 前缀，避免与 Ant Design 冲突。
+### 主色与语义
 
-## 命名规则 (BEM-like)
+- 主色：`--color-primary` #126DFF、`-hover` #3C87FF、`-active` #0862F3、`-disabled` #A0C5FF、`-bg` #DBE9FF、`-light` #EBF2FF
+- 语义：`--color-{success|warning|error}` + `-hover/-active/-disabled/-bg/-light`（v1 六档，新代码按上表换 v2）
+- 线与填充：`--color-border` #E3E8EF、`--color-fill` #DDE3EC、`--color-fill-hover` #EEF1F5、`--color-bg-gray` #F4F6F9、
+  `--color-fill-deep` #98A2B3、`--color-fill-heavy` #8C94A2
+- 分类 tint：`--color-tint-{purple,cyan,teal,amber,green,red,blue}-bg` + `--color-tint-{…}`（深浅两档已定义）
 
-| 类型 | 格式 | 示例 |
-|------|------|------|
-| Block | `.jx-blockName` | `.jx-chatArea` |
-| Element | `.jx-blockName-element` | `.jx-chatArea-header` |
-| Modifier | `.jx-blockName--modifier` | `.jx-chatArea--empty` |
-| Sub-element | `.jx-blockName-element-sub` | `.jx-fileCard-icon-bg` |
+### 圆角 / 间距 / 字号 / 字体
 
-## 常用尺寸
+- `--radius-xs/sm/md/lg` = 6 / 10 / 16 / 24
+- `--space-xs/sm/md/lg/xl` = 4 / 8 / 16 / 20 / 40
+- `--font-size-xs/sm/md/lg/xl/xxl` = 12 / 14 / 16 / 18 / 22 / 44 px
+- `--font-family`（`--font-family-cjk` 按 `data-font-platform` 切换 PingFang SC / Microsoft YaHei UI / Noto Sans CJK SC）、
+  `--font-family-mono`、`--font-family-number`（DingTalk Sans）
 
-| 用途 | 值 |
-|------|-----|
-| 侧边栏宽度 | 260px (展开) / 0 (收起) |
-| 输入框最大宽度 | 840px |
-| 消息最大宽度 | 840px |
-| 面板内边距 | 20px (桌面) / 16px (移动) |
-| 卡片间距 | 8px - 16px |
-| 卡片圆角 | 16px (`--radius-md`) |
-| 输入框圆角 | 10px (`--radius-sm`) |
-| 按钮圆角 | 10px (`--radius-sm`) |
-| 弹窗圆角 | 24px (`--radius-lg`) |
-| 按钮最小高度 | 36px |
+### 投影
 
-## 常用样式模式
+`--shadow-card` / `--shadow-card-hover` / `--shadow-dropdown`（深浅两档）
 
-### 卡片
+### 动效
 
-```css
-.jx-card {
-  padding: var(--space-md) var(--space-lg);  /* 16px 20px */
-  border-radius: var(--radius-md);           /* 16px */
-  border: 1px solid var(--color-border);
-  background: #fff;
-  transition: box-shadow 0.2s, border-color 0.2s;
-}
-.jx-card:hover {
-  border-color: var(--color-primary-hover);
-  box-shadow: 0 4px 12px rgba(18, 109, 255, 0.08);
-}
-```
+`--motion-duration-instant/fast/normal/slow` = 100 / 160 / 240 / 320ms ·
+`--motion-ease-brand-out` / `--motion-ease-standard` / `--motion-ease-exit` · `--motion-stagger-step` 60ms
 
-### 按钮
+### 局部域令牌（只在对应模块内用）
+
+- `--delivery-*`：交付文件卡片（文件类型图标色等）
+- `--color-personal-*` / `--shadow-personal-composer`：Personal Agent 对话皮肤
+- `--module-*`：模块导航轨与二级边栏
+- `--scrollbar-*`：滚动条
+- `--bg / --text / --muted / --border / --primary / --primary2 / --accent / --shadow1`：**旧别名，新代码禁用**
+
+---
+
+## 3. 命名规则
 
 ```css
-.jx-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 18px;
-  border-radius: var(--radius-sm);  /* 10px */
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.2s;
-  min-height: 36px;
-}
+.jx-chatArea { }            /* Block：.jx- 前缀 + camelCase */
+.jx-chatArea-header { }     /* Element：连字符 */
+.jx-chatArea--empty { }     /* Modifier：双连字符 */
 ```
 
-### 输入区
+- 所有自定义类 `.jx-` 前缀；关键帧 `jx-kf-名称`，动效工具类 `jx-anim-名称`
+- 组件私有的自定义属性用 `--jx-<block>-<prop>`，**值也必须引令牌**（`css-var-literal-color` 规则）
+- 样式按功能放 `styles/` 对应文件或子目录（`styles/chat/`、`styles/catalog/`、`styles/myspace/`、`styles/automation/`、
+  `styles/mobile/`）；`styles/index.ts` 统一 import，组件专属样式可在组件内直接 import
+
+---
+
+## 4. 常用样式模式（v2 写法）
 
 ```css
-.jx-inputArea {
-  width: 100%;
-  max-width: 840px;
-  margin: 0 auto;
-  border-radius: var(--radius-lg);   /* 24px */
-  border: 1.5px solid var(--color-border);
-  background: #fff;
+/* L1 卡片：静止无投影，悬停浮起 */
+.jx-xxx-card {
+  background: var(--color-bg-container);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  transition: transform var(--motion-duration-fast) var(--motion-ease-standard),
+              box-shadow var(--motion-duration-fast) var(--motion-ease-standard);
 }
+.jx-xxx-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-raised); }
+
+/* 中性控件悬停：叠加层而非换色 */
+.jx-xxx-item:hover { background: var(--state-hover); }
+.jx-xxx-item:active { background: var(--state-press); }
+
+/* L2 浮层：材质 + 模糊，从触发点展开 */
+.jx-xxx-menu {
+  background: var(--material);
+  backdrop-filter: blur(20px);
+  border-radius: var(--radius-md);   /* 外 16 */
+  padding: 6px;                      /* 内边距 6 */
+  box-shadow: var(--shadow-floating);
+  transform-origin: var(--jx-menu-origin, top left);
+}
+.jx-xxx-menu-item { border-radius: var(--radius-sm); }  /* 内 10 = 16 − 6，同心 */
+
+/* 语义提示条：浅底 + 前景文字成对 */
+.jx-xxx-hint--warning { background: var(--color-warning-bg); color: var(--color-warning-text); }
+
+/* 分类标签：tint 成对 */
+.jx-xxx-tag--skill { background: var(--color-tint-purple-bg); color: var(--color-tint-purple); border-radius: var(--radius-full); }
+
+/* 半透明面 / 墨色浮层（深色下自动正确） */
+.jx-xxx-glass { background: color-mix(in srgb, var(--color-bg-container) 60%, transparent); }
+.jx-xxx-ink   { background: color-mix(in srgb, var(--color-text) 5%, transparent); }
+
+/* 数字列 */
+.jx-xxx-num { font-family: var(--font-family-number); font-variant-numeric: tabular-nums; }
+
+/* 小图标按钮：视觉 28，点击区外扩到 32 */
+.jx-xxx-iconBtn { position: relative; width: 28px; height: 28px; border-radius: var(--radius-full); }
+.jx-xxx-iconBtn::after { content: ''; position: absolute; inset: -2px; }
 ```
 
-## 文件索引
+---
 
-| 文件 | 内容 |
-|------|------|
-| `variables.css` | CSS 变量 + body 背景 + AntD 覆写 |
-| `chat.css` | 聊天区域、输入框、消息气泡、空状态 |
-| `sidebar.css` | 侧边栏、导航、历史列表 |
-| `catalog.css` | Catalog 面板、搜索、列表项 |
-| `tool.css` | 工具输出面板、展开/折叠 |
-| `common.css` | 全局工具类、弹窗覆写 |
+## 5. 布局约定（模块页面与容器响应式）
+
+- **模块主页面**（项目、我的空间、站点、应用中心、能力中心、定时任务、设置、更新记录、实验室）：公共内容区是全宽滚动视口，
+  几何集中在 `styles/workspace-layout.css`。模块面板用正常文档流，**不要**再给面板自己设 `height:100%` + `overflow:auto`
+  造第二个滚动容器，也不要用 `overflow-x:hidden`（会隐式把 `overflow-y` 变成 auto）。限宽只给模块内容。
+  回归：`npm run test:module-pages`。
+- **容器响应式**：聊天工具栏、项目 / 能力目录 / 知识库卡片按所在面板的可用宽度排版——容器提供宽度，后代用容器查询响应；
+  不要让元素查询自身，不要用 JS 重复维护 CSS 断点。入口 `components/chat/ComposerToolbar.tsx`、
+  `styles/chat/toolbar-layout.css`、`styles/projects.css`、`styles/catalog/`。
+  回归：`npm run test:container-layout-browser`、`npm run test:chat-width-browser`。
+- 聊天、Canvas、插件工作区和真正的编辑器 / 限高预览保留专用布局。

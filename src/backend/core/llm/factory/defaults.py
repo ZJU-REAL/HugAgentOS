@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Dict
 
 from core.config.settings import settings as _settings
@@ -91,9 +92,6 @@ _WORKFLOW_MODE_HINT = (
 )
 
 
-
-_HTTP_MCP_FAIL_COOLDOWN_S = 60.0
-
 KB_MCP_HTTP_URL = (
     f"http://{_settings.server.mcp_host}:{_MCP_PORTS['retrieve_dataset_content']}/mcp/"
 )
@@ -111,17 +109,13 @@ _SKILL_INSTRUCTION_TEMPLATE = (
 )
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class DefaultsState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    HTTP_MCP_FAIL_AT: Dict[str, float] = state_field(default_factory=lambda: {})
+    HTTP_MCP_FAIL_AT: Dict[str, float] = field(default_factory=lambda: {})
 
-@state_cache(maxsize=1)
+
+_STATE = DefaultsState()
+
+
 def process_state() -> DefaultsState:
-    return DefaultsState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

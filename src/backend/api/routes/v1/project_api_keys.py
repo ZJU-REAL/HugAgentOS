@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from core.auth.backend import UserContext, get_current_user
 from core.auth.capabilities import resolve_user_capabilities
 from core.db.engine import get_db
+from core.db.threads import run_in_session
 from core.infra.responses import created_response, success_response
 from core.projects.api import require_project_key_access
 from core.auth.api_keys import ApiKeyService
@@ -136,15 +137,16 @@ async def toggle_key(
     key_id: str,
     body: ToggleProjectApiKeyRequest,
     user: UserContext = Depends(_manager),
-    db: Session = Depends(get_db),
 ):
-    _find(db, user, project_id, key_id)
-    row = ApiKeyService(db).set_enabled(user.user_id, key_id, body.enabled, project_id=project_id)
-    data = _dto(row)
+    def toggle(db):
+        _find(db, user, project_id, key_id)
+        return _dto(ApiKeyService(db).set_enabled(user.user_id, key_id, body.enabled, project_id=project_id))
+
+    data = await run_in_session(toggle)
     if not body.enabled:
         from core.auth.api_key_runs import stop_cancelled_key_workers
 
-        await stop_cancelled_key_workers(db, key_id, user.user_id)
+        await stop_cancelled_key_workers(key_id, user.user_id)
     return success_response(data=data)
 
 
@@ -153,11 +155,13 @@ async def revoke_key(
     project_id: str,
     key_id: str,
     user: UserContext = Depends(_manager),
-    db: Session = Depends(get_db),
 ):
-    _find(db, user, project_id, key_id)
-    ApiKeyService(db).revoke_key(user.user_id, key_id, project_id=project_id)
+    def revoke(db):
+        _find(db, user, project_id, key_id)
+        ApiKeyService(db).revoke_key(user.user_id, key_id, project_id=project_id)
+
+    await run_in_session(revoke)
     from core.auth.api_key_runs import stop_cancelled_key_workers
 
-    await stop_cancelled_key_workers(db, key_id, user.user_id)
+    await stop_cancelled_key_workers(key_id, user.user_id)
     return success_response(data={"id": key_id, "revoked": True})

@@ -55,18 +55,10 @@ class SpaceSandboxMixin:
     async def ensure_user_workspace(self, session_id, user_id):
         await self._get_or_create_session(session_id, user_id)
 
-    @_on_service_loop
-    async def write_stdin(
-        self, session_id, *, sandbox_session_id, user_id=None, chars="", yield_time_ms=60000
-    ):
-        await self._get_or_create_session(sandbox_session_id, user_id)
-        return await super().write_stdin(
-            session_id, sandbox_session_id=sandbox_session_id, user_id=user_id,
-            chars=chars, yield_time_ms=yield_time_ms,
-        )
-
     async def _renew_in_background(self, session_id, session):
-        if session.user_id and not await self._grants_match(session):
+        if session.user_id and (await asyncio.to_thread(current_revision, session.user_id)) != (
+            (await session.sandbox.get_info()).metadata or {}
+        ).get(MOUNT_REVISION_TAG):
             await self._destroy_session(session_id, session, reuse_sandbox=False)
             return
         await super()._renew_in_background(session_id, session)

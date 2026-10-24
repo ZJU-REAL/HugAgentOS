@@ -26,10 +26,14 @@ def issue(audience, user_id, chat_id, plugin_id=""):
     signature = hmac.new(key(), body.encode(), hashlib.sha256).hexdigest()
     return {HEADER: body + "." + signature}
 
-def for_url(url, user_id, chat_id, plugin_id=""):
+def audience_for(url):
+    """The built-in server a URL addresses, or None for any other server."""
     from core.config.mcp_config import mcp_http_url as _mcp_http_url
     from extensions.mcp_servers._ports import PORTS
-    audience = next((name for name in PORTS if _mcp_http_url(name).rstrip("/") == str(url).rstrip("/")), None)
+    return next((name for name in PORTS if _mcp_http_url(name).rstrip("/") == str(url).rstrip("/")), None)
+
+def for_url(url, user_id, chat_id, plugin_id=""):
+    audience = audience_for(url)
     if not audience:
         return {}
     try:

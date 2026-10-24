@@ -1,4 +1,4 @@
-"""core agent_runtime integrations memory_budget responsibilities."""
+"""How long a turn waits for memory retrieval, per the active agent profile."""
 
 from __future__ import annotations
 

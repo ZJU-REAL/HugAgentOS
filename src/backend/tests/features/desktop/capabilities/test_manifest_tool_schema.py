@@ -13,8 +13,8 @@ import pytest
 
 from agentscope.mcp import HttpMCPConfig
 
-from core.llm.mcp.manager import ManifestMCPClient, has_usable_schema
-from core.llm.mcp.pool import uses_manifest_schema
+from core.capabilities.mcp.tool_schema import has_usable_schema
+from core.llm.tools.cloud_manifest import manifest_tools
 from core.capabilities.plugins.management.components import merge_tool_metadata as _merge_tool_metadata
 
 REAL_SCHEMA = {
@@ -46,26 +46,19 @@ def test_argument_less_tool_is_still_a_captured_schema():
     """A server may describe an argument-less tool tersely; that is not a gap."""
     assert has_usable_schema({"name": "list_sites", "inputSchema": ARGLESS_SCHEMA})
     assert has_usable_schema({"name": "list_sites", "inputSchema": {"type": "object"}})
-    assert uses_manifest_schema(_cfg([{"name": "list_sites", "inputSchema": {"type": "object"}}]))
+    assert manifest_tools("s", _cfg([{"name": "list_sites", "inputSchema": {"type": "object"}}]))
 
 
 def test_manifest_without_any_schema_is_rejected():
-    assert not uses_manifest_schema(_cfg([{"name": "publish_site", "description": "..."}]))
+    assert manifest_tools("s", _cfg([{"name": "publish_site", "description": "..."}])) == []
 
 
 def test_client_withholds_the_tool_it_cannot_describe():
-    client = ManifestMCPClient(
-        name="sites-site_publish",
-        is_stateful=False,
-        mcp_config=HttpMCPConfig(url="https://cloud.example/call"),
-        manifest_tools=[
-            {"name": "publish_site", "description": "发布站点"},
-            {"name": "list_sites", "description": "查询站点", "inputSchema": ARGLESS_SCHEMA},
-        ],
-        gateway_invoke_url="https://cloud.example/call",
-        schema_hash="hash",
-    )
-    names = [tool.name for tool in client._raw_manifest_tools()]
+    tools = manifest_tools("sites-site_publish", _cfg([
+        {"name": "publish_site", "description": "发布站点"},
+        {"name": "list_sites", "description": "查询站点", "inputSchema": ARGLESS_SCHEMA},
+    ]))
+    names = [tool.name for tool in tools]
     assert names == ["list_sites"], "参数丢失的工具不能交给模型"
 
 

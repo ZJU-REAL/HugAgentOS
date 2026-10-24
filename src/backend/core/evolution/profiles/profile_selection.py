@@ -1,10 +1,9 @@
-"""profile selection responsibilities."""
+"""Pick the agent profile that governs a run."""
 from __future__ import annotations
-from core.evolution.profiles import agent_profile as agent_profile_module_
+from core.evolution.profiles import agent_profile
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 import logging
 logger = logging.getLogger(__name__)
-from core.evolution.profiles import agent_profile as agent_profile_module
 
 def scope_rank(scope: Dict[str, str], *, user_id: str, tenant_id: str) -> Optional[int]:
     """How specific this profile is to the subject, or ``None`` if it is not.
@@ -22,18 +21,18 @@ def scope_rank(scope: Dict[str, str], *, user_id: str, tenant_id: str) -> Option
 
 
 def pick_profile(
-    profiles: Sequence[agent_profile_module_.AgentProfile],
+    profiles: Sequence[agent_profile.AgentProfile],
     *,
     task_type: str,
     user_id: str = "",
     tenant_id: str = "default",
-) -> Optional[agent_profile_module_.AgentProfile]:
+) -> Optional[agent_profile.AgentProfile]:
     """The one profile that governs this run, or ``None``.
 
     A task-type-specific profile beats a general one at the same scope level:
     the narrower statement is the more deliberate one.
     """
-    ranked: List[Tuple[int, int, agent_profile_module_.AgentProfile]] = []
+    ranked: List[Tuple[int, int, agent_profile.AgentProfile]] = []
     for profile in profiles:
         if not profile.applies_to(task_type):
             continue
@@ -47,7 +46,7 @@ def pick_profile(
     return ranked[0][2]
 
 
-def profile_from_row(row: Any) -> agent_profile_module_.AgentProfile:
+def profile_from_row(row: Any) -> agent_profile.AgentProfile:
     """The profile a stored row describes, with the columns believed over payload.
 
     ``profile_id`` / ``version`` / ``task_types`` / ``scope`` exist as real
@@ -96,7 +95,7 @@ def profile_from_row(row: Any) -> agent_profile_module_.AgentProfile:
         )
     raw["scope"] = col_scope or payload_scope
 
-    return agent_profile_module_.AgentProfile.from_dict(raw)
+    return agent_profile.AgentProfile.from_dict(raw)
 
 
 def load_active_profile(
@@ -104,7 +103,7 @@ def load_active_profile(
     task_type: str = "chat",
     user_id: str = "",
     tenant_id: str = "default",
-) -> agent_profile_module_.AgentProfile:
+) -> agent_profile.AgentProfile:
     """The profile in force for this run.
 
     Read fresh on every call. Resolving once at import — which is what the old
@@ -127,14 +126,14 @@ def load_active_profile(
             profiles = [profile_from_row(row) for row in rows]
     except Exception as exc:  # noqa: BLE001
         logger.warning("[agent-profile] load failed, using built-in: %s", exc)
-        return agent_profile_module_.builtin_profile()
+        return agent_profile.builtin_profile()
 
     chosen = pick_profile(
         profiles, task_type=task_type, user_id=user_id, tenant_id=tenant_id
     )
     if chosen is None:
-        return agent_profile_module_.builtin_profile()
-    ok, problems = agent_profile_module_.validate_profile(chosen)
+        return agent_profile.builtin_profile()
+    ok, problems = agent_profile.validate_profile(chosen)
     if not ok:
         # A stored profile that no longer validates is not applied. The
         # alternative — applying it partially — produces a configuration nobody
@@ -144,5 +143,5 @@ def load_active_profile(
             chosen.profile_id,
             problems,
         )
-        return agent_profile_module_.builtin_profile()
+        return agent_profile.builtin_profile()
     return chosen

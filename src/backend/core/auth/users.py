@@ -100,8 +100,7 @@ class UserService:
             return {}
         metadata = dict(user.extra_data) if user.extra_data else {}
 
-        # Imported lazily to keep the services package's compatibility exports
-        # from creating an import cycle during application startup.
+        # Imported lazily to avoid an import cycle during application startup.
         from core.memory.settings import MemorySettingsService
 
         return MemorySettingsService(self.db).apply_effective_defaults(metadata)

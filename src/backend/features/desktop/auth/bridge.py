@@ -85,7 +85,7 @@ def _ensure_bridge_capabilities(db: Session, shadow) -> None:
     meta = dict(shadow.extra_data or {})
     if meta.get(_BRIDGE_META_FLAG):
         return
-    from core.auth.local_users_state import CE_DEFAULT_ADMIN_CAPABILITIES
+    from core.auth.local_users_constants import CE_DEFAULT_ADMIN_CAPABILITIES
 
     meta.update(CE_DEFAULT_ADMIN_CAPABILITIES)
     meta["auth_source"] = "desktop_bridge"
@@ -101,6 +101,11 @@ def _ensure_bridge_capabilities(db: Session, shadow) -> None:
     except Exception:  # pragma: no cover - flag_modified 只在个别方言下必要
         pass
     db.commit()
+
+
+def claims_request(request: Request) -> bool:
+    """Whether this request presents a bridge credential (header check, no I/O)."""
+    return bridge_enabled() and bool(request.headers.get(BRIDGE_SECRET_HEADER, ""))
 
 
 def resolve_bridge_user(request: Request, db: Session):

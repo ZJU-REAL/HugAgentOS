@@ -1,6 +1,7 @@
-"""model cache responsibilities."""
+"""Cache model instances per chat mode and invalidate them on config changes."""
 from __future__ import annotations
 import threading
+from dataclasses import dataclass, field
 from functools import wraps
 from typing import Any
 
@@ -118,28 +119,15 @@ def resolve_chat_mode(ctx) -> str:
     return "medium" if getattr(ctx, "enable_thinking", True) else "fast"
 
 
-
-
-
-
-
-
-
-
-
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class ModelCacheState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    model_cache: dict[tuple[Any, ...], Any] = state_field(default_factory=lambda: {})
-    cached_version: int = state_field(default_factory=lambda: -1)
-    model_cache_lock: object = state_field(default_factory=lambda: threading.RLock())
+    model_cache: dict[tuple[Any, ...], Any] = field(default_factory=lambda: {})
+    cached_version: int = field(default_factory=lambda: -1)
+    model_cache_lock: object = field(default_factory=lambda: threading.RLock())
 
-@state_cache(maxsize=1)
+
+_STATE = ModelCacheState()
+
+
 def process_state() -> ModelCacheState:
-    return ModelCacheState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

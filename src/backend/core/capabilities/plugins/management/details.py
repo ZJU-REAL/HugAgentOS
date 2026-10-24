@@ -1,20 +1,14 @@
-"""Plugin details responsibilities."""
+"""Marketplace plugin details and per-skill exclusions."""
 
 from __future__ import annotations
 
-import base64
 import logging
 from typing import Any, Dict, List, Optional
 
 from core.harness.registry.marketplace_catalog import marketplace_catalog
-from core.infra.exceptions import BadRequestError, ResourceNotFoundError
+from core.infra.exceptions import BadRequestError
 from core.capabilities.plugins.management import admin_config as plugin_admin_config
 from core.capabilities.plugins.packaging.presentation import overlay_market_meta
-from core.harness.registry.marketplace_catalog import marketplace_catalog
-from core.capabilities.plugins.management import packages as plugin_packages
-from core.capabilities.plugins.packaging import sources as plugin_sources
-from core.capabilities.plugins.packaging.archive import extract_plugin_zip
-from core.capabilities.plugins.packaging.importer import normalize_plugin_dir
 from core.capabilities.plugins.packaging.models import NormalizedPlugin, NormalizedSkill
 from core.capabilities.skills.installation import strip_frontmatter as _strip_frontmatter
 from sqlalchemy.orm import Session

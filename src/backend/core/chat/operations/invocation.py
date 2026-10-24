@@ -1,5 +1,4 @@
 """Resolve explicit skill, connector and plugin invocation selections."""
-from core.harness.registry import execution_account as skill_account
 
 from typing import List
 
@@ -82,7 +81,7 @@ def resolve_explicit_capability_invocation(
     # authorization both refer to the same package.
     if request.skill_id:
         from core.db.models import AdminSkill
-        from core.capabilities.skills.installation import compute_install_id as compute_install_id
+        from core.capabilities.skills.installation import compute_install_id
 
         private_id = compute_install_id(request.skill_id, user_id)
         private_row = (
@@ -117,7 +116,6 @@ def resolve_explicit_capability_invocation(
         )
         from core.harness.registry.device_catalog import owned_identities
         from core.harness.registry.run_capabilities import has_run_capabilities
-        from core.capabilities.identity_rules import LOCAL_PROFILE
 
         # An owned desktop installation may be missing files or temporarily
         # disabled. Retain its selection for an explanatory answer, without

@@ -1,6 +1,7 @@
 """Read-checked mutations of files in the active sandbox."""
 
 from __future__ import annotations
+from core.llm.factory.tools.definitions import function_tool
 
 import difflib
 import hashlib
@@ -14,7 +15,7 @@ from ._common import (
     resolve_sandbox_session,
     resp_json,
 )
-from core.sandbox.workspace.resolution import is_myspace_physical, space_metadata, to_physical_path, validate_project_scope_path, validate_workspace_path
+from core.sandbox.workspace.resolution import space_metadata, to_physical_path, validate_project_scope_path, validate_workspace_path
 from ._state import ReadEntry, ReadStateTracker
 
 logger = logging.getLogger(__name__)
@@ -269,5 +270,5 @@ def register_edit(
         "    ``{error: '...'}`` 失败。\n"
     )
 
-    toolkit.register_tool_function(Edit, namesake_strategy="override")
+    toolkit.append(function_tool(Edit))
     logger.info("[factory] Registered Edit tool (chat_id=%s)", chat_id)

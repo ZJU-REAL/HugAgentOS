@@ -7,7 +7,6 @@ import api.transports.run_sse as run_sse
 import core.auth.backend as auth_backend
 import core.chat.context as chat_context
 import core.chat.runtime.admission as admission
-import core.db.engine as db_engine
 import core.infra.responses as responses
 import core.chat.service as chat_services_ChatService_module
 import core.auth.users as chat_services_UserService_module
@@ -24,7 +23,7 @@ from core.infra.exceptions import ResourceNotFoundError
 from core.chat.references import render_reference_block
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from starlette.concurrency import run_in_threadpool
+from core.db.threads import run_in_session
 
 router = APIRouter()
 
@@ -34,14 +33,13 @@ async def regenerate_message(
     chat_id: str,
     body: chat_models.RegenerateRequest,
     user: UserContext = Depends(auth_backend.get_current_user),
-    db: Session = Depends(db_engine.get_db),
 ):
     """Delete the target assistant message and all subsequent, then re-stream."""
 
     if reserved_chat_owner(chat_id):
         raise HTTPException(status_code=403, detail=reserved_chat_error(chat_id))
 
-    def prepare():
+    def prepare(db: Session):
         chat_session_context.ensure_main_model_configured()
         chat_service = chat_services_ChatService_module.ChatService(db)
         db_user_id = chat_context.resolve_db_user_id(
@@ -187,7 +185,7 @@ async def regenerate_message(
             ChatSequencer(db).abandon_pending_run(accepted.run.run_id, reason=str(exc))
             raise
 
-    return await _start_prepared_run(prepare, db, chat_id)
+    return await _start_prepared_run(prepare, chat_id)
 
 
 @router.post("/{chat_id}/edit", summary="编辑消息并重新生成 (SSE)")
@@ -195,14 +193,13 @@ async def edit_and_resend(
     chat_id: str,
     body: chat_models.EditAndResendRequest,
     user: UserContext = Depends(auth_backend.get_current_user),
-    db: Session = Depends(db_engine.get_db),
 ):
     """Delete the target user message and all subsequent, then re-stream with new content."""
 
     if reserved_chat_owner(chat_id):
         raise HTTPException(status_code=403, detail=reserved_chat_error(chat_id))
 
-    def prepare():
+    def prepare(db: Session):
         chat_session_context.ensure_main_model_configured()
         chat_service = chat_services_ChatService_module.ChatService(db)
         db_user_id = chat_context.resolve_db_user_id(
@@ -356,32 +353,19 @@ async def edit_and_resend(
             ChatSequencer(db).abandon_pending_run(accepted.run.run_id, reason=str(exc))
             raise
 
-    return await _start_prepared_run(prepare, db, chat_id)
+    return await _start_prepared_run(prepare, chat_id)
 
 
-async def _start_prepared_run(prepare, db: Session, chat_id: str):
-    """Release admission locks before streaming; abandon admission if startup fails."""
+async def _start_prepared_run(prepare, chat_id: str):
+    """Admit on a session of its own, then launch; abandon admission if startup fails."""
     from core.chat.sequencer import ChatSequencer
-    pass
 
-    def prepare_and_release():
-        try:
-            return prepare()
-        finally:
-            chat_session_context.release_request_session(db)
-
-    kwargs = await run_in_threadpool(prepare_and_release)
+    kwargs = await run_in_session(prepare)
     try:
         run = await admission.start_run(**kwargs)
     except Exception as exc:
         reason = str(exc)
-
-        def abandon():
-            try:
-                ChatSequencer(db).abandon_pending_run(kwargs["accepted_run"].run_id, reason=reason)
-            finally:
-                chat_session_context.release_request_session(db)
-
-        await run_in_threadpool(abandon)
+        run_id = kwargs["accepted_run"].run_id
+        await run_in_session(lambda db: ChatSequencer(db).abandon_pending_run(run_id, reason=reason))
         raise
     return responses.sse_response(run_sse.follow_run_as_sse(run.run_id, chat_id=chat_id))

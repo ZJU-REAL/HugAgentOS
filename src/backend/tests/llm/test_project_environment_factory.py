@@ -88,16 +88,16 @@ async def run():
     # factory and Toolkit must expose only the explicitly bound private MCP,
     # including when its ambient switch is off.
     from unittest.mock import patch
-    from core.llm.mcp.pool import make_client
+    from core.llm.mcp.lifetime import discover
     connected = []
-    def manifest_client(name, config, **kwargs):
+    async def manifest_client(name, config, **kwargs):
         connected.append(name)
-        return make_client(name, {**config, "schema_source": "cloud_manifest",
+        return await discover(name, {**config, "schema_source": "cloud_manifest",
             "gateway_invoke_url": "http://127.0.0.1:1/invoke", "schema_hash": "fixture",
             "manifest_tools": [{"name": "read_" + name, "description": "Read fixture",
                                 "inputSchema": {"type": "object", "properties": {}}}]}, **kwargs)
     selected_ctx = {"project_id": "selected"}
-    with patch("core.llm.mcp.pool.make_client", side_effect=manifest_client):
+    with patch("core.llm.mcp.lifetime.discover", side_effect=manifest_client):
         selected_agent, selected_clients = await create_agent_executor(
             current_user_id="owner", project_ctx=selected_ctx, max_iters=1,
             enabled_mcp_ids=["outside"],

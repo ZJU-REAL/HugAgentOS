@@ -1,7 +1,7 @@
-"""registry responsibilities."""
+"""Recovery policy for each tool; unknown tools are never replayed."""
 from __future__ import annotations
 from typing import Any, Awaitable, Callable, Optional, cast
-from core.runs.tool_effects import types as types_module
+from core.runs.tool_effects import types
 
 RECOVERY_POLICIES = ("replay_safe", "reconcile", "never_replay")
 
@@ -10,16 +10,16 @@ class ToolRecoveryRegistry:
     """Explicit adapter contracts. Unknown tools fail closed as never-replay."""
 
     def __init__(self) -> None:
-        self._policies: dict[str, types_module.ToolPolicy] = {}
+        self._policies: dict[str, types.ToolPolicy] = {}
 
     def register(
         self,
         tool_name: str,
         policy: str,
         *,
-        replayer: Optional[Callable[[types_module.ToolIntent], Awaitable[Any] | Any]] = None,
+        replayer: Optional[Callable[[types.ToolIntent], Awaitable[Any] | Any]] = None,
         reconciler: Optional[
-            Callable[[types_module.ToolIntent], Awaitable[types_module.ReconciliationResult | Any] | Any]
+            Callable[[types.ToolIntent], Awaitable[types.ReconciliationResult | Any] | Any]
         ] = None,
     ) -> None:
         if policy not in RECOVERY_POLICIES:
@@ -30,22 +30,22 @@ class ToolRecoveryRegistry:
             replayer is not None or reconciler is not None
         ):
             raise ValueError("never_replay does not accept recovery adapters")
-        self._policies[str(tool_name)] = types_module.ToolPolicy(policy, replayer, reconciler)
+        self._policies[str(tool_name)] = types.ToolPolicy(policy, replayer, reconciler)
 
-    def resolve(self, tool_name: str) -> types_module.ToolPolicy:
-        return self._policies.get(str(tool_name), types_module.ToolPolicy("never_replay"))
+    def resolve(self, tool_name: str) -> types.ToolPolicy:
+        return self._policies.get(str(tool_name), types.ToolPolicy("never_replay"))
 
 
-async def default_replayer(intent: types_module.ToolIntent) -> Any:
+async def default_replayer(intent: types.ToolIntent) -> Any:
     from core.runs.tool_effect_recovery import replay_tool_intent
 
     return await replay_tool_intent(intent)
 
 
-async def scheduled_task_reconciler(intent: types_module.ToolIntent) -> types_module.ReconciliationResult:
+async def scheduled_task_reconciler(intent: types.ToolIntent) -> types.ReconciliationResult:
     from core.runs.tool_effect_recovery import reconcile_scheduled_task_intent
 
-    return cast(types_module.ReconciliationResult, await reconcile_scheduled_task_intent(intent))
+    return cast(types.ReconciliationResult, await reconcile_scheduled_task_intent(intent))
 
 
 def build_default_tool_recovery_registry() -> ToolRecoveryRegistry:

@@ -16,6 +16,7 @@ import core.runs.ownership as ownership
 import core.runs.settings as settings
 import core.runs.tasks as tasks
 from core.db.models import ChatRun
+from core.db.threads import run_db
 from core.infra.logging import get_logger
 
 logger = get_logger(__name__)
@@ -31,11 +32,16 @@ class ChatRunPermissionDenied(Exception):
 
 def register_run_task(run_id: str, coro: Awaitable[None], *, name: str) -> None:
     """Spawn the worker coroutine, register it in _active_runs, auto-cleanup on done."""
+    active = tasks.process_state().active_runs
+    if run_id in active and not active[run_id].done():
+        coro.close()
+        return
     task = asyncio.create_task(coro, name=name)
     tasks.process_state().active_runs[run_id] = task
 
     def finished(worker):
-        tasks.process_state().active_runs.pop(run_id, None)
+        if active.get(run_id) is worker:
+            active.pop(run_id, None)
         if not worker.cancelled() and worker.exception() is not None:
             logger.error(
                 "run_worker_unhandled_error",
@@ -67,7 +73,7 @@ async def wait_run(run_id: str) -> ChatRun:
                 raise
             # Explicit run cancellation stopped the worker; the durable row
             # below is the authoritative outcome.
-    run = get_run(run_id)
+    run = await run_db(get_run, run_id)
     if run is None:
         raise ChatRunNotFound(f"chat run {run_id} not found")
     if run.status in settings.LIVE_STATUSES:
@@ -96,6 +102,40 @@ def is_run_cancelled(run_id: str) -> bool:
         return bool(row and row[0] in settings._TERMINAL_STATUSES)
 
 
+def _claim_cancellation(
+    run_id: str,
+    *,
+    user_id: str,
+    stop_terminal_worker: bool,
+    cancel_guard: Optional[Callable[[Any], bool]],
+) -> Optional[ChatRun]:
+    """Write the cancelled state; returns the run, or None when there is nothing to stop."""
+    run = get_run(run_id)
+    if run is None:
+        raise ChatRunNotFound(f"chat run {run_id} not found")
+    if run.user_id != user_id:
+        raise ChatRunPermissionDenied(f"run {run_id} owned by another user")
+    already_cancelled = stop_terminal_worker and run.status == "cancelled"
+    if run.status not in settings.LIVE_STATUSES and not already_cancelled:
+        return None
+
+    if already_cancelled and cancel_guard is not None:
+        # Even terminal-worker cleanup needs current caller ownership. Release
+        # the short guard transaction before stream or worker operations.
+        with engine.SessionLocal() as db:
+            if not cancel_guard(db):
+                return None
+
+    if not already_cancelled and not ownership.journal().cancel(
+        run_id,
+        reason="user cancelled",
+        **({"cancel_guard": cancel_guard} if cancel_guard is not None else {}),
+    ):
+        # Race: the worker/reaper just beat us to writing the terminal state — treat as "no longer running".
+        return None
+    return run
+
+
 async def cancel_run(
     run_id: str,
     *,
@@ -117,28 +157,14 @@ async def cancel_run(
     socket recv at cancel time, causing anyio's _deliver_cancellation to
     self-reschedule every 10ms and starve the whole event loop.
     """
-    run = get_run(run_id)
-    if run is None:
-        raise ChatRunNotFound(f"chat run {run_id} not found")
-    if run.user_id != user_id:
-        raise ChatRunPermissionDenied(f"run {run_id} owned by another user")
-    already_cancelled = stop_terminal_worker and run.status == "cancelled"
-    if run.status not in settings.LIVE_STATUSES and not already_cancelled:
-        return False
-
-    if already_cancelled and cancel_guard is not None:
-        # Even terminal-worker cleanup needs current caller ownership. Release
-        # the short guard transaction before stream or worker operations.
-        with engine.SessionLocal() as db:
-            if not cancel_guard(db):
-                return False
-
-    if not already_cancelled and not ownership.journal().cancel(
+    run = await run_db(
+        _claim_cancellation,
         run_id,
-        reason="user cancelled",
-        **({"cancel_guard": cancel_guard} if cancel_guard is not None else {}),
-    ):
-        # Race: the worker/reaper just beat us to writing the terminal state — treat as "no longer running".
+        user_id=user_id,
+        stop_terminal_worker=stop_terminal_worker,
+        cancel_guard=cancel_guard,
+    )
+    if run is None:
         return False
 
     payload = run.request_payload if isinstance(run.request_payload, dict) else {}
@@ -171,7 +197,7 @@ async def cancel_run(
         except Exception as exc:
             logger.warning("cancel_run_await_failed", run_id=run_id, error=str(exc))
         if task.done():
-            ownership._acknowledge_terminal_writer(run_id)
+            await run_db(ownership._acknowledge_terminal_writer, run_id)
     elif not cooperative_only:
         # Cross-process / post-restart: worker not in this process. Inject the
         # terminal markers ourselves so any active follower exits cleanly.

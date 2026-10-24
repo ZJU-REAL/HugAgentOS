@@ -54,9 +54,7 @@ def test_local_management_uses_same_safe_error(monkeypatch):
     from agentscope.message import ToolResultState
     from core.llm.tools.management import ManagementTool
 
-    tool = ManagementTool("manager", SimpleNamespace(
-        name="install_skill", description="Install", inputSchema={}
-    ), "skill-manager", {}, cloud_backed=False)
+    tool = ManagementTool("manager", dict(name="install_skill", description="Install", inputSchema={}), "skill-manager", {}, cloud_backed=False)
     original = RuntimeError("private payload")
     original.pgcode = "22001"
     def fail(arguments):

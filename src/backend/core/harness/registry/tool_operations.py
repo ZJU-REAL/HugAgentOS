@@ -1,7 +1,7 @@
 """Host registrations for component-owned local dispatch and durable receipts."""
 from __future__ import annotations
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -18,9 +18,6 @@ class ToolOperations:
     remember: Callable[..., Any]
     dispatch_local: Callable[..., Any]
     prepare_arguments: Callable[..., dict] | None = None
-
-
-
 
 
 def register_tool_operations(component: str, operations: ToolOperations) -> None:
@@ -43,7 +40,6 @@ async def local_tool_result(component, tool_name, arguments, headers, *, authori
     return await provider.dispatch_local(component, tool_name, arguments, headers, authorize=authorize)
 
 
-
 def prepare_tool_arguments(tool_name, arguments, user_id, chat_id):
     provider = receipt_operations(tool_name)
     if provider is None or provider.prepare_arguments is None:
@@ -51,19 +47,13 @@ def prepare_tool_arguments(tool_name, arguments, user_id, chat_id):
     return provider.prepare_arguments(tool_name, arguments, user_id, chat_id)
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-
-@state_dataclass
+@dataclass
 class RegistrationState:
-    """Process-owned registrations; replace only while the host is quiescent."""
-    components: dict[str, ToolOperations] = state_field(default_factory=dict)
+    components: dict[str, ToolOperations] = field(default_factory=dict)
 
 
-@state_cache(maxsize=1)
+_REGISTRATIONS = RegistrationState()
+
+
 def registration_state() -> RegistrationState:
-    return RegistrationState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-registration_state()
+    return _REGISTRATIONS

@@ -3,7 +3,6 @@ from tests.integrations.channels.bot_support import (
     BOOL_CAPABILITY_DEFAULTS,
     BadRequestError,
     ChannelConnectionRepository,
-    ChannelService,
     InboundMsg,
     LarkAdapter,
     SendResult,
@@ -12,6 +11,8 @@ from tests.integrations.channels.bot_support import (
     _inbound,
     _mk_conn,
     _mk_user,
+    _share_sessions,
+    channel_service,
     asyncio,
     base64,
     bot_to_dict,
@@ -64,34 +65,34 @@ def test_clean_scope():
     assert _clean_scope({"skill_ids": [1, 2]}) == {"skill_ids": ["1", "2"]}
 
 
-def test_create_bot_denied_without_capability(db_session):
+def test_create_bot_denied_without_capability(db_session, monkeypatch):
     _mk_user(db_session, "u_deny", meta={})
-    svc = ChannelService(db_session)
+    _share_sessions(monkeypatch, db_session)
     with pytest.raises(AccessDeniedError):
-        asyncio.run(svc.create_bot(
+        asyncio.run(channel_service.create_bot(
             "u_deny", channel_type="lark", app_id="cli_a", app_secret="s",
         ))
 
 
-def test_create_bot_token_lock(db_session):
+def test_create_bot_token_lock(db_session, monkeypatch):
     _mk_user(db_session, "u_ok", meta={"can_create_channel_bot": True})
     # Pre-occupy the same app
     ChannelConnectionRepository(db_session).create({
         "channel_id": "chan_pre", "owner_user_id": "u_ok", "channel_type": "lark",
         "app_id": "cli_dup", "config": {}, "status": "connected",
     })
-    svc = ChannelService(db_session)
+    _share_sessions(monkeypatch, db_session)
     with pytest.raises(BadRequestError):
-        asyncio.run(svc.create_bot(
+        asyncio.run(channel_service.create_bot(
             "u_ok", channel_type="lark", app_id="cli_dup", app_secret="s",
         ))
 
 
-def test_create_bot_rejects_unknown_channel(db_session):
+def test_create_bot_rejects_unknown_channel(db_session, monkeypatch):
     _mk_user(db_session, "u_ch", meta={"can_create_channel_bot": True})
-    svc = ChannelService(db_session)
+    _share_sessions(monkeypatch, db_session)
     with pytest.raises(BadRequestError):
-        asyncio.run(svc.create_bot(
+        asyncio.run(channel_service.create_bot(
             "u_ch", channel_type="telegram", app_id="a", app_secret="s",
         ))
 
@@ -124,12 +125,12 @@ def test_repo_list_filters_by_agent(db_session):
     assert [c.channel_id for c in repo.list_by_owner("u_f", agent_id="ag_1")] == ["chan_ag"]
 
 
-def test_create_bot_rejects_unknown_agent(db_session):
+def test_create_bot_rejects_unknown_agent(db_session, monkeypatch):
     _mk_user(db_session, "u_ag", meta={"can_create_channel_bot": True})
-    svc = ChannelService(db_session)
+    _share_sessions(monkeypatch, db_session)
     # agent_id pointing to a nonexistent/inaccessible sub-agent → rejected before any network call
     with pytest.raises(BadRequestError):
-        asyncio.run(svc.create_bot(
+        asyncio.run(channel_service.create_bot(
             "u_ag", channel_type="lark", app_id="cli_ag2", app_secret="s",
             agent_id="nope_agent",
         ))
@@ -328,13 +329,14 @@ def test_lark_parse_post_extracts_text_and_images():
     assert any(a["key"] == "ik_x" for a in m.attachments)
 
 
-def test_inbound_ingest_attachments_stores_artifact(db_session):
+def test_inbound_ingest_attachments_stores_artifact(db_session, monkeypatch):
     import asyncio
 
     from integrations.channels import inbound as inb
     from core.db.models import Artifact
 
     conn = _mk_conn(db_session)
+    _share_sessions(monkeypatch, db_session)
 
     class _Adapter:
         async def download_resource(self, conn, msg, att):
@@ -350,7 +352,7 @@ def test_inbound_ingest_attachments_stores_artifact(db_session):
     try:
         msg = _inbound("oc_1", "p2p", text="", mid="mf1")
         msg.attachments = [{"kind": "file", "key": "fk_1", "name": "note.txt"}]
-        files = asyncio.run(inbound_attachments.ingest_attachments(db_session, _Adapter(), conn, "u_o", "chat_x", msg))
+        files = asyncio.run(inbound_attachments.ingest_attachments(_Adapter(), conn, "u_o", "chat_x", msg))
     finally:
         cs.get_storage = orig_get
 

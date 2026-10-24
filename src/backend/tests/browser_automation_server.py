@@ -24,7 +24,7 @@ from core.auth.backend import UserContext, get_current_user
 from core.capabilities.plugins.management.installation import install_plugin
 from api.routes.v1 import plugin_resources
 from features.workbench.api import plugin_ui
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp import ClientSession
 
 Base.metadata.create_all(engine)
@@ -71,7 +71,7 @@ bridge_identity.get_identity_state = lambda: {"shell_user_center_id": "browser-o
 @app.post("/test/tool/{name}")
 async def tool(name: str, arguments: dict):
     from core.llm.factory.tools.mcp_config import inject_runtime_headers as _inject_runtime_headers
-    from core.llm.mcp.pool import make_client
+    from core.llm.mcp.client import make_client
     from core.capabilities.catalog.resolver import _owned_enabled_ids
     from features.desktop.bridge.gateway import cloud_gateway_mcp_configs
     sid = modern["components"]["mcp"][0]
@@ -83,10 +83,9 @@ async def tool(name: str, arguments: dict):
     assert sid in choices[0].chosen
     config = _inject_runtime_headers(local_plugin_runtime.configs("browser-owner"),
         current_user_id="browser-owner", chat_id="browser-chat")[sid]
-    client = make_client(sid, config, is_stateful=False)
-    method = await client.get_tool(name)
-    result = await method(**arguments)
-    if result.metadata.get("is_error") or result.metadata.get("isError"):
+    async with make_client(sid, config) as client:
+        result = await client.call_tool(name, arguments)
+    if result.is_error:
         return __import__("fastapi").responses.JSONResponse(status_code=409, content={"error": result.content[0].text})
     try:
         return json.loads(result.content[0].text)
@@ -99,7 +98,7 @@ async def cloud_proof():
     from features.desktop.capability.mcp import invoke_gateway_tool
     from features.desktop.capability import mcp as gateway
     gateway.guard_capability_content = lambda uid, data, **kw: data
-    async with streamablehttp_client(os.environ["BROWSER_E2E_MCP"]) as (read, write, _):
+    async with streamable_http_client(os.environ["BROWSER_E2E_MCP"]) as (read, write, _):
         async with ClientSession(read, write) as client:
             await client.initialize()
             tools = {t.name: t.model_dump() for t in (await client.list_tools()).tools}
@@ -196,7 +195,7 @@ async def synced_tool(name: str, arguments: dict):
     from features.desktop.capability.entities import _plugin_files
     from core.capabilities.manifest_protocol import entity_content_hash
     from core.llm.factory.tools.mcp_config import inject_runtime_headers as _inject_runtime_headers
-    from core.llm.mcp.pool import make_client
+    from core.llm.mcp.client import make_client
     from features.desktop.bridge import client as bridge
     profile = "browser-cloud-fixture"
     with SessionLocal() as db:
@@ -214,7 +213,7 @@ async def synced_tool(name: str, arguments: dict):
     skill_account.account_authorized_for = lambda uid: uid == "browser-owner"
     device_catalog._profile = lambda: profile
     # The cloud side supplies its authorized schema; its URL must never be used.
-    async with streamablehttp_client(os.environ["BROWSER_E2E_MCP"]) as (read, write, _):
+    async with streamable_http_client(os.environ["BROWSER_E2E_MCP"]) as (read, write, _):
         async with ClientSession(read, write) as client:
             await client.initialize()
             schemas = [t.model_dump() for t in (await client.list_tools()).tools]
@@ -225,12 +224,12 @@ async def synced_tool(name: str, arguments: dict):
     assert cfg["execution_scope"] == "local" and "gateway_invoke_url" not in cfg
     chat_id = arguments.pop("_chat_id", "browser-chat")
     cfg = _inject_runtime_headers({sid: cfg}, current_user_id="browser-owner", chat_id=chat_id)[sid]
-    client = make_client(sid, cfg, is_stateful=False)
-    result = await (await client.get_tool(name))(**arguments)
+    async with make_client(sid, cfg) as client:
+        result = await client.call_tool(name, arguments)
     text = result.content[0].text
     if "conversation_unavailable" in text:
         return {"error": "conversation_unavailable"}
-    if result.metadata.get("is_error") or result.metadata.get("isError"):
+    if result.is_error:
         raise HTTPException(409, text)
     payload = json.loads(text)
     if name == "browser_open":

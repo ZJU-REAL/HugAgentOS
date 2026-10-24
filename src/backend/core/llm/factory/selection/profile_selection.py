@@ -6,7 +6,6 @@ import logging
 
 from core.llm.factory.models import RequiredCapabilities, StickyCapabilities
 
-logger = logging.getLogger(__name__)
 import asyncio
 
 import core.capabilities.catalog.api as catalog
@@ -15,6 +14,8 @@ from core.evolution.profiles.agent_profile import builtin_profile
 from core.evolution.profiles.profile_selection import load_active_profile
 from core.harness.execution_manifest import PromptManifestBuilder
 from core.llm.factory.request import AgentRequest
+
+logger = logging.getLogger(__name__)
 
 
 async def profile_selection(

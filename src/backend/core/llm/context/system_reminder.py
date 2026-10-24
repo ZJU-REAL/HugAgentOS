@@ -17,7 +17,7 @@ import logging
 from typing import Any
 
 from core.llm.context.rendering import append_context_text
-from core.llm.context.ir_state import KIND_REMINDER
+from core.llm.context.ir_constants import KIND_REMINDER
 
 logger = logging.getLogger(__name__)
 

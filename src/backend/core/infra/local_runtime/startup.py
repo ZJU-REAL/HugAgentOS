@@ -317,6 +317,33 @@ async def _tcp_port_ready(host: str, port: int) -> bool:
     except (OSError, asyncio.TimeoutError):
         return False
 
+async def _http_port_ready(host: str, port: int) -> bool:
+    """Wait for an HTTP response before disconnecting a new MCP listener.
+
+    A connect-and-close probe can abort Windows Proactor's pending AcceptEx and
+    permanently stop that listener. Receiving response headers proves the server
+    accepted the connection; a missing root route (404/405) is still ready.
+    """
+    writer = None
+    try:
+        async with asyncio.timeout(2.0):
+            reader, writer = await asyncio.open_connection(host, port)
+            writer.write(
+                f"HEAD / HTTP/1.1\r\nHost: {host}:{port}\r\n"
+                "Connection: close\r\n\r\n".encode("ascii")
+            )
+            await writer.drain()
+            headers = await reader.readuntil(b"\r\n\r\n")
+            return headers.startswith((b"HTTP/1.0 ", b"HTTP/1.1 "))
+    except (OSError, TimeoutError, asyncio.IncompleteReadError, asyncio.LimitOverrunError):
+        return False
+    finally:
+        if writer is not None:
+            writer.close()
+            with contextlib.suppress(OSError, TimeoutError):
+                await asyncio.wait_for(writer.wait_closed(), timeout=0.5)
+
+
 async def _wait_for_mcp_ports(
     launcher: "asyncio.subprocess.Process",
     ports: dict[str, int],
@@ -330,7 +357,7 @@ async def _wait_for_mcp_ports(
         if launcher.returncode is not None:
             raise RuntimeError(f"MCP 启动器提前退出（exit={launcher.returncode}）")
         checks = await asyncio.gather(
-            *(_tcp_port_ready("127.0.0.1", port) for port in pending.values())
+            *(_http_port_ready("127.0.0.1", port) for port in pending.values())
         )
         pending = {
             server_id: port
@@ -345,19 +372,18 @@ async def _wait_for_mcp_ports(
 
 async def _list_mcp_tool_names(server_id: str, port: int) -> set[str]:
     """Use the production MCP client to verify a server's actual tool list."""
-    from core.harness.registry.mcp_clients import make_client
+    from core.harness.registry.mcp_clients import discover_tools
 
-    client = make_client(
+    client = await discover_tools(
         server_id,
         {
             "transport": "streamable_http",
             "url": f"http://127.0.0.1:{port}/mcp/",
             "transport_timeout": 5,
         },
-        is_stateful=False,
     )
     try:
-        tools = await client.list_tools()
+        tools = client.tools
         return {str(name) for tool in tools if (name := getattr(tool, "name", None))}
     finally:
         try:

@@ -1,10 +1,9 @@
-"""graph state responsibilities."""
+"""Graph vocabulary, limits, Cypher queries and the shared driver."""
 from __future__ import annotations
 import re
 import threading
+from dataclasses import dataclass, field
 from typing import Dict
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
 
 PREDICATE_LABELS: Dict[str, str] = {
     "is_a": "属于类别",
@@ -128,16 +127,15 @@ LIMIT $limit
 """
 
 
-@state_dataclass
+@dataclass
 class GraphState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
     driver: object = None
-    driver_lock: object = state_field(default_factory=lambda: threading.Lock())
+    driver_lock: object = field(default_factory=lambda: threading.Lock())
     schema_ready: object = False
 
 
-@state_cache(maxsize=1)
-def process_state() -> GraphState:
-    return GraphState()
+_STATE = GraphState()
 
-process_state()
+
+def process_state() -> GraphState:
+    return _STATE

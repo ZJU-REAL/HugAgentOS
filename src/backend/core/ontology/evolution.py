@@ -12,6 +12,7 @@ import logging
 import re
 import uuid
 from collections import defaultdict
+from dataclasses import dataclass, field
 from threading import Lock
 from typing import Any
 
@@ -26,8 +27,6 @@ _SECTIONS = {"term": "concepts", "relation": "relations", "constraint": "constra
 logger = logging.getLogger(__name__)
 
 
-
-
 def schedule_ontology_evolution(*, user_id: str) -> bool:
     """Debounce the low-priority evidence prefilter on the current event loop."""
     with process_state().SCHEDULE_LOCK:
@@ -36,24 +35,46 @@ def schedule_ontology_evolution(*, user_id: str) -> bool:
         process_state().EVOLUTION_RUNNING = True
 
     async def _run() -> None:
-        from core.db.engine import SessionLocal
-
-        db = SessionLocal()
         try:
-            await OntologyEvolutionService(db).generate_candidates(
-                min_occurrences=3,
-                limit=500,
-                user_id=user_id or "system",
-            )
+            await generate_candidates(min_occurrences=3, limit=500, user_id=user_id or "system")
         except Exception:  # noqa: BLE001 - a background learner must never affect delivery
             logger.warning("ontology evolution background pass failed", exc_info=True)
         finally:
-            db.close()
             with process_state().SCHEDULE_LOCK:
                 process_state().EVOLUTION_RUNNING = False
 
     spawn(_run(), name="ontology-evolution-prefilter")
     return True
+
+
+async def generate_candidates(
+    *,
+    min_occurrences: int = 3,
+    limit: int = 500,
+    user_id: str = "system",
+    model_name: str | None = None,
+) -> dict[str, Any]:
+    """Turn recurring gate evidence into pending Domain Pack drafts.
+
+    The evidence is read and the drafts are written in two separate sessions;
+    the model call that proposes them in between holds no connection.
+    """
+    from core.db.threads import run_in_session
+
+    recurring, summaries = await run_in_session(
+        lambda db: OntologyEvolutionService(db).evidence_summaries(
+            min_occurrences=min_occurrences, limit=limit
+        )
+    )
+    if not summaries:
+        return {"created": 0, "prefiltered_groups": recurring, "items": []}
+    proposals = await OntologyEvolutionService._llm_proposals(
+        summaries, user_id=user_id, model_name=model_name
+    )
+    created = await run_in_session(
+        lambda db: OntologyEvolutionService(db).record_drafts(summaries, proposals)
+    )
+    return {"created": len(created), "prefiltered_groups": recurring, "items": created}
 
 
 def _parse_json_array_lenient(text: str) -> list[Any] | None:
@@ -82,14 +103,13 @@ class OntologyEvolutionService:
         self.db = db
         self.ontology = OntologyService(db)
 
-    async def generate_candidates(
-        self,
-        *,
-        min_occurrences: int = 3,
-        limit: int = 500,
-        user_id: str = "system",
-        model_name: str | None = None,
-    ) -> dict[str, Any]:
+    def evidence_summaries(
+        self, *, min_occurrences: int, limit: int
+    ) -> tuple[int, list[dict[str, Any]]]:
+        """Recurring gate decisions grouped by rule, with sanitized conversation samples.
+
+        Returns ``(recurring group count, sanitized summaries)``.
+        """
         rows = (
             self.db.query(OntologyEnforcementEvent)
             .filter(
@@ -110,7 +130,7 @@ class OntologyEvolutionService:
             if key[0] and len(items) >= min_occurrences
         ]
         if not recurring:
-            return {"created": 0, "prefiltered_groups": 0, "items": []}
+            return 0, []
 
         chat_ids = list(
             dict.fromkeys(row.chat_id for _, items in recurring for row in items if row.chat_id)
@@ -157,14 +177,12 @@ class OntologyEvolutionService:
             for summary in summaries
             if isinstance((item := self._sanitize_json_value(summary)), dict)
         ]
-        if not sanitized_summaries:
-            return {"created": 0, "prefiltered_groups": len(recurring), "items": []}
-        summaries = sanitized_summaries
-        proposals = await self._llm_proposals(
-            sanitized_summaries,
-            user_id=user_id,
-            model_name=model_name,
-        )
+        return len(recurring), sanitized_summaries
+
+    def record_drafts(
+        self, summaries: list[dict[str, Any]], proposals: list[dict[str, Any]]
+    ) -> list[str]:
+        """Store each summary's sanitized proposals (or a rule review) as pending drafts."""
         created = []
         for summary in summaries:
             matching = [
@@ -207,11 +225,7 @@ class OntologyEvolutionService:
                     }
                 )
                 created.append(row.draft_id)
-        return {
-            "created": len(created),
-            "prefiltered_groups": len(recurring),
-            "items": created,
-        }
+        return created
 
     def ingest_user_correction(
         self,
@@ -354,8 +368,8 @@ class OntologyEvolutionService:
         self.db.commit()
         return version
 
+    @staticmethod
     async def _llm_proposals(
-        self,
         summaries: list[dict[str, Any]],
         *,
         user_id: str,
@@ -481,18 +495,14 @@ class OntologyEvolutionService:
             return None
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class EvolutionState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    SCHEDULE_LOCK: object = state_field(default_factory=lambda: Lock())
+    SCHEDULE_LOCK: object = field(default_factory=lambda: Lock())
     EVOLUTION_RUNNING: object = False
 
-@state_cache(maxsize=1)
-def process_state() -> EvolutionState:
-    return EvolutionState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+_STATE = EvolutionState()
+
+
+def process_state() -> EvolutionState:
+    return _STATE

@@ -171,9 +171,9 @@ async def test_steer_invalidates_an_earlier_finish_before_model_continues(sessio
 @pytest.mark.asyncio
 async def test_steered_attachments_are_staged_and_cumulative_limit_is_atomic(sessions, monkeypatch):
     from core.db.models import Artifact
-    from personal_agent.tasks import steering, attachments
+    from personal_agent.tasks import steering
     monkeypatch.setattr(steering, "SessionLocal", sessions)
-    monkeypatch.setattr(attachments, "SessionLocal", sessions)
+    monkeypatch.setattr("core.db.engine.SessionLocal", sessions)
     staged = []
     class Sandbox:
         async def put_file(self, box, path, content, user_id):

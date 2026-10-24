@@ -1,11 +1,11 @@
-"""extra findings responsibilities."""
+"""Intent, decremental and negative-transfer findings."""
 from __future__ import annotations
-from core.evolution.cycle import promotion as promotion_module
-from core.evolution.cycle import retirement as retirement_module
+from core.evolution.cycle import promotion
+from core.evolution.cycle import retirement
 import hashlib
 from typing import Any, Dict, List, Optional, Sequence, Tuple
-from core.evolution.cycle import cycle_extras_state as cycle_extras_state_module
-from core.evolution.cycle import usage_evidence as usage_evidence_module
+from core.evolution.cycle import cycle_extras_constants
+from core.evolution.cycle import usage_evidence
 
 def asset_id(prefix: str, seed: str) -> str:
     return f"{prefix}-" + hashlib.sha256(seed.encode("utf-8")).hexdigest()[:12]
@@ -21,18 +21,18 @@ def intent_findings(views: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     """
     from core.evolution.assessment.similarity import cluster_intents
 
-    clusters, method = cluster_intents(views, min_support=cycle_extras_state_module.MIN_INTENT_OCCASIONS)
+    clusters, method = cluster_intents(views, min_support=cycle_extras_constants.MIN_INTENT_OCCASIONS)
     findings: List[Dict[str, Any]] = []
     for cluster in clusters:
-        if cluster.occasions < cycle_extras_state_module.MIN_INTENT_OCCASIONS:
+        if cluster.occasions < cycle_extras_constants.MIN_INTENT_OCCASIONS:
             # Recurrence inside one conversation is a user rephrasing after a
             # bad answer, which is evidence about that answer, not about demand.
             continue
-        if cluster.plan_variety < cycle_extras_state_module.MIN_PLAN_VARIETY:
+        if cluster.plan_variety < cycle_extras_constants.MIN_PLAN_VARIETY:
             # Same question, same plan, every time. Already effectively a skill;
             # writing one down adds an asset to maintain and changes nothing.
             continue
-        if cluster.success_rate < cycle_extras_state_module.INTENT_MIN_SUCCESS_RATE:
+        if cluster.success_rate < cycle_extras_constants.INTENT_MIN_SUCCESS_RATE:
             # Recurring *and* failing. Distilling the current plan would encode
             # the failure. This belongs to attribution, not to promotion.
             findings.append(
@@ -76,17 +76,16 @@ def decremental_findings(
     is computed from that and never from the tools observed in episodes where
     the skill happened to be loaded, which would pair every co-enabled skill.
     """
-    from core.evolution.cycle import promotion as P
 
-    stats = skill_stats if skill_stats is not None else usage_evidence_module.skill_usage_from_views(views)
+    stats = skill_stats if skill_stats is not None else usage_evidence.skill_usage_from_views(views)
 
     overlaps: List[Tuple[str, str, int]] = []
     if declared_tools is None:
-        declared_tools = usage_evidence_module.declared_tools_for(sorted(stats))
+        declared_tools = usage_evidence.declared_tools_for(sorted(stats))
     if declared_tools:
-        overlaps = promotion_module.find_overlaps(declared_tools)
+        overlaps = promotion.find_overlaps(declared_tools)
 
-    retirements = retirement_module.find_retirement_candidates(stats)
+    retirements = retirement.find_retirement_candidates(stats)
     return {
         "overlaps": [
             {"a": a, "b": b, "shared_tools": shared} for a, b, shared in overlaps
@@ -108,14 +107,14 @@ def negative_transfer_for_activations(
     shape of defect this rework exists to remove. So the split is computed here,
     from the release ledger, once per activated asset.
     """
-    activations = usage_evidence_module.recent_activations()
+    activations = usage_evidence.recent_activations()
     if not activations:
         return []
 
     findings: List[Dict[str, Any]] = []
     for asset_id, activated_at, related in activations:
         split = [
-            {**view, "after": usage_evidence_module.is_after(view.get("created_at"), activated_at)}
+            {**view, "after": usage_evidence.is_after(view.get("created_at"), activated_at)}
             for view in views
             if view.get("created_at") is not None
         ]
@@ -143,7 +142,6 @@ def negative_transfer_findings(
     can catch: each change looks fine on the metric it was measured against, and
     the damage shows up somewhere nobody was looking.
     """
-    from core.evolution.cycle import promotion as P
 
     by_type_before: Dict[str, List[bool]] = {}
     by_type_after: Dict[str, List[bool]] = {}
@@ -156,7 +154,7 @@ def negative_transfer_findings(
     def rates(source: Dict[str, List[bool]]) -> Dict[str, float]:
         return {k: (sum(v) / len(v) if v else 0.0) for k, v in source.items()}
 
-    findings = retirement_module.detect_negative_transfer(
+    findings = retirement.detect_negative_transfer(
         asset_id=asset_id or "unspecified",
         # Only *unrelated* task types are examined. A dip on the task the change
         # targeted is an ordinary regression its own guardrail catches; the

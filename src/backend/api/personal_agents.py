@@ -71,7 +71,7 @@ class AgentUpdateRequest(BaseModel):
 
 
 @router.get("", summary="列出当前用户可见的所有子智能体")
-async def list_agents(
+def list_agents(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -87,7 +87,7 @@ async def list_agents(
 
 
 @router.get("/available-resources", summary="可绑定到子智能体的资源列表")
-async def available_resources(
+def available_resources(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -117,7 +117,7 @@ _IMPORT_FIELDS = [
 
 
 @router.post("/import", summary="导入子智能体（markdown / zip）")
-async def import_agents(
+def import_agents(
     file: UploadFile = File(...),
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -128,7 +128,7 @@ async def import_agents(
     JSON 数组文件。需 ``can_add_agent`` 权限。
     """
     _require_can_add_agent(str(user.user_id), db)
-    raw = await file.read()
+    raw = file.file.read()
     try:
         items = parse_agents_upload(file.filename or "", raw)
     except ValueError as exc:
@@ -154,7 +154,7 @@ async def import_agents(
 
 
 @router.get("/{agent_id}/export", summary="导出子智能体为 markdown")
-async def export_agent(
+def export_agent(
     agent_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -193,7 +193,7 @@ async def export_agent(
 
 
 @router.get("/{agent_id}", summary="子智能体详情")
-async def get_agent(
+def get_agent(
     agent_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -208,7 +208,7 @@ async def get_agent(
 
 
 @router.post("", summary="创建个人子智能体")
-async def create_agent(
+def create_agent(
     body: AgentCreateRequest,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -229,7 +229,7 @@ async def create_agent(
 
 
 @router.put("/{agent_id}", summary="更新个人子智能体")
-async def update_agent(
+def update_agent(
     agent_id: str,
     body: AgentUpdateRequest,
     user: UserContext = Depends(get_current_user),
@@ -260,7 +260,7 @@ async def update_agent(
 
 
 @router.delete("/{agent_id}", summary="删除个人子智能体")
-async def delete_agent(
+def delete_agent(
     agent_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),

@@ -1,11 +1,12 @@
-"""allocator responsibilities."""
+"""Per-chat citation anchor allocator and registry."""
 from __future__ import annotations
 from contextvars import ContextVar
 from typing import Any, Dict, List, Optional, Sequence
 import logging
+from core.llm.citations import anchor_state
+from core.llm.citations import types
+
 logger = logging.getLogger(__name__)
-from core.llm.citations import anchor_state as anchor_state_module
-from core.llm.citations import types as types_module
 
 class AnchorAllocator:
     """会话内单调锚点计数器 + 按 tool_id 的引用注册表。
@@ -16,22 +17,22 @@ class AnchorAllocator:
 
     def __init__(self, start: int = 1) -> None:
         self._next = max(1, int(start or 1))
-        self._by_tool_id: Dict[str, List[types_module.AnchorCitation]] = {}
-        self.all: List[types_module.AnchorCitation] = []
+        self._by_tool_id: Dict[str, List[types.AnchorCitation]] = {}
+        self.all: List[types.AnchorCitation] = []
 
     def next_id(self) -> str:
         aid = f"e{self._next}"
         self._next += 1
         return aid
 
-    def register(self, tool_id: Optional[str], items: Sequence[types_module.AnchorCitation]) -> None:
+    def register(self, tool_id: Optional[str], items: Sequence[types.AnchorCitation]) -> None:
         if not items:
             return
         self.all.extend(items)
         if tool_id:
             self._by_tool_id.setdefault(str(tool_id), []).extend(items)
 
-    def citations_for(self, tool_id: Optional[str]) -> List[types_module.AnchorCitation]:
+    def citations_for(self, tool_id: Optional[str]) -> List[types.AnchorCitation]:
         if not tool_id:
             return []
         return list(self._by_tool_id.get(str(tool_id), []))
@@ -97,7 +98,7 @@ def anchor_start_for_chat(chat_id: Optional[str]) -> int:
             )
         for (extra,) in rows:
             for cit in (extra or {}).get("citations") or []:
-                m = anchor_state_module.ANCHOR_RE.match(str(cit.get("id", "")) if isinstance(cit, dict) else "")
+                m = anchor_state.ANCHOR_RE.match(str(cit.get("id", "")) if isinstance(cit, dict) else "")
                 if m:
                     max_seen = max(max_seen, int(m.group(1)))
         return max_seen + 1

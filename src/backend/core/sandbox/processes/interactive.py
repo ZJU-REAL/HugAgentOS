@@ -7,7 +7,6 @@ import json
 import logging
 import secrets
 import zipfile
-from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx

@@ -1,4 +1,4 @@
-"""log records responsibilities."""
+"""Synchronous writers for tool, sub-agent and skill call logs."""
 from __future__ import annotations
 from typing import Any, Dict
 from sqlalchemy.orm import Session
@@ -6,18 +6,19 @@ from core.db.engine import SessionLocal
 from core.db.models import SkillCallLog, SubAgentCallLog, ToolCallLog, ToolEffectLedger
 from core.infra.data_masking import mask_sensitive_data
 from core.infra.logging import get_logger
-logger = get_logger(__name__)
 from core.harness import log_context
-from core.harness import log_writer_state
+from core.harness import log_writer_constants
+
+logger = get_logger(__name__)
 
 def write_tool_call_sync(record: Dict[str, Any]) -> None:
-    if not log_writer_state.TOOL_LOG_ENABLED:
+    if not log_writer_constants.TOOL_LOG_ENABLED:
         return
     db: Session = SessionLocal()
     try:
         args_safe = log_context.sanitize_tool_args(record.get("tool_args"))
-        args_safe, _ = log_context.truncate_json(args_safe, log_writer_state.MAX_RESULT_BYTES)
-        result_safe, result_trunc = log_context.truncate_json(record.get("tool_result"), log_writer_state.MAX_RESULT_BYTES)
+        args_safe, _ = log_context.truncate_json(args_safe, log_writer_constants.MAX_RESULT_BYTES)
+        result_safe, result_trunc = log_context.truncate_json(record.get("tool_result"), log_writer_constants.MAX_RESULT_BYTES)
         username = log_context.fetch_username(db, record.get("user_id", ""))
         effect = None
         effect_id = str(record.get("effect_id") or "")
@@ -87,11 +88,11 @@ def write_tool_call_sync(record: Dict[str, Any]) -> None:
 
 
 def write_subagent_create_sync(record: Dict[str, Any]) -> None:
-    if not log_writer_state.SUBAGENT_LOG_ENABLED:
+    if not log_writer_constants.SUBAGENT_LOG_ENABLED:
         return
     db: Session = SessionLocal()
     try:
-        input_safe, _ = log_context.truncate_json(record.get("input_messages"), log_writer_state.MAX_RESULT_BYTES)
+        input_safe, _ = log_context.truncate_json(record.get("input_messages"), log_writer_constants.MAX_RESULT_BYTES)
         username = log_context.fetch_username(db, record.get("user_id", ""))
         row = SubAgentCallLog(
             id=record["id"],
@@ -130,7 +131,7 @@ def write_subagent_finish_sync(
     status: str,
     updates: Dict[str, Any],
 ) -> None:
-    if not log_writer_state.SUBAGENT_LOG_ENABLED:
+    if not log_writer_constants.SUBAGENT_LOG_ENABLED:
         return
     db: Session = SessionLocal()
     try:
@@ -139,10 +140,10 @@ def write_subagent_finish_sync(
             return
         row.status = status
         if "output_content" in updates:
-            output, _ = log_context.truncate_text(updates.get("output_content"), log_writer_state.MAX_RESULT_BYTES)
+            output, _ = log_context.truncate_text(updates.get("output_content"), log_writer_constants.MAX_RESULT_BYTES)
             row.output_content = output
         if "intermediate_steps" in updates:
-            steps_safe, _ = log_context.truncate_json(updates.get("intermediate_steps"), log_writer_state.MAX_RESULT_BYTES)
+            steps_safe, _ = log_context.truncate_json(updates.get("intermediate_steps"), log_writer_constants.MAX_RESULT_BYTES)
             row.intermediate_steps = steps_safe
         if "token_usage" in updates:
             row.token_usage = updates.get("token_usage")
@@ -164,15 +165,15 @@ def write_subagent_finish_sync(
 
 
 def write_skill_call_sync(record: Dict[str, Any]) -> None:
-    if not log_writer_state.SKILL_LOG_ENABLED:
+    if not log_writer_constants.SKILL_LOG_ENABLED:
         return
     db: Session = SessionLocal()
     try:
         args_safe = mask_sensitive_data(record.get("script_args"), field_patterns=log_context.REDACT_FIELDS)
-        args_safe, _ = log_context.truncate_json(args_safe, log_writer_state.MAX_RESULT_BYTES)
-        stdout_safe, trunc_out = log_context.truncate_text(record.get("script_stdout"), log_writer_state.MAX_STDOUT_BYTES)
-        stderr_safe, trunc_err = log_context.truncate_text(record.get("script_stderr"), log_writer_state.MAX_STDOUT_BYTES)
-        stdin_safe, _ = log_context.truncate_text(record.get("script_stdin"), log_writer_state.MAX_STDOUT_BYTES)
+        args_safe, _ = log_context.truncate_json(args_safe, log_writer_constants.MAX_RESULT_BYTES)
+        stdout_safe, trunc_out = log_context.truncate_text(record.get("script_stdout"), log_writer_constants.MAX_STDOUT_BYTES)
+        stderr_safe, trunc_err = log_context.truncate_text(record.get("script_stderr"), log_writer_constants.MAX_STDOUT_BYTES)
+        stdin_safe, _ = log_context.truncate_text(record.get("script_stdin"), log_writer_constants.MAX_STDOUT_BYTES)
         username = log_context.fetch_username(db, record.get("user_id", ""))
         row = SkillCallLog(
             id=record.get("id") or log_context.new_id(),

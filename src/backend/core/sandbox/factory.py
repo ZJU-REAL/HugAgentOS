@@ -8,14 +8,13 @@ Test cases can call ``reset_provider_cache()`` to force the next
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 from core.config.settings import settings
 
 from .protocol import SandboxProvider
 
 logger = logging.getLogger(__name__)
-
-
 
 
 def _ordinary_provider() -> SandboxProvider:
@@ -55,17 +54,13 @@ def reset_provider_cache() -> None:
     process_state().provider = None
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class FactoryState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
     provider: SandboxProvider | None = None
 
-@state_cache(maxsize=1)
-def process_state() -> FactoryState:
-    return FactoryState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+_STATE = FactoryState()
+
+
+def process_state() -> FactoryState:
+    return _STATE

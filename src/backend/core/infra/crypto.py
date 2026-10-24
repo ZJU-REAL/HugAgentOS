@@ -20,6 +20,7 @@ import base64
 import hashlib
 import logging
 import os
+from dataclasses import dataclass
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,6 @@ logger = logging.getLogger(__name__)
 # Local-dev fallback key: used only when neither EMAIL_SECRET_KEY nor ADMIN_TOKEN is configured; emits a warning.
 # In production always configure EMAIL_SECRET_KEY (or at least ADMIN_TOKEN), otherwise moving/reinstalling machines makes old ciphertext undecryptable.
 _DEV_FALLBACK = "hugagent-email-dev-secret-please-override"
-
 
 
 def _deployment_secret() -> str:
@@ -47,7 +47,6 @@ def _deployment_secret() -> str:
 
 
 # The derived key comes from the deployment-level secret and is constant at runtime → lazily construct it once and reuse, avoiding the SHA256+Fernet init on every encrypt/decrypt.
-
 
 
 def _fernet():
@@ -75,18 +74,14 @@ def decrypt_secret(token: Optional[str]) -> Optional[str]:
         return None
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class CryptoState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
     warned: object = False
     fernet_cache: object = None
 
-@state_cache(maxsize=1)
-def process_state() -> CryptoState:
-    return CryptoState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+_STATE = CryptoState()
+
+
+def process_state() -> CryptoState:
+    return _STATE

@@ -1,4 +1,5 @@
 """Job-ledger reminder contributed by the execution host."""
+import asyncio
 from typing import Optional
 from core.harness.hooks import Decision, FailureMode, HookSpec, HookStage
 
@@ -9,19 +10,7 @@ class JobLedgerHook:
         self._user_id = user_id or ""
         self._last_key: tuple | None = None
 
-    def __call__(self, invocation):
-        if invocation.operation_name != "agent_reasoning":
-            return Decision()
-        runtime = invocation.data["runtime"]
-        if not self._chat_id:
-            return
-        key = (
-            runtime.get("reply_id", "") or "",
-            int(runtime.get("cur_iter", 0) or 0),
-        )
-        if key == self._last_key:
-            return
-
+    def _ledger_lines(self) -> list[str]:
         from core.db.engine import SessionLocal
         from core.db.models import Job
         from core.jobs.store import JobService
@@ -34,8 +23,6 @@ class JobLedgerHook:
                 .limit(3)
                 .all()
             )
-            if not jobs:
-                return
             svc = JobService(db)
             lines = []
             for job in jobs:
@@ -49,6 +36,23 @@ class JobLedgerHook:
                     f"查无 {stats.get('not_found', 0)}，待办 {stats.get('pending', 0)}，"
                     f"失败 {stats.get('failed', 0)}"
                 )
+            return lines
+
+    async def __call__(self, invocation):
+        if invocation.operation_name != "agent_reasoning":
+            return Decision()
+        runtime = invocation.data["runtime"]
+        if not self._chat_id:
+            return
+        key = (
+            runtime.get("reply_id", "") or "",
+            int(runtime.get("cur_iter", 0) or 0),
+        )
+        if key == self._last_key:
+            return
+        # HookBus runs sync handlers inline on the event loop; keep the ledger
+        # query off it.
+        lines = await asyncio.to_thread(self._ledger_lines)
         if not lines:
             return
 

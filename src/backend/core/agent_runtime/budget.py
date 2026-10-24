@@ -1,4 +1,4 @@
-"""core agent_runtime budget responsibilities."""
+"""Read the frozen model and prompt surface a turn's compaction budget is computed from."""
 
 from __future__ import annotations
 

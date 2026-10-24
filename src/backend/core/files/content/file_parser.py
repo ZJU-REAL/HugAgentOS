@@ -1,4 +1,4 @@
-"""file parser responsibilities."""
+"""Dispatch an uploaded file to the parser for its extension."""
 from __future__ import annotations
 import os
 from typing import Optional

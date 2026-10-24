@@ -126,7 +126,7 @@ def test_seed_builtin_mcp_is_idempotent_and_templates_url(db_session):
     sample_id = next(iter(expected_ids))
     sample = db_session.query(AdminMcpServer).filter_by(server_id=sample_id).one()
     assert sample.transport == "streamable_http"
-    assert sample.url.endswith(f":{PORTS[sample_id]}/mcp/")
+    assert sample.url.endswith(f":{PORTS[sample_id]}/mcp")
 
 
 def test_seed_builtin_mcp_skips_when_catalog_present(db_session):

@@ -1,14 +1,15 @@
-"""log writer responsibilities."""
+"""Async entry points that schedule call-log writes off the event loop."""
 from __future__ import annotations
 import asyncio
 from typing import Any, Dict, List, Optional
 from core.infra.background import spawn
 from core.infra.logging import get_logger
-logger = get_logger(__name__)
 from core.harness import log_audit
 from core.harness import log_context
 from core.harness import log_records
-from core.harness import log_writer_state
+from core.harness import log_writer_constants
+
+logger = get_logger(__name__)
 
 async def write_tool_call(record: Dict[str, Any]) -> None:
     record.setdefault("source", log_context.current_source())
@@ -22,16 +23,16 @@ async def write_tool_call(record: Dict[str, Any]) -> None:
     # key default = chat_id). Awaiting in place on this async path — provider
     # reads its active-session table (synchronous in-memory read, no side
     # effects) — is more reliable than passing a ContextVar across tasks.
-    if record.get("tool_name") in log_writer_state.SANDBOX_TOOL_NAMES:
+    if record.get("tool_name") in log_writer_constants.SANDBOX_TOOL_NAMES:
         if not record.get("sandbox_id"):
             record["sandbox_id"] = await log_audit.resolve_sandbox_id(record.get("chat_id"))
         # Security audit is independent of the tool-call log switch: write the audit first, then the (optional) tool log.
-        if log_writer_state.SANDBOX_AUDIT_ENABLED:
+        if log_writer_constants.SANDBOX_AUDIT_ENABLED:
             try:
                 await asyncio.to_thread(log_audit.write_sandbox_audit_sync, record)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("sandbox_audit_task_failed", error=str(exc))
-    if not log_writer_state.TOOL_LOG_ENABLED:
+    if not log_writer_constants.TOOL_LOG_ENABLED:
         return
     try:
         await asyncio.to_thread(log_records.write_tool_call_sync, record)
@@ -42,7 +43,7 @@ async def write_tool_call(record: Dict[str, Any]) -> None:
 async def start_subagent_log(record: Dict[str, Any]) -> str:
     log_id = record.get("id") or log_context.new_id()
     record["id"] = log_id
-    if not log_writer_state.SUBAGENT_LOG_ENABLED:
+    if not log_writer_constants.SUBAGENT_LOG_ENABLED:
         return log_id
     ctx = log_context.context_ids()
     record.setdefault("trace_id", ctx["trace_id"])
@@ -70,7 +71,7 @@ async def finish_subagent_log(
     error_message: Optional[str] = None,
     duration_ms: Optional[int] = None,
 ) -> None:
-    if not log_writer_state.SUBAGENT_LOG_ENABLED or not subagent_log_id:
+    if not log_writer_constants.SUBAGENT_LOG_ENABLED or not subagent_log_id:
         return
     updates = {
         "output_content": output_content,
@@ -96,14 +97,14 @@ async def write_skill_call(record: Dict[str, Any]) -> str:
     record.setdefault("chat_id", ctx["chat_id"])
     record.setdefault("message_id", log_context.current_message_id.get())
     # Skill script execution (run_script) = running code in the sandbox → write a security audit (independent of the skill log switch).
-    if log_writer_state.SANDBOX_AUDIT_ENABLED and record.get("invocation_type") == "run_script":
+    if log_writer_constants.SANDBOX_AUDIT_ENABLED and record.get("invocation_type") == "run_script":
         if not record.get("sandbox_id"):
             record["sandbox_id"] = await log_audit.resolve_sandbox_id(record.get("chat_id"))
         try:
             await asyncio.to_thread(log_audit.write_skill_sandbox_audit_sync, record)
         except Exception as exc:  # noqa: BLE001
             logger.warning("skill_sandbox_audit_task_failed", error=str(exc))
-    if not log_writer_state.SKILL_LOG_ENABLED:
+    if not log_writer_constants.SKILL_LOG_ENABLED:
         return log_id
     try:
         await asyncio.to_thread(log_records.write_skill_call_sync, record)

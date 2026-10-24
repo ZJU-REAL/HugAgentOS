@@ -169,7 +169,6 @@ def test_unrelated_uploaded_plugin_is_byte_for_byte_unchanged():
 
 
 def test_native_client_keeps_the_cloud_authorized_tool_scope(synced):
-    from core.llm.mcp.pool import make_client
 
     resources, _, _ = synced
     cfg = resources.local_config(
@@ -177,5 +176,4 @@ def test_native_client_keeps_the_cloud_authorized_tool_scope(synced):
         "device-user",
         "account",
     )
-    client = make_client("account-browser", cfg, is_stateful=False)
-    assert client.enable_tools == ["browser_open"]
+    assert cfg["enable_tools"] == ["browser_open"]

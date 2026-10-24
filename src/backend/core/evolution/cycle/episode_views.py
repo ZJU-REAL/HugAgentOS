@@ -1,9 +1,9 @@
-"""episode views responsibilities."""
+"""Flatten episodes and their trace events into the views the engines read."""
 from __future__ import annotations
 from typing import Any, Dict, List
 from core.db.engine import SessionLocal
 from core.db.models.evolution import EvolutionEpisode, EvolutionTraceEvent
-from core.evolution.profiles.user_settings_state import PRIVACY_PRIVATE
+from core.evolution.profiles.user_settings_constants import PRIVACY_PRIVATE
 import logging
 logger = logging.getLogger(__name__)
 

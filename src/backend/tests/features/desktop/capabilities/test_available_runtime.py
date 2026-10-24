@@ -34,6 +34,8 @@ class EmptyLoader:
     def register_skills_to_toolkit(self, *args, **kwargs): return 0
 
 class Model:
+    from agentscope.formatter import OpenAIChatFormatter
+    formatter = OpenAIChatFormatter()
     model, context_size = "offline-test", 32768
     calls = 0
     async def __call__(self, messages, tools=None, **kwargs):
@@ -201,18 +203,18 @@ def test_edited_required_dependency_is_included_and_usable(local_skill):
 @pytest.mark.asyncio
 async def test_revoked_skill_returns_tool_error_and_other_skill_stays_readable(local_skill):
     from features.desktop.capabilities import registry
-    from core.llm.runtime.tool_collector import ToolCollector
+    from core.llm.factory.tools.definitions import ToolAssembly
     from core.llm.tools.skill_tool import register_sandboxed_view_text_file
 
     local_skill("good")
     local_skill("disabled")
     run = runtime.prepare("reader", "owner", skill_ids=["good", "disabled"])
     loader = runtime.frozen_loader(run)
-    collector = ToolCollector()
+    collector = ToolAssembly()
     register_sandboxed_view_text_file(
         collector, [str(run.view_dir / n) for n in run.bindings], loader
     )
-    tool = next(t for t in collector.function_tools if t.name == "view_text_file")
+    tool = next(t for t in list(collector) if t.name == "view_text_file")
     registry.set_enabled("skill:local:disabled", False)
     bad = await tool(file_path="/workspace/skills/disabled/SKILL.md")
     assert "Original instructions" not in str(bad)
@@ -249,7 +251,9 @@ async def test_connector_disabled_midrun_never_calls_underlying_tool(local_skill
     from agentscope.tool import ToolBase, ToolChunk, Toolkit
     from agentscope.permission import PermissionBehavior, PermissionDecision
     from agentscope.message import TextBlock
-    from core.llm.mcp.capability_guards import AvailableMCPClient
+    from core.llm.tools.ontology_toolkit import OntologyFilteredToolkit
+    from core.llm.runtime.state import AgentRuntimeState
+    from agentscope.message import ToolCallBlock
     from types import SimpleNamespace
     from dataclasses import replace
     from features.desktop.capabilities import mcp_json
@@ -263,7 +267,7 @@ async def test_connector_disabled_midrun_never_calls_underlying_tool(local_skill
         async def check_permissions(self, *a, **kw):
             return PermissionDecision(behavior=PermissionBehavior.ALLOW)
 
-        async def __call__(self, **kw):
+        async def call(self, **kw):
             calls.append("called")
             return ToolChunk(content=[TextBlock(text="result")])
 
@@ -275,12 +279,10 @@ async def test_connector_disabled_midrun_never_calls_underlying_tool(local_skill
         run,
         mcp_bindings={"one": {"install_id": "mcp:local-json:one", "authorization_checked": True}},
     )
-    client = AvailableMCPClient(
-        SimpleNamespace(name="one", list_tools=list_tools, is_stateful=False), run
-    )
-    toolkit = Toolkit(mcps=[client])
+    toolkit = OntologyFilteredToolkit(tools=[Tool()])
+    toolkit.capability_guard = run.validate_tool_call
     assert (await toolkit.get_tool_schemas())[0]["function"]["name"] == "lookup"
     monkeypatch.setattr(mcp_json, "local_server_configs", lambda: {})
-    result = await (await client.list_tools())[0]()
+    result = [chunk async for chunk in toolkit.call_tool(ToolCallBlock(id="call", name="lookup", input="{}"), AgentRuntimeState())]
     assert not calls
-    assert "result" not in "".join(block.text for block in result.content)
+    assert "result" not in str(result)

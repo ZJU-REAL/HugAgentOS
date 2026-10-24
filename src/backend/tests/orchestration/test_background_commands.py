@@ -118,9 +118,12 @@ async def test_real_process_background_concurrency_and_cancel(command_db, http_p
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: False)
     class Tools:
         def __init__(self): self.functions = {}
-        def register_tool_function(self, fn, **_): self.functions[fn.__name__] = fn
+        def append(self, tool):
+            fn = tool._func
+            _ = {"func_description": tool.description, "permission": getattr(tool, "dispatch_spec", None)}
+            self.functions[fn.__name__] = fn
     tools = Tools()
-    register_bash(tools, loader=None, loaded_skill_ids=set(), chat_id="c", user_id="u")
+    register_bash(tools, loader=None, chat_id="c", user_id="u")
     def data(response): return json.loads(response.content[0].text)
     marker = tmp_path / "launches"
     command = f"printf x >> '{marker}'; printf first; sleep 1; printf second"
@@ -196,6 +199,8 @@ async def test_busy_react_delivery_and_final_output_race(command_db):
     class Model(ChatModelBase):
         def __init__(self):
             super().__init__(None, "deterministic", self.Parameters(), stream=False, max_retries=0)
+            from agentscope.formatter import OpenAIChatFormatter
+            self.formatter = OpenAIChatFormatter()
         async def count_tokens(self, **kwargs): return 10
         async def _call_api(self, model_name, messages, **kwargs):
             seen.append([str(m.content) for m in messages])

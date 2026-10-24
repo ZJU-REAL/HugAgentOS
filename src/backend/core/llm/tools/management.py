@@ -1,13 +1,9 @@
 """Local execution of an explicitly declared, installed manager plugin contract."""
-from core.harness.registry import execution_catalog as bridge_gateway
-from core.harness.registry import execution_identity as bridge_identity
-from core.harness.registry import execution_account as skill_account
 import asyncio
 import json
 from agentscope.tool import ToolBase, ToolChunk
 from agentscope.message import TextBlock, ToolResultState
 from agentscope.permission import PermissionBehavior, PermissionDecision
-from core.capabilities.plugins.management.contract import declared, MANAGERS
 from core.capabilities.plugins.management.errors import management_error
 
 
@@ -15,11 +11,12 @@ class ManagementTool(ToolBase):
     is_mcp = True
     is_state_injected = False
     is_external_tool = False
-    is_concurrency_safe = True
+    is_concurrency_safe = False
 
     def __init__(self, server_id, tool, manager, headers, *, cloud_backed):
-        self.mcp_name, self.name = server_id, tool.name
-        self.description, self.input_schema = tool.description, tool.inputSchema
+        super().__init__()
+        self.mcp_name, self.name = server_id, tool["name"]
+        self.description, self.input_schema = tool.get("description", ""), tool["inputSchema"]
         self.manager, self.headers = manager, dict(headers)
         self.cloud_backed = cloud_backed
         self.is_read_only = self.name.startswith(("get_", "list_"))
@@ -36,7 +33,7 @@ class ManagementTool(ToolBase):
             input_schema=self.input_schema, arguments=arguments,
         )
 
-    async def __call__(self, **kwargs):
+    async def call(self, **kwargs):
         try:
             result = await asyncio.to_thread(self._execute, kwargs)
             return ToolChunk(content=[TextBlock(text=json.dumps(result, ensure_ascii=False))],

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -40,9 +41,6 @@ logger = logging.getLogger(__name__)
 # Bundles are small and short-lived; a bounded in-process cache keeps the hot
 # path free of database reads. The Episode assembler persists what it needs.
 _MAX_CACHED_BUNDLES = 512
-
-
-
 
 
 def _remember(bundle: AssetBundle, run_id: Optional[str], capability_scope: str = "") -> None:
@@ -403,19 +401,15 @@ def reset_for_tests() -> None:
         process_state().run_to_bundle.clear()
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class RuntimeBindingState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    bundles: Dict[str, AssetBundle] = state_field(default_factory=lambda: {})
-    run_to_bundle: Dict[tuple[str, str], str] = state_field(default_factory=lambda: {})
-    lock: object = state_field(default_factory=lambda: threading.Lock())
+    bundles: Dict[str, AssetBundle] = field(default_factory=lambda: {})
+    run_to_bundle: Dict[tuple[str, str], str] = field(default_factory=lambda: {})
+    lock: object = field(default_factory=lambda: threading.Lock())
 
-@state_cache(maxsize=1)
+
+_STATE = RuntimeBindingState()
+
+
 def process_state() -> RuntimeBindingState:
-    return RuntimeBindingState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

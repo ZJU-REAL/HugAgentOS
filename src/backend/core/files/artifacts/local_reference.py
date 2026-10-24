@@ -48,7 +48,7 @@ def _allows_live_access(path: str, user_id: str, action: str = "read") -> bool:
         platform="windows" if os.name == "nt" else "posix",
     )
     ticket = CURRENT_PERMISSION_TICKET.get()
-    return verdict.decision == "allow" or bool(ticket and ticket.authorizes_path(path, action))
+    return verdict.decision == "allow" or bool(ticket and ticket.active and ticket.authorizes_path(path, action))
 
 
 def reference_project_file(path: str, *, scope, user_id: str, name: str = "") -> dict:

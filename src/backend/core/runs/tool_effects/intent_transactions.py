@@ -1,4 +1,4 @@
-"""intent transactions operations."""
+"""Record tool intents and decide whether a call may run."""
 from __future__ import annotations
 import uuid
 from datetime import timedelta
@@ -8,14 +8,14 @@ from core.runs.journal import LIVE_STATUSES, RunLeaseLost, RunNotFound
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
-from core.runs.tool_effects import arguments as arguments_module
-from core.runs.tool_effects import errors as errors_module
-from core.runs.tool_effects import journal_time as journal_time_module
-from core.runs.tool_effects import registry as registry_module
-from core.runs.tool_effects import types as types_module
+from core.runs.tool_effects import arguments
+from core.runs.tool_effects import errors
+from core.runs.tool_effects import registry
+from core.runs.tool_effects import types
+from core.infra.time import as_utc
 
-def intent_from_row(row: ToolEffectLedger) -> types_module.ToolIntent:
-    return types_module.ToolIntent(
+def intent_from_row(row: ToolEffectLedger) -> types.ToolIntent:
+    return types.ToolIntent(
         effect_id=row.effect_id,
         result_id=row.result_id,
         run_id=row.run_id,
@@ -26,7 +26,7 @@ def intent_from_row(row: ToolEffectLedger) -> types_module.ToolIntent:
         redacted_args=dict(row.redacted_args or {}),
         idempotency_key=row.idempotency_key or "",
         recovery_policy=row.recovery_policy,
-        created_at=journal_time_module.aware(row.created_at),
+        created_at=as_utc(row.created_at),
     )
 
 
@@ -39,11 +39,11 @@ def terminal_row(db: Session, effect_id: str) -> Optional[ToolEffectLedger]:
 
 
 def decision_from_terminal(
-    intent: types_module.ToolIntent, terminal: ToolEffectLedger
-) -> types_module.IntentDecision:
+    intent: types.ToolIntent, terminal: ToolEffectLedger
+) -> types.IntentDecision:
     if terminal.event_type == "unknown_outcome":
-        return types_module.IntentDecision("unknown", intent, result_state="unknown")
-    return types_module.IntentDecision(
+        return types.IntentDecision("unknown", intent, result_state="unknown")
+    return types.IntentDecision(
         "known",
         intent,
         terminal.result_payload,
@@ -55,7 +55,7 @@ def validate_identity(
     row: ToolEffectLedger, *, tool_name: str, args_hash: str
 ) -> None:
     if row.tool_name != tool_name or row.args_hash != args_hash:
-        raise errors_module.ToolIdempotencyConflict(
+        raise errors.ToolIdempotencyConflict(
             "idempotency_key already belongs to different tool arguments"
         )
 
@@ -70,7 +70,7 @@ def existing_decision(
     tool_name: str,
     args_hash: str,
     lease_seconds: int,
-) -> types_module.IntentDecision:
+) -> types.IntentDecision:
     with self._sessions() as db:
         intent_row = (
             db.query(ToolEffectLedger)
@@ -84,16 +84,16 @@ def existing_decision(
         caller_run = db.get(ChatRun, caller_run_id)
         original_run = db.get(ChatRun, intent.run_id)
         if caller_run is None or original_run is None:
-            raise errors_module.ToolIntentCommitError(f"run does not exist: {caller_run_id}")
+            raise errors.ToolIntentCommitError(f"run does not exist: {caller_run_id}")
         if original_run.user_id != caller_run.user_id:
-            raise errors_module.ToolIdempotencyConflict(
+            raise errors.ToolIdempotencyConflict(
                 "idempotency_key belongs to a different principal"
             )
         terminal = self._terminal_row(db, intent.effect_id)
         if terminal is not None and caller_run_id == intent.run_id:
             return self._decision_from_terminal(intent, terminal)
-        now = journal_time_module.aware(self._clock())
-        caller_expiry = journal_time_module.aware(caller_run.lease_expires_at)
+        now = as_utc(self._clock())
+        caller_expiry = as_utc(caller_run.lease_expires_at)
         if (
             caller_run.status not in LIVE_STATUSES
             or caller_run.lease_owner != run_owner
@@ -101,11 +101,11 @@ def existing_decision(
             or now is None
             or caller_expiry <= now
         ):
-            raise errors_module.ToolIntentCommitError(f"run lease is not owned: {caller_run_id}")
+            raise errors.ToolIntentCommitError(f"run lease is not owned: {caller_run_id}")
         if terminal is not None:
             return self._decision_from_terminal(intent, terminal)
         if intent.run_id != caller_run_id:
-            return types_module.IntentDecision("wait", intent)
+            return types.IntentDecision("wait", intent)
 
         lease = (
             db.query(ToolEffectLease)
@@ -117,20 +117,20 @@ def existing_decision(
         terminal = self._terminal_row(db, intent.effect_id)
         if terminal is not None:
             return self._decision_from_terminal(intent, terminal)
-        lease_expiry = journal_time_module.aware(lease.lease_expires_at)
+        lease_expiry = as_utc(lease.lease_expires_at)
         if (
             lease.run_owner == run_owner
             and lease_expiry is not None
             and lease_expiry > now
         ):
             if lease.claim_owner == claim_owner:
-                return types_module.IntentDecision(
+                return types.IntentDecision(
                     "reconcile"
                     if intent.recovery_policy == "reconcile"
                     else "execute",
                     intent,
                 )
-            return types_module.IntentDecision("wait", intent)
+            return types.IntentDecision("wait", intent)
 
         previous_owner = lease.run_owner
         previous_claim = lease.claim_owner
@@ -160,7 +160,7 @@ def existing_decision(
         )
         if not affected:
             db.rollback()
-            return types_module.IntentDecision("wait", intent)
+            return types.IntentDecision("wait", intent)
         db.expire_all()
         lease = db.get(ToolEffectLease, intent.effect_id)
         self._append_event(
@@ -184,9 +184,9 @@ def existing_decision(
                 reason="non-replayable tool intent has no committed result",
             )
             db.commit()
-            return types_module.IntentDecision("unknown", intent)
+            return types.IntentDecision("unknown", intent)
         db.commit()
-        return types_module.IntentDecision(
+        return types.IntentDecision(
             "reconcile" if intent.recovery_policy == "reconcile" else "execute",
             intent,
         )
@@ -205,16 +205,16 @@ def begin_intent(
     idempotency_key: Optional[str] = None,
     lease_seconds: int = 300,
     _conflict_retries: int = 4,
-) -> types_module.IntentDecision:
-    if recovery_policy not in registry_module.RECOVERY_POLICIES:
+) -> types.IntentDecision:
+    if recovery_policy not in registry.RECOVERY_POLICIES:
         raise ValueError(f"invalid recovery policy: {recovery_policy}")
-    _canonical, args_hash, redacted = arguments_module.canonical_tool_args(args)
+    _canonical, args_hash, redacted = arguments.canonical_tool_args(args)
     with self._sessions() as db:
         caller_run = db.get(ChatRun, run_id)
         if caller_run is None:
-            raise errors_module.ToolIntentCommitError(f"run does not exist: {run_id}")
+            raise errors.ToolIntentCommitError(f"run does not exist: {run_id}")
         principal_scope = caller_run.user_id
-    key, _explicit = arguments_module.resolved_idempotency_key(
+    key, _explicit = arguments.resolved_idempotency_key(
         run_id=run_id,
         principal_scope=str(principal_scope),
         tool_name=tool_name,
@@ -302,8 +302,8 @@ def begin_intent(
             )
             run.updated_at = self._clock()
             db.commit()
-            return types_module.IntentDecision("execute", self._intent_from_row(row))
-    except errors_module.ToolEffectError:
+            return types.IntentDecision("execute", self._intent_from_row(row))
+    except errors.ToolEffectError:
         raise
     except (IntegrityError, OperationalError) as exc:
         with self._sessions() as db:
@@ -335,8 +335,8 @@ def begin_intent(
                 lease_seconds=lease_seconds,
                 _conflict_retries=_conflict_retries - 1,
             )
-        raise errors_module.ToolIntentCommitError(str(exc)) from exc
+        raise errors.ToolIntentCommitError(str(exc)) from exc
     except (RunNotFound, RunLeaseLost) as exc:
-        raise errors_module.ToolIntentCommitError(str(exc)) from exc
+        raise errors.ToolIntentCommitError(str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
-        raise errors_module.ToolIntentCommitError(str(exc)) from exc
+        raise errors.ToolIntentCommitError(str(exc)) from exc

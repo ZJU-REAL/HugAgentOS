@@ -1,6 +1,6 @@
-"""stream loop operations."""
+"""Drive one agent reply and yield its SSE events."""
 from __future__ import annotations
-from core.llm.runtime import streaming_state
+from core.llm.runtime import streaming_constants
 from core.harness import log_writer
 import asyncio
 import time
@@ -8,10 +8,9 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 from agentscope.message import Msg
 from core.infra.logging import LogContext
 from core.llm.context.rendering import next_request_sequence, render_context_item, render_session_input
-from core.llm.context.ir_state import KIND_USER_INPUT, POLICY_NEVER, SESSION_CONTEXT_META_KEY
+from core.llm.context.ir_constants import KIND_USER_INPUT, POLICY_NEVER, SESSION_CONTEXT_META_KEY
 from core.llm.context.items import ContextItem
 from core.llm.runtime.message_compat import session_to_msgs
-from core.harness import log_writer as log_writer
 import logging
 logger = logging.getLogger(__name__)
 
@@ -189,26 +188,46 @@ async def stream(
 
     _stream_start = time.monotonic()
     _first_event_logged = False
-    _poll_interval = streaming_state.QUEUE_POLL_INTERVAL_S
+    _poll_interval = streaming_constants.QUEUE_POLL_INTERVAL_S
     # Last model_progress emission — throttles the liveness signal emitted
     # when upstream events map to nothing. Only the swallowed-event branch
     # reads/updates the clock, keeping the mapped hot path free of it.
     _last_progress_ts = _stream_start
 
+    # Every event leaves through the coalescer, so a buffered delta is always
+    # flushed before whatever follows it and the stream keeps its order.
+    deltas = self._deltas
     try:
         while True:
+            for progress in st.pending_mcp_progress:
+                if progress.get("tool_id") in self._pending_tool_calls:
+                    for out in deltas.feed(("tool_progress", progress)):
+                        yield out
+            st.pending_mcp_progress = []
             for _human_event in _drain_human_interaction_events():
-                yield _human_event
+                for out in deltas.feed(_human_event):
+                    yield out
+            _timeout = _poll_interval
+            _due = deltas.deadline()
+            if _due is not None:
+                _timeout = min(_timeout, max(0.0, _due - time.monotonic()))
             try:
-                kind, payload = await asyncio.wait_for(event_q.get(), timeout=_poll_interval)
+                kind, payload = await asyncio.wait_for(event_q.get(), timeout=_timeout)
             except asyncio.TimeoutError:
+                _flushed = deltas.flush_due()
+                if _flushed:
+                    for out in _flushed:
+                        yield out
+                    continue
+                if _due is not None:
+                    continue
                 if self._model_call_inflight:
                     # Model call in flight with a silent wire — count as
                     # liveness (throttled) so the inactivity watchdog waits
                     # for the model client's own timeout/retry outcome
                     # instead of misjudging the run as hung.
                     _now = time.monotonic()
-                    if _now - _last_progress_ts >= streaming_state.MODEL_PROGRESS_MIN_INTERVAL_S:
+                    if _now - _last_progress_ts >= streaming_constants.MODEL_PROGRESS_MIN_INTERVAL_S:
                         _last_progress_ts = _now
                         yield ("model_progress", None)
                         continue
@@ -220,7 +239,10 @@ async def stream(
                 # finishing reply cannot strand the frontend in submitted
                 # state waiting for user_question_resolved.
                 for _human_event in _drain_human_interaction_events():
-                    yield _human_event
+                    for out in deltas.feed(_human_event):
+                        yield out
+                for out in deltas.drain():
+                    yield out
                 if kind == "err":
                     yield ("error", payload)
                 break
@@ -228,7 +250,8 @@ async def stream(
                 # Subagent bypass events — passed straight through, never into _map_event.
                 if not _first_event_logged:
                     _first_event_logged = True
-                yield ("subagent_event", payload)
+                for out in deltas.feed(("subagent_event", payload)):
+                    yield out
                 continue
             # kind == "ev"
             payload, result_step = payload
@@ -239,10 +262,12 @@ async def stream(
                 # before mapping ModelCallStart so the queued-card UI can
                 # switch from "waiting" to "applied" deterministically.
                 agent.state.steer_delivery = None
-                yield ("steer_applied", dict(steer_delivery))
+                for out in deltas.feed(("steer_applied", dict(steer_delivery))):
+                    yield out
             reasoning_protocol = self._take_reasoning_protocol()
             if reasoning_protocol is not None:
-                yield ("reasoning_protocol", reasoning_protocol)
+                for out in deltas.feed(("reasoning_protocol", reasoning_protocol)):
+                    yield out
             _mapped_any = False
             async for out in self._map_event(payload, result_step=result_step):
                 if not _first_event_logged:
@@ -251,17 +276,19 @@ async def stream(
                     _first_event_logged = True
                 _mapped_any = True
                 yield out
-            if not _mapped_any:
+            if not _mapped_any and deltas.deadline() is None:
                 # The model is alive (an upstream event just arrived) but
                 # nothing was forwarded — typical of long tool-call-arg /
                 # suppressed-thinking streaming. Emit a throttled liveness
                 # signal so the inactivity watchdog doesn't misjudge a
                 # healthy run as hung.
                 _now = time.monotonic()
-                if _now - _last_progress_ts >= streaming_state.MODEL_PROGRESS_MIN_INTERVAL_S:
+                if _now - _last_progress_ts >= streaming_constants.MODEL_PROGRESS_MIN_INTERVAL_S:
                     _last_progress_ts = _now
                     yield ("model_progress", None)
     except Exception as e:  # noqa: BLE001
+        for out in deltas.drain():
+            yield out
         yield ("error", e)
     finally:
         await self.stop_producer()
@@ -297,8 +324,7 @@ async def stream(
             except Exception:
                 logger.debug("pending tool_call flush failed", exc_info=True)
         self._pending_tool_calls.clear()
-        self._tool_delta_emit_buf.clear()
-        self._tool_delta_last_emit.clear()
+        deltas.reset()
         try:
             _log_ctx.__exit__(None, None, None)
         except Exception as fallback_error:

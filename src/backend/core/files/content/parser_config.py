@@ -1,4 +1,4 @@
-"""parser config responsibilities."""
+"""Settings for the external file-parsing service."""
 from __future__ import annotations
 import os
 

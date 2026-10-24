@@ -142,6 +142,7 @@ def record_tool_result_step(block: Any) -> Dict[str, Any]:
                 "id": str(data.get("id") or ""),
                 "name": str(data.get("name") or ""),
                 "output": _persistable_output(data.get("output")),
+                **({"metadata": _plain(data["metadata"])} if "mcp" in (data.get("metadata") or {}) else {}),
                 "state": str(data.get("state") or "success"),
             }
         ],

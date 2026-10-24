@@ -8,10 +8,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from core.db.models import MemoryOutbox
+from core.db.threads import run_db
 from sqlalchemy import and_, or_
 
+from core.memory.outbox import common
+
 logger = logging.getLogger(__name__)
-from core.memory.outbox import common as common
 
 
 def _claim_next(worker_id: str) -> Optional[str]:
@@ -203,7 +205,7 @@ async def _lease_heartbeat(
     while True:
         await asyncio.sleep(interval)
         try:
-            renewed = _renew_lease(job_id, worker_id)
+            renewed = await run_db(_renew_lease, job_id, worker_id)
         except Exception:
             logger.exception("[memory_outbox] lease renewal failed id=%s", job_id)
             renewed = False

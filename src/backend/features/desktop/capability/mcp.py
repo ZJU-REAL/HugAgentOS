@@ -147,7 +147,7 @@ async def invoke_gateway_tool(
             embedded.interface().execute, resolved["user_id"], resolved["tool"]["name"], arguments,
         )
     import mcp.types
-    from core.llm.mcp.pool import make_client
+    from core.llm.mcp.client import make_client
 
     arguments = dict(arguments or {})
     from core.harness.registry.tool_operations import receipt_operations
@@ -189,15 +189,13 @@ async def invoke_gateway_tool(
     ))
     target["headers"] = upstream_headers
 
-    client = make_client(str(resolved["server_id"]), target, is_stateful=False)
+    from core.llm.mcp.results import tool_result
+    from core.llm.mcp.client import _execution_timeout
     raw_tool = mcp.types.Tool.model_validate(resolved["tool"])
-    # Skip a second tools/list call in the cloud: the allowlisted schema was read
-    # from the same DB row immediately above. get_tool then performs only the
-    # real initialize + tools/call lifecycle against the private MCP target.
-    client._cached_tools = [raw_tool]  # noqa: SLF001 - AgentScope has no public preload API
-    tool = await client.get_tool(raw_tool.name)
-    timeout = max(1.0, float(client.execution_timeout or 120.0)) + 10.0
-    chunk = await asyncio.wait_for(tool(**dict(arguments or {})), timeout=timeout)
+    async with make_client(str(resolved["server_id"]), target) as client:
+        result = await asyncio.wait_for(client.call_tool(raw_tool.name, dict(arguments or {})),
+                                        timeout=_execution_timeout(str(resolved["server_id"]), target))
+        chunk = tool_result(result, raw_tool)
     chunk.metadata.setdefault("origin", "cloud")
     chunk.metadata.setdefault("mcp_server_id", str(resolved["server_id"]))
     return guard_capability_content(

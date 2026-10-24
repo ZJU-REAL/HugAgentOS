@@ -143,8 +143,7 @@ class ArtifactService:
 
 
 # ── AI-generated artifact persistence (used by chat route + routing) ──────────
-# Relocated from ``api/routes/v1/chats/__init__.py`` so lower layers (``core.llm.tool``,
-# ``routing.*``) can persist artifacts without importing an API route module.
+# Lives in core so tools and routing can persist artifacts without importing an API route.
 
 
 def persist_artifacts(

@@ -4,18 +4,41 @@ PyTest configuration and fixtures for all tests.
 
 import pytest
 import os
+import shutil
 import tempfile
+
+# Every pytest session gets its own SQLite files. A fixed name in the system
+# temp dir is shared by concurrent runs (other checkouts, other sessions), which
+# drop each other's tables mid-test. Set before core.config reads the env;
+# explicit DATABASE_URL / SQLITE_FALLBACK_URL / TEST_DATABASE_URL still win.
+SESSION_DB_DIR = tempfile.mkdtemp(prefix=f"hugagent-tests-{os.getpid()}-")
+DATABASE_URL_PRESET = "DATABASE_URL" in os.environ
+os.environ.setdefault("DATABASE_URL", f"sqlite:///{SESSION_DB_DIR}/hugagent.db")
+os.environ.setdefault("SQLITE_FALLBACK_URL", f"sqlite:///{SESSION_DB_DIR}/hugagent_dev.db")
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
 
 from core.db.engine import Base
 
+
+def pytest_unconfigure(config):
+    from core.harness.observation_writer import flush_observations
+
+    flush_observations()
+    shutil.rmtree(SESSION_DB_DIR, ignore_errors=True)
+
+
+@pytest.fixture(scope="session")
+def session_db_dir():
+    return SESSION_DB_DIR
+
+
 @pytest.fixture(scope="session")
 def test_database_url():
-    """Test database URL."""
-    # Default to the system temp dir: a relative path would leave a stray test.db in pytest's CWD (repo root, etc.)
-    return os.getenv("TEST_DATABASE_URL", f"sqlite:///{tempfile.gettempdir()}/hugagent_test.db")
+    """Test database URL, private to this pytest session unless TEST_DATABASE_URL is set."""
+    return os.getenv("TEST_DATABASE_URL", f"sqlite:///{SESSION_DB_DIR}/hugagent_test.db")
 
 
 @pytest.fixture(scope="function")

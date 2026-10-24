@@ -2,7 +2,14 @@
 NAME = "automation"
 
 
+def register_schema():
+    from core.harness.registry.schema_lifecycle import register_schema_lifecycle
+    from features.automation.schema import initialize_schema
+    register_schema_lifecycle(NAME, initialize_schema)
+
+
 def setup():
+    register_schema()
     return True
 
 

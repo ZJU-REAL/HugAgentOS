@@ -78,4 +78,8 @@ return error_response(code=20001, message="Bad request", status_code=400)
 1. **路由中只用 `success_response` / `created_response` / `paginated_response`**
 2. **错误通过抛 `AppException` 子类，由全局 handler 转 `error_response`**
 3. **trace_id 默认自动生成，无需手动传**
-4. **SSE 端点（流式聊天）不使用信封，直接发 SSE 事件**
+4. **SSE 端点不使用信封**：用 `sse_response(generator, extra_headers=...)` 返回（自带 `Cache-Control: no-cache`、
+   `X-Accel-Buffering: no` 等 `SSE_HEADERS`）；聊天回合的 SSE 输出统一走 `api/transports/run_sse.py`，不要自写一套
+5. **License 402** 只来自 `edition_ee/licensing/features.py` 的 `FeatureNotLicensed`（40201）/ `SeatLimitExceeded`（40202），
+   路由与服务层不要手搓 402
+6. 时间字段序列化用 `.isoformat()`（模型存的是带时区的 UTC），不要输出无时区字符串

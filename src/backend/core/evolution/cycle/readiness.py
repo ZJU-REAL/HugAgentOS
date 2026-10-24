@@ -164,7 +164,6 @@ def _check_generator() -> Requirement:
 _CACHE_TTL_S = 300.0
 
 
-
 def reset_cache() -> None:
     """Drop the cached probe, so a configuration fix is picked up immediately."""
     process_state().cached = None
@@ -190,17 +189,13 @@ def check_readiness(*, use_cache: bool = True) -> Readiness:
     return readiness
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class ReadinessState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
     cached: Optional[Tuple[float, 'Readiness']] = None
 
-@state_cache(maxsize=1)
-def process_state() -> ReadinessState:
-    return ReadinessState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+_STATE = ReadinessState()
+
+
+def process_state() -> ReadinessState:
+    return _STATE

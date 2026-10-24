@@ -22,7 +22,7 @@ import fakeredis.aioredis
 import pytest
 from core.db.engine import Base
 from core.db.models import ChatMessage, ChatSession
-from core.chat.service_state import CONTENT_MAX as _CONTENT_MAX, THINKING_MAX as _THINKING_MAX
+from core.chat.limits import CONTENT_MAX as _CONTENT_MAX, THINKING_MAX as _THINKING_MAX
 from core.chat.limits import clamp_thinking
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker

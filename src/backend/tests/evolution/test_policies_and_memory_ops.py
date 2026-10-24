@@ -7,7 +7,7 @@ allow-list must refuse anything resembling code execution, the budget must be
 bounded — against the asset that actually governs behaviour.
 """
 from core.evolution.profiles import agent_profile as agent_profile_module
-from core.evolution.profiles import agent_profile_state as agent_profile_state_module
+from core.evolution.profiles import agent_profile_constants as agent_profile_state_module
 from core.evolution.profiles import profile_selection as profile_selection_module
 
 import pytest

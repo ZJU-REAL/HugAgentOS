@@ -1,6 +1,5 @@
 """Serialize resource admission and one-time warm worker adoption per owner."""
 
-import asyncio
 import os
 import time
 
@@ -22,55 +21,47 @@ def lock_owner(db, user_id):
         db.query(UserShadow).filter_by(user_id=user_id).with_for_update().one()
 
 
-async def adopt(db, selected, module_id, user_id, chat_id, *, prewarm, checkpoint_id):
-    """Return an adopted resource, or permission to reserve under the held lock."""
-    deadline = time.monotonic() + 90
-    while True:
-        db.commit()
-        lock_owner(db, user_id)
-        query = (
-            db.query(store.PluginResource)
-            .filter_by(
-                user_id=user_id,
-                chat_id=chat_id,
-                install_id=selected.install_id,
-                revision=selected.revision,
-                slug=selected.slug,
-                module_id=module_id,
-            )
-            .filter(store.PluginResource.expires_at > time.time())
-        )
-        if prewarm:
-            if query.filter(store.PluginResource.status.in_(LIVE_STATUSES)).first():
-                db.commit()
-                return None, True
-            return None, False
-        row = (
-            None
-            if checkpoint_id
-            else query.filter(store.PluginResource.status.in_(("warm", "warming")))
-            .order_by(store.PluginResource.created_at)
-            .first()
-        )
-        if row is None:
-            return None, False
-        if row.status == "warm":
-            row.status = "active"
-            row.expires_at = time.time() + int(os.getenv("PLUGIN_RESOURCE_TTL_SECONDS", "86400"))
-            db.commit()
-            return row, True
-        db.commit()
-        if time.monotonic() >= deadline:
-            raise HTTPException(503, "resource_prewarm_timeout")
-        await asyncio.sleep(0.05)
-        db.expire_all()
-        # Each wait releases the transaction: installation switches and revocation
-        # must be noticed before the worker can be adopted.
-        from core.capabilities.plugins.resources import installation
+def adopt_once(db, selected, module_id, user_id, chat_id, *, prewarm, checkpoint_id):
+    """Take the owner lock and look for a warm worker to adopt.
 
-        current = installation.resolve(db, selected.slug, user_id, selected.install_id)
-        if current.revision != selected.revision:
-            raise HTTPException(409, "plugin_revision_changed")
+    Returns ``("adopted", row)``, ``("exists", None)`` (prewarm: one is already
+    live), ``("wait", None)`` (one is still warming; the lock is released), or
+    ``("reserve", None)`` — permission to reserve under the lock still held.
+    """
+    lock_owner(db, user_id)
+    query = (
+        db.query(store.PluginResource)
+        .filter_by(
+            user_id=user_id,
+            chat_id=chat_id,
+            install_id=selected.install_id,
+            revision=selected.revision,
+            slug=selected.slug,
+            module_id=module_id,
+        )
+        .filter(store.PluginResource.expires_at > time.time())
+    )
+    if prewarm:
+        if query.filter(store.PluginResource.status.in_(LIVE_STATUSES)).first():
+            db.commit()
+            return "exists", None
+        return "reserve", None
+    row = (
+        None
+        if checkpoint_id
+        else query.filter(store.PluginResource.status.in_(("warm", "warming")))
+        .order_by(store.PluginResource.created_at)
+        .first()
+    )
+    if row is None:
+        return "reserve", None
+    if row.status == "warm":
+        row.status = "active"
+        row.expires_at = time.time() + int(os.getenv("PLUGIN_RESOURCE_TTL_SECONDS", "86400"))
+        db.commit()
+        return "adopted", row
+    db.commit()
+    return "wait", None
 
 
 def check_quota(db, user_id):

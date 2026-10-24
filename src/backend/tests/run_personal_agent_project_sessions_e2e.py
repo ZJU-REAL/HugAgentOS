@@ -31,7 +31,8 @@ class Tools:
     def __init__(self):
         self.functions = {}
 
-    def register_tool_function(self, fn):
+    def append(self, tool):
+        fn = tool._func
         self.functions[fn.__name__] = fn
 
 

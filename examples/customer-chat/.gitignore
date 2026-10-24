@@ -1,8 +1,0 @@
-node_modules/
-dist/
-standalone-dist/
-*.tgz
-web-dist/
-.env
-.env.local
-vendor/

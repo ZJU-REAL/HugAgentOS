@@ -120,21 +120,21 @@ async def get_feishu_app_status(_: str = Depends(require_system_settings)):
     """
     from integrations.lark.service import LarkService
 
-    return success_response(data=LarkService(None).app_status())
+    return success_response(data=LarkService().app_status())
 
 
 @router.post("/feishu-cli/app/init", summary="从飞书插件页发起共享应用初始化")
 async def init_feishu_app(_: str = Depends(require_system_settings)):
     from integrations.lark.service import LarkService
 
-    return success_response(data=await LarkService(None).start_app_init())
+    return success_response(data=await LarkService().start_app_init())
 
 
 @router.post("/feishu-cli/app/reset", summary="从飞书插件页重置共享应用")
 async def reset_feishu_app(_: str = Depends(require_system_settings)):
     from integrations.lark.service import LarkService
 
-    return success_response(data=await LarkService(None).reset_app())
+    return success_response(data=await LarkService().reset_app())
 
 
 @router.get("/{slug}", summary="内置插件详情")
@@ -180,7 +180,7 @@ def install_plugin(
 
 
 @router.post("/import", status_code=201, summary="导入外部插件（上传 zip）")
-async def import_plugin(
+def import_plugin(
     file: UploadFile = File(..., description="插件包 .zip（native / Claude Code / Codex）"),
     secrets: Optional[str] = Form(None, description="凭据 JSON 字符串"),
     user: UserContext = Depends(get_current_user),
@@ -193,10 +193,10 @@ async def import_plugin(
         if _parse_secrets(secrets):
             raise BadRequestError(message="本机插件凭据请通过连接配置设置，不写入插件包")
         return created_response(
-            data=install_archive(str(user.user_id), await file.read(), "plugin")
+            data=install_archive(str(user.user_id), file.file.read(), "plugin")
         )
     _require_can_import_plugin(str(user.user_id), db)
-    raw = await file.read()
+    raw = file.file.read()
     secret_map = _parse_secrets(secrets)
     result = ps.import_plugin_from_zip(
         db,

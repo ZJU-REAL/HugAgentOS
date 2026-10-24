@@ -1,12 +1,12 @@
-"""recovery claims operations."""
+"""Claim and settle intents during recovery."""
 from __future__ import annotations
 from datetime import timedelta
 from typing import Any, Optional
 from core.db.models import ChatRun, ToolEffectLease, ToolEffectLedger
 from core.runs.journal import LIVE_STATUSES
 from sqlalchemy import or_
-from core.runs.tool_effects import errors as errors_module
-from core.runs.tool_effects import types as types_module
+from core.runs.tool_effects import errors
+from core.runs.tool_effects import types
 
 def claim_recovery_intent(
     self,
@@ -14,7 +14,7 @@ def claim_recovery_intent(
     *,
     recovery_owner: str,
     lease_seconds: int = 120,
-) -> Optional[types_module.ToolIntent]:
+) -> Optional[types.ToolIntent]:
     with self._sessions() as db:
         intent = (
             db.query(ToolEffectLedger)
@@ -124,7 +124,7 @@ def commit_recovered_result(
             .one()
         )
         if lease.run_owner != recovery_owner or run.lease_owner != recovery_owner:
-            raise errors_module.ToolEffectLeaseLost(effect_id)
+            raise errors.ToolEffectLeaseLost(effect_id)
         run.lease_owner = None
         run.lease_expires_at = None
         run.updated_at = self._clock()
@@ -148,7 +148,7 @@ def release_recovery_claim(
             .one()
         )
         if lease.run_owner != recovery_owner or lease.claim_owner != recovery_owner:
-            raise errors_module.ToolEffectLeaseLost(effect_id)
+            raise errors.ToolEffectLeaseLost(effect_id)
         run = (
             db.query(ChatRun)
             .filter(ChatRun.run_id == lease.run_id)
@@ -156,7 +156,7 @@ def release_recovery_claim(
             .one()
         )
         if run.lease_owner != recovery_owner:
-            raise errors_module.ToolEffectLeaseLost(effect_id)
+            raise errors.ToolEffectLeaseLost(effect_id)
         retry_at = self._clock() + timedelta(seconds=max(1, retry_seconds))
         lease.claim_owner = None
         lease.lease_expires_at = retry_at

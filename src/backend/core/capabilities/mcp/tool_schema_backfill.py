@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +41,8 @@ async def backfill_missing_tool_schemas(server_ids: Optional[List[str]] = None) 
     logged and skipped: an unreachable server keeps its display-only entries, and
     the manifest client withholds those tools rather than offering broken ones.
     """
-    from core.db.engine import SessionLocal
-    from core.db.models import AdminMcpServer
     from core.capabilities.mcp.management import probe_mcp_connectivity
+    from core.db.threads import run_in_session
 
     from core.harness.registry import device_catalog
 
@@ -61,50 +60,61 @@ async def backfill_missing_tool_schemas(server_ids: Optional[List[str]] = None) 
         logger.debug("[mcp-schema] hybrid desktop: schemas come from the cloud manifest, skipping probe")
         return 0
 
-    db = SessionLocal()
-    try:
-        from core.capabilities.plugins.management.bundle_upgrade import refresh
-        refresh(db)
-        query = db.query(AdminMcpServer).filter(AdminMcpServer.is_enabled.is_(True))
-        if server_ids:
-            query = query.filter(AdminMcpServer.server_id.in_(list(server_ids)))
-        rows = [row for row in query.all() if _needs_backfill(row.tools_json)]
-        if not rows:
-            return 0
+    rows = await run_in_session(_servers_to_backfill, server_ids)
+    if not rows:
+        return 0
 
-        semaphore = asyncio.Semaphore(_MAX_CONCURRENCY)
-        repaired: List[str] = []
+    semaphore = asyncio.Semaphore(_MAX_CONCURRENCY)
+    repaired: Dict[str, list] = {}
 
-        async def _probe(row) -> None:
-            async with semaphore:
-                try:
-                    ok, detail = await probe_mcp_connectivity(
-                        row, db, timeout_seconds=_PROBE_TIMEOUT_S
-                    )
-                except Exception as exc:  # noqa: BLE001 - one server must not stop the pass
-                    logger.warning(
-                        "[mcp-schema] probe raised for '%s': %s", row.server_id, exc
-                    )
-                    return
-                if ok and not _needs_backfill(row.tools_json):
-                    repaired.append(row.server_id)
-                else:
-                    logger.warning(
-                        "[mcp-schema] '%s' still has tools without a schema: %s",
-                        row.server_id,
-                        detail,
-                    )
+    async def _probe(row) -> None:
+        async with semaphore:
+            try:
+                ok, detail = await probe_mcp_connectivity(
+                    row, validate=True, timeout_seconds=_PROBE_TIMEOUT_S
+                )
+            except Exception as exc:  # noqa: BLE001 - one server must not stop the pass
+                logger.warning(
+                    "[mcp-schema] probe raised for '%s': %s", row.server_id, exc
+                )
+                return
+            if ok and not _needs_backfill(row.tools_json):
+                repaired[row.server_id] = row.tools_json
+            else:
+                logger.warning(
+                    "[mcp-schema] '%s' still has tools without a schema: %s",
+                    row.server_id,
+                    detail,
+                )
 
-        await asyncio.gather(*(_probe(row) for row in rows))
-        if repaired:
-            db.commit()
-            logger.info(
-                "[mcp-schema] tool schemas captured for %d server(s): %s",
-                len(repaired),
-                ", ".join(sorted(repaired)),
-            )
-        else:
-            db.rollback()
-        return len(repaired)
-    finally:
-        db.close()
+    await asyncio.gather(*(_probe(row) for row in rows))
+    if repaired:
+        await run_in_session(_store_schemas, repaired)
+        logger.info(
+            "[mcp-schema] tool schemas captured for %d server(s): %s",
+            len(repaired),
+            ", ".join(sorted(repaired)),
+        )
+    return len(repaired)
+
+
+def _servers_to_backfill(db, server_ids):
+    """Enabled servers whose tools lack schemas, detached for probing."""
+    from core.capabilities.plugins.management.bundle_upgrade import refresh
+    from core.db.models import AdminMcpServer
+
+    refresh(db)
+    query = db.query(AdminMcpServer).filter(AdminMcpServer.is_enabled.is_(True))
+    if server_ids:
+        query = query.filter(AdminMcpServer.server_id.in_(list(server_ids)))
+    rows = [row for row in query.all() if _needs_backfill(row.tools_json)]
+    db.expunge_all()
+    return rows
+
+
+def _store_schemas(db, repaired) -> None:
+    from core.db.models import AdminMcpServer
+
+    for row in db.query(AdminMcpServer).filter(AdminMcpServer.server_id.in_(list(repaired))):
+        row.tools_json = repaired[row.server_id]
+    db.commit()

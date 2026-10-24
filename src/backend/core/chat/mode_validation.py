@@ -1,4 +1,4 @@
-"""mode validation responsibilities."""
+"""Normalise and validate chat mode fields from request bodies."""
 from __future__ import annotations
 from core.infra.time import utc_now
 import uuid

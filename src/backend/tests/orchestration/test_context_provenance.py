@@ -3,7 +3,7 @@
 from core.agent_runtime.skills import _build_skill_injection
 from core.llm.context.adapter import AgentScopeContextAdapter
 from core.llm.context.rendering import render_session_input
-from core.llm.context.ir_state import SESSION_CONTEXT_META_KEY
+from core.llm.context.ir_constants import SESSION_CONTEXT_META_KEY
 from core.llm.runtime.message_compat import session_to_msgs
 from orchestration.plans.mode import _build_plan_generation_messages
 

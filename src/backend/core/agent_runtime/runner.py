@@ -1,12 +1,12 @@
 """Coordinate the main agent lifecycle."""
 
 from __future__ import annotations
-from core.agent_runtime.integrations import memory as memory_module
-from core.agent_runtime.integrations import memory_session as memory_session_module
-from core.ontology import output_review_state as output_review_state_module
-from core.ontology import runtime_pack as runtime_pack_module
-from core.runs.tool_effects import errors as errors_module
-from core.llm.citations import allocator as allocator_module
+from core.agent_runtime.integrations import memory
+from core.agent_runtime.integrations import memory_session
+from core.ontology import output_review_state
+from core.ontology import runtime_pack
+from core.runs.tool_effects import errors
+from core.llm.citations import allocator
 from core.ontology import runtime_policy
 
 import asyncio
@@ -19,24 +19,19 @@ import core.agent_runtime.budget as budget
 import core.agent_runtime.direct as direct
 import core.agent_runtime.events as events
 import core.agent_runtime.integrations.evolution as evolution
-import core.agent_runtime.integrations.memory as memory
 import core.agent_runtime.integrations.memory_budget as memory_budget
 import core.agent_runtime.integrations.ontology_evidence as ontology_evidence
 import core.agent_runtime.integrations.ontology_repair as ontology_repair
-import core.agent_runtime.resources as resources
 import core.agent_runtime.skills as skills
 import core.agent_runtime.targets as targets
 import core.chat.message_parser as message_parser
 import core.chat.plan_progress as plan_progress
-import core.llm.citations.anchor as citation_anchor
-import core.ontology.validator as validator
-import core.ontology.service as ontology_service
-import core.runs.tool_effects.journal as tool_effect_ledger
 
-logger = logging.getLogger(__name__)
 
 from core.agent_runtime import prepare_main, stream_main
 from core.agent_runtime.main_state import MainTurn
+
+logger = logging.getLogger(__name__)
 
 
 async def astream_chat_workflow(
@@ -54,7 +49,7 @@ async def astream_chat_workflow(
         if turn.review_task is not None:
             await cancel_and_join(turn.review_task)
         if turn.review_owner is not None:
-            output_review_state_module.release_output_review(turn.ontology_runtime, owner=turn.review_owner)
+            output_review_state.release_output_review(turn.ontology_runtime, owner=turn.review_owner)
         await _close_turn(turn)
 
 
@@ -62,7 +57,6 @@ async def _close_turn(turn: MainTurn) -> None:
     if turn.streaming_agent is not None and not turn.closed:
         turn.closed = True
         await turn.streaming_agent.shutdown()
-        resources.process_state().persistent_clients.append((turn.streaming_agent, list(turn.mcp_clients)))
 
 
 async def _stream_turn(turn: MainTurn):
@@ -111,7 +105,7 @@ async def _stream_turn(turn: MainTurn):
             asset_id=skill_id,
             user_id=str(turn.context.get("user_id", "") or ""),
         )
-        activations = runtime_pack_module.activate_runtime_for_asset(
+        activations = runtime_pack.activate_runtime_for_asset(
             _request_ontology_runtime,
             kind="skill",
             asset_id=skill_id,
@@ -154,7 +148,7 @@ async def _stream_turn(turn: MainTurn):
         _mem0_write_enabled,
     )
 
-    turn.session_memory = await memory_session_module.open_session_memory(
+    turn.session_memory = await memory_session.open_session_memory(
         chat_id=_mem0_chat_id,
         scope_user_id=_mem0_scope_user_id,
         workspace_id=turn.memory_workspace_id,
@@ -180,9 +174,9 @@ async def _stream_turn(turn: MainTurn):
     _stream_errored = False
     # 证据锚点发号器：跨轮续号；创建后绑到 agent 上（见下方 attach_allocator），
     # 中间件与本函数由此共享同一个计数器
-    turn.anchor_allocator = allocator_module.AnchorAllocator(
+    turn.anchor_allocator = allocator.AnchorAllocator(
         await asyncio.to_thread(
-            allocator_module.anchor_start_for_chat, str(turn.context.get("chat_id") or "") or None
+            allocator.anchor_start_for_chat, str(turn.context.get("chat_id") or "") or None
         )
     )
 
@@ -207,7 +201,7 @@ async def _stream_turn(turn: MainTurn):
         warnings.append(f"Streaming error: {str(e)[:200]}")
         _stream_errored = True
 
-        unknown_outcome = errors_module.find_tool_outcome_unknown(e)
+        unknown_outcome = errors.find_tool_outcome_unknown(e)
         if unknown_outcome is not None:
             if turn.streaming_agent is not None:
                 await _close_turn(turn)
@@ -236,7 +230,7 @@ async def _stream_turn(turn: MainTurn):
     )
     _ontology_review_claimed = bool(
         turn.full_response
-        and output_review_state_module.claim_output_review(turn.ontology_runtime, owner=_ontology_review_owner_id)
+        and output_review_state.claim_output_review(turn.ontology_runtime, owner=_ontology_review_owner_id)
     )
     if _ontology_review_claimed:
         turn.review_owner = _ontology_review_owner_id
@@ -299,14 +293,14 @@ async def _stream_turn(turn: MainTurn):
             from core.infra.task_lifecycle import cancel_and_join
 
             await cancel_and_join(review_task)
-            output_review_state_module.release_output_review(turn.ontology_runtime, owner=_ontology_review_owner_id)
+            output_review_state.release_output_review(turn.ontology_runtime, owner=_ontology_review_owner_id)
             await _close_turn(turn)
             raise
         except Exception as exc:  # noqa: BLE001
             if not review_task.done():
                 review_task.cancel()
             review = ontology_evidence._ontology_review_failure_result(turn.full_response, exc)
-        output_review_state_module.complete_output_review(
+        output_review_state.complete_output_review(
             turn.ontology_runtime,
             owner=_ontology_review_owner_id,
             verdict=str(review.get("verdict") or "unknown"),
@@ -415,7 +409,7 @@ async def _stream_turn(turn: MainTurn):
             turn.memory_user_id,
             turn.memory_workspace_id,
         )
-        memory_module.save_memories_background(
+        memory.save_memories_background(
             turn.memory_user_id,
             turn.user_message,
             turn.full_response,

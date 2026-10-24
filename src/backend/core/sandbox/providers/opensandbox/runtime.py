@@ -45,20 +45,7 @@ async def write_file(sbx: Any, path: str, content: Any) -> None:
         logger.warning("[opensandbox] chown %s 失败（继续）: %r", path, exc)
 
 
-def _user_bound_sandbox_required() -> bool:
-    """Account sessions always require account-specific volumes."""
-    return True
-
-
-# Entrypoints earlier versions created sandboxes with. Nothing is created with them
-# any more (every sandbox uses _LIGHT_ENTRYPOINT), but adopt still recognizes them so
-# orphans left by an older backend get killed instead of leaking.
-_LEGACY_ENTRYPOINTS = (
-    ["/opt/opensandbox/code-interpreter.sh"],
-    ["/opt/hugagent/entrypoint-as-ubuntu.sh"],
-)
-
-# Plan F Q1: environment variables used when running bash via sandbox.commands.run (execd).
+# Environment variables used when running bash via sandbox.commands.run (execd).
 # execd does not source /opt/opensandbox/code-interpreter-env.sh; PATH then only contains the
 # system bin paths, so python resolves to a "system python" like /usr/bin/python3 that has no
 # pandas/docx etc. installed. We explicitly provide a PATH matching where packages are
@@ -123,7 +110,7 @@ def _join_logs(parts: list) -> str:
     "自带换行的不再补" 这一条正是为它留的：两者合起来逐字节还原
     （``A``、``\n``、``\n``、``B`` → ``A\n\n\nB\n``），补重了空行会翻倍。
     execd 早于 v1.0.17 时根本不为空行发事件，那种情况下空行在到达后端之前就没了，
-    这里补不回来——版本钉在 ``docker/opensandbox-config.toml.tpl``。
+    这里补不回来——版本钉在 ``docker/opensandbox-server/opensandbox-config.toml.tpl``。
     """
     if not parts:
         return ""

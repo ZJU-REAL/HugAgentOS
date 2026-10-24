@@ -1,4 +1,4 @@
-"""reviewer responsibilities."""
+"""Review an answer against the ontology, repair it, and audit the outcome."""
 from __future__ import annotations
 import asyncio
 import time
@@ -7,10 +7,11 @@ from typing import Any
 from core.ontology.revision import is_substantive_revision
 from core.ontology.runtime_gates import evaluate_output
 from core.infra.logging import get_logger
+from core.ontology import manual_review
+from core.ontology import review_operations
+from core.ontology import reviewer_state
+
 logger = get_logger(__name__)
-from core.ontology import manual_review as manual_review_module
-from core.ontology import review_operations as review_operations_module
-from core.ontology import reviewer_state as reviewer_state_module
 
 async def review_ontology_output(
     *,
@@ -24,8 +25,8 @@ async def review_ontology_output(
     model_name: str | None,
     model_provider_id: str | None = None,
     trace_complete: bool = True,
-    remediate: reviewer_state_module.RemediationCallback | None = None,
-    max_repair_attempts: int = reviewer_state_module.DEFAULT_MAX_REPAIR_ATTEMPTS,
+    remediate: reviewer_state.RemediationCallback | None = None,
+    max_repair_attempts: int = reviewer_state.DEFAULT_MAX_REPAIR_ATTEMPTS,
     capability_scope: str = "",
 ) -> dict[str, Any]:
     """Review one answer, repair it with the originating agent, and audit the session."""
@@ -72,7 +73,7 @@ async def review_ontology_output(
             "feedback": [],
             "violations": [],
             "affected_claims": [],
-            "manual_review": manual_review_module.build_manual_review(
+            "manual_review": manual_review.build_manual_review(
                 required=False, violations=[], affected_claims=[], suggestions=[]
             ),
             "latency_ms": round((time.monotonic() - started) * 1000),
@@ -135,18 +136,18 @@ async def review_ontology_output(
             default=3,
         )
         perspectives = [
-            reviewer_state_module.PERSPECTIVES[index % len(reviewer_state_module.PERSPECTIVES)] + f"（席位 {index + 1}）"
+            reviewer_state.PERSPECTIVES[index % len(reviewer_state.PERSPECTIVES)] + f"（席位 {index + 1}）"
             for index in range(committee_size)
         ]
         reviewers = await asyncio.gather(
-            *(review_operations_module.review_once(perspective, **common) for perspective in perspectives)
+            *(review_operations.review_once(perspective, **common) for perspective in perspectives)
         )
         counts = Counter(item["verdict"] for item in reviewers)
         verdict, votes = counts.most_common(1)[0]
         if votes <= committee_size // 2:
             verdict = "escalate"
     else:
-        reviewers = [await review_operations_module.review_once(reviewer_state_module.PERSPECTIVES[0], **common)]
+        reviewers = [await review_operations.review_once(reviewer_state.PERSPECTIVES[0], **common)]
         verdict = reviewers[0]["verdict"]
 
     if not deterministic.allowed and verdict == "pass":
@@ -189,16 +190,16 @@ async def review_ontology_output(
                         "answer": current_answer,
                         "violations": deterministic.violations,
                         "suggestions": deterministic.suggestions,
-                        "feedback": manual_review_module.dedupe_strings(round_feedback),
+                        "feedback": manual_review.dedupe_strings(round_feedback),
                         "affected_claims": round_claims,
                         "citations": list(citations),
                     }
                 )
             elif deterministic.allowed:
-                revised = await review_operations_module.revise_answer(
+                revised = await review_operations.revise_answer(
                     task=task,
                     answer=current_answer,
-                    feedback=manual_review_module.dedupe_strings(round_feedback),
+                    feedback=manual_review.dedupe_strings(round_feedback),
                     user_id=user_id,
                     model_name=model_name,
                     model_provider_id=model_provider_id,
@@ -220,21 +221,21 @@ async def review_ontology_output(
     final_violations = list(deterministic.violations)
     final_suggestions = list(deterministic.suggestions)
     annotated = verdict == "escalate" or not deterministic.allowed
-    manual_review = manual_review_module.build_manual_review(
+    review_card = manual_review.build_manual_review(
         required=annotated,
         violations=final_violations,
         affected_claims=final_affected_claims,
         suggestions=final_suggestions or all_feedback,
     )
-    new_tools = manual_review_module.dedupe_strings(
+    new_tools = manual_review.dedupe_strings(
         [
             str(item.get("tool_name") or "")
             for item in trace[initial_trace_len:]
             if item.get("type") == "tool_result"
         ]
     )
-    evidence = manual_review_module.dedupe_strings(all_evidence)
-    feedback = manual_review_module.dedupe_strings(all_feedback + final_suggestions)
+    evidence = manual_review.dedupe_strings(all_evidence)
+    feedback = manual_review.dedupe_strings(all_feedback + final_suggestions)
     latency_ms = round((time.monotonic() - started) * 1000)
     try:
         from core.ontology.audit_events import record_enforcement_event, record_review_run
@@ -306,7 +307,7 @@ async def review_ontology_output(
         "feedback": feedback,
         "violations": final_violations,
         "affected_claims": final_affected_claims,
-        "manual_review": manual_review,
+        "manual_review": review_card,
         "latency_ms": latency_ms,
         "revised": current_answer != original_answer,
         "annotated": annotated,

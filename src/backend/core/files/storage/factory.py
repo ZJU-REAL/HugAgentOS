@@ -4,6 +4,7 @@ from core.infra.time import utc_now
 
 import logging
 import os
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
@@ -108,7 +109,6 @@ def get_storage_category_for_resource(resource_type: str) -> str:
 # Module-level storage instance (lazy-loaded)
 
 
-
 def get_storage() -> StorageBackend:
     """
     Get the global storage backend instance (lazy-loaded singleton).
@@ -118,17 +118,13 @@ def get_storage() -> StorageBackend:
     return process_state().storage_instance
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class FactoryState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
     storage_instance: Optional[StorageBackend] = None
 
-@state_cache(maxsize=1)
-def process_state() -> FactoryState:
-    return FactoryState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+_STATE = FactoryState()
+
+
+def process_state() -> FactoryState:
+    return _STATE

@@ -9,7 +9,7 @@ import time
 import typing as _typing
 from typing import Any, Dict, List, Optional
 
-import core.db.engine as engine
+from core.db.threads import run_db
 import core.runs.events.writer as writer
 import core.runs.ownership as ownership
 import core.runs.runtime as runtime
@@ -43,11 +43,12 @@ async def _run_plan_generate_workflow(
 
     owner = journal_owner or ownership.new_worker_owner(run_id)
     journal = ownership.journal()
-    if not journal.claim(run_id, owner=owner, lease_seconds=settings.RUN_LEASE_SECONDS):
+    if not await run_db(journal.claim, run_id, owner=owner, lease_seconds=settings.RUN_LEASE_SECONDS):
         logger.info("plan_generate_claim_skipped", run_id=run_id, owner=owner)
         return
     try:
-        journal.append_operation(
+        await run_db(
+            journal.append_operation,
             run_id,
             owner=owner,
             operation_type="worker_started",
@@ -95,54 +96,52 @@ async def _run_plan_generate_workflow(
 
         binding_token = CURRENT_RUN_BINDING.set((run_id, owner))
         try:
-            with engine.SessionLocal() as stream_db:
-                async for event in astream_generate_plan(
-                    task_description=task_description,
-                    user_id=user_id,
-                    db=stream_db,
-                    model_name=model_name,
-                    model_provider_id=model_provider_id,
-                    enabled_mcp_ids=enabled_mcp_ids,
-                    enabled_skill_ids=enabled_skill_ids,
-                    enabled_kb_ids=enabled_kb_ids,
-                    enabled_agent_ids=enabled_agent_ids,
-                    session_messages=session_messages,
-                    uploaded_files=uploaded_files,
-                    chat_id=chat_id,
-                ):
-                    if event.get("type") == "plan_generated":
-                        plan_record = dict(event)
-                        plan_id_out = event.get("plan_id")
-                        plan_title = event.get("title", "")
-                        plan_desc = event.get("description", "")
-                        steps = event.get("steps", [])
-                        step_summary = "\n".join(
-                            f"{i + 1}. {s.get('title', '')}" for i, s in enumerate(steps)
-                        )
-                        assistant_content = (
-                            f"已生成执行计划：**{plan_title}**\n\n"
-                            f"{plan_desc}\n\n"
-                            f"**执行步骤：**\n{step_summary}"
-                        )
-                        plan_snapshot = {
-                            "mode": "preview",
-                            "title": plan_title,
-                            "description": plan_desc,
-                            "steps": [
-                                {
-                                    "step_order": s.get("step_order", i + 1),
-                                    "title": s.get("title", ""),
-                                    "description": s.get("description"),
-                                    "expected_tools": s.get("expected_tools", []),
-                                    "expected_skills": s.get("expected_skills", []),
-                                }
-                                for i, s in enumerate(steps)
-                            ],
-                            "total_steps": len(steps),
-                            "completed_steps": 0,
-                        }
-                        gen_usage = event.get("usage") or None
-                    await _emit(event)
+            async for event in astream_generate_plan(
+                task_description=task_description,
+                user_id=user_id,
+                model_name=model_name,
+                model_provider_id=model_provider_id,
+                enabled_mcp_ids=enabled_mcp_ids,
+                enabled_skill_ids=enabled_skill_ids,
+                enabled_kb_ids=enabled_kb_ids,
+                enabled_agent_ids=enabled_agent_ids,
+                session_messages=session_messages,
+                uploaded_files=uploaded_files,
+                chat_id=chat_id,
+            ):
+                if event.get("type") == "plan_generated":
+                    plan_record = dict(event)
+                    plan_id_out = event.get("plan_id")
+                    plan_title = event.get("title", "")
+                    plan_desc = event.get("description", "")
+                    steps = event.get("steps", [])
+                    step_summary = "\n".join(
+                        f"{i + 1}. {s.get('title', '')}" for i, s in enumerate(steps)
+                    )
+                    assistant_content = (
+                        f"已生成执行计划：**{plan_title}**\n\n"
+                        f"{plan_desc}\n\n"
+                        f"**执行步骤：**\n{step_summary}"
+                    )
+                    plan_snapshot = {
+                        "mode": "preview",
+                        "title": plan_title,
+                        "description": plan_desc,
+                        "steps": [
+                            {
+                                "step_order": s.get("step_order", i + 1),
+                                "title": s.get("title", ""),
+                                "description": s.get("description"),
+                                "expected_tools": s.get("expected_tools", []),
+                                "expected_skills": s.get("expected_skills", []),
+                            }
+                            for i, s in enumerate(steps)
+                        ],
+                        "total_steps": len(steps),
+                        "completed_steps": 0,
+                    }
+                    gen_usage = event.get("usage") or None
+                await _emit(event)
         finally:
             CURRENT_RUN_BINDING.reset(binding_token)
 
@@ -183,7 +182,8 @@ async def _run_plan_generate_workflow(
                 commit=False,
             )
 
-        completed = journal.complete(
+        completed = await run_db(
+            journal.complete,
             run_id,
             owner=owner,
             status="completed",
@@ -206,14 +206,15 @@ async def _run_plan_generate_workflow(
         if lease_lost.is_set():
             logger.warning("plan_generate_worker_fenced", run_id=run_id, owner=owner)
         else:
-            cancelled = journal.complete(
+            cancelled = await run_db(
+                journal.complete,
                 run_id,
                 owner=owner,
                 status="cancelled",
                 failure_reason="plan generation worker cancelled",
                 last_event_offset=offsets.last,
             )
-            current = runtime.get_run(run_id)
+            current = await run_db(runtime.get_run, run_id)
             if cancelled or (current is not None and current.status == "cancelled"):
                 logger.info("plan_generate_run_cancelled", run_id=run_id)
             else:
@@ -239,7 +240,8 @@ async def _run_plan_generate_workflow(
     except Exception as exc:
         nested_unknown = errors_module.find_tool_outcome_unknown(exc)
         if nested_unknown is not None:
-            if journal.needs_attention(
+            if await run_db(
+                journal.needs_attention,
                 run_id,
                 owner=owner,
                 reason=f"tool outcome pending policy recovery: {nested_unknown}",
@@ -254,7 +256,8 @@ async def _run_plan_generate_workflow(
                 await _emit({"type": settings.TERMINAL_TYPE, "chat_id": chat_id}, terminal=True)
             return
         logger.error("plan_generate_run_failed", run_id=run_id, error=str(exc), exc_info=True)
-        failed = journal.complete(
+        failed = await run_db(
+            journal.complete,
             run_id,
             owner=owner,
             status="failed",

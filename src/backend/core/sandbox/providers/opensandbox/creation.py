@@ -19,7 +19,6 @@ from core.sandbox.providers.opensandbox.models import SandboxSessionRecord as _S
 from core.sandbox.providers.opensandbox.runtime import (
     _LIGHT_ENTRYPOINT,
     _SETUP_ENTRYPOINT,
-    _user_bound_sandbox_required,
     logger,
 )
 from core.sandbox.providers.opensandbox.volumes import _make_skills_volumes, _pool_metadata
@@ -33,11 +32,11 @@ class _OpenSandboxCreationMixin:
         return _SETUP_ENTRYPOINT if user_id else _LIGHT_ENTRYPOINT
 
     async def _additional_workspace_mounts(self, user_id):
-        from core.files.spaces.mounts import prepare_volumes
+        from core.files.spaces.mounts import provision_volumes
 
         if not user_id:
             return [], {}
-        return await asyncio.to_thread(prepare_volumes, user_id)
+        return await asyncio.to_thread(provision_volumes, user_id)
 
     async def _create_jupyter_sandbox(
         self,
@@ -82,9 +81,7 @@ class _OpenSandboxCreationMixin:
         except Exception as e:
             raise SandboxConnectError(f"无法创建 OpenSandbox 持久会话沙盒: {e}") from e
 
-        # 目录约定已由 entrypoint 在启动时建好，直接打标，让 _persistent_setup 整段跳过
-        # —— 这才是首条命令省下那一秒的地方。老沙箱（旧 entrypoint 建的、adopt 回来的）
-        # 没有这个标记，仍按原路在首次执行前补建，不受影响。
+        # The entrypoint prepared the workspace; avoid repeating setup on first use.
         if setup_uid:
             try:
                 sbx._jx_setup_done = True  # type: ignore[attr-defined]
@@ -336,18 +333,8 @@ class _OpenSandboxCreationMixin:
         return True
 
     async def _create_session(self, user_id: Optional[str] = None) -> _Session:
-        """Construct a new persistent session (user-bound sandbox, running directly via execd, no Jupyter kernel).
-
-        Plan F: when ``user_id`` is given and any private-data bind mount is on,
-        **bypass the general warm pool** — the pool's sandboxes have no user-bound
-        MySpace/account-credential volumes. Instead, take the user-bound path via
-        ``_create_jupyter_sandbox(user_id=...)``. Adopted old sandboxes have already
-        been slotted per user into ``_jupyter_user_pool`` (see B.7).
-
-        When ``user_id`` is absent (legacy / fallback), take the old path: grab one
-        from the general pool without account volumes.
-        """
-        use_user_pool = bool(user_id and (_user_bound_sandbox_required() or str(user_id).startswith("api_ak_")))
+        """Route account sessions to their user pool; anonymous sessions use the general pool."""
+        use_user_pool = bool(user_id)
 
         if use_user_pool:
             sandbox = await self._jupyter_user_pool.acquire(user_id)
@@ -403,6 +390,5 @@ class _OpenSandboxCreationMixin:
             sandbox = await Sandbox.create(*args, **kwargs)
             await self._repoint_execd_direct(sandbox)
             if not await self._track_sandbox(str(sandbox.id)):
-                # Another owner may already be using it. Never kill or deliver it.
                 raise SandboxConnectError("sandbox ownership was acquired elsewhere")
             return sandbox

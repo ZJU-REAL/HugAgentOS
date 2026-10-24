@@ -1,4 +1,4 @@
-"""core agent_runtime targets responsibilities."""
+"""Resolve which agent a turn runs: mode bindings, @mentions, direct sub-agent chats, project scope."""
 
 from __future__ import annotations
 

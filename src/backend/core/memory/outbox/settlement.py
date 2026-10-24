@@ -8,8 +8,9 @@ from typing import Any, Optional
 
 from core.db.models import MemoryOutbox
 
+from core.memory.outbox import common
+
 logger = logging.getLogger(__name__)
-from core.memory.outbox import common as common
 
 
 def _lock_pipeline_row(db, message_id: str) -> Optional[MemoryOutbox]:

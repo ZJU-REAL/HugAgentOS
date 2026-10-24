@@ -26,13 +26,18 @@ def encryption_key(monkeypatch):
 
 
 @pytest.fixture
-def resource_db():
+def resource_db(monkeypatch):
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
     # Shared owner/catalog/retained-revision checks now require their real durable tables.
+    from core.db import engine as db_engine
     from core.db.engine import Base
+    from sqlalchemy.orm import sessionmaker
+
     Base.metadata.create_all(engine)
+    # Closing a worker opens sessions of its own (core.db.threads.run_in_session).
+    monkeypatch.setattr(db_engine, "SessionLocal", sessionmaker(bind=engine))
     with Session(engine) as db:
         yield db
     engine.dispose()
@@ -126,12 +131,13 @@ async def test_close_is_idempotent_revokes_tickets_and_prevents_lease(resource_d
     resource_db.add(row)
     resource_db.commit()
     ticket = store.ticket(resource_db, row, "https://host.test")
-    await service.close(resource_db, row)
-    await service.close(resource_db, row)
+    await service.close(row)
+    await service.close(row)
+    resource_db.refresh(row)
     assert row.status == "closed"
     assert store.consume(resource_db, ticket, "r", "https://host.test") is None
     with pytest.raises(HTTPException) as error:
-        await application.renew(resource_db, "owner", "plugin:key", "instance", "r")
+        await application.renew("owner", "plugin:key", "instance", "r")
     assert error.value.status_code == 410
 
 
@@ -145,13 +151,14 @@ async def test_janitor_cleans_expired_application_and_continues_after_failure(
     resource_db.commit()
     close = service.close
 
-    async def sometimes(db, row):
+    async def sometimes(row):
         if row.resource_id == "a":
             raise RuntimeError("injected cleanup failure")
-        await close(db, row)
+        await close(row)
 
     monkeypatch.setattr(service, "close", sometimes)
-    await lifecycle.reconcile(resource_db)
+    await lifecycle.reconcile()
+    resource_db.expire_all()
     assert second.status == "closed"
     assert first.status == "active"
 
@@ -240,7 +247,6 @@ async def test_open_retries_share_worker_and_closed_request_never_replays(resour
     monkeypatch.setattr(interactive, "launch", launch)
     monkeypatch.setattr(factory, "get_sandbox_provider", lambda: SimpleNamespace(name="test"))
     args = (
-        resource_db,
         "owner",
         "plugin:key",
         "instance",
@@ -260,7 +266,7 @@ async def test_open_retries_share_worker_and_closed_request_never_replays(resour
         row = application.owned(
             resource_db, "owner", "plugin:key", "instance", first["resource_id"]
         )
-        await service.close(resource_db, row)
+        await service.close(row)
         with pytest.raises(HTTPException) as error:
             await application.create(*args)
         assert error.value.status_code == 410
@@ -287,7 +293,8 @@ async def test_revocation_blocks_reads_but_owner_can_still_release(resource_db, 
     closing = application.owned(
         resource_db, "owner", "plugin:key", "instance", "r", allow_closed=True
     )
-    await service.close(resource_db, closing)
+    await service.close(closing)
+    resource_db.refresh(closing)
     assert closing.status == "closed"
 
 

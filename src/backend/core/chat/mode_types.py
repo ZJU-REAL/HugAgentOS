@@ -1,4 +1,4 @@
-"""mode types responsibilities."""
+"""The runtime contract a chat mode hands to agent assembly."""
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Tuple

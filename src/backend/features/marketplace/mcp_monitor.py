@@ -7,7 +7,7 @@ import logging
 from contextlib import suppress
 
 from core.config.settings import settings
-from core.db.engine import SessionLocal
+from core.db.threads import run_in_session
 from features.marketplace.models import McpMarketItem
 from features.marketplace.mcp_revalidation import revalidate_market_item
 
@@ -19,29 +19,30 @@ def _interval_seconds() -> float:
     return float(settings.server.mcp_market_revalidate_interval)
 
 
+def _monitored_slugs(db) -> list[str]:
+    return [
+        str(row[0])
+        for row in db.query(McpMarketItem.slug)
+        .filter(
+            McpMarketItem.deleted_at.is_(None),
+            McpMarketItem.status.in_(["active", "changed"]),
+        )
+        .all()
+    ]
+
+
 async def _run() -> None:
     interval = _interval_seconds()
     await asyncio.sleep(min(60.0, interval))
     while True:
         try:
-            with SessionLocal() as db:
-                slugs = [
-                    str(row[0])
-                    for row in db.query(McpMarketItem.slug)
-                    .filter(
-                        McpMarketItem.deleted_at.is_(None),
-                        McpMarketItem.status.in_(["active", "changed"]),
+            for slug in await run_in_session(_monitored_slugs):
+                try:
+                    await revalidate_market_item(slug)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "mcp_market_revalidate_failed", extra={"slug": slug, "error": str(exc)}
                     )
-                    .all()
-                ]
-                for slug in slugs:
-                    try:
-                        await revalidate_market_item(db, slug)
-                    except Exception as exc:  # noqa: BLE001
-                        db.rollback()
-                        logger.warning(
-                            "mcp_market_revalidate_failed", extra={"slug": slug, "error": str(exc)}
-                        )
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001

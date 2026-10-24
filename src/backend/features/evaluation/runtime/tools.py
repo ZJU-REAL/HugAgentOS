@@ -16,36 +16,31 @@ _DESCRIPTIONS = {
 }
 
 
-class _EvaluationCollector:
-    def __init__(self, target, scope):
-        self.target = target
-        self.scope = scope
+def scoped_tool(tool, scope):
+    from agentscope.tool import FunctionTool
+    from core.llm.factory.tools.definitions import function_tool
+    func = tool._func
+    original_signature = signature(func)
 
-    def register_tool_function(self, func, **options):
-        original_signature = signature(func)
+    @wraps(func)
+    async def scoped(*args, **kwargs):
+        from core.config.local_mode import local_mode_enabled
+        from core.llm.tools._common import resp_json
+        if local_mode_enabled():
+            return resp_json({"error": "Evaluation requires container execution, not local mode"})
+        bound = original_signature.bind(*args, **kwargs)
+        if bound.arguments.get("register_as_artifact"):
+            return resp_json({"error": "Evaluation outputs must remain in the task sandbox"})
+        token = CURRENT_EVALUATION_SCOPE.set(scope)
+        try:
+            return await func(*args, **kwargs)
+        finally:
+            CURRENT_EVALUATION_SCOPE.reset(token)
 
-        @wraps(func)
-        async def scoped(*args, **kwargs):
-            from core.config.local_mode import local_mode_enabled
-            from core.llm.tools._common import resp_json
-            if local_mode_enabled():
-                return resp_json({"error": "Evaluation requires container execution, not local mode"})
-            bound = original_signature.bind(*args, **kwargs)
-            if bound.arguments.get("register_as_artifact"):
-                return resp_json({"error": "Evaluation outputs must remain in the task sandbox"})
-            token = CURRENT_EVALUATION_SCOPE.set(self.scope)
-            try:
-                return await func(*args, **kwargs)
-            finally:
-                CURRENT_EVALUATION_SCOPE.reset(token)
-
-        # Tool schemas retain the native parameters and behavioral contracts.
-        scoped.__doc__ = (
-            _DESCRIPTIONS.get(func.__name__, "") + " "
-            f"Native {func.__name__} in the current evaluation sandbox only. "
-            "No account workspace, historical artifacts, or host filesystem access."
-        )
-        self.target.register_tool_function(scoped, **options)
+    scoped.__doc__ = (_DESCRIPTIONS.get(tool.name, "") + " "
+        + f"Native {tool.name} in the current evaluation sandbox only. "
+        + "No account workspace, historical artifacts, or host filesystem access.")
+    return function_tool(scoped, dispatch_spec=tool.dispatch_spec)
 
 
 def register_evaluation_tools(toolkit, scope, *, read_only=False, allow_bash=True, vision_mode="none"):
@@ -56,7 +51,7 @@ def register_evaluation_tools(toolkit, scope, *, read_only=False, allow_bash=Tru
     )
     if local_mode_enabled():
         raise ValueError("Evaluation requires container execution, not local mode")
-    collector = _EvaluationCollector(toolkit, scope)
+    collector = []
     common = dict(
         chat_id=scope.session_id, sandbox_session_id=scope.session_id,
         user_id=scope.owner_user_id,
@@ -75,3 +70,5 @@ def register_evaluation_tools(toolkit, scope, *, read_only=False, allow_bash=Tru
             register_edit(collector, **common, state=state, interactive=False)
     finally:
         CURRENT_EVALUATION_SCOPE.reset(token)
+
+    toolkit.extend(scoped_tool(tool, scope) for tool in collector)

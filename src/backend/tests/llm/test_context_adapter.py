@@ -9,7 +9,7 @@ from core.llm.context.rendering import append_context_item, next_context_sequenc
 from core.models.constants import PROVIDER_CONTEXT_META_KEY
 from core.llm.context.ir import ContextAssembler
 from core.llm.context.items import ContextItem
-from core.llm.context.ir_state import KIND_COMPACTION, KIND_MEMORY, KIND_REMINDER, KIND_TOOL_CALL, KIND_TOOL_RESULT, KIND_USER_INPUT
+from core.llm.context.ir_constants import KIND_COMPACTION, KIND_MEMORY, KIND_REMINDER, KIND_TOOL_CALL, KIND_TOOL_RESULT, KIND_USER_INPUT
 from core.models.constants import IMAGE_TOKEN_RESERVE
 from core.harness.execution_manifest import PromptManifestBuilder, stable_hash
 

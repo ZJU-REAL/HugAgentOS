@@ -1,9 +1,8 @@
 """Host-selected request authorization; no execution-environment imports."""
 from __future__ import annotations
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Protocol
-
-
 
 
 def register_request_header_resolver(resolver: Callable | None) -> None:
@@ -23,9 +22,6 @@ class ModelCredentialProvider(Protocol):
     def bind(self, reference, base_url): ...
     def request_hook(self, reference, base_url): ...
     def sync_client_kwargs(self, reference, base_url, *, timeout=600): ...
-
-
-
 
 
 def register_model_credential_provider(provider):
@@ -61,20 +57,14 @@ def sync_client_kwargs(reference, base_url, *, timeout=600):
     return require_provider().sync_client_kwargs(reference, base_url, timeout=timeout)
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-
-@state_dataclass
+@dataclass
 class RegistrationState:
-    """Process-owned registrations; replace only while the host is quiescent."""
     resolver: Callable | None = None
     provider: ModelCredentialProvider | None = None
 
 
-@state_cache(maxsize=1)
-def registration_state() -> RegistrationState:
-    return RegistrationState()
+_REGISTRATIONS = RegistrationState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-registration_state()
+
+def registration_state() -> RegistrationState:
+    return _REGISTRATIONS

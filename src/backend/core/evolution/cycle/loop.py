@@ -1,18 +1,19 @@
-"""loop responsibilities."""
+"""One fleet-wide evolution pass: discover, attribute, promote, validate, persist."""
 from __future__ import annotations
-from core.evolution.cycle import ordering as ordering_module
-from core.evolution.cycle import patterns as patterns_module
-from core.evolution.cycle import promotion as promotion_module
-from core.evolution.cycle import promotion_state as promotion_state_module
+from core.evolution.cycle import ordering
+from core.evolution.cycle import patterns
+from core.evolution.cycle import promotion
+from core.evolution.cycle import promotion_constants
 import hashlib
 from typing import Any, Dict, List
 from core.evolution.evidence.credit import T_SKILL, aggregate_finding, assign_credit, confidence_from_evidence
 from core.evolution.ir import RISK_HIGH, RISK_MEDIUM
 import logging
+from core.evolution.cycle import candidate_records
+from core.evolution.cycle import episode_views
+from core.evolution.cycle import graph_candidates
+
 logger = logging.getLogger(__name__)
-from core.evolution.cycle import candidate_records as candidate_records_module
-from core.evolution.cycle import episode_views as episode_views_module
-from core.evolution.cycle import graph_candidates as graph_candidates_module
 
 def run_evolution_cycle(*, limit: int = 500, dry_run: bool = False) -> Dict[str, Any]:
     """One fleet-wide pass: discover → attribute → promote → validate → persist.
@@ -20,7 +21,7 @@ def run_evolution_cycle(*, limit: int = 500, dry_run: bool = False) -> Dict[str,
     Returns a report rather than raising: this runs as a background job and a
     bad cycle must leave the product untouched.
     """
-    if not candidate_records_module.cross_user_mining_available():
+    if not candidate_records.cross_user_mining_available():
         logger.info("[evolution-loop] cross-user mining unavailable; personal only")
         return {
             "episodes": 0,
@@ -59,19 +60,19 @@ def run_evolution_cycle(*, limit: int = 500, dry_run: bool = False) -> Dict[str,
         "readiness": readiness.to_dict(),
     }
 
-    views = episode_views_module.load_episode_views(limit=limit)
+    views = episode_views.load_episode_views(limit=limit)
     report["episodes"] = len(views)
     if not views:
         return report
 
-    patterns = patterns_module.discover_patterns(views)
-    report["patterns"] = len(patterns)
+    discovered = patterns.discover_patterns(views)
+    report["patterns"] = len(discovered)
 
     # Transferable ordering rules, extracted once across the whole corpus rather
     # than per pattern. A rigid sequence only helps tasks whose tool set it
     # happens to cover; the ordering rule behind it helps every task making the
     # same mistake, which is the difference between memorising and learning.
-    constraints = ordering_module.extract_ordering_constraints(views)
+    constraints = ordering.extract_ordering_constraints(views)
     report["ordering_constraints"] = [c.to_dict() for c in constraints]
 
     from core.evolution.generators.skill_candidate_engine import STATUS_CREATED, STATUS_DRY_RUN, STATUS_REJECTED, SkillCandidateSpec, create_skill_candidate
@@ -80,8 +81,8 @@ def run_evolution_cycle(*, limit: int = 500, dry_run: bool = False) -> Dict[str,
     covered_tool_sets: List[List[str]] = []
     by_episode_id = {str(v.get("episode_id") or ""): v for v in views}
 
-    for pattern in patterns:
-        if pattern.kind == promotion_state_module.PATTERN_SUCCESS_SUBSEQUENCE and pattern.tool_sequence:
+    for pattern in discovered:
+        if pattern.kind == promotion_constants.PATTERN_SUCCESS_SUBSEQUENCE and pattern.tool_sequence:
             # An observation across many *successful* runs — aggregate decision,
             # not failure attribution with invented features.
             decision = aggregate_finding(
@@ -95,14 +96,14 @@ def run_evolution_cycle(*, limit: int = 500, dry_run: bool = False) -> Dict[str,
                 evidence_count=pattern.support,
             )
         else:
-            decision = assign_credit(candidate_records_module.features_for(pattern))
+            decision = assign_credit(candidate_records.features_for(pattern))
         if not decision.may_produce_candidate:
             # No-update / unidentifiable / a non-asset cause. Refusing here is
             # the mechanism that stops a KB gap being "fixed" by editing a skill.
             report["no_update"] += 1
             continue
 
-        proposal = promotion_module.promote_tool_sequence_to_skill(
+        proposal = promotion.promote_tool_sequence_to_skill(
             pattern,
             episodes=views,
             skill_credit=decision.scores.get("skill", 0.0),
@@ -130,7 +131,7 @@ def run_evolution_cycle(*, limit: int = 500, dry_run: bool = False) -> Dict[str,
         # 任务都成立的通用组合。规则幸存者再过一道 LLM 裁决，拒绝即不产候选。
         from core.evolution.assessment.sop_judge import adjudicate_sequence_sop
 
-        verdict = candidate_records_module.run_async(
+        verdict = candidate_records.run_async(
             adjudicate_sequence_sop(
                 representative=str(proposal.payload.get("intent") or ""),
                 objectives=[str(v.get("objective") or "") for v in supporting],
@@ -211,9 +212,9 @@ def run_evolution_cycle(*, limit: int = 500, dry_run: bool = False) -> Dict[str,
     # tool sequence was unique. The rules are the part that generalises, so they
     # get to stand on their own rather than only riding along on a sequence that
     # happens to qualify.
-    orphan_rules = candidate_records_module.uncovered_constraints(constraints, covered_tool_sets)
+    orphan_rules = candidate_records.uncovered_constraints(constraints, covered_tool_sets)
     if orphan_rules:
-        rule_decision = assign_credit(candidate_records_module.features_for_ordering_rules(orphan_rules))
+        rule_decision = assign_credit(candidate_records.features_for_ordering_rules(orphan_rules))
         if not rule_decision.may_produce_candidate:
             report["no_update"] += 1
         else:
@@ -279,7 +280,7 @@ def run_evolution_cycle(*, limit: int = 500, dry_run: bool = False) -> Dict[str,
     # candidate in the same table, behind the same security gate and the same
     # review queue as the skill candidates above — a finding that stops at a
     # report is a log line, not an engine.
-    report.update(graph_candidates_module.run_other_engines(views, dry_run=dry_run))
+    report.update(graph_candidates.run_other_engines(views, dry_run=dry_run))
 
     logger.info(
         "[evolution-loop] cycle done: episodes=%d patterns=%d candidates=%d no_update=%d",

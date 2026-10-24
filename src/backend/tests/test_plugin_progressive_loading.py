@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import core.db.engine as dbe
 import pytest
 from core.db.models import ChatSession, InstalledPlugin, UserShadow
-from core.llm.runtime.tool_collector import ToolCollector
+from core.llm.factory.tools.definitions import ToolAssembly
 from core.capabilities.plugins import runtime as plugin_loader
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -203,24 +203,20 @@ def test_directory_section_stable_and_empty_safe(ppl_env):
     assert plugin_loader.build_plugin_directory_section(res2.directory) == section
 
 
-class _FakeMCPClient:
-    def __init__(self, name, cfg):
-        self.name = name
-
-    async def list_tools(self):
-        return [
-            SimpleNamespace(
-                name=name,
-                description=f"{name} tool",
-                input_schema={"type": "object", "properties": {}},
-            )
-            for name in ("crawl_url", "crawl_site")
-        ]
+async def _discover(key, cfg, *, interactions, scope):
+    assert interactions.agent is not None
+    assert interactions.request.chat_id == CHAT
+    assert scope == (USER, CHAT, "")
+    from agentscope.tool import FunctionTool
+    from core.llm.mcp.lifetime import MCPResource
+    async def crawl():
+        return "ok"
+    return MCPResource(key, tools=[FunctionTool(crawl, name=name) for name in ("crawl_url", "crawl_site")])
 
 
 @pytest.mark.asyncio
 async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatch):
-    import core.llm.mcp.pool as mcp_pool
+    import core.llm.mcp.lifetime as mcp_pool
     from core.agent_runtime.budget import _compaction_budget_inputs
     from core.llm.factory.runtime.evidence import cache_compaction_execution_surface
     from core.llm.tools.ontology_toolkit import OntologyFilteredToolkit
@@ -229,8 +225,8 @@ async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatc
 
     monkeypatch.setattr(
         mcp_pool,
-        "make_client",
-        lambda key, cfg, is_stateful=True, **kw: _FakeMCPClient(key, cfg),
+        "discover",
+        _discover,
     )
 
     # 技能目录物化桩：含 SKILL.md 的临时目录。
@@ -243,7 +239,7 @@ async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatc
     ppl_env.loader.get_skill_dir = lambda sid: str(skill_dir)
 
     res = _resolve(ppl_env)
-    collector = ToolCollector()
+    collector = ToolAssembly()
     tk = OntologyFilteredToolkit(tools=[], mcps=[])
     budget_agent = SimpleNamespace()
     tk.set_execution_surface_listener(
@@ -258,6 +254,8 @@ async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatc
 
     permission_registry = ToolPermissionRegistry()
     runtime = {
+        "request": SimpleNamespace(current_user_id=USER, chat_id=CHAT, capability_scope="", isolated=False),
+        "agent": SimpleNamespace(),
         "activated_slugs": set(),
         "connected_keys": {"internet_search"},
         "toolkit": tk,
@@ -274,7 +272,7 @@ async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatc
         "ontology_runtime": {},
     }
     plugin_activation.register_load_plugin(collector, res.deferred_by_slug(), runtime)
-    tool = collector.get_tool("load_plugin")
+    tool = next(t for t in collector if t.name == "load_plugin")
     assert tool is not None
 
     resp = await tool._func(plugin="crawler")
@@ -282,7 +280,7 @@ async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatc
     assert "已加载" in text and "crawl_url" in text and "crawler-scrape-a1" in text
 
     basic = tk.tool_groups[0]
-    assert len(basic.mcps) == 1 and len(close_list) == 1
+    assert len(basic.tools) == 2 and len(close_list) == 1
     assert {r for r in permission_context.allow_rules} == {"crawl_url", "crawl_site"}
     assert permission_registry.names == frozenset()
     assert len(basic.skills_or_loaders) == 1
@@ -320,7 +318,7 @@ async def test_load_plugin_tool_activates_in_place(ppl_env, tmp_path, monkeypatc
     resp2 = await tool._func(plugin="crawler")
     text2 = "".join(getattr(b, "text", "") for b in resp2.content)
     assert "无需重复调用" in text2
-    assert len(basic.mcps) == 1
+    assert len(basic.tools) == 2
 
     resp3 = await tool._func(plugin="nope")
     text3 = "".join(getattr(b, "text", "") for b in resp3.content)
@@ -341,19 +339,21 @@ def test_resolve_bound_defers_http_plugins_and_applies_skill_filter(ppl_env):
 
 
 def test_load_plugin_no_persist_for_subagent_runtime(ppl_env, tmp_path, monkeypatch):
-    import core.llm.mcp.pool as mcp_pool
+    import core.llm.mcp.lifetime as mcp_pool
     from agentscope.tool import Toolkit
 
     monkeypatch.setattr(
         mcp_pool,
-        "make_client",
-        lambda key, cfg, is_stateful=True, **kw: _FakeMCPClient(key, cfg),
+        "discover",
+        _discover,
     )
     res = plugin_loader.resolve_bound_progressive_plugins(["crawler@global"])
-    collector = ToolCollector()
+    collector = ToolAssembly()
     from core.sandbox.permissions.tool_specs import ToolPermissionRegistry
 
     runtime = {
+        "request": SimpleNamespace(current_user_id=USER, chat_id=CHAT, capability_scope="", isolated=False),
+        "agent": SimpleNamespace(),
         "activated_slugs": set(),
         "connected_keys": set(),
         "toolkit": Toolkit(tools=[], mcps=[]),
@@ -371,7 +371,7 @@ def test_load_plugin_no_persist_for_subagent_runtime(ppl_env, tmp_path, monkeypa
         "ontology_runtime": {},
     }
     plugin_activation.register_load_plugin(collector, res.deferred_by_slug(), runtime)
-    tool = collector.get_tool("load_plugin")
+    tool = next(t for t in collector if t.name == "load_plugin")
     resp = asyncio.run(tool._func(plugin="crawler"))
     text = "".join(getattr(b, "text", "") for b in resp.content)
     assert "已加载" in text

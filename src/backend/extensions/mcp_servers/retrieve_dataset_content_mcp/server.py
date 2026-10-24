@@ -13,7 +13,7 @@ import functools
 import logging
 from typing import Any, Dict, Optional
 
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.mcpserver import Context, MCPServer
 
 from .descriptions import (
     _BASE_LOCAL_KB_TOOL_DESCRIPTION,
@@ -32,7 +32,19 @@ from .runtime import (
     tool_timeout_payload,
 )
 
-mcp = FastMCP("hugagent-retrieve-dataset-content")
+class RetrievalMCP(MCPServer):
+    async def list_tools(self):
+        tools = await super().list_tools()
+        try:
+            from extensions.mcp_servers.retrieve_dataset_content_mcp.wiki_impl import wiki_supported
+            if wiki_supported():
+                return tools
+        except Exception as exc:
+            _LOGGER.warning("wiki capability probe failed, hiding wiki tools: %s", exc)
+        return [tool for tool in tools if tool.name not in _WIKI_TOOL_NAMES]
+
+
+mcp = RetrievalMCP("hugagent-retrieve-dataset-content")
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -456,35 +468,6 @@ async def wiki_fetch_source(
     )
     return await _run_wiki("wiki_fetch_source", call, empty={"items": []})
 
-
-# ── 按后端动态暴露工具 ───────────────────────────────────────────────────────
-#
-# FastMCP 在 __init__ 里就把 self.list_tools 绑进了 lowlevel handler，所以事后
-# 改 mcp.list_tools 不生效——必须对 lowlevel server 重新注册一次（装饰器是
-# 覆盖写 request_handlers，不是追加）。
-
-
-_ORIGINAL_LIST_TOOLS = mcp.list_tools
-
-
-async def _list_tools_filtered():
-    """平台没有 Wiki 源时隐藏 Wiki 工具；公有检索按配置选择后端。
-
-    每次 list_tools 都重新判定，所以切换知识库后端、或新建了一个开 Wiki 的自建库
-    之后，无需重启 mcp 容器。
-    """
-    tools = await _ORIGINAL_LIST_TOOLS()
-    try:
-        from extensions.mcp_servers.retrieve_dataset_content_mcp.wiki_impl import wiki_supported
-
-        if wiki_supported():
-            return tools
-    except Exception as exc:
-        _LOGGER.warning("wiki capability probe failed, hiding wiki tools: %s", exc)
-    return [tool for tool in tools if tool.name not in _WIKI_TOOL_NAMES]
-
-
-mcp._mcp_server.list_tools()(_list_tools_filtered)
 
 
 def main() -> None:

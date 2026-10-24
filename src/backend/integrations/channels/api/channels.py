@@ -21,6 +21,7 @@ from core.auth.backend import UserContext, get_current_user
 from integrations.channels.protocol import ChannelCaps
 from integrations.channels.registry import get_adapter, list_adapters
 from core.db.engine import get_db
+from core.db.threads import run_in_session
 from core.infra.responses import created_response, success_response
 from integrations.channels.service import ChannelService, bot_to_dict
 
@@ -130,13 +131,13 @@ def list_my_conversations(
 async def create_bot(
     body: CreateBotRequest,
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
     from core.infra.exceptions import BadRequestError
+    from integrations.channels.service import create_bot as register
+
     if (body.execution_location == "local") != bool(body.local_binding_id):
         raise BadRequestError("选择本机需要当前桌面设备授权")
-    svc = ChannelService(db)
-    conn = await svc.create_bot(
+    conn = await register(
         str(user.user_id),
         channel_type=body.channel_type,
         app_id=body.app_id,
@@ -195,10 +196,10 @@ def delete_bot(
 async def test_bot(
     channel_id: str,
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
-    svc = ChannelService(db)
-    data = await svc.test_bot(str(user.user_id), channel_id)
+    from integrations.channels.service import test_bot as check
+
+    data = await check(str(user.user_id), channel_id)
     return success_response(data=data)
 
 
@@ -209,13 +210,13 @@ async def weixin_bind_start(
     execution_location: Literal["cloud", "local"] = "cloud",
     local_binding_id: Optional[str] = None,
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
-    svc = ChannelService(db)
     from core.infra.exceptions import BadRequestError
+    from integrations.channels.service import start_weixin_bind
+
     if (execution_location == "local") != bool(local_binding_id):
         raise BadRequestError("选择本机需要当前桌面设备授权")
-    data = await svc.start_weixin_bind(str(user.user_id), agent_id=agent_id, local_binding_id=local_binding_id)
+    data = await start_weixin_bind(str(user.user_id), agent_id=agent_id, local_binding_id=local_binding_id)
     return success_response(data=data)
 
 
@@ -223,10 +224,10 @@ async def weixin_bind_start(
 async def weixin_bind_status(
     bind_id: str,
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
-    svc = ChannelService(db)
-    data = await svc.poll_weixin_bind(str(user.user_id), bind_id)
+    from integrations.channels.service import poll_weixin_bind
+
+    data = await poll_weixin_bind(str(user.user_id), bind_id)
     return success_response(data=data)
 
 
@@ -248,7 +249,6 @@ def channel_webhook_verify(
 async def channel_webhook(
     channel_id: str,
     request: Request,
-    db: Session = Depends(get_db),
 ):
     body = await request.body()
     # Signature params: Lark uses headers (x-lark-*), WeCom uses the query string
@@ -257,8 +257,14 @@ async def channel_webhook(
     headers = {k.lower(): v for k, v in request.headers.items()}
     for k, v in request.query_params.items():
         headers[k.lower()] = v
-    svc = ChannelService(db)
-    result = svc.handle_webhook(channel_id, headers, body)
+    result, inbound = await run_in_session(
+        lambda db: ChannelService(db).handle_webhook(channel_id, headers, body)
+    )
+    if inbound is not None:
+        from core.infra.background import spawn
+        from integrations.channels.inbound import handle_inbound
+
+        spawn(handle_inbound(inbound), name="channel.handle_inbound")
     # The webhook response must be the bare JSON the channel expects (e.g. Lark url_verification's
     # challenge), not wrapped in an envelope.
     return JSONResponse(content=result)

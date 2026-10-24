@@ -16,9 +16,10 @@ from core.chat.tool_log import (
 )
 from core.infra.logging import get_logger
 
-logger = get_logger(__name__)
 
 from core.chat.runtime import completion, snapshots, steering
+
+logger = get_logger(__name__)
 
 
 async def consume_chunk(turn, chunk):
@@ -78,6 +79,9 @@ async def consume_chunk(turn, chunk):
         await turn.emit(build_tool_call_start_event(chunk, turn.chat_id))
     elif chunk_type == "tool_call_delta":
         await turn.emit(build_tool_call_delta_event(chunk, turn.chat_id))
+    elif chunk_type == "tool_progress":
+        # Live status for a running tool card; the result supersedes it, so it is not persisted.
+        await turn.emit({**chunk, "chat_id": turn.chat_id})
     elif chunk_type == "tool_result":
         step = chunk.get("model_step")
         if isinstance(step, dict):

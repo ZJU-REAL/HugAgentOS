@@ -1,9 +1,12 @@
-"""script discovery responsibilities."""
+"""Find the executable scripts a skill ships when it has no _scripts.json."""
 from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List
 from core.capabilities.skills.backends import SkillFileInfo
-from core.capabilities.skills import loader_state as loader_state_module
+
+
+SCRIPT_EXTENSIONS = {".py", ".js", ".sh", ".r", ".R"}
+
 
 def bound_skill_id(skill_info: SkillFileInfo, declared_id: str) -> str:
     # Capability names come from the resolved view, independently of the file's
@@ -33,7 +36,7 @@ def auto_detect_scripts(
         if fname.startswith("_"):
             continue
         ext = Path(fname).suffix.lower()
-        if ext in loader_state_module.SCRIPT_EXTENSIONS:
+        if ext in SCRIPT_EXTENSIONS:
             candidates.append(fname)
 
     # From filesystem (filesystem skills without extra_files)
@@ -43,7 +46,7 @@ def auto_detect_scripts(
             if (
                 p.is_file()
                 and not p.name.startswith("_")
-                and p.suffix.lower() in loader_state_module.SCRIPT_EXTENSIONS
+                and p.suffix.lower() in SCRIPT_EXTENSIONS
             ):
                 candidates.append(p.name)
 

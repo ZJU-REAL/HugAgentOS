@@ -1,7 +1,7 @@
 """Translate direct-agent output while preserving scoped audit context."""
 
 from __future__ import annotations
-from core.llm.citations import allocator as allocator_module
+from core.llm.citations import allocator
 
 import json
 import logging
@@ -11,7 +11,6 @@ import core.agent_runtime.integrations.ontology_evidence as ontology_evidence
 import core.agent_runtime.skills as skills
 import core.chat.tool_payloads as tool_payloads
 import core.config.display_names as display_names
-import core.llm.citations.anchor as citation_anchor
 from core.agent_runtime.direct_state import DirectTurn
 
 logger = logging.getLogger(__name__)
@@ -145,6 +144,9 @@ async def stream_direct(turn: DirectTurn):
                     "tool_id": tool_id,
                 }
 
+            elif event_type == "tool_progress":
+                yield {"type": "tool_progress", **payload}
+
             elif event_type == "tool_result":
                 tool_name = payload.get("name", "unknown")
                 tool_id = payload.get("id", "")
@@ -177,6 +179,8 @@ async def stream_direct(turn: DirectTurn):
                     tool_result_json = json.loads(tool_content) if tool_content else {}
                 except json.JSONDecodeError:
                     tool_result_json = {"result": tool_content}
+                if isinstance(payload.get("mcp"), dict):
+                    tool_result_json = payload["mcp"]
 
                 # Skill load: replace the full SKILL.md text with the same
                 # curated detail used by the capability center; affects
@@ -206,7 +210,7 @@ async def stream_direct(turn: DirectTurn):
                     if isinstance(result_data, dict):
                         extracted_query = result_data.get("query", result_data.get("question", ""))
 
-                cit_dicts = allocator_module.collect_citation_dicts(tool_id, turn.anchor_allocator)
+                cit_dicts = allocator.collect_citation_dicts(tool_id, turn.anchor_allocator)
                 turn.all_citations.extend(cit_dicts)
                 turn.ontology_trace.append(
                     {

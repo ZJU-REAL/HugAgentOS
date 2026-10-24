@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.db.threads import run_in_session
+
 import base64
 from dataclasses import asdict
 
@@ -44,18 +46,15 @@ def unpack_bytes(data):
     return out
 
 
-async def channel_operation(db, owner, device, delivery_id, lease, op_id, method, args):
-    if method not in READ_OPS | SEND_OPS:
-        raise BadRequestError("不支持的渠道操作")
+def _begin(db, owner, device, delivery_id, lease, opkey, method):
+    """Authorize the delivery and claim a send once; returns (conn, payload, earlier result)."""
     task, conn = ChannelRelayService(db).authorized(owner, device, delivery_id, lease)
-    msg = InboundMsg(**task.payload["message"])
-    adapter = get_adapter(conn.channel_type)
-    opkey = f"{delivery_id}:{op_id}"
+    payload = dict(task.payload)
     if method in SEND_OPS:
         previous = db.get(ChannelRelayOperation, opkey)
         if previous:
             if previous.status == "completed":
-                return previous.result
+                return conn, payload, previous.result
             raise BadRequestError("消息发送结果不确定，已阻止重复发送")
         db.add(ChannelRelayOperation(operation_id=opkey, status="started"))
         try:
@@ -63,6 +62,65 @@ async def channel_operation(db, owner, device, delivery_id, lease, op_id, method
         except IntegrityError:
             db.rollback()
             raise BadRequestError("消息操作正在处理，已阻止重复发送")
+    db.refresh(conn)
+    db.expunge(conn)
+    return conn, payload, None
+
+
+def _remember_resources(db, owner, device, delivery_id, lease, items):
+    task, _ = ChannelRelayService(db).authorized(owner, device, delivery_id, lease)
+    payload = dict(task.payload)
+    resources = dict(payload.get("resources") or {})
+    for item in items:
+        for attachment in item.attachments:
+            resources[str(attachment.get("key"))] = {
+                "attachment": attachment,
+                "message_id": item.message_id,
+                "raw": item.raw,
+            }
+    payload["resources"] = dict(list(resources.items())[-200:])
+    task.payload = payload
+    db.commit()
+
+
+def _sent_message_ids(db, delivery_id):
+    rows = (
+        db.query(ChannelRelayOperation)
+        .filter(
+            ChannelRelayOperation.operation_id.like(delivery_id + ":%"),
+            ChannelRelayOperation.status == "completed",
+        )
+        .all()
+    )
+    return {
+        row.result["message_id"]
+        for row in rows
+        if isinstance(row.result, dict) and row.result.get("message_id")
+    }
+
+
+def _finish(db, opkey, result):
+    row = db.get(ChannelRelayOperation, opkey)
+    row.result, row.status = result, "completed"
+    db.commit()
+
+
+async def channel_operation(owner, device, delivery_id, lease, op_id, method, args):
+    """Run one channel call for a desktop-claimed delivery.
+
+    The delivery is authorized and each send claimed in its own short session;
+    the channel API call in between holds no connection.
+    """
+    if method not in READ_OPS | SEND_OPS:
+        raise BadRequestError("不支持的渠道操作")
+    opkey = f"{delivery_id}:{op_id}"
+    conn, task_payload, earlier = await run_in_session(
+        _begin, owner, device, delivery_id, lease, opkey, method
+    )
+    if earlier is not None:
+        return earlier
+    msg = InboundMsg(**task_payload["message"])
+    adapter = get_adapter(conn.channel_type)
     callback = getattr(adapter, method, None)
     result = None
     if method == "resolve_addressed":
@@ -80,25 +138,14 @@ async def channel_operation(db, owner, device, delivery_id, lease, op_id, method
             else []
         )
         result = [asdict(item) for item in items]
-        payload = dict(task.payload)
-        resources = dict(payload.get("resources") or {})
-        for item in items:
-            for attachment in item.attachments:
-                resources[str(attachment.get("key"))] = {
-                    "attachment": attachment,
-                    "message_id": item.message_id,
-                    "raw": item.raw,
-                }
-        payload["resources"] = dict(list(resources.items())[-200:])
-        task.payload = payload
-        db.commit()
+        await run_in_session(_remember_resources, owner, device, delivery_id, lease, items)
     elif method == "download_resource":
         requested = args.get("attachment") or {}
         known = {
             str(a.get("key")): {"attachment": a, "message_id": msg.message_id, "raw": msg.raw}
             for a in msg.attachments
         }
-        known.update(task.payload.get("resources") or {})
+        known.update(task_payload.get("resources") or {})
         entry = known.get(str(requested.get("key")))
         if not entry:
             raise BadRequestError("附件不属于当前渠道任务")
@@ -106,19 +153,7 @@ async def channel_operation(db, owner, device, delivery_id, lease, op_id, method
         result = pack_bytes(await callback(conn, msg, entry["attachment"])) if callback else None
     elif method in {"edit_message", "recall_message"}:
         mid = str(args.get("message_id") or "")
-        known_ids = set()
-        rows = (
-            db.query(ChannelRelayOperation)
-            .filter(
-                ChannelRelayOperation.operation_id.like(delivery_id + ":%"),
-                ChannelRelayOperation.status == "completed",
-            )
-            .all()
-        )
-        for row in rows:
-            if isinstance(row.result, dict) and row.result.get("message_id"):
-                known_ids.add(row.result["message_id"])
-        if mid not in known_ids:
+        if mid not in await run_in_session(_sent_message_ids, delivery_id):
             raise BadRequestError("消息不属于当前渠道任务")
         if not callback:
             result = asdict(SendResult.fail("bad_format", "渠道不支持此操作"))
@@ -147,7 +182,5 @@ async def channel_operation(db, owner, device, delivery_id, lease, op_id, method
             text = adapter.prepare_markdown(text)
         result = asdict(await callback(conn, msg, text))
     if method in SEND_OPS:
-        row = db.get(ChannelRelayOperation, opkey)
-        row.result, row.status = result, "completed"
-        db.commit()
+        await run_in_session(_finish, opkey, result)
     return result

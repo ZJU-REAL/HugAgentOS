@@ -1,6 +1,6 @@
-"""version history operations."""
+"""Version numbers and change history for user-defined agents."""
 from __future__ import annotations
-from core.capabilities.agents.base_state import DEFAULT_AGENT_VERSION, VERSIONED_FIELDS
+from core.capabilities.agents.base_constants import DEFAULT_AGENT_VERSION, VERSIONED_FIELDS
 from core.infra.time import utc_now
 import re
 from decimal import Decimal

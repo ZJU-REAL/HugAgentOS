@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import logging
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from core.config.settings import settings
@@ -95,24 +96,19 @@ class ConversationSummarizer:
 # Singleton instance
 
 
-
 def get_summarizer() -> ConversationSummarizer:
     if process_state().summarizer is None:
         process_state().summarizer = ConversationSummarizer()
     return process_state().summarizer
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class SummarizerState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
     summarizer: ConversationSummarizer | None = None
 
-@state_cache(maxsize=1)
-def process_state() -> SummarizerState:
-    return SummarizerState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+_STATE = SummarizerState()
+
+
+def process_state() -> SummarizerState:
+    return _STATE

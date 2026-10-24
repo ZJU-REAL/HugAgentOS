@@ -29,7 +29,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from core.evolution.profiles.agent_profile_state import ACTION_CHANGE_STRATEGY, ACTION_ESCALATE, ACTION_NARROW_SCOPE, ACTION_RETRY, ACTION_ROLLBACK_AND_FORK, ACTION_STOP, ALLOWED_ACTIONS, SIGNAL_BUDGET_LOW, SIGNAL_NO_DIFF, SIGNAL_NO_PROGRESS, SIGNAL_REPEATED_ACTIONS, SIGNAL_REVIEWER_FLAT
+from core.evolution.profiles.agent_profile_constants import ACTION_CHANGE_STRATEGY, ACTION_ESCALATE, ACTION_NARROW_SCOPE, ACTION_RETRY, ACTION_ROLLBACK_AND_FORK, ACTION_STOP, ALLOWED_ACTIONS, SIGNAL_BUDGET_LOW, SIGNAL_NO_DIFF, SIGNAL_NO_PROGRESS, SIGNAL_REPEATED_ACTIONS, SIGNAL_REVIEWER_FLAT
 from core.evolution.profiles.agent_profile import AgentProfile, InterventionRule
 from core.evolution.profiles.profile_selection import load_active_profile
 

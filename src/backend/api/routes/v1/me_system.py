@@ -23,7 +23,7 @@ from core.config.settings import settings
 from core.db.engine import get_db
 from core.infra.responses import success_response
 from core.infra.probes.service_probes import config_row_to_dict
-from core.llm.mcp.administration import reinitialize_mcp_pool
+from core.capabilities.mcp.service import McpServerConfigService
 from core.infra.probes.service_probes import test_service_group
 from core.config.store.system_config import SystemConfigService
 from fastapi import APIRouter, Depends, HTTPException
@@ -130,7 +130,7 @@ async def update_personal_configs(
                 detail=f"配置项 {item.key} 不在个人可配置范围内",
             )
     svc.bulk_set([item.model_dump() for item in body.items], updated_by="me_system")
-    asyncio.ensure_future(reinitialize_mcp_pool("me_system"))
+    McpServerConfigService.get_instance().invalidate_cache()
     return success_response(data={"updated": len(body.items)})
 
 

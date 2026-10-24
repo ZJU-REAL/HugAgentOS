@@ -40,6 +40,7 @@ class RunJournal(RunLifecycle, RunRecovery):
         user_id: str,
         request_payload: Mapping[str, Any],
         recovery_snapshot: Optional[Mapping[str, Any]] = None,
+        on_accept=None,
     ) -> ChatRun:
         """Commit acceptance before any in-process worker is created."""
         with self._sessions() as db:
@@ -53,6 +54,8 @@ class RunJournal(RunLifecycle, RunRecovery):
                 recovery_snapshot=recovery_snapshot,
                 now=self._clock(),
             )
+            if on_accept is not None:
+                on_accept(db, row)
             db.commit()
             db.refresh(row)
             db.expunge(row)
@@ -105,7 +108,7 @@ class RunJournal(RunLifecycle, RunRecovery):
         db.flush()
         return row
 
-    def claim(self, run_id: str, *, owner: str, lease_seconds: int) -> bool:
+    def claim(self, run_id: str, *, owner: str, lease_seconds: int, pending_only: bool = False) -> bool:
         """Atomically acquire a free/expired lease; exactly one claimant wins."""
         if not owner:
             raise ValueError("owner is required")
@@ -120,7 +123,7 @@ class RunJournal(RunLifecycle, RunRecovery):
                 db.query(ChatRun)
                 .filter(
                     ChatRun.run_id == run_id,
-                    ChatRun.status.in_(LIVE_STATUSES),
+                    ChatRun.status.in_(("pending",) if pending_only else LIVE_STATUSES),
                     or_(
                         ChatRun.lease_owner.is_(None),
                         ChatRun.lease_expires_at.is_(None),

@@ -8,6 +8,7 @@ import signal
 import subprocess
 import sys
 import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -171,10 +172,6 @@ class NativeGroupProcess:
                 self._namespace_fd = None
 
 
-
-
-
-
 def lifetime_command(cmd, trusted_prefix=()):
     """Preserve trusted existing confinement; otherwise add only PID lifetime isolation."""
     if (
@@ -221,18 +218,14 @@ def lifetime_command(cmd, trusted_prefix=()):
     return [*prefix, *cmd], bool(prefix)
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class NativeGroupState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    namespace_lock: object = state_field(default_factory=lambda: threading.Lock())
+    namespace_lock: object = field(default_factory=lambda: threading.Lock())
     namespace_prefix: object = None
 
-@state_cache(maxsize=1)
-def process_state() -> NativeGroupState:
-    return NativeGroupState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+_STATE = NativeGroupState()
+
+
+def process_state() -> NativeGroupState:
+    return _STATE

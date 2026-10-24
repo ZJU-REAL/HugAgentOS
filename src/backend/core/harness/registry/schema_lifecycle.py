@@ -1,9 +1,8 @@
 """Synchronous installed-module lifecycle callbacks during local schema startup."""
 from __future__ import annotations
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
 from importlib import import_module
-
-
 
 
 def register_schema_lifecycle(name: str, callback: Callable[[], None]) -> None:
@@ -25,19 +24,13 @@ def initialize_local_schema() -> None:
         callback()
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-
-@state_dataclass
+@dataclass
 class RegistrationState:
-    """Process-owned registrations; replace only while the host is quiescent."""
-    callbacks: dict[str, Callable[[], None]] = state_field(default_factory=dict)
+    callbacks: dict[str, Callable[[], None]] = field(default_factory=dict)
 
 
-@state_cache(maxsize=1)
+_REGISTRATIONS = RegistrationState()
+
+
 def registration_state() -> RegistrationState:
-    return RegistrationState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-registration_state()
+    return _REGISTRATIONS

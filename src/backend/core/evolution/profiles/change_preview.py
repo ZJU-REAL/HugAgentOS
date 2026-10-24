@@ -1,4 +1,4 @@
-"""change preview responsibilities."""
+"""Show the concrete content of a proposed evolution change."""
 from __future__ import annotations
 from typing import Any, Dict, List, Optional
 

@@ -1,7 +1,7 @@
 # Agent factory
 
 Public entry: `from core.llm.factory import create_agent_executor`.
-`warmup_mcp_tools` is the startup entry for shared MCP discovery.
+`mcp_connections` discovers native MCP capabilities within the authorized run.
 The initializer loads these entries lazily so importing selection helpers does
 not initialize the model/tool stack. No legacy `agent_factory` module remains.
 

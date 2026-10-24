@@ -1,24 +1,23 @@
-"""gateway responsibilities."""
+"""The state machine every side-effecting tool call goes through."""
 from __future__ import annotations
 from core.harness import tool_effect_context
-from core.runs.tool_effects import journal as journal_module_
+from core.runs.tool_effects.journal import ToolEffectJournal
 import asyncio
 import inspect
 import uuid
 from contextlib import suppress
 from typing import Any, Awaitable, Callable, Mapping, Optional
-from core.runs.tool_effects import errors as errors_module
-from core.runs.tool_effects import journal as journal_module
-from core.runs.tool_effects import registry as registry_module
-from core.runs.tool_effects import types as types_module
+from core.runs.tool_effects import errors
+from core.runs.tool_effects.registry import ToolRecoveryRegistry
+from core.runs.tool_effects import types
 
 class ToolEffectGateway:
     """The single execution state machine used by production middleware and tests."""
 
     def __init__(
         self,
-        journal: journal_module_.ToolEffectJournal,
-        registry: registry_module.ToolRecoveryRegistry,
+        journal: ToolEffectJournal,
+        registry: ToolRecoveryRegistry,
         *,
         poll_interval: float = 0.05,
         lease_seconds: int = 300,
@@ -29,18 +28,18 @@ class ToolEffectGateway:
         self.lease_seconds = lease_seconds
 
     @staticmethod
-    async def _call(handler, intent: types_module.ToolIntent):  # noqa: ANN001, ANN205
+    async def _call(handler, intent: types.ToolIntent):  # noqa: ANN001, ANN205
         value = handler(intent) if handler is not None else None
         return await value if inspect.isawaitable(value) else value
 
     @staticmethod
-    def _reconciliation(value: Any) -> types_module.ReconciliationResult:
-        if isinstance(value, types_module.ReconciliationResult):
+    def _reconciliation(value: Any) -> types.ReconciliationResult:
+        if isinstance(value, types.ReconciliationResult):
             return value
         return (
-            types_module.ReconciliationResult.applied(value)
+            types.ReconciliationResult.applied(value)
             if value is not None
-            else types_module.ReconciliationResult.unknown()
+            else types.ReconciliationResult.unknown()
         )
 
     def _start_heartbeat(
@@ -89,7 +88,7 @@ class ToolEffectGateway:
         invoke: Callable[[], Awaitable[Any] | Any],
         idempotency_key: Optional[str] = None,
         classify_failure: Optional[Callable[[Any], bool]] = None,
-    ) -> types_module.ToolExecutionOutcome:
+    ) -> types.ToolExecutionOutcome:
         claim_owner = f"tool:{uuid.uuid4().hex}"
         policy = self.registry.resolve(tool_name)
         while True:
@@ -106,7 +105,7 @@ class ToolEffectGateway:
                 lease_seconds=self.lease_seconds,
             )
             if decision.action == "known":
-                return types_module.ToolExecutionOutcome(
+                return types.ToolExecutionOutcome(
                     decision.result,
                     decision.intent.effect_id,
                     decision.intent.result_id,
@@ -114,7 +113,7 @@ class ToolEffectGateway:
                     False,
                 )
             if decision.action == "unknown":
-                raise errors_module.ToolOutcomeUnknown(decision.effect_id)
+                raise errors.ToolOutcomeUnknown(decision.effect_id)
             if decision.action == "wait":
                 await asyncio.sleep(self.poll_interval)
                 terminal = await asyncio.to_thread(
@@ -123,8 +122,8 @@ class ToolEffectGateway:
                 if terminal is None:
                     continue
                 if terminal.action == "unknown":
-                    raise errors_module.ToolOutcomeUnknown(decision.effect_id)
-                return types_module.ToolExecutionOutcome(
+                    raise errors.ToolOutcomeUnknown(decision.effect_id)
+                return types.ToolExecutionOutcome(
                     terminal.result,
                     terminal.intent.effect_id,
                     terminal.intent.result_id,
@@ -132,7 +131,7 @@ class ToolEffectGateway:
                     False,
                 )
             if decision.action not in ("execute", "reconcile"):
-                raise errors_module.ToolEffectError(
+                raise errors.ToolEffectError(
                     f"unsupported tool intent action: {decision.action}"
                 )
 
@@ -166,12 +165,12 @@ class ToolEffectGateway:
                             claim_owner=claim_owner,
                             reason="reconcile policy has no reconciliation adapter",
                         )
-                        raise errors_module.ToolOutcomeUnknown(decision.effect_id)
+                        raise errors.ToolOutcomeUnknown(decision.effect_id)
                     reconciliation = self._reconciliation(
                         await self._call(policy.reconciler, decision.intent)
                     )
                     if claim_lost.is_set():
-                        raise errors_module.ToolEffectLeaseLost(decision.effect_id)
+                        raise errors.ToolEffectLeaseLost(decision.effect_id)
                     if reconciliation.outcome == "applied":
                         result = await asyncio.to_thread(
                             self.journal.commit_result,
@@ -181,7 +180,7 @@ class ToolEffectGateway:
                             result=reconciliation.result,
                             reconciled=True,
                         )
-                        return types_module.ToolExecutionOutcome(
+                        return types.ToolExecutionOutcome(
                             result,
                             decision.intent.effect_id,
                             decision.intent.result_id,
@@ -195,11 +194,11 @@ class ToolEffectGateway:
                             claim_owner=claim_owner,
                             reason="reconciliation could not determine external outcome",
                         )
-                        raise errors_module.ToolOutcomeUnknown(decision.effect_id)
+                        raise errors.ToolOutcomeUnknown(decision.effect_id)
                 value = invoke()
                 result = await value if inspect.isawaitable(value) else value
                 if claim_lost.is_set():
-                    raise errors_module.ToolEffectLeaseLost(decision.effect_id)
+                    raise errors.ToolEffectLeaseLost(decision.effect_id)
                 failed = (
                     bool(classify_failure(result))
                     if classify_failure is not None
@@ -218,7 +217,7 @@ class ToolEffectGateway:
                     result=result,
                     failed=failed,
                 )
-                return types_module.ToolExecutionOutcome(
+                return types.ToolExecutionOutcome(
                     result,
                     decision.intent.effect_id,
                     decision.intent.result_id,
@@ -233,7 +232,7 @@ class ToolEffectGateway:
                         claim_owner=claim_owner,
                     )
                 raise
-            except errors_module.ToolOutcomeUnknown:
+            except errors.ToolOutcomeUnknown:
                 with suppress(Exception):
                     self.journal.abandon_invocation_claim(
                         decision.effect_id,
@@ -248,7 +247,7 @@ class ToolEffectGateway:
                         run_owner=owner,
                         claim_owner=claim_owner,
                     )
-                raise errors_module.ToolOutcomeUnknown(decision.effect_id) from exc
+                raise errors.ToolOutcomeUnknown(decision.effect_id) from exc
             finally:
                 await self._stop_heartbeat(heartbeat)
                 tool_effect_context.CURRENT_TOOL_EFFECT.reset(token)

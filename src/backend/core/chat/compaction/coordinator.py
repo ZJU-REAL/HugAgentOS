@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from core.config import settings as config_settings
 from core.llm.context import compaction as C
-from core.llm.context import budget as budget
+from core.llm.context import budget
 from core.chat.compaction import summary as summary_model
 from core.chat.compaction.history import normalize_rows
 from core.chat.compaction.progress import finish_progress, report_outcome, start_progress

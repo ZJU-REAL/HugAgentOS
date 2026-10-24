@@ -112,7 +112,6 @@ def rerun(index_db, caps_root, monkeypatch):
     )
     monkeypatch.setattr(chat_context, "resolve_enabled_capabilities", lambda *a: ([], [], []))
     monkeypatch.setattr(chat_session_context, 'load_session_messages', lambda *a: [])
-    monkeypatch.setattr(chat_session_context, 'release_request_session', lambda *a: None)
     monkeypatch.setattr(responses, "sse_response", lambda value: value)
     pass
 
@@ -155,20 +154,18 @@ def rerun(index_db, caps_root, monkeypatch):
             db.commit()
 
     async def call(operation):
-        with index_db() as db:
-            user = UserContext(
-                user_id="owner", username="synthetic", user_center_id="center-cloud-a"
+        user = UserContext(
+            user_id="owner", username="synthetic", user_center_id="center-cloud-a"
+        )
+        if operation == "regenerate":
+            return await chat_reruns.regenerate_message(
+                "rerun", chat_models.RegenerateRequest(message_index=1), user=user
             )
-            if operation == "regenerate":
-                return await chat_reruns.regenerate_message(
-                    "rerun", chat_models.RegenerateRequest(message_index=1), user=user, db=db
-                )
-            return await chat_reruns.edit_and_resend(
-                "rerun",
-                chat_models.EditAndResendRequest(message_index=0, new_content="edited task"),
-                user=user,
-                db=db,
-            )
+        return await chat_reruns.edit_and_resend(
+            "rerun",
+            chat_models.EditAndResendRequest(message_index=0, new_content="edited task"),
+            user=user,
+        )
 
     return SimpleNamespace(
         call=call,

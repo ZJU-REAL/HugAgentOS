@@ -41,7 +41,8 @@ class _Toolkit:
     def __init__(self):
         self.fn = None
 
-    def register_tool_function(self, fn):
+    def append(self, tool):
+        fn = tool._func
         self.fn = fn
 
 

@@ -118,7 +118,7 @@ def delete_my_skill_file(
 
 
 @router.post("/skills/{skill_id}/files/upload", status_code=201, summary="上传我的技能文件")
-async def upload_my_skill_file(
+def upload_my_skill_file(
     skill_id: str,
     file: UploadFile = File(...),
     path: str = Form("", description="可选：存入的相对路径（含子目录），留空取上传文件名"),
@@ -127,7 +127,7 @@ async def upload_my_skill_file(
 ):
     """以 multipart 上传单个文件到自己的私有技能，二进制按 base64 标记安全存储。"""
     if has_run_capabilities():
-        return success_response(data=local_editor.file_change(str(user.user_id), skill_id, path or file.filename or "", await file.read()))
+        return success_response(data=local_editor.file_change(str(user.user_id), skill_id, path or file.filename or "", file.file.read()))
     _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
 
     from core.capabilities.skills.binary_files import encode_upload
@@ -135,7 +135,7 @@ async def upload_my_skill_file(
     filename = validate_skill_file_path(path or file.filename or "")
     if filename == "SKILL.md":
         raise BadRequestError(message="SKILL.md 请在「编辑技能」表单中修改")
-    raw = await file.read()
+    raw = file.file.read()
     if len(raw) > USER_SKILL_FILE_MAX_BYTES:
         raise BadRequestError(
             message=f"文件过大（上限 {USER_SKILL_FILE_MAX_BYTES // (1024 * 1024)}MB）"

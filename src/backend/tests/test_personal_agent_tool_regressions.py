@@ -37,7 +37,9 @@ async def test_exports_with_same_requested_name_create_distinct_current_files(se
     monkeypatch.setattr(tools, "get_personal_sandbox_provider", lambda: provider)
     class Toolkit:
         def __init__(self): self.functions = {}
-        def register_tool_function(self, fn): self.functions[fn.__name__] = fn
+        def append(self, tool):
+            fn = tool._func
+            self.functions[fn.__name__] = fn
     with sessions() as db:
         task = AgentContext(db,"owner").tasks.submit("Export file","one")
         row = db.get(PersonalWorkItem, task["id"])
@@ -116,7 +118,9 @@ async def test_edit_file_replaces_one_exact_entry_after_read(sessions, monkeypat
     monkeypatch.setattr(tools, "get_personal_sandbox_provider", lambda: provider)
     class Toolkit:
         def __init__(self): self.functions = {}
-        def register_tool_function(self, fn): self.functions[fn.__name__] = fn
+        def append(self, tool):
+            fn = tool._func
+            self.functions[fn.__name__] = fn
     with sessions() as db:
         task = AgentContext(db, "owner").tasks.submit("Remember preference", "edit-one")
         row = db.get(PersonalWorkItem, task["id"])

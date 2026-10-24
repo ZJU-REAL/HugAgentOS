@@ -73,7 +73,7 @@ async def test_managed_read_never_holds_model_for_long_wait(command_db, monkeypa
     monkeypatch.setattr(process_state(), "commands", instance)
     monkeypatch.setenv("SANDBOX_TOOLS_ENABLED", "true")
     tools = Toolkit()
-    register_bash(tools, loader=None, loaded_skill_ids=set(), chat_id="c", user_id="u")
+    register_bash(tools, loader=None, chat_id="c", user_id="u")
     await tools.functions["write_stdin"](row["task_id"], yield_time_ms=100000)
     instance.wait.assert_awaited_once_with(row["task_id"], "u", "c", 3000)
     instance.wait.reset_mock()

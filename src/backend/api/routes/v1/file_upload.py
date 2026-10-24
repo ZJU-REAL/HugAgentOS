@@ -138,7 +138,7 @@ def upload_user_file(
 
 
 @router.put("/{file_id}", summary="覆盖已有文件内容")
-async def overwrite_file(
+def overwrite_file(
     file_id: str,
     file: UploadFile = File(...),
     user: UserContext = Depends(get_current_user),
@@ -147,7 +147,7 @@ async def overwrite_file(
     """
     用新内容覆盖已有文件，保持 file_id 和 download_url 不变。
     """
-    file_bytes = await file.read()
+    file_bytes = file.file.read()
     if not file_bytes:
         raise HTTPException(status_code=400, detail="文件内容为空")
     if len(file_bytes) > _MAX_UPLOAD_BYTES:

@@ -53,10 +53,9 @@ def setup(sessions, monkeypatch):
     monkeypatch.setattr(tools, "get_personal_sandbox_provider", lambda: SimpleNamespace(get_file=get_file))
     cache = LocalEphemeralState()
     monkeypatch.setattr("core.infra.ephemeral.get_ephemeral_state", lambda: cache)
-    kit = SimpleNamespace(functions={})
-    kit.register_tool_function = lambda fn: kit.functions.__setitem__(fn.__name__, fn)
+    kit = []
     tools.register_personal_tools(kit, SimpleNamespace(profile_ref=task, current_user_id="owner"))
-    yield SimpleNamespace(task=task, functions=kit.functions, files=files, storage=storage, cache=cache)
+    yield SimpleNamespace(task=task, functions={tool.name: tool._func for tool in kit}, files=files, storage=storage, cache=cache)
     current_execution.set(None)
 
 

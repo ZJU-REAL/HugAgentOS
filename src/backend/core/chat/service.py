@@ -1,30 +1,20 @@
-"""service responsibilities."""
+"""Chat sessions and messages behind one service facade."""
 from __future__ import annotations
 from core.chat import session_operations
 from core.chat import message_writes
 from core.chat import message_queries
 from core.chat import compaction_snapshots
 from core.chat import compaction_checkpoints
-from core.infra.time import utc_now
-import hashlib
-import json
-import uuid
 from dataclasses import replace
-from datetime import timedelta
 from typing import Any, Dict, List, Optional, Tuple
-from core.auth.edition import ChatAccessLevel, resolve_chat_access
-from core.db.models import ChatCompactionState, ChatMessage, ChatRun, ChatSession
+from core.auth.edition import ChatAccessLevel
+from core.db.models import ChatCompactionState, ChatMessage, ChatSession
 from core.db.repository import AuditLogRepository, ChatMessageRepository, ChatSessionRepository
-from core.db.repository.chat import _strip_nul
-from core.db.reserved_chats import reserved_chat_owner
-from sqlalchemy import update
-from core.ontology.revision import is_substantive_revision, normalize_revision_candidate
 from sqlalchemy.orm import Session
 import logging
+from core.chat import compaction_types
+
 logger = logging.getLogger(__name__)
-from core.chat import compaction_types as compaction_types_module
-from core.chat import limits as limits_module
-from core.chat import service_time as service_time_module
 
 class ChatService:
     """Service for chat-related operations."""
@@ -205,7 +195,7 @@ class ChatService:
         *,
         owner: str,
         lease_seconds: int,
-    ) -> Optional[compaction_types_module.CompactionSnapshot]:
+    ) -> Optional[compaction_types.CompactionSnapshot]:
         return compaction_snapshots.acquire_compaction_snapshot(self, chat_id, owner=owner, lease_seconds=lease_seconds)
 
     def _acquire_compaction_snapshot(
@@ -214,7 +204,7 @@ class ChatService:
         *,
         owner: str,
         lease_seconds: int,
-    ) -> Optional[compaction_types_module.CompactionSnapshot]:
+    ) -> Optional[compaction_types.CompactionSnapshot]:
         return compaction_snapshots.acquire_compaction_snapshot_impl(self, chat_id, owner=owner, lease_seconds=lease_seconds)
 
     def release_compaction_lease(self, chat_id: str, *, owner: str) -> bool:
@@ -222,7 +212,7 @@ class ChatService:
 
     def commit_compaction_checkpoint(
         self,
-        snapshot: compaction_types_module.CompactionSnapshot,
+        snapshot: compaction_types.CompactionSnapshot,
         *,
         owner: str,
         summary_text: str,

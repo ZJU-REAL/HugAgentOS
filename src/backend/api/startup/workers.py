@@ -17,9 +17,6 @@ def _env_flag(name: str, default: bool) -> bool:
 def _startup_preload_enabled() -> bool:
     return _env_flag("STARTUP_PRELOAD_ENABLED", True)
 
-def _mcp_warmup_enabled() -> bool:
-    return _env_flag("MCP_WARMUP_ENABLED", True)
-
 async def _shutdown_automation_scheduler():
     """Stop the automation scheduler, whether the process is exiting or this
     worker just lost the leader role. Idempotent: the scheduler's own ``stop``
@@ -80,7 +77,7 @@ async def _startup_idle_session_reaper():
         logger.warning("[startup] idle session reaper failed to start: %s", exc)
 
 async def _startup_preload():
-    """Pre-load caches and initialize MCP connection pool at startup."""
+    """Pre-load application caches at startup."""
     import asyncio
 
     if not _startup_preload_enabled():
@@ -168,17 +165,6 @@ async def _startup_preload():
             logger.info("[startup] Runtime catalog DB overlay warmed")
 
         await _run_sync("Runtime catalog", _warm_runtime_catalog)
-
-        # 4. Initialize MCP connection pool (the big one — 1-7s savings)
-        if _mcp_warmup_enabled():
-            try:
-                from core.llm.factory import warmup_mcp_tools
-
-                await warmup_mcp_tools()
-            except Exception as exc:
-                logger.warning("[startup] MCP pool initialization failed: %s", exc)
-        else:
-            logger.info("[startup] MCP pool warmup skipped for current environment")
 
         # 5. Pre-load DB prompt parts so first chat skips DB query
         from prompts.prompt_runtime import warmup_prompt_cache
@@ -333,7 +319,9 @@ async def _startup_distillation_scheduler():
         logger.warning("[startup] Distillation cron scheduler failed to start: %s", exc)
 
 async def _shutdown_pools():
-    """Close MCP connection pool, KB HTTP server, automation scheduler, and Redis on shutdown."""
+    """Close chat MCP sessions and application services on shutdown."""
+    from core.llm.mcp.chat_sessions import close_chat
+    await close_chat()
     # Stop automation scheduler — same handler the leader path calls, so a
     # deposed leader and an exiting process cannot stop different things.
     try:
@@ -352,12 +340,13 @@ async def _shutdown_pools():
         await _shutdown_idle_session_reaper()
     except Exception as e:
         logger.warning("idle_reaper_shutdown_error", error=str(e))
-    try:
-        from core.llm.mcp.pool import MCPConnectionPool
+    import asyncio
 
-        await MCPConnectionPool.get_instance().shutdown()
-    except Exception as e:
-        logger.warning("mcp_pool_shutdown_error", error=str(e))
+    from core.harness.observation_writer import flush_observations
+
+    # Hook stage events and usage are written in the background; persist the
+    # tail before the database and Redis go away.
+    await asyncio.to_thread(flush_observations, 5.0)
 
     try:
         from core.infra.redis import close_redis

@@ -10,7 +10,6 @@ import core.db.models as models
 import core.runs.ownership as ownership
 import core.runs.runtime as runtime
 import core.runs.settings as runs_settings
-import orchestration.plans.execute_run as _orchestration_plans_execute_run
 import orchestration.plans.generate_run as _orchestration_plans_generate_run
 from core.db.models import ChatRun
 from core.infra.logging import get_logger
@@ -29,6 +28,7 @@ async def start_plan_execute_run(
     enabled_agent_ids: Optional[List[str]] = None,
     session_messages: List[Dict[str, Any]],
     model_name: Optional[str] = None,
+    on_accept=None,
 ) -> ChatRun:
     """Plan Phase-2 (execute): background task on the same ChatRun infrastructure.
 
@@ -48,12 +48,23 @@ async def start_plan_execute_run(
         "model_name": model_name,
     }
     effective_model_name = model_name or settings.DEFAULT_CHAT_MODEL_ALIAS
+    initial_args = {
+        "plan_id": plan_id,
+        "enabled_mcp_ids": enabled_mcp_ids,
+        "enabled_skill_ids": enabled_skill_ids,
+        "enabled_kb_ids": enabled_kb_ids,
+        "enabled_agent_ids": enabled_agent_ids,
+        "session_messages": session_messages,
+        "model_name": effective_model_name,
+    }
     run = ownership.create_run_record(
+        on_accept=on_accept,
         chat_id=chat_id,
         user_id=user_id,
         request_payload=request_payload,
         recovery_snapshot={
             "kind": "plan_execute",
+            "initial_args": initial_args,
             "worker_args": {
                 "context": {
                     "mcp_ids": list(enabled_mcp_ids or []),
@@ -64,25 +75,8 @@ async def start_plan_execute_run(
             },
         },
     )
-    journal_owner = ownership.new_worker_owner(run.run_id)
-    runtime.register_run_task(
-        run.run_id,
-        _orchestration_plans_execute_run._run_plan_execute_workflow(
-            run_id=run.run_id,
-            plan_id=plan_id,
-            chat_id=chat_id,
-            user_id=user_id,
-            message_id=run.message_id,
-            enabled_mcp_ids=enabled_mcp_ids,
-            enabled_skill_ids=enabled_skill_ids,
-            enabled_kb_ids=enabled_kb_ids,
-            enabled_agent_ids=enabled_agent_ids,
-            session_messages=session_messages,
-            model_name=effective_model_name,
-            journal_owner=journal_owner,
-        ),
-        name=f"plan_run:{run.run_id}",
-    )
+    from orchestration.pending import dispatch_pending
+    await dispatch_pending(run)
     logger.info(
         "plan_run_started",
         run_id=run.run_id,

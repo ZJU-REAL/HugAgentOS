@@ -48,7 +48,7 @@ src/backend/prompts/prompt_text/default/system/
 
 ### 执行 Manifest 与运行时绑定
 
-Agent 真正开始执行前，`core/llm/runtime/execution_manifest.py::PromptManifestBuilder` 会记录最终请求面。每个有序 PromptSection 都带 `id`、来源、信任级、优先级、缓存类别、预算、token 估算、内容哈希和版本；每个最终 ToolDefinition 同样对名称、完整描述、canonical 参数 schema、权限策略和恢复策略生成稳定哈希。工具定义按稳定 id 排序，提示词分段则保持刻意设计的前缀顺序。
+Agent 真正开始执行前，`core/harness/execution_manifest.py::PromptManifestBuilder` 会记录最终请求面。每个有序 PromptSection 都带 `id`、来源、信任级、优先级、缓存类别、预算、token 估算、内容哈希和版本；每个最终 ToolDefinition 同样对名称、完整描述、canonical 参数 schema、权限策略和恢复策略生成稳定哈希。工具定义按稳定 id 排序，提示词分段则保持刻意设计的前缀顺序。
 
 Builder 最终产出 `prompt_hash`、`prompt_manifest_hash`、`tool_manifest_hash`、`context_hash` 和统一的 `aggregate_hash`。Manifest 构建与 AgentScope 模型请求共用同一份 run-scoped 工具/技能冻结快照，因此“记录的请求面”和“实际发送的请求面”不会错位；渐进式插件激活会让旧快照失效，并在下一次模型调用前发布明确递增的 `surface_generation`。
 
@@ -94,8 +94,8 @@ Runtime Binder 把这份脱敏 Manifest 挂到本轮递归不可变的 Asset Bun
 | kind | 运行时消费方 | 解析顺序 |
 |---|---|---|
 | `code_exec` | `factory/build.py` 在 `CODE_CAPABILITY_ENABLED=true` 时把该段（代码能力提示词）拼到 system prompt 尾部；单一真源为 `prompt_version_service.render_code_capability_segment()`，管理台 preview 同源 | DB 激活版本 → `prompts/prompt_text/code_exec/system/*.system.md` |
-| `distillation` | 技能蒸馏（`core/llm/skill_distiller.py`，把对话轨迹蒸馏为可复用技能） | DB 激活版本 → `prompts/prompt_text/distillation/skill_distiller.system.md` |
-| `plan_mode` | 计划模式生成子智能体（`orchestration/subagents/plan_mode.py::_load_plan_prompt`） | DB `plan_mode` 激活版本 → 旧版 system 版本的 `system/90_plan_mode` 分段 → `prompts/prompt_text/plan_mode/plan_mode.system.md` → 硬编码兜底 |
+| `distillation` | 技能蒸馏（`features/distillation/`，把对话轨迹蒸馏为可复用技能） | DB 激活版本 → `prompts/prompt_text/distillation/skill_distiller.system.md` |
+| `plan_mode` | 计划模式生成子智能体（`orchestration/plans/`） | DB `plan_mode` 激活版本 → 旧版 system 版本的 `system/90_plan_mode` 分段 → `prompts/prompt_text/plan_mode/plan_mode.system.md` → 硬编码兜底 |
 | `turbo` | 极速模式（对话模式选「极速」时，`factory/build.py` 以该提示词**整体替换**主系统提示词）。工具集由 Config「系统配置 → 极速模式」动态配置（`turbo.mcp_server_ids`，默认联网搜索/网页抓取/知识库检索三件套，**独立于能力目录的启停**）；用户显式呼唤的技能 / @子智能体 / 插件可临时入场（`turbo.manual_invoke_enable`）；迭代上限可配（`turbo.max_iters`，默认 4）。单一真源为 `prompt_version_service.render_turbo_system_prompt()` | DB `turbo` 激活版本 → `prompts/prompt_text/turbo/turbo.system.md` → 硬编码兜底 |
 
 子智能体不走版本池整版拼装：`prompt_runtime.py::build_subagent_system_prompt()` 以用户自定义 `system_prompt` 为核心，复用激活版本（或文件）的 `20_tools_policy` / `65_citations` / `60_format` 分段组装，详见 [对话与智能体编排](chat.md)。

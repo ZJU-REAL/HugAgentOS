@@ -188,7 +188,9 @@ async def test_skill_reader_uses_frozen_loader_and_cannot_read_other_profile(
     loader = runtime.frozen_loader(run)
 
     class Toolkit:
-        def register_tool_function(self, fn, **_):
+        def append(self, tool):
+            fn = tool._func
+            _ = {"func_description": tool.description, "permission": getattr(tool, "dispatch_spec", None)}
             self.read = fn
 
     toolkit = Toolkit()

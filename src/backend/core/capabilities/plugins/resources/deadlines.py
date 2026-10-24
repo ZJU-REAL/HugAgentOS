@@ -21,16 +21,16 @@ def invalidate(db, row):
     return resource_owner().invalidate(db, row)
 
 
-async def arm(db, row, *, require_background=False):
-    if row.application_key is None or row.chat_id is not None:
-        return
+async def arm(resource_id, *, require_background=False):
+    """Arm the runner deadline of an application resource (no-op for chat resources)."""
     from core.harness.registry.resource_owners import resource_owner
-    return await resource_owner().arm(db, row, require_background=require_background)
+    return await resource_owner().arm(resource_id, require_background=require_background)
 
 
-async def restore(db, *, after="", limit=100):
-    rows = (
-        db.query(store.PluginResource)
+def _active_application_ids(db, after, limit):
+    return [
+        resource_id
+        for (resource_id,) in db.query(store.PluginResource.resource_id)
         .filter(
             store.PluginResource.application_key.is_not(None),
             store.PluginResource.status == "active",
@@ -38,11 +38,16 @@ async def restore(db, *, after="", limit=100):
         )
         .order_by(store.PluginResource.resource_id)
         .limit(limit)
-        .all()
-    )
-    for row in rows:
+    ]
+
+
+async def restore(*, after="", limit=100):
+    from core.db.threads import run_in_session
+
+    resource_ids = await run_in_session(_active_application_ids, after, limit)
+    for resource_id in resource_ids:
         try:
-            await arm(db, row)
+            await arm(resource_id)
         except HTTPException:
-            db.rollback()  # Existing janitor owns persisted closing cleanup.
-    return rows[-1].resource_id if len(rows) == limit else ""
+            pass  # Existing janitor owns persisted closing cleanup.
+    return resource_ids[-1] if len(resource_ids) == limit else ""

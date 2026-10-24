@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 import time
 from contextvars import ContextVar
+from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator, Callable, Optional
 
 from agentscope.message import Msg
@@ -42,7 +43,6 @@ logger = logging.getLogger(__name__)
 # Short enough that a top-up or key rotation recovers on its own, long enough
 # that a dead upstream is not re-probed by every concurrent run.
 PROVIDER_COOLDOWN_SECONDS = 120.0
-
 
 
 # Which candidate answered the call in flight. The model instance is cached and
@@ -404,17 +404,13 @@ def with_failover(
     )
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class FailoverState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    cooldown: dict[str, float] = state_field(default_factory=lambda: {})
+    cooldown: dict[str, float] = field(default_factory=lambda: {})
 
-@state_cache(maxsize=1)
+
+_STATE = FailoverState()
+
+
 def process_state() -> FailoverState:
-    return FailoverState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

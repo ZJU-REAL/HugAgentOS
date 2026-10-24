@@ -19,8 +19,8 @@ from core.sandbox.runner import server as runner_server
 
 
 class _CaptureToolkit:
-    def register_tool_function(self, function, *, namesake_strategy: str):
-        assert namesake_strategy == "override"
+    def append(self, tool):
+        function = tool._func
         self.function = function
 
 

@@ -17,9 +17,10 @@ from core.infra.logging import get_logger
 from core.llm.runtime import workspace as _workspace_mod
 from core.files.artifacts.service import persist_artifacts as _persist_artifacts
 
-logger = get_logger(__name__)
 
 from core.chat.runtime import snapshots
+
+logger = get_logger(__name__)
 
 
 async def complete_turn(turn, chunk):

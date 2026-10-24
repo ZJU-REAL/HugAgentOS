@@ -11,6 +11,7 @@
 """
 
 from __future__ import annotations
+from core.llm.factory.tools.definitions import function_tool
 
 import asyncio
 import logging
@@ -20,7 +21,7 @@ from agentscope.tool import Toolkit
 from core.projects.edition import ProjectScope
 from core.models.vision import VisionMode
 
-from ._common import ToolResponse, resolve_sandbox_session, resp_image, resp_json
+from ._common import ToolChunk, resolve_sandbox_session, resp_image, resp_json
 from core.sandbox.workspace.resolution import to_physical_path, validate_project_scope_path, validate_workspace_path
 
 logger = logging.getLogger(__name__)
@@ -140,7 +141,7 @@ def register_read_image(
         return
     _sess = resolve_sandbox_session(sandbox_session_id, chat_id)
 
-    async def _run(file_path: str, file_id: str, focus: str) -> ToolResponse:
+    async def _run(file_path: str, file_id: str, focus: str) -> ToolChunk:
         try:
             image_bytes, mime, label = await load_image(
                 file_path,
@@ -182,7 +183,7 @@ def register_read_image(
     # and only the bridge variant can act on ``focus``.
     if vision_mode == "native":
 
-        async def read_image(file_path: str = "", file_id: str = "") -> ToolResponse:
+        async def read_image(file_path: str = "", file_id: str = "") -> ToolChunk:
             return await _run(file_path, file_id, "")
 
         read_image.__doc__ = _NATIVE_DOC
@@ -190,12 +191,12 @@ def register_read_image(
 
         async def read_image(
             file_path: str = "", file_id: str = "", focus: str = ""
-        ) -> ToolResponse:
+        ) -> ToolChunk:
             return await _run(file_path, file_id, focus)
 
         read_image.__doc__ = _BRIDGE_DOC
 
-    toolkit.register_tool_function(read_image)
+    toolkit.append(function_tool(read_image))
     logger.info("[factory] Registered read_image tool (%s, chat_id=%s)", vision_mode, chat_id)
 
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from core.files.content.content_blocks_state import DEFAULT_PAGE_CONFIG
+from core.files.content.content_blocks_constants import DEFAULT_PAGE_CONFIG
 from core.files.content.branding import backfill_navigation_entries
 
 

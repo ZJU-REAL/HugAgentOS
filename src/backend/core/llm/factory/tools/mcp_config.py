@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Optional, Set
 import core.capabilities.catalog.api as catalog
 from core.capabilities.catalog.loader import DB_HIDDEN_SERVERS, DB_UMBRELLA_ID
 from core.llm.factory.specs import AgentSpec
-from core.llm.mcp.pool import MCPConnectionPool
 from core.capabilities.mcp.service import McpServerConfigService
 
 
@@ -176,41 +175,3 @@ def inject_runtime_headers(
             c["env"] = env_cfg
         out[key] = c
     return out
-
-
-async def warmup_mcp_tools() -> None:
-    """Initialize the MCP connection pool at startup.
-
-    Reads MCP server configs from DB (via McpServerConfigService) and
-    connects to all stable servers. Per-request servers (e.g.
-    retrieve_dataset_content) are spawned on demand.
-    """
-    import logging
-    import time
-
-    log = logging.getLogger(__name__)
-
-    # DB overlays (model config, system config) are already applied inside
-    # McpServerConfigService._build_env(), so no manual overlay needed here.
-    svc = McpServerConfigService.get_instance()
-    servers = svc.get_all_servers(enabled_only=True)
-
-    if not servers:
-        log.info("[warmup] No MCP servers configured – skipping warmup")
-        return
-
-    log.info("[warmup] Initializing MCP connection pool for %d server(s)…", len(servers))
-    start = time.monotonic()
-
-    try:
-        pool = MCPConnectionPool.get_instance()
-        await pool.initialize(servers)
-        elapsed = time.monotonic() - start
-        log.info(
-            "[warmup] MCP pool initialized: %d stable connections in %.2fs",
-            pool.stable_client_count,
-            elapsed,
-        )
-    except Exception as exc:
-        elapsed = time.monotonic() - start
-        log.warning("[warmup] MCP pool initialization failed after %.2fs: %s", elapsed, exc)

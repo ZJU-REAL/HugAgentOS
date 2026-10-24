@@ -3,6 +3,7 @@
 Extracted from the oversized ``core/llm/tool.py``. Heavy deps imported lazily
 inside the function; ``core.llm.tool`` re-exports ``register_pin_to_workspace``.
 """
+from core.llm.factory.tools.definitions import function_tool
 
 import logging
 from typing import Any, Dict, Optional, TYPE_CHECKING
@@ -12,7 +13,7 @@ if TYPE_CHECKING:
 
 from agentscope.message import TextBlock
 from agentscope.tool import Toolkit
-from agentscope.tool._response import ToolChunk as ToolResponse
+from agentscope.tool._response import ToolChunk
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ def register_pin_to_workspace(
 
     async def pin_to_workspace(
         file_ids: list[str] = [], file_paths: list[str] = []
-    ) -> ToolResponse:
+    ) -> ToolChunk:
         """把文件交付到对话区——**唯一**让用户看到文件的方式。
 
         凡用户要求生成/导出文件（文档、图片、PPT、Excel、PDF、CSV、压缩包、音视频、
@@ -89,7 +90,7 @@ def register_pin_to_workspace(
         elif isinstance(file_ids, list):
             raw_ids = file_ids
         else:
-            return ToolResponse(
+            return ToolChunk(
                 content=[
                     TextBlock(
                         type="text",
@@ -105,7 +106,7 @@ def register_pin_to_workspace(
             )
 
         if not raw_ids and not file_paths:
-            return ToolResponse(
+            return ToolChunk(
                 content=[
                     TextBlock(
                         type="text",
@@ -217,14 +218,12 @@ def register_pin_to_workspace(
             _uid = user_id_var.get() or ""
             _cid = chat_id_var.get() or ""
             if _uid and to_persist:
-                from core.db.engine import SessionLocal
+                from core.db.threads import run_in_session
                 from core.files.artifacts.service import persist_artifacts
 
-                _db = SessionLocal()
-                try:
-                    persist_artifacts(_db, _uid, _cid or None, to_persist, scope=scope, strict=True)
-                finally:
-                    _db.close()
+                await run_in_session(
+                    persist_artifacts, _uid, _cid or None, to_persist, scope=scope, strict=True
+                )
         except Exception as exc:  # noqa: BLE001
             from fastapi import HTTPException
 
@@ -251,7 +250,7 @@ def register_pin_to_workspace(
         }
         if failed_results:
             result["failed"] = failed_results
-        return ToolResponse(
+        return ToolChunk(
             content=[
                 TextBlock(
                     type="text",
@@ -285,11 +284,7 @@ def register_pin_to_workspace(
                 )
         return intents
 
-    toolkit.register_tool_function(
-        pin_to_workspace,
-        namesake_strategy="override",
-        permission=ToolPermissionSpec("local-project-pin-paths", resolve_pin_paths),
-    )
+    toolkit.append(function_tool(pin_to_workspace, dispatch_spec=ToolPermissionSpec("local-project-pin-paths", resolve_pin_paths)))
     logger.info("[factory] Registered pin_to_workspace tool")
 
 

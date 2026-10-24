@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 import time
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Mapping
 
 SCHEMA_VERSION = "context-usage.v2"
 BREAKDOWN_KEYS = ("messages", "tools", "thinking", "files", "system", "input")

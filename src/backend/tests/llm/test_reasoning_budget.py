@@ -8,7 +8,7 @@ model on every turn, what it costs has to be visible.
 """
 
 from core.llm.context.adapter import AgentScopeContextAdapter
-from core.llm.context.ir_state import KIND_ASSISTANT, KIND_THINKING, KIND_TOOL_CALL
+from core.llm.context.ir_constants import KIND_ASSISTANT, KIND_THINKING, KIND_TOOL_CALL
 from core.llm.context.usage import BREAKDOWN_KEYS, _manifest_breakdown
 
 _REASONING = "先查论文再对比专利，" * 20

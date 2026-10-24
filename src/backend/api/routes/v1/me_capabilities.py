@@ -25,6 +25,7 @@ from core.auth.backend import UserContext, get_current_user
 from core.auth.capabilities import resolve_user_capabilities
 from core.config.settings import settings
 from core.db.engine import get_db
+from core.db.threads import run_in_session
 from core.db.models import AdminMcpServer, AdminSkill
 from core.infra.exceptions import AccessDeniedError, BadRequestError, ResourceNotFoundError
 from core.infra.responses import created_response, success_response
@@ -69,14 +70,15 @@ class CreateUserMcpRequest(BaseModel):
 async def create_my_mcp_server(
     body: CreateUserMcpRequest,
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
     """添加一个仅自己可见可用的远程 MCP 工具（HTTP/SSE）。
 
     创建即试连：连不上返回 422，避免把不可达端点落库。出于安全，用户入口**不支持
     stdio**（不能在服务器执行任意命令）。
     """
-    _require_flag(str(user.user_id), db, "can_add_mcp", "自助添加 MCP")
+    await run_in_session(
+        lambda db: _require_flag(str(user.user_id), db, "can_add_mcp", "自助添加 MCP")
+    )
 
     if not body.url.strip():
         raise BadRequestError(message="url 不能为空")
@@ -100,7 +102,6 @@ async def create_my_mcp_server(
         transport=body.transport,
         url=body.url.strip(),
         headers=body.headers or {},
-        is_stable=False,  # user-private MCPs don't enter the warmup connection pool
         is_enabled=True,
         owner_user_id=str(user.user_id),
         icon=body.icon,
@@ -109,14 +110,18 @@ async def create_my_mcp_server(
         created_by=str(user.user_id),
     )
 
-    ok, err = await probe_mcp_connectivity(row, db)
+    ok, err = await probe_mcp_connectivity(row, validate=True)
     if not ok:
         raise BadRequestError(message=f"MCP 连接失败，无法添加：{err}")
 
     row.headers = encrypt_mcp_headers(body.headers)
-    db.add(row)
-    db.commit()
-    db.refresh(row)
+
+    def save(db: Session) -> None:
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+
+    await run_in_session(save)
     refresh_mcp_caches()
 
     return created_response(
@@ -159,7 +164,7 @@ def delete_my_mcp_server(
 
 
 @router.post("/skills/upload", status_code=201, summary="自助上传私有技能")
-async def upload_my_skill(
+def upload_my_skill(
     file: UploadFile = File(...),
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -171,14 +176,14 @@ async def upload_my_skill(
     """
     if has_run_capabilities():
         return created_response(
-            data=local_editor.install_archive(str(user.user_id), await file.read())
+            data=local_editor.install_archive(str(user.user_id), file.file.read())
         )
     _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
 
     if not file.filename or not file.filename.endswith(".zip"):
         raise BadRequestError(message="仅接受 .zip 技能包")
 
-    data = await file.read()
+    data = file.file.read()
     if len(data) > USER_SKILL_MAX_BYTES:
         raise BadRequestError(
             message=f"技能包过大（上限 {USER_SKILL_MAX_BYTES // (1024 * 1024)}MB）"

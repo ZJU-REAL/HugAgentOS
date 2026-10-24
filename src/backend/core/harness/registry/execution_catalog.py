@@ -1,5 +1,6 @@
 """Host-owned execution catalog selection, optional on cloud-only hosts."""
 from __future__ import annotations
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 class ExecutionCatalog(Protocol):
@@ -8,7 +9,6 @@ class ExecutionCatalog(Protocol):
     def apply_to_enabled_mcp_ids(self, ids: list[str] | None) -> list[str] | None: ...
     def apply_to_enabled_skill_ids(self, ids: list[str] | None) -> list[str] | None: ...
     def cloud_gateway_mcp_configs(self, enabled_mcp_ids=None, *, resolution_out=None, unavailable_out=None) -> dict: ...
-
 
 
 def register_execution_catalog(provider: ExecutionCatalog | None) -> None:
@@ -39,19 +39,13 @@ def authorizes_manager(user_id, server_id, manager):
     return bool(config and config.get("gateway_plugin") == manager)
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-
-@state_dataclass
+@dataclass
 class RegistrationState:
-    """Process-owned registrations; replace only while the host is quiescent."""
     provider: ExecutionCatalog | None = None
 
 
-@state_cache(maxsize=1)
-def registration_state() -> RegistrationState:
-    return RegistrationState()
+_REGISTRATIONS = RegistrationState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-registration_state()
+
+def registration_state() -> RegistrationState:
+    return _REGISTRATIONS

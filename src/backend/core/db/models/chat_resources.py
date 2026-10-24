@@ -1,18 +1,18 @@
-"""chat resources responsibilities."""
+"""ORM models for message feedback, sandbox snapshots and tool media blobs."""
 from __future__ import annotations
 from core.db.utc_datetime import UTCDateTime
 from core.infra.time import utc_now
 from datetime import datetime, timezone
 from core.db.engine import Base
 from sqlalchemy import BigInteger, CheckConstraint, Column, ForeignKey, LargeBinary, Index, Integer, String, Text
-from core.db.models import chat_state as chat_state_module
+from core.db.models.column_types import BigIntPK, JSONType
 
 class MessageFeedback(Base):
     """Message feedback table - stores like/dislike ratings and optional comments."""
 
     __tablename__ = "message_feedback"
 
-    feedback_id = Column(chat_state_module.BigIntPK, primary_key=True, autoincrement=True)
+    feedback_id = Column(BigIntPK, primary_key=True, autoincrement=True)
     message_id = Column(
         String(64),
         ForeignKey("chat_messages.message_id", ondelete="CASCADE"),
@@ -73,7 +73,7 @@ class ChatSandboxSnapshot(Base):
     )  # created_at + SNAPSHOT_RETENTION_DAYS
     size_bytes = Column(BigInteger)  # for metrics, nullable
     extra = Column(
-        "metadata", chat_state_module.JSONType, default=dict
+        "metadata", JSONType, default=dict
     )  # reserved: image uri / pool kind / notes
 
     __table_args__ = (

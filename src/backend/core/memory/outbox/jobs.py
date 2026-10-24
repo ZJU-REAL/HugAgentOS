@@ -11,8 +11,9 @@ from core.db.models import MemoryOutbox
 from core.memory.context import MemoryContext
 from core.memory.extractors.router import ExtractorType
 
+from core.memory.outbox import common
+
 logger = logging.getLogger(__name__)
-from core.memory.outbox import common as common
 
 
 async def _extract_candidates(

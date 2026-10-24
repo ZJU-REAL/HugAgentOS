@@ -1,6 +1,6 @@
-"""modes responsibilities."""
+"""Create, edit and resolve chat modes, including marketplace skill bindings."""
 from __future__ import annotations
-from core.llm import prompt_kinds as prompt_kinds_module
+from core.llm import prompt_kinds
 from core.infra.time import utc_now
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
@@ -9,11 +9,15 @@ from core.infra.exceptions import BadRequestError, ResourceNotFoundError
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 import logging
-logger = logging.getLogger(__name__)
 from core.chat import mode_seed
 from core.chat import mode_types
 from core.chat import mode_validation
-from core.chat import modes_state
+
+logger = logging.getLogger(__name__)
+
+
+MARKET_PREFIX = "market:"
+
 
 class ChatModeService:
     def __init__(self, db: Session):
@@ -186,7 +190,6 @@ class ChatModeService:
         return row
 
 
-
     # ── 可选能力清单 ────────────────────────────────────────────────────
 
     def available_capabilities(self, owner_user_id: Optional[str]) -> Dict[str, Any]:
@@ -294,17 +297,17 @@ class ChatModeService:
         # 提示词 tab 清单：只发给管理端（owner=None）。普通用户看不到「提示词管理」，
         # 给他一个分类下拉等于让他绑一个自己既看不到内容、也改不了正文的黑盒——
         # 私有模式的提示词只有手写正文一条路。
-        prompt_kinds: List[Dict[str, Any]] = []
+        kinds: List[Dict[str, Any]] = []
         if owner_user_id is None:
             try:
                 from core.llm import prompt_versions as _pvs
 
-                prompt_kinds = prompt_kinds_module.all_kinds(self.db)
+                kinds = prompt_kinds.all_kinds(self.db)
             except Exception:  # noqa: BLE001
                 logger.debug("[chat_mode] 提示词 kind 清单读取失败", exc_info=True)
 
         return {
-            "prompt_kinds": prompt_kinds,
+            "prompt_kinds": kinds,
             "mcp": resources.get("mcp_servers") or [],
             "skills": skills,
             "plugins": resources.get("plugins") or [],
@@ -339,7 +342,7 @@ class ChatModeService:
                     continue
                 skills.append(
                     {
-                        "id": f"{modes_state.MARKET_PREFIX}{slug}",
+                        "id": f"{MARKET_PREFIX}{slug}",
                         "name": item.get("display_name") or slug,
                         "description": item.get("summary") or "",
                         "source": "market",
@@ -356,7 +359,7 @@ class ChatModeService:
                     continue
                 agents.append(
                     {
-                        "id": f"{modes_state.MARKET_PREFIX}{slug}",
+                        "id": f"{MARKET_PREFIX}{slug}",
                         "name": item.get("display_name") or item.get("name") or slug,
                         "description": item.get("summary") or item.get("description") or "",
                         "source": "market",
@@ -376,7 +379,7 @@ class ChatModeService:
                     continue
                 plugins.append(
                     {
-                        "id": f"{modes_state.MARKET_PREFIX}{slug}",
+                        "id": f"{MARKET_PREFIX}{slug}",
                         "name": item.get("name") or slug,
                         "description": item.get("description") or item.get("summary") or "",
                         "source": "market",
@@ -400,15 +403,15 @@ class ChatModeService:
             ("plugin_ids", "plugin"),
         ):
             ids = out.get(key)
-            if not isinstance(ids, list) or not any(str(i).startswith(modes_state.MARKET_PREFIX) for i in ids):
+            if not isinstance(ids, list) or not any(str(i).startswith(MARKET_PREFIX) for i in ids):
                 continue
             resolved: List[str] = []
             for raw in ids:
                 sid = str(raw)
-                if not sid.startswith(modes_state.MARKET_PREFIX):
+                if not sid.startswith(MARKET_PREFIX):
                     resolved.append(sid)
                     continue
-                slug = sid[len(modes_state.MARKET_PREFIX):]
+                slug = sid[len(MARKET_PREFIX):]
                 try:
                     if installer == "skill":
                         from core.harness.registry.marketplace_catalog import marketplace_catalog

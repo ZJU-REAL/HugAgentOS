@@ -14,7 +14,7 @@ def client_factory() -> ClientFactory:
 def register_mcp_client_factory(factory: Callable[..., Any]) -> None:
     client_factory().create = factory
 
-def make_client(*args, **kwargs):
+def discover_tools(*args, **kwargs):
     factory = client_factory().create
     if factory is None:
         raise RuntimeError("MCP client factory is not registered")

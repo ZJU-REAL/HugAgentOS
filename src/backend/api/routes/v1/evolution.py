@@ -93,7 +93,7 @@ async def list_my_candidates(user: UserContext = Depends(get_current_user)):
     from other people's conversations activates for the whole fleet, and that is
     not one person's call to make.
     """
-    from core.evolution.profiles.user_settings_state import OWN_EVIDENCE_THRESHOLD
+    from core.evolution.profiles.user_settings_constants import OWN_EVIDENCE_THRESHOLD
     from core.evolution.profiles.personal_review import pending_for_user
 
     return success_response(

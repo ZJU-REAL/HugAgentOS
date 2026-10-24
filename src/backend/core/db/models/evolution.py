@@ -12,12 +12,9 @@ can be reconstructed without back-filling a new column across the whole codebase
 from core.db.utc_datetime import UTCDateTime
 from core.infra.time import utc_now
 
-from datetime import datetime
 
 from core.db.engine import Base
 from sqlalchemy import (
-    JSON,
-    BigInteger,
     Boolean,
     CheckConstraint,
     Column,
@@ -28,10 +25,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB
-
-JSONType = JSON().with_variant(JSONB(), "postgresql")
-BigIntPK = BigInteger().with_variant(Integer(), "sqlite")
+from core.db.models.column_types import JSONType
 
 
 class EvolutionEpisode(Base):

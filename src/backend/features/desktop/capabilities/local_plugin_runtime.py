@@ -3,6 +3,7 @@ import json
 from features.desktop.capabilities import registry, store
 from core.capabilities.identity_rules import LOCAL_PROFILE
 from features.desktop.capabilities.paths import capabilities_enabled
+from core.capabilities.mcp.service import rewrite_builtin_mcp_host
 
 
 def enabled_for(inst, user_id):
@@ -27,7 +28,10 @@ def configs(user_id, enabled_only=True):
             if enabled_only and not entry.get("enabled", True):
                 continue
             config = json.loads(json.dumps(entry).replace("{plugin_root}", str(comp.path / "package").replace("\\", "\\\\")))
-            config.update(source_plugin=inst.key, owner_user_id=user_id, origin="local_plugin", execution_scope="local", is_stable=False)
+            if config.get("url"):
+                # Packaged manifests name the compose host; local planes listen elsewhere.
+                config["url"] = rewrite_builtin_mcp_host(config["url"])
+            config.update(source_plugin=inst.key, owner_user_id=user_id, origin="local_plugin", execution_scope="local")
             executor = definition.get("manager_executor")
             if executor:
                 from core.capabilities.plugins.management.contract import tools, VERSION

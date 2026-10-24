@@ -30,9 +30,9 @@ ever filtered, so this cannot hide a capability a person created.
 from __future__ import annotations
 
 import logging
-from typing import Dict, Iterable, List, Optional, Sequence, Set
+from typing import Dict, Iterable, List, Sequence, Set
 
-from core.evolution.cycle.activation_state import EVOLUTION_PREFIX
+from core.evolution.cycle.activation_constants import EVOLUTION_PREFIX
 
 logger = logging.getLogger(__name__)
 

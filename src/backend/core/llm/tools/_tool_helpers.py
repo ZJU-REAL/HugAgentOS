@@ -6,11 +6,10 @@ functions share them. ``core.llm.tool`` re-exports these for compatibility.
 
 import json
 import logging
-from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from agentscope.message import TextBlock
-from agentscope.tool._response import ToolChunk as ToolResponse
+from agentscope.tool._response import ToolChunk
 from core.config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -27,9 +26,9 @@ logger = logging.getLogger(__name__)
 
 
 
-def resp_json(payload: dict[str, Any]) -> ToolResponse:
-    """Helper: wrap a JSON-serializable dict as a single-text-block ToolResponse."""
-    return ToolResponse(
+def resp_json(payload: dict[str, Any]) -> ToolChunk:
+    """Helper: wrap a JSON-serializable dict as a single-text-block ToolChunk."""
+    return ToolChunk(
         content=[
             TextBlock(
                 type="text",

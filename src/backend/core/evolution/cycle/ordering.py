@@ -1,17 +1,17 @@
-"""ordering responsibilities."""
+"""Learn tool orderings that hold across successful episodes and apply them."""
 from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
-from core.evolution.cycle import patterns as patterns_module
-from core.evolution.cycle import promotion_state as promotion_state_module
-from core.evolution.cycle import promotion_types as promotion_types_module
+from core.evolution.cycle import patterns
+from core.evolution.cycle import promotion_constants
+from core.evolution.cycle import promotion_types
 
 def extract_ordering_constraints(
     episodes: Sequence[Dict[str, Any]],
     *,
-    min_support: int = promotion_state_module.MIN_SUPPORT,
-    min_contexts: int = promotion_state_module.MIN_CONSTRAINT_CONTEXTS,
-) -> List[promotion_types_module.OrderingConstraint]:
+    min_support: int = promotion_constants.MIN_SUPPORT,
+    min_contexts: int = promotion_constants.MIN_CONSTRAINT_CONTEXTS,
+) -> List[promotion_types.OrderingConstraint]:
     """Find orderings that hold *invariantly* across successful episodes.
 
     Conflicting evidence vetoes a constraint outright rather than letting the
@@ -28,7 +28,7 @@ def extract_ordering_constraints(
         tools = [str(t) for t in (episode.get("tool_sequence") or [])]
         if len(tools) < 2:
             continue
-        shape = patterns_module.pattern_signature(sorted(set(tools)))
+        shape = patterns.pattern_signature(sorted(set(tools)))
         task_type = str(episode.get("task_type") or "unknown")
         for i, earlier in enumerate(tools):
             for later in tools[i + 1 :]:
@@ -37,7 +37,7 @@ def extract_ordering_constraints(
                 forward[(earlier, later)].add(shape)
                 by_task_type[(earlier, later)].add(task_type)
 
-    constraints: List[promotion_types_module.OrderingConstraint] = []
+    constraints: List[promotion_types.OrderingConstraint] = []
     for (a, b), shapes in forward.items():
         validated = by_task_type[(a, b)]
         contradicted = by_task_type.get((b, a), set())
@@ -61,7 +61,7 @@ def extract_ordering_constraints(
         if support < min_support or len(shapes) < min_contexts:
             continue
         constraints.append(
-            promotion_types_module.OrderingConstraint(
+            promotion_types.OrderingConstraint(
                 before=a,
                 after=b,
                 support=support,
@@ -77,7 +77,7 @@ def extract_ordering_constraints(
 
 def apply_ordering_constraints(
     tools: Sequence[str],
-    constraints: Sequence[promotion_types_module.OrderingConstraint],
+    constraints: Sequence[promotion_types.OrderingConstraint],
     task_type: Optional[str] = None,
 ) -> List[str]:
     """Reorder a task's tools to satisfy every applicable constraint.

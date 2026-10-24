@@ -1,9 +1,10 @@
-"""usage evidence responsibilities."""
+"""Skill usage, canary uplift and exposure measured from episode evidence."""
 from __future__ import annotations
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 import logging
+from core.evolution.cycle import cycle_extras_constants
+
 logger = logging.getLogger(__name__)
-from core.evolution.cycle import cycle_extras_state as cycle_extras_state_module
 
 def is_after(created_at: Any, activated_at: Any) -> bool:
     from datetime import timezone
@@ -234,7 +235,7 @@ def uplift_from_canary(
         # Both arms need enough turns for a rate to mean anything. A one-sided
         # or tiny comparison produces a number that looks like evidence and is
         # not, and this number can trigger an immediate rollback.
-        if len(exposed) < cycle_extras_state_module.MIN_UPLIFT_SAMPLES or len(withheld) < cycle_extras_state_module.MIN_UPLIFT_SAMPLES:
+        if len(exposed) < cycle_extras_constants.MIN_UPLIFT_SAMPLES or len(withheld) < cycle_extras_constants.MIN_UPLIFT_SAMPLES:
             uplift[skill_id] = None
             continue
         uplift[skill_id] = (sum(exposed) / len(exposed)) - (

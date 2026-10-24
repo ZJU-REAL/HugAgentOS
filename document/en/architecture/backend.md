@@ -145,9 +145,9 @@ The runner depends only on process and path primitives that do not load backend 
 |---|---|
 | `core/chat` | Workflow context assembly (`context.py`), SSE tool-log event construction (`tool_log.py`) |
 | `core/files/content` | Attachment parsing (`file_parser.py`), KB document chunking/keywords/vectorization (`kb_processing.py`), upload validation (`file_validation.py`), artifact reading and summaries (`artifact_reader/refs/summary.py`), content-block import/export (`content_blocks.py`), `svg_fit.py` |
-| `core/kb` / `edition_ee/kb` | Shared private-KB parsing and Milvus vector storage stay in `core/kb`; the Dify client and external retrieval adapter live only in `edition_ee/kb` (EE) |
+| `features/knowledge` / `edition_ee/kb` | Shared private-KB parsing and Milvus vector storage stay in `features/knowledge`; the Dify client and external retrieval adapter live only in `edition_ee/kb` (EE) |
 | `core/files/artifacts` | Artifact store `store.py`: local / OSS dual mode |
-| `core/infra` | Unified responses (`responses.py`), exceptions (`exceptions.py`), structured logging (`logging.py`), rate limiting (`rate_limit.py`), Redis singleton (`redis.py`), metrics (`metrics.py`), background-task registry (`runtime_state.py`), data masking (`data_masking.py`), distillation budget gates (`distillation_budget.py`, Enterprise Edition, EE) |
+| `core/infra` | Unified responses (`responses.py`), exceptions (`exceptions.py`), structured logging (`logging.py`), Redis singleton (`redis.py`), metrics (`metrics.py`), background-task registry (`runtime_state.py`), data masking (`data_masking.py`), distillation budget gates (`distillation_budget.py`, Enterprise Edition, EE) |
 | `edition_ee/licensing` | Feature enums, signature verification, clock guard, seat policy, middleware, and the manager all exist only in EE; the CE tree has no License package and gets a fixed edition probe from its `api/middleware/edition.py` overlay |
 | `core/files/storage` | Storage protocol `protocol.py` + factory `factory.py`; `local.py` (CE), `s3.py` / `oss.py` (Enterprise Edition, EE) |
 
@@ -219,8 +219,8 @@ CE routes live under `api/routes/v1/`; physically split commercial routes live u
 | App entry and startup hooks | `src/backend/api/app.py` |
 | Router registry | `src/backend/api/routes/v1/__init__.py` |
 | Agent factory | `src/backend/core/llm/factory/build.py` |
-| Run executor / workflow | `src/backend/orchestration/chat_run_executor.py`, `workflow.py` |
-| Capability catalog | `src/backend/core/config/catalog.py` |
+| Run executor / workflow | `src/backend/core/chat/runtime/`, `workflow.py` |
+| Capability catalog | `src/backend/core/capabilities/catalog/` |
 | Sandbox protocol | `src/backend/core/sandbox/protocol.py` |
 | Memory pipeline | `src/backend/core/memory/pipeline.py` |
 | EE License implementation / CE edition middleware | `src/backend/edition_ee/licensing/`, `src/backend/api/middleware/edition.py` |

@@ -154,7 +154,6 @@ def backfill_episodes(
     start = end - timedelta(days=days)
 
     stats = {"scanned": 0, "created": 0, "skipped": 0, "batches": 0}
-    offset = 0
 
     while True:
         if max_batches is not None and stats["batches"] >= max_batches:

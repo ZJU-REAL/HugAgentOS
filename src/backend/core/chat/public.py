@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from core.db.models import ContentBlock, UserApiKey, UserShadow
 from core.infra.crypto import decrypt_secret, encrypt_secret
-from core.auth.api_keys import ApiKeyService, resolve_api_key_identity
+from core.auth.api_keys import ApiKeyService
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 

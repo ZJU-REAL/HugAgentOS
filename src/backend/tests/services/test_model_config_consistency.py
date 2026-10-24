@@ -91,3 +91,45 @@ print(service.resolve('subagent'), flush=True)
                 child.kill()
                 child.wait()
     engine.dispose()
+
+
+def test_current_snapshot_is_served_while_another_thread_reloads(db_session, monkeypatch):
+    import threading
+
+    monkeypatch.setattr(model_config, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
+    provider = create_provider(
+        db_session,
+        display_name="main",
+        provider_type="chat",
+        base_url="http://example.invalid",
+        api_key="test",
+        model_name="main",
+    )
+    assign_role(db_session, "main_agent", provider.provider_id)
+    service = ModelConfigService()
+    assert service.resolve("main_agent").model_name == "main"
+
+    # A reload in progress elsewhere must not hold up lookups whose revision matches.
+    with service._refresh_lock:
+        result = []
+        reader = threading.Thread(target=lambda: result.append(service.resolve("main_agent")))
+        reader.start()
+        reader.join(timeout=5)
+        assert not reader.is_alive()
+    assert result[0].model_name == "main"
+
+
+def test_context_length_falls_back_to_unassigned_providers(db_session, monkeypatch):
+    monkeypatch.setattr(model_config, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
+    create_provider(
+        db_session,
+        display_name="spare",
+        provider_type="chat",
+        base_url="http://example.invalid",
+        api_key="test",
+        model_name="spare",
+        extra_config={"context_length": 32768},
+    )
+    service = ModelConfigService()
+    assert service.get_context_length_by_model_name("spare") == 32768
+    assert service.get_context_length_by_model_name("missing") is None

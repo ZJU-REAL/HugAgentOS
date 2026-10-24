@@ -39,6 +39,7 @@ async def test_one_sandbox_with_no_personal_mounts(sdk):
     assert create.call_count == 1
     assert create.call_args.kwargs["volumes"] is None
     assert create.call_args.kwargs["env"] is None
+    assert create.call_args.kwargs["skip_health_check"] is False
     await service.upload(item["lease_id"], "owner", "/attempt/workspace/input.bin", b"data")
     await service.execute(item["lease_id"], "owner", argv=["python3", "-c", "print(1)"])
     assert all(call.args[0] == sandbox.id for call in connect.call_args_list)

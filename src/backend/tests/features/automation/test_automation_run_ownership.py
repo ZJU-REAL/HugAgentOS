@@ -1,5 +1,6 @@
 """An obsolete executor cannot overwrite an adopted or terminal run."""
 
+from tests.features.automation.run_fixtures import running_run
 import importlib.util
 from pathlib import Path
 
@@ -13,8 +14,8 @@ from sqlalchemy.orm import sessionmaker
 
 
 @pytest.fixture
-def factory():
-    engine = create_engine("sqlite://")
+def factory(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'ownership.sqlite'}")
     ScheduledTaskRun.__table__.create(engine)
     yield sessionmaker(bind=engine)
     engine.dispose()
@@ -23,7 +24,7 @@ def factory():
 def test_takeover_rejects_old_completion_and_terminal_rewrites(factory):
     with factory() as db:
         repository = AutomationRunRepository(db)
-        run_id = repository.start("task", "old").run_id
+        run_id = running_run(db, "task", "old").run_id
         assert repository.claim(run_id, "new", expected_token="old")
         assert repository.complete(run_id, lease_token="old", status="failed") is None
         completed = repository.complete(
@@ -36,10 +37,13 @@ def test_takeover_rejects_old_completion_and_terminal_rewrites(factory):
         assert db.get(ScheduledTaskRun, run_id).result_summary == "accepted"
 
 
-def test_legacy_running_row_requires_claim_before_completion(factory):
+def test_pending_row_requires_claim_before_completion(factory):
     with factory() as db:
         repository = AutomationRunRepository(db)
-        run_id = repository.start("legacy").run_id
+        run = ScheduledTaskRun(run_id="pending", task_id="task", status="pending")
+        db.add(run)
+        db.commit()
+        run_id = run.run_id
         assert repository.complete(run_id, lease_token="new", status="success") is None
         assert repository.claim(run_id, "new", expected_token=None)
         assert repository.complete(run_id, lease_token="new", status="success") is not None
@@ -48,7 +52,7 @@ def test_legacy_running_row_requires_claim_before_completion(factory):
 def test_conditional_result_can_rollback_with_task_bookkeeping(factory):
     with factory() as db:
         repository = AutomationRunRepository(db)
-        run_id = repository.start("task", "owner").run_id
+        run_id = running_run(db, "task", "owner").run_id
         assert (
             repository.complete(run_id, lease_token="owner", status="success", commit=False)
             is not None
@@ -94,7 +98,7 @@ def test_migration_preserves_existing_rows_and_roundtrips(relative):
 def test_delayed_claim_cannot_replace_a_newer_claim(factory):
     with factory() as db:
         repository = AutomationRunRepository(db)
-        run_id = repository.start("task", "original").run_id
+        run_id = running_run(db, "task", "original").run_id
         assert repository.claim(run_id, "current", expected_token="original")
         assert not repository.claim(run_id, "late", expected_token="original")
         assert repository.complete(run_id, lease_token="current", status="success") is not None
@@ -108,7 +112,7 @@ async def test_obsolete_observer_does_not_cancel_adopted_child(factory, monkeypa
 
     with factory() as db:
         repository = AutomationRunRepository(db)
-        run_id = repository.start("task", "old").run_id
+        run_id = running_run(db, "task", "old").run_id
     monkeypatch.setattr(conversation.db_engine, "SessionLocal", factory)
     entered = asyncio.Event()
     cancelled = []
@@ -152,7 +156,7 @@ async def test_expired_recovery_claimant_leaves_new_ownership_untouched(factory,
     state = ephemeral.LocalEphemeralState()
     monkeypatch.setattr(ephemeral, "get_ephemeral_state", lambda: state)
     with factory() as db:
-        run_id = AutomationRunRepository(db).start("task", "original").run_id
+        run_id = running_run(db, "task", "original").run_id
     scheduler = AutomationScheduler()
     assert await scheduler._acquire_lock("task")
     lease = scheduler._leases["task"]
@@ -181,7 +185,7 @@ async def test_recovery_stops_before_claiming_next_run_after_lease_loss(factory,
     with factory() as db:
         repository = AutomationRunRepository(db)
         for i in range(2):
-            run = repository.start("task", "original")
+            run = running_run(db, "task", "original")
             run.chat_id = f"chat-{i}"
             db.commit()
     scheduler = AutomationScheduler()
@@ -190,12 +194,12 @@ async def test_recovery_stops_before_claiming_next_run_after_lease_loss(factory,
     calls = []
     adopted = []
 
-    async def resume(*args, resume_run_id):
-        calls.append(resume_run_id)
+    async def resume(*args, run_id):
+        calls.append(run_id)
         await state.put(lease.key, "replacement", ttl=60)
         with factory() as db:
             other = (
-                db.query(ScheduledTaskRun).filter(ScheduledTaskRun.run_id != resume_run_id).one()
+                db.query(ScheduledTaskRun).filter(ScheduledTaskRun.run_id != run_id).one()
             )
             adopted.append(other.run_id)
             assert AutomationRunRepository(db).claim(
@@ -224,7 +228,7 @@ async def test_recovery_reloads_child_link_created_before_claim(factory, monkeyp
     state = ephemeral.LocalEphemeralState()
     monkeypatch.setattr(ephemeral, "get_ephemeral_state", lambda: state)
     with factory() as db:
-        run_id = AutomationRunRepository(db).start("task", "original").run_id
+        run_id = running_run(db, "task", "original").run_id
     original_claim = AutomationRunRepository.claim
 
     def link_then_claim(self, run_id, token, *, expected_token):
@@ -237,8 +241,8 @@ async def test_recovery_reloads_child_link_created_before_claim(factory, monkeyp
 
     resumed = []
 
-    async def resume(*args, resume_run_id):
-        resumed.append(resume_run_id)
+    async def resume(*args, run_id):
+        resumed.append(run_id)
 
     monkeypatch.setattr(AutomationRunRepository, "claim", link_then_claim)
     monkeypatch.setattr(automation_dispatch, "execute_task", resume)

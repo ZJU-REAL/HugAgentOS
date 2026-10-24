@@ -16,6 +16,7 @@ import json
 import logging
 import re
 import time
+from dataclasses import dataclass
 from typing import Any, Optional
 
 from core.config.settings import settings
@@ -214,8 +215,6 @@ def _clean_list(items: list) -> list[str]:
 # ── Singleton ──────────────────────────────────────────────────────────
 
 
-
-
 def get_followup_generator() -> FollowUpGenerator:
     pass
     if process_state().instance is None:
@@ -223,17 +222,13 @@ def get_followup_generator() -> FollowUpGenerator:
     return process_state().instance
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class FollowupsState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
     instance: FollowUpGenerator | None = None
 
-@state_cache(maxsize=1)
-def process_state() -> FollowupsState:
-    return FollowupsState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+_STATE = FollowupsState()
+
+
+def process_state() -> FollowupsState:
+    return _STATE

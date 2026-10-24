@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import logging
+from dataclasses import dataclass, field
 from threading import Lock
 from time import monotonic
 from typing import Any, Dict, List, Optional
@@ -33,8 +34,6 @@ DEFAULT_MCP_ICONS: Dict[str, str] = {
 }
 _DATABASE_QUERY_ENABLED_CONFIG = "database_query.capability_enabled"
 _RUNTIME_DB_CACHE_TTL = 30.0
-
-
 
 
 def invalidate_runtime_catalog_cache() -> None:
@@ -68,7 +67,6 @@ def merge_items_by_id(
             index[item_id] = len(merged)
             merged.append(dict(item))
     return merged
-
 
 
 def _public_db_skill_items(db: Session, *, include_runtime_details: bool) -> List[Dict[str, Any]]:
@@ -173,8 +171,6 @@ def _config_bool(db: Session, key: str, default: bool) -> bool:
     except Exception as exc:  # noqa: BLE001
         logger.debug("runtime catalog config bool lookup failed for %s: %s", key, exc)
         return default
-
-
 
 
 def _set_database_query_state(catalog: Dict[str, Any], enabled: bool) -> None:
@@ -292,18 +288,14 @@ def get_runtime_catalog(
     return catalog
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class RuntimeState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    runtime_db_cache: Dict[bool, tuple[float, bool, List[Dict[str, Any]], List[Dict[str, Any]]]] = state_field(default_factory=lambda: {})
-    runtime_db_cache_lock: object = state_field(default_factory=lambda: Lock())
+    runtime_db_cache: Dict[bool, tuple[float, bool, List[Dict[str, Any]], List[Dict[str, Any]]]] = field(default_factory=lambda: {})
+    runtime_db_cache_lock: object = field(default_factory=lambda: Lock())
 
-@state_cache(maxsize=1)
+
+_STATE = RuntimeState()
+
+
 def process_state() -> RuntimeState:
-    return RuntimeState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

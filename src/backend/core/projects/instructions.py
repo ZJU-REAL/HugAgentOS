@@ -4,14 +4,12 @@ Callers must authorize reads. Writes independently require project edit access.
 File content is authoritative; the database field is only a legacy fallback.
 """
 from __future__ import annotations
-from core.infra.time import utc_now
 
 import hashlib
 import os
 import stat
 import tempfile
-import uuid
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 

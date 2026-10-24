@@ -24,6 +24,7 @@ from typing import Optional
 from core.auth.backend import UserContext, get_current_user
 from core.config.settings import settings as _jx_settings
 from core.db.engine import get_db
+from core.db.threads import run_in_session
 from core.infra.responses import error_response, success_response
 from core.memory.context import MemoryContext
 from core.memory.access import authorized_memory_context
@@ -138,13 +139,37 @@ def update_memory_settings(
 # ── List / clear / delete single ────────────────────────────────
 
 
+def _list_scope(db: Session, user_id: str, project_id: Optional[str]):
+    """``(read enabled, memory owner)`` for the list view; None when the project is not visible.
+
+    In a project the project's own ``memory_enabled`` applies (its owner holds the
+    memories); otherwise the user's setting does.
+    """
+    if project_id:
+        from core.auth.edition import resolve_project_access
+        from core.db.models import Project
+
+        project = db.query(Project).filter_by(project_id=project_id, deleted_at=None).first()
+        if project is None or resolve_project_access(db, user_id, project).level == "none":
+            return None
+    return _graph_scope(db, user_id, project_id)
+
+
+def _graph_scope(db: Session, user_id: str, project_id: Optional[str]):
+    if project_id:
+        from core.projects.edition import project_memory_policy
+
+        return project_memory_policy(db, project_id, user_id) or (False, user_id)
+    settings = UserService(db).get_user_settings(user_id)
+    return bool(settings.get("memory_enabled", False)), user_id
+
+
 @router.get("", summary="查询长期记忆列表")
 async def list_memories(
     project_id: Optional[str] = Query(
         None, description="若指定，只返回属于该项目 workspace 的记忆"
     ),
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
     """L2 长期记忆列表（mem0/Milvus 向量）——只存"做法/口径"，不存事实。
 
@@ -161,23 +186,10 @@ async def list_memories(
     if not _jx_settings.memory.enabled:
         return success_response(data={"enabled": False, "items": [], "count": 0})
 
-    scope_user_id = str(user.user_id)
-    if project_id:
-        from core.projects.edition import project_memory_policy
-        from core.auth.edition import resolve_project_access
-        from core.db.models import Project
-
-        project = db.query(Project).filter_by(project_id=project_id, deleted_at=None).first()
-        if project is None or resolve_project_access(db, scope_user_id, project).level == "none":
-            return error_response(code=40401, message="项目不存在", status_code=404)
-        policy = project_memory_policy(db, project_id, scope_user_id)
-        if policy is None:
-            return success_response(data={"enabled": False, "items": [], "count": 0})
-        ws_enabled, scope_user_id = policy
-    else:
-        settings = UserService(db).get_user_settings(str(user.user_id))
-        ws_enabled = bool(settings.get("memory_enabled", False))
-
+    scope = await run_in_session(_list_scope, str(user.user_id), project_id)
+    if scope is None:
+        return error_response(code=40401, message="项目不存在", status_code=404)
+    ws_enabled, scope_user_id = scope
     if not ws_enabled:
         return success_response(data={"enabled": False, "items": [], "count": 0})
 
@@ -452,28 +464,15 @@ async def get_memory_graph(
     limit: int = Query(30, ge=1, le=200, description="返回关系条数"),
     project_id: Optional[str] = Query(None, description="若指定，返回该项目作用域的关系"),
     user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
     """L3 图谱记忆：当前用户或项目作用域的实体关系（Neo4j）。"""
     if not (_jx_settings.memory.enabled and _jx_settings.memory.graph_enabled):
         return success_response(data={"enabled": False, "relations": [], "count": 0})
 
-    scope_user_id = str(user.user_id)
-    workspace_id = "default"
-    if project_id:
-        from core.projects.edition import project_memory_policy
-
-        policy = project_memory_policy(db, project_id, scope_user_id)
-        if policy is None:
-            return success_response(data={"enabled": False, "relations": [], "count": 0})
-        ws_enabled, scope_user_id = policy
-        if not ws_enabled:
-            return success_response(data={"enabled": False, "relations": [], "count": 0})
-        workspace_id = f"project:{project_id}"
-    else:
-        user_settings = UserService(db).get_user_settings(str(user.user_id))
-        if not bool(user_settings.get("memory_enabled", False)):
-            return success_response(data={"enabled": False, "relations": [], "count": 0})
+    ws_enabled, scope_user_id = await run_in_session(_graph_scope, str(user.user_id), project_id)
+    if not ws_enabled:
+        return success_response(data={"enabled": False, "relations": [], "count": 0})
+    workspace_id = f"project:{project_id}" if project_id else "default"
 
     relations = await list_graph_relations(
         scope_user_id,

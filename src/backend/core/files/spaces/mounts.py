@@ -31,14 +31,12 @@ def mount_revision(grants):
 def provider_volume(grant):
     from opensandbox.models.sandboxes import Host, OSSFS, Volume
     from core.config.settings import settings
-    from core.files.storage import get_storage
 
     backend = os.getenv("STORAGE_TYPE", "local").lower()
     name = "space-" + fingerprint((grant,))[:24]
     if backend == "local":
         root = settings.storage.root.resolve()
         path = root / grant.prefix
-        get_storage().make_directory(grant.prefix)
         if path.is_symlink() or not path.resolve().is_relative_to(root):
             raise HTTPException(503, "Invalid local space root")
         host_root = settings.sandbox.opensandbox_host_storage_path
@@ -58,8 +56,6 @@ def provider_volume(grant):
     key_prefix = os.getenv("OSS_KEY_PREFIX", "").strip("/") if backend == "oss" else ""
     path = "/".join(part for part in (key_prefix, grant.prefix.rstrip("/")) if part)
     validate_key(path)
-    if grant.writable:
-        get_storage().make_directory(grant.prefix)
     options = ["hugagent_driver=s3fs", "allow_other", "uid=1000", "gid=1000",
         "umask=0022", "stat_cache_expire=0", "attr_timeout=0", "entry_timeout=0",
         "negative_timeout=0"]
@@ -79,9 +75,21 @@ def prepare_volumes(actor):
     from core.db.engine import SessionLocal
     with SessionLocal() as db:
         grants = resolve_grants(db, actor)
-        revision = mount_revision(grants)
-        volumes = [provider_volume(grant) for grant in grants]
-        db.expire_all()
-        if mount_revision(resolve_grants(db, actor)) != revision:
-            raise HTTPException(409, "Space permissions changed while preparing volumes")
-    return volumes, {MOUNT_REVISION_TAG: revision}
+        return [provider_volume(grant) for grant in grants], {MOUNT_REVISION_TAG: mount_revision(grants)}
+
+
+def provision_volumes(actor):
+    """Initialize directory roots once, at sandbox creation."""
+    from core.files.storage import get_storage
+    volumes, metadata = prepare_volumes(actor)
+    # Grants are represented by the authorized volume specifications. Resolve
+    # writable prefixes once for initialization, then verify the same revision.
+    from core.db.engine import SessionLocal
+    with SessionLocal() as db:
+        grants = resolve_grants(db, actor)
+        if mount_revision(grants) != metadata[MOUNT_REVISION_TAG]:
+            raise HTTPException(409, "Space permissions changed before provisioning")
+        for grant in grants:
+            if grant.writable or os.getenv("STORAGE_TYPE", "local").lower() == "local":
+                get_storage().make_directory(grant.prefix)
+    return volumes, metadata

@@ -50,7 +50,9 @@ def _payload(response) -> dict:
 class _Toolkit:
     fn = None
 
-    def register_tool_function(self, fn, **_kwargs):
+    def append(self, tool):
+        fn = tool._func
+        _kwargs = {"func_description": tool.description, "permission": getattr(tool, "dispatch_spec", None)}
         self.fn = fn
 
 

@@ -9,17 +9,14 @@ HugAgentOS supports several deployment methods, from "zero-dependency single-mac
 | Method | Best for | Docker | Database | Multi-user | Doc |
 |---|---|---|---|---|---|
 | **Windows desktop one-click install** | Personal Windows use; install the local service with the desktop client | Not required | SQLite | No (single user) | [windows-deployment.md](windows-deployment.md) |
-| **UOS 1070 ARM64 desktop** | UOS 1070 aarch64; Electron 43 `.deb` | Not required | SQLite / remote | Local single user / cloud multi-user | [uos1070-desktop.md](uos1070-desktop.md) |
 | **No-Docker quick install** | Personal single-machine trial, development experience; one command and you're running | Not required | SQLite | No (single user) | [quick-install.md](quick-install.md) |
 | **Docker Compose** | The standard form for teams / production — multi-user, full features | Required | PostgreSQL | Yes | [docker-compose.md](docker-compose.md) |
-| **Offline production (Enterprise Edition)** | Air-gapped environments (government intranets); image tarball offline delivery | Required | PostgreSQL | Yes | [offline-production.md](offline-production.md) |
 
 Cross-platform and reference:
 
 | Doc | Description |
 |---|---|
 | [Windows Deployment](windows-deployment.md) | Installing the desktop-managed local service, or running Compose through Docker Desktop and WSL2 |
-| [UOS 1070 ARM64 Desktop](uos1070-desktop.md) | Electron 43, glibc 2.28, ARM64 `.deb` build and acceptance |
 | [Environment Variables](environment-variables.md) | Complete variable reference (defaults / purpose / CE·EE relevance) |
 
 ## One-line comparison
@@ -31,7 +28,6 @@ Cross-platform and reference:
   single-user deployment.
 - **No-Docker quick install**: the fastest command-line path on Linux and macOS. Run `curl -fsSL https://raw.githubusercontent.com/ZJU-REAL/HugAgentOS/main/install.sh | bash`; the installer creates the admin account, configures the model, starts the server, and opens the browser. Data lives under `~/.hugagent/`. **Single process, single user** — ideal for personal trials and development, not for multi-user or production.
 - **Docker Compose**: the recommended standard deployment. All services are orchestrated by one `docker-compose.yml` (PostgreSQL + Redis + backend + MCP + frontend + sandbox), supporting multi-user, persistent sandboxes, layered memory, and every other capability.
-- **Offline production (EE)**: for isolated environments that cannot pull images online — build image tarballs on a connected machine, copy them to production, `docker load` + `compose up`. Part of the Enterprise Edition delivery scope.
 
 > For capability differences between the Community and Enterprise editions, see [Edition Comparison](../editions/overview.md).
 

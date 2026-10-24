@@ -1,8 +1,8 @@
-"""anchor state responsibilities."""
+"""Anchor patterns, length limits and tool lists for citations."""
 from __future__ import annotations
 import re
 from typing import Dict, Tuple
-from core.llm.citations import types as types_module
+from core.llm.citations import types
 
 ANCHOR_RE = re.compile(r"^e(\d+)$")
 
@@ -75,27 +75,27 @@ SKIP_TOOLS = frozenset(
 )
 
 
-TOOL_SPECS: Dict[str, types_module.CitationSpec] = {
+TOOL_SPECS: Dict[str, types.CitationSpec] = {
     # 检索/知识类（逐条）
-    "internet_search": types_module.CitationSpec(
+    "internet_search": types.CitationSpec(
         mode="list",
         items_paths=(("result", "results"), ("results",)),
         source_type="internet",
     ),
-    "retrieve_dataset_content": types_module.CitationSpec(
+    "retrieve_dataset_content": types.CitationSpec(
         mode="list", items_paths=(("items",),), source_type="knowledge_base"
     ),
-    "retrieve_local_kb": types_module.CitationSpec(
+    "retrieve_local_kb": types.CitationSpec(
         mode="list", items_paths=(("items",),), source_type="knowledge_base"
     ),
-    "wiki_fetch_source": types_module.CitationSpec(
+    "wiki_fetch_source": types.CitationSpec(
         mode="list", items_paths=(("items",),), source_type="knowledge_base"
     ),
-    "wiki_locate": types_module.CitationSpec(
+    "wiki_locate": types.CitationSpec(
         mode="list", items_paths=(("pages",),), source_type="knowledge_base"
     ),
-    "wiki_read_page": types_module.CitationSpec(mode="whole", title="Wiki 页面", source_type="knowledge_base"),
-    "web_fetch": types_module.CitationSpec(mode="whole", title="网页内容", source_type="internet"),
+    "wiki_read_page": types.CitationSpec(mode="whole", title="Wiki 页面", source_type="knowledge_base"),
+    "web_fetch": types.CitationSpec(mode="whole", title="网页内容", source_type="internet"),
     # 数据/报告类（整份）
-    "query_database": types_module.CitationSpec(mode="whole", title="数据库查询结果", source_type="database"),
+    "query_database": types.CitationSpec(mode="whole", title="数据库查询结果", source_type="database"),
 }

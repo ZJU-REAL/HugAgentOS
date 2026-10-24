@@ -189,7 +189,7 @@ def publish_uploaded_site(user_id, data, options):
 async def forward_local_site_tool(tool_name, arguments, *, user_id, chat_id=""):
     """Sites are cloud-hosted: a local site MCP's call goes to the cloud gateway plugin."""
     from core.llm.factory.tools.mcp_config import inject_runtime_headers as _inject_runtime_headers
-    from core.llm.mcp.pool import make_client
+    from core.llm.tools.cloud_manifest import manifest_tools
     from features.desktop.bridge.gateway import cloud_gateway_mcp_configs
     from features.desktop.bridge.identity import get_state, require_current_account
     from core.harness.registry.transfer_channels import endpoint_plugin
@@ -210,23 +210,22 @@ async def forward_local_site_tool(tool_name, arguments, *, user_id, chat_id=""):
             channel_origin=None,
             reranker_enabled=False,
         )
-        client = make_client(sid, configs[sid], is_stateful=False)
-        try:
-            tool = await client.get_tool(tool_name)
-            result = await tool(**arguments)
-            require_current_account(state)
-            if tool_name in {"manage_application", "publish_mcp"}:
-                data = {"content": [block.model_dump() for block in result.content]}
-                localize_application_result(data, state["cloud_base"])
-                return json.loads(
-                    next(block["text"] for block in data["content"] if block["type"] == "text")
-                )
-            for block in result.content:
-                if getattr(block, "type", None) == "text":
-                    return json.loads(block.text)
-            return {"error": f"云端 {tool_name} 结果未知，请在云端站点列表核对"}
-        finally:
-            await client.close()
+        tools = manifest_tools(sid, configs[sid])
+        tool = next((t for t in tools if t.name == tool_name), None)
+        if tool is None:
+            return {"error": "云端站点工具不可用"}
+        result = await tool(**arguments)
+        require_current_account(state)
+        if tool_name in {"manage_application", "publish_mcp"}:
+            data = {"content": [block.model_dump() for block in result.content]}
+            localize_application_result(data, state["cloud_base"])
+            return json.loads(
+                next(block["text"] for block in data["content"] if block["type"] == "text")
+            )
+        for block in result.content:
+            if getattr(block, "type", None) == "text":
+                return json.loads(block.text)
+        return {"error": f"云端 {tool_name} 结果未知，请在云端站点列表核对"}
     return {"error": "云端站点能力不可用，请启用云端站点插件后重试"}
 
 

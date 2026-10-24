@@ -11,6 +11,7 @@ from features.sites import password as site_password
 from features.sites.service import SiteService
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tests.db_support import share_session
 
 FILES = [("index.html", b"<h1>secret</h1>"), ("app.js", b"console.log(1)")]
 
@@ -38,6 +39,7 @@ def client(db_session, monkeypatch):
     app = FastAPI()
     app.include_router(sites_serve.router)
     app.dependency_overrides[get_db] = lambda: db_session
+    share_session(monkeypatch, db_session)
     from features.sites import rate_limit as site_rate_limit
     site_rate_limit._rate_buckets.clear()
     site_rate_limit._unlock_buckets.clear()
@@ -203,7 +205,7 @@ def test_manager_skips_the_gate_but_visitors_do_not(svc, owner, db_session):
     assert svc.authorize_access(site, None, site_password.issue_access_token(site))
 
 
-def test_management_endpoints_set_and_clear_the_password(svc, owner, db_session):
+def test_management_endpoints_set_and_clear_the_password(svc, owner, db_session, monkeypatch):
     """站点管理面板走的就是这两个接口——顺带确认 DELETE 没被 /{site_id} 抢走路由。"""
     from features.sites.api import sites as sites_routes
     from core.auth.backend import UserContext, get_current_user
@@ -211,6 +213,7 @@ def test_management_endpoints_set_and_clear_the_password(svc, owner, db_session)
     app = FastAPI()
     app.include_router(sites_routes.router)
     app.dependency_overrides[get_db] = lambda: db_session
+    share_session(monkeypatch, db_session)
     app.dependency_overrides[get_current_user] = lambda: UserContext(
         user_id=owner.user_id, user_center_id=owner.user_id, username=owner.user_id
     )

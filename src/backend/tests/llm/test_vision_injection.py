@@ -241,8 +241,8 @@ def _register_bridge_read_image():
 
     class _Toolkit:
         @staticmethod
-        def register_tool_function(fn, **kw):
-            captured["fn"] = fn
+        def append(tool):
+            captured["fn"] = tool._func
 
     register_read_image(_Toolkit(), chat_id="c1", user_id="u1", vision_mode="bridge")
     return captured["fn"]

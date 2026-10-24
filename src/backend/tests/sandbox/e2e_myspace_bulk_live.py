@@ -23,7 +23,7 @@ async def main():
         db.commit()
         _, raw = ApiKeyService(db).create_key(uid, "temporary bulk E2E", expires_in_days=1)
     tk = Toolkit()
-    register_bash(tk, loader=None, loaded_skill_ids=set(), chat_id=chat,
+    register_bash(tk, loader=None, chat_id=chat,
                   sandbox_session_id=chat, user_id=uid)
     metrics = {"user": uid}
 

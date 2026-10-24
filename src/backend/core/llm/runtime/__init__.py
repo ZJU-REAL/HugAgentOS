@@ -1,1 +1,1 @@
-"""runtime domain package."""
+"""The AgentScope execution boundary: streaming, hooks, state and tool adapters."""

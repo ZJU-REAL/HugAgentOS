@@ -17,6 +17,7 @@ import core.runs.ownership as ownership
 import core.runs.settings as settings
 import core.runs.tasks as tasks
 from core.infra.logging import get_logger
+from core.db.threads import run_in_session
 
 logger = get_logger(__name__)
 
@@ -186,7 +187,7 @@ async def reap_stale_runs() -> int:
     now = clock._utcnow()
     cutoff = now - _datetime.timedelta(seconds=settings._STALE_RUN_MAX_AGE_SEC)
     hard_cutoff = now - _datetime.timedelta(seconds=settings._HARD_MAX_AGE_SEC)
-    with engine.SessionLocal() as db:
+    def _stale_candidates(db):
         candidates = (
             db.query(
                 models.ChatRun.run_id,
@@ -203,6 +204,8 @@ async def reap_stale_runs() -> int:
             .filter(func.coalesce(models.ChatRun.started_at, models.ChatRun.created_at) < cutoff)
             .all()
         )
+        return candidates
+    candidates = await run_in_session(_stale_candidates)
     if not candidates:
         return 0
 

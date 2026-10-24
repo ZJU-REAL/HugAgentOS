@@ -1,5 +1,6 @@
 """Opt-in ownership races in a disposable schema on a local PostgreSQL."""
 
+from tests.features.automation.run_fixtures import running_run
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -51,7 +52,7 @@ def pg():
 
 def test_two_recovery_claimants_cannot_both_take_the_same_snapshot(pg):
     with pg() as db:
-        run_id = AutomationRunRepository(db).start("task", "old").run_id
+        run_id = running_run(db, "task", "old").run_id
     barrier = threading.Barrier(2)
 
     def claim(token):
@@ -71,7 +72,7 @@ def test_two_recovery_claimants_cannot_both_take_the_same_snapshot(pg):
 
 def test_old_cancellation_waits_for_takeover_and_cannot_cancel_its_child(pg):
     with pg() as db:
-        run_id = AutomationRunRepository(db).start("task", "old").run_id
+        run_id = running_run(db, "task", "old").run_id
     journal = RunJournal(pg)
     child = journal.accept(
         run_id="child",
@@ -109,7 +110,7 @@ def test_old_cancellation_waits_for_takeover_and_cannot_cancel_its_child(pg):
 
 def test_completion_waiting_on_takeover_rechecks_the_token(pg):
     with pg() as db:
-        run_id = AutomationRunRepository(db).start("task", "old").run_id
+        run_id = running_run(db, "task", "old").run_id
     updated, commit = threading.Event(), threading.Event()
 
     def takeover():
@@ -153,7 +154,7 @@ def test_additive_migration_preserves_rows_and_roundtrips_on_postgres(pg):
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
     with pg() as db:
-        run_id = AutomationRunRepository(db).start("task", "original").run_id
+        run_id = running_run(db, "task", "original").run_id
     with pg.kw["bind"].begin() as conn:
         migration.op = Operations(MigrationContext.configure(conn))
         migration.downgrade()

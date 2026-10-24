@@ -5,16 +5,18 @@ from tests.integrations.channels.bot_support import (
     _hist,
     _inbound,
     _mk_conn,
+    _share_sessions,
     asyncio,
     json,
     re,
 )
 
-def test_history_pull_is_incremental_and_dedupes(db_session):
+def test_history_pull_is_incremental_and_dedupes(db_session, monkeypatch):
     """第二次拉取必须以游标为下界，且边界重复的消息不能重复入库。"""
     from integrations.channels.inbound_sessions import find_or_create_session as _find_or_create_session
     from integrations.channels.inbound_history import pull_history as _pull_history
 
+    _share_sessions(monkeypatch, db_session)
     conn = _mk_conn(db_session)
     msg = _inbound("oc_g1", "group", mid="m_at1")
     session = _find_or_create_session(db_session, conn, msg)
@@ -28,11 +30,11 @@ def test_history_pull_is_incremental_and_dedupes(db_session):
         [_hist("h2", "地点 302", t0 + 1_000), _hist("h3", "带上季度数据", t0 + 2_000)],
     ])
 
-    assert asyncio.run(_pull_history(db_session, ad, conn, msg, session)) == 2
+    assert asyncio.run(_pull_history(ad, conn, msg, session.chat_id)) == 2
     assert ad.calls[0]["since_ms"] > 0, "首次拉取要有冷启动窗口下界，不能从 0 全量拉"
     assert ad.calls[0]["limit"] == 80
 
-    assert asyncio.run(_pull_history(db_session, ad, conn, msg, session)) == 1, "重复的不该再记一次"
+    assert asyncio.run(_pull_history(ad, conn, msg, session.chat_id)) == 1, "重复的不该再记一次"
     assert ad.calls[1]["since_ms"] == t0 + 1_000, "第二次必须从游标开始，而不是重新拉一遍窗口"
 
     db_session.refresh(session)
@@ -40,12 +42,13 @@ def test_history_pull_is_incremental_and_dedupes(db_session):
     assert texts == ["周三评审会", "地点 302", "带上季度数据"]
 
 
-def test_history_pull_respects_budget_and_truncation(db_session):
+def test_history_pull_respects_budget_and_truncation(db_session, monkeypatch):
     """总字数预算与单条截断都要生效——活跃群不能把提示词撑爆。"""
     from integrations.channels.inbound_state import HISTORY_MAX_TOTAL_CHARS as _HISTORY_MAX_TOTAL_CHARS, OBSERVE_TEXT_MAX as _OBSERVE_TEXT_MAX
     from integrations.channels.inbound_sessions import find_or_create_session as _find_or_create_session
     from integrations.channels.inbound_history import pull_history as _pull_history
 
+    _share_sessions(monkeypatch, db_session)
     conn = _mk_conn(db_session)
     msg = _inbound("oc_g2", "group", mid="m_at2")
     session = _find_or_create_session(db_session, conn, msg)
@@ -54,7 +57,7 @@ def test_history_pull_respects_budget_and_truncation(db_session):
     _now = int(_t.time() * 1000)
     big = [_hist(f"b{i}", "x" * 5000, _now - 60_000 + i) for i in range(10)]
     ad = _HistAdapter([big])
-    n = asyncio.run(_pull_history(db_session, ad, conn, msg, session))
+    n = asyncio.run(_pull_history(ad, conn, msg, session.chat_id))
 
     db_session.refresh(session)
     entries = (session.extra_data or {})["observed"]
@@ -63,11 +66,12 @@ def test_history_pull_respects_budget_and_truncation(db_session):
     assert sum(len(e["t"]) for e in entries) <= _HISTORY_MAX_TOTAL_CHARS, "总量要卡预算"
 
 
-def test_history_pull_records_attachment_handles(db_session):
+def test_history_pull_records_attachment_handles(db_session, monkeypatch):
     """历史里的文件同样只留句柄进索引，且带上 message_id 供后续按需取回。"""
     from integrations.channels.inbound_sessions import find_or_create_session as _find_or_create_session
     from integrations.channels.inbound_history import pull_history as _pull_history
 
+    _share_sessions(monkeypatch, db_session)
     conn = _mk_conn(db_session)
     msg = _inbound("oc_g3", "group", mid="m_at3")
     session = _find_or_create_session(db_session, conn, msg)
@@ -76,7 +80,7 @@ def test_history_pull_records_attachment_handles(db_session):
         _hist("hf1", "看下这个", int(__import__("time").time() * 1000) - 60_000,
               attachments=[{"kind": "file", "key": "fk_h", "name": "周报.docx"}]),
     ]])
-    asyncio.run(_pull_history(db_session, ad, conn, msg, session))
+    asyncio.run(_pull_history(ad, conn, msg, session.chat_id))
 
     db_session.refresh(session)
     idx = (session.extra_data or {})["observed_files"]
@@ -85,12 +89,13 @@ def test_history_pull_records_attachment_handles(db_session):
     assert idx["fk_h"]["raw"] == {"lark_message_id": "hf1"}
 
 
-def test_history_pull_degrades_and_stops_retrying(db_session):
+def test_history_pull_degrades_and_stops_retrying(db_session, monkeypatch):
     """拉取失败绝不能影响回复；连续失败到上限后不再重试，避免每条消息都白等一次超时。"""
     from integrations.channels.inbound_state import HISTORY_MAX_FAILURES as _HISTORY_MAX_FAILURES
     from integrations.channels.inbound_sessions import find_or_create_session as _find_or_create_session
     from integrations.channels.inbound_history import pull_history as _pull_history
 
+    _share_sessions(monkeypatch, db_session)
     conn = _mk_conn(db_session)
     msg = _inbound("oc_g4", "group", mid="m_at4")
     session = _find_or_create_session(db_session, conn, msg)
@@ -103,13 +108,13 @@ def test_history_pull_degrades_and_stops_retrying(db_session):
 
     bad = _Broken()
     for _ in range(_HISTORY_MAX_FAILURES + 3):
-        assert asyncio.run(_pull_history(db_session, bad, conn, msg, session)) == 0
+        assert asyncio.run(_pull_history(bad, conn, msg, session.chat_id)) == 0
     assert _Broken.calls == _HISTORY_MAX_FAILURES, "到上限后应停止重试"
 
     # 渠道没实现该钩子（钉钉当前状态）→ 直接跳过，不报错
     class _NoHook:
         pass
-    assert asyncio.run(_pull_history(db_session, _NoHook(), conn, msg, session)) == 0
+    assert asyncio.run(_pull_history(_NoHook(), conn, msg, session.chat_id)) == 0
 
 
 def test_lark_history_item_parsing():
@@ -254,7 +259,7 @@ def test_dingtalk_parse_dws_history_real_shape():
     assert p({}) == [] and p(None) == []
 
 
-def test_history_coldstart_takes_newest_end(db_session):
+def test_history_coldstart_takes_newest_end(db_session, monkeypatch):
     """冷启动要取窗口里**最新**的一批，不是最旧的——7 天窗口 + 条数上限下，取旧端等于
     把一周前的闲聊塞进来、而最近几天反而看不到。截断也必须砍旧的那头。"""
     import time as _t
@@ -263,6 +268,7 @@ def test_history_coldstart_takes_newest_end(db_session):
     from integrations.channels.inbound_sessions import find_or_create_session as _find_or_create_session
     from integrations.channels.inbound_history import pull_history as _pull_history
 
+    _share_sessions(monkeypatch, db_session)
     conn = _mk_conn(db_session)
     msg = _inbound("oc_cold", "group", mid="m_cold")
     session = _find_or_create_session(db_session, conn, msg)
@@ -271,7 +277,7 @@ def test_history_coldstart_takes_newest_end(db_session):
     # 单条先被截到 500 字，所以要够多条才会触到 12000 字总预算（约 24 条）
     batch = [_hist(f"c{i}", "x" * 4000, now - i * 60_000, name=f"甲{i:02d}") for i in range(30)]
     ad = _HistAdapter([batch])
-    n = asyncio.run(_pull_history(db_session, ad, conn, msg, session))
+    n = asyncio.run(_pull_history(ad, conn, msg, session.chat_id))
 
     assert ad.calls[0]["newest_first"] is True, "首次拉取必须取新端"
     # 冷启动窗口 = 7 天
@@ -289,21 +295,22 @@ def test_history_coldstart_takes_newest_end(db_session):
     assert names == sorted(names, key=lambda x: -int(x[1:])), f"落库应为时间正序: {names}"
 
 
-def test_history_incremental_is_not_newest_first(db_session):
+def test_history_incremental_is_not_newest_first(db_session, monkeypatch):
     """有游标之后是增量：从游标往后取，方向必须是旧→新，否则会跳过消息。"""
     import time as _t
 
     from integrations.channels.inbound_sessions import find_or_create_session as _find_or_create_session
     from integrations.channels.inbound_history import pull_history as _pull_history
 
+    _share_sessions(monkeypatch, db_session)
     conn = _mk_conn(db_session)
     msg = _inbound("oc_inc", "group", mid="m_inc")
     session = _find_or_create_session(db_session, conn, msg)
     t0 = int(_t.time() * 1000) - 3_600_000
 
     ad = _HistAdapter([[_hist("i1", "第一条", t0)], [_hist("i2", "第二条", t0 + 1000)]])
-    asyncio.run(_pull_history(db_session, ad, conn, msg, session))
-    asyncio.run(_pull_history(db_session, ad, conn, msg, session))
+    asyncio.run(_pull_history(ad, conn, msg, session.chat_id))
+    asyncio.run(_pull_history(ad, conn, msg, session.chat_id))
 
     assert ad.calls[0]["newest_first"] is True, "第一次是冷启动"
     assert ad.calls[1]["newest_first"] is False, "第二次是增量，必须旧→新"

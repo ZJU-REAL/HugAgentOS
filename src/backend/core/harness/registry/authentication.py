@@ -1,33 +1,39 @@
 """Optional host authentication before the ordinary cookie/session resolver."""
 from __future__ import annotations
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 
+def register_host_authentication(
+    claims: Callable[[Any], bool], resolver: Callable[[Any, Any], Any]
+) -> None:
+    """Install a host identity resolver.
 
-
-def register_host_authentication(resolver: Callable[[Any, Any], Any]) -> None:
-    pass
+    ``claims(request)`` must answer from the request alone, without I/O: it is
+    asked on every authenticated request, and only a request it claims pays for
+    ``resolver(request, db)`` (database work, run off the event loop).
+    """
+    registration_state().claims = claims
     registration_state().resolver = resolver
 
 
-def resolve_host_user(request, db):
-    return registration_state().resolver(request, db) if registration_state().resolver is not None else None
+def host_user_resolver(request) -> Callable[[Any, Any], Any] | None:
+    """The host resolver when one is registered and claims ``request``, else None."""
+    state = registration_state()
+    if state.resolver is None or state.claims is None or not state.claims(request):
+        return None
+    return state.resolver
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-
-@state_dataclass
+@dataclass
 class RegistrationState:
-    """Process-owned registrations; replace only while the host is quiescent."""
+    claims: Callable[[Any], bool] | None = None
     resolver: Callable[[Any, Any], Any] | None = None
 
 
-@state_cache(maxsize=1)
-def registration_state() -> RegistrationState:
-    return RegistrationState()
+_REGISTRATIONS = RegistrationState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-registration_state()
+
+def registration_state() -> RegistrationState:
+    return _REGISTRATIONS

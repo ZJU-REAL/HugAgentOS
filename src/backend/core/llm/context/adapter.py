@@ -1,4 +1,4 @@
-"""adapter responsibilities."""
+"""Translate between the context IR and AgentScope messages."""
 from __future__ import annotations
 from core.llm.context import provider_conversion
 from core.llm.context import reference_conversion
@@ -7,10 +7,32 @@ from dataclasses import replace
 from typing import Any, Iterable, Mapping, Optional, Sequence
 from agentscope.message import Msg, TextBlock
 from core.infra.immutable import thaw_json
-from core.llm.context.ir_state import CONTEXT_SEQUENCE_STRIDE, KIND_COMPACTION, KIND_USER_INPUT, POLICY_DROP, POLICY_HEAD_TAIL, POLICY_NEVER, SESSION_CONTEXT_META_KEY, STEP_KINDS, VISIBILITY_MODEL
+from core.llm.context.ir_constants import CONTEXT_SEQUENCE_STRIDE, KIND_COMPACTION, KIND_USER_INPUT, POLICY_DROP, POLICY_HEAD_TAIL, POLICY_NEVER, SESSION_CONTEXT_META_KEY, STEP_KINDS, VISIBILITY_MODEL
 from core.llm.context.items import ContextItem
-from core.llm.context import adapter_state as adapter_state_module
-from core.llm.context import blocks as blocks_module
+
+
+def _block_payload(block: Any) -> Any:
+    if isinstance(block, Mapping):
+        return dict(block)
+    if hasattr(block, "model_dump"):
+        return block.model_dump(mode="json")
+    return block
+
+
+def _block_type(block: Any) -> str:
+    if isinstance(block, Mapping):
+        return str(block.get("type") or "")
+    return str(getattr(block, "type", "") or "")
+
+
+def _block_text(block: Any) -> str:
+    if isinstance(block, Mapping):
+        return str(block.get("text") or "")
+    return str(getattr(block, "text", "") or "")
+
+
+CONTEXT_META_KEY = "harness_context_items"
+
 
 class AgentScopeContextAdapter:
     """Translate the IR while preserving current model-facing roles/blocks."""
@@ -31,7 +53,7 @@ class AgentScopeContextAdapter:
     @staticmethod
     def _metadata_entries(message: Msg) -> list[Mapping[str, Any]]:
         metadata = getattr(message, "metadata", None) or {}
-        raw = metadata.get(adapter_state_module.CONTEXT_META_KEY) if isinstance(metadata, Mapping) else None
+        raw = metadata.get(CONTEXT_META_KEY) if isinstance(metadata, Mapping) else None
         if not isinstance(raw, list):
             return []
         return [entry for entry in raw if isinstance(entry, Mapping)]
@@ -62,8 +84,8 @@ class AgentScopeContextAdapter:
             blocks = list(getattr(message, "content", None) or [])
             entries = self._metadata_entries(message)
             for block_index, block in enumerate(blocks):
-                block_type = blocks_module.block_type(block)
-                payload = blocks_module.block_text(block) if block_type == "text" else blocks_module.block_payload(block)
+                block_type = _block_type(block)
+                payload = _block_text(block) if block_type == "text" else _block_payload(block)
                 defaults = self._defaults(role, block_type)
                 explicit = entries[block_index] if block_index < len(entries) else {}
                 if (
@@ -207,7 +229,7 @@ class AgentScopeContextAdapter:
             name=str(message.get("name") or role),
             role=role if role in {"system", "assistant", "user"} else "user",
             content=blocks,
-            metadata={adapter_state_module.CONTEXT_META_KEY: metadata_entries} if metadata_entries else {},
+            metadata={CONTEXT_META_KEY: metadata_entries} if metadata_entries else {},
         )
         # A persisted row is converted in isolation, so it cannot know whether
         # it is the current user instruction. Promotion happens once, later,
@@ -252,7 +274,7 @@ class AgentScopeContextAdapter:
             name=str(message.get("name") or role),
             role=role,
             content=[],
-            metadata={adapter_state_module.CONTEXT_META_KEY: []},
+            metadata={CONTEXT_META_KEY: []},
         )
 
     def messages_from_items(self, items: Iterable[ContextItem]) -> list[Msg]:
@@ -279,16 +301,16 @@ class AgentScopeContextAdapter:
                     for block_index, block in enumerate(content):
                         blocks.append(block)
                         normalized = (
-                            blocks_module.block_text(block)
-                            if blocks_module.block_type(block) == "text"
-                            else blocks_module.block_payload(block)
+                            _block_text(block)
+                            if _block_type(block) == "text"
+                            else _block_payload(block)
                         )
                         derived = replace(
                             item,
                             item_id=f"{item.item_id}:block:{block_index}",
                             truncation_policy=(
                                 POLICY_DROP
-                                if blocks_module.block_type(block) == "data"
+                                if _block_type(block) == "data"
                                 else item.truncation_policy
                             ),
                         ).with_content(normalized)
@@ -303,7 +325,7 @@ class AgentScopeContextAdapter:
                         name=name,
                         role=current_group[1],
                         content=blocks,
-                        metadata={adapter_state_module.CONTEXT_META_KEY: manifests},
+                        metadata={CONTEXT_META_KEY: manifests},
                     )
                 )
             current_group = None

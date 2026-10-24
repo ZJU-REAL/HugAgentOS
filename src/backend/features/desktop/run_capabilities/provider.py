@@ -44,11 +44,10 @@ class PreparedCapabilityOperations:
         from features.desktop.capabilities.runtime import preflight
         return preflight(self, **context)
 
-    def wrap_mcp_clients(self, clients, *, scope_id):
+    def tool_guard(self, *, scope_id):
         from features.desktop.capabilities.runtime import get
-        from core.llm.mcp.capability_guards import AvailableMCPClient
         run = get(self.run_id, scope_id=scope_id) or self
-        return [AvailableMCPClient(client, run) for client in clients]
+        return run.validate_tool_call
 
     def validate_selected_skills(self, skill_ids):
         from core.harness.capability_errors import PackageMissing

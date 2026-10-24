@@ -108,7 +108,8 @@ def create_automation(
         if conn is None or conn.owner_user_id != str(user.user_id):
             raise HTTPException(status_code=403, detail="无权投递到该渠道机器人")
         task_metadata = {**(task_metadata or {}),
-                         "channel_id": req.channel_id, "conversation_id": req.conversation_id}
+                         "delivery_targets": [{"type": "inapp"}, {"type": "channel",
+                         "channel_id": req.channel_id, "conversation_id": req.conversation_id}]}
 
     from features.automation.execution import execution_metadata
     import pytz
@@ -201,9 +202,7 @@ def update_automation(
         if not task0:
             raise HTTPException(status_code=404, detail="任务不存在")
         new_ed = dict(task0.extra_data or {})
-        # First clear old delivery markers (flat ones + channel targets inside the list)
-        new_ed.pop("channel_id", None)
-        new_ed.pop("conversation_id", None)
+        # Replace channel targets while retaining the other delivery destinations.
         if isinstance(new_ed.get("delivery_targets"), list):
             new_ed["delivery_targets"] = [
                 t for t in new_ed["delivery_targets"]
@@ -217,8 +216,10 @@ def update_automation(
             conn = ChannelConnectionRepository(db).get_by_id(req.channel_id)
             if conn is None or conn.owner_user_id != str(user.user_id):
                 raise HTTPException(status_code=403, detail="无权投递到该渠道机器人")
-            new_ed["channel_id"] = req.channel_id
-            new_ed["conversation_id"] = req.conversation_id
+            new_ed.setdefault("delivery_targets", [{"type": "inapp"}]).append({
+                "type": "channel", "channel_id": req.channel_id,
+                "conversation_id": req.conversation_id,
+            })
         updates["extra_data"] = new_ed
 
     try:

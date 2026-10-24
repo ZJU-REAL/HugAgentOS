@@ -1,11 +1,12 @@
-"""Tool-call delta batching and model_progress liveness tests.
+"""Delta coalescing and model_progress liveness tests.
 
-Small argument fragments are buffered briefly to avoid an SSE storm. While a
-fragment has not crossed either flush threshold, ``model_progress`` still keeps
-the run watchdog alive; flushed fragments become visible ``tool_call_delta``
-events and the completed JSON is emitted exactly once as ``tool_call``.
+Small argument / text fragments are merged by the stream's delta coalescer to
+avoid a write per token; a buffered fragment is flushed on its deadline, before
+any other event and at the end of the stream, and the completed JSON is emitted
+exactly once as ``tool_call``. ``model_progress`` keeps the watchdog alive only
+while upstream events map to nothing at all.
 """
-from core.llm.runtime import streaming_state as streaming_state_module
+from core.llm.runtime import streaming_constants as streaming_state_module
 
 import asyncio
 from types import SimpleNamespace
@@ -46,6 +47,7 @@ def _fake_agent(events):
         chat_id="c1",
         apply_request_context=lambda ctx, text: None,
         context=SimpleNamespace(extend=lambda msgs: None),
+        pending_mcp_progress=[],
     )
     return SimpleNamespace(state=state, model=None, reply_stream=reply_stream)
 
@@ -58,10 +60,16 @@ async def _collect(agent):
     return out
 
 
+class ToolResultTextDeltaEvent:  # noqa: D101 - accumulated, never forwarded
+    def __init__(self, tid="t1", delta="x"):
+        self.tool_call_id = tid
+        self.delta = delta
+
+
 @pytest.mark.asyncio
-async def test_small_buffered_deltas_emit_model_progress_until_flushed(monkeypatch):
+async def test_swallowed_events_emit_model_progress(monkeypatch):
     monkeypatch.setattr(streaming_state_module, 'MODEL_PROGRESS_MIN_INTERVAL_S', 0.0)
-    events = [ToolCallStartEvent()] + [ToolCallDeltaEvent(delta="chunk") for _ in range(5)]
+    events = [ToolCallStartEvent()] + [ToolResultTextDeltaEvent() for _ in range(5)]
     out = await _collect(_fake_agent(events))
     types = [t for t, _ in out]
     assert "tool_call_start" in types
@@ -69,9 +77,20 @@ async def test_small_buffered_deltas_emit_model_progress_until_flushed(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_throttle_suppresses_model_progress():
-    # Default 5s throttle: a fast burst of swallowed deltas must not spam signals.
+async def test_burst_of_deltas_is_merged_instead_of_signalling_progress(monkeypatch):
+    monkeypatch.setattr(streaming_state_module, 'MODEL_PROGRESS_MIN_INTERVAL_S', 0.0)
     events = [ToolCallStartEvent()] + [ToolCallDeltaEvent(delta="chunk") for _ in range(5)]
+    out = await _collect(_fake_agent(events))
+    deltas = [p["delta"] for t, p in out if t == "tool_call_delta"]
+    assert "".join(deltas) == "chunk" * 5
+    assert len(deltas) < 5
+    assert [t for t, _ in out].count("model_progress") == 0
+
+
+@pytest.mark.asyncio
+async def test_throttle_suppresses_model_progress():
+    # Default 5s throttle: a fast burst of swallowed events must not spam signals.
+    events = [ToolCallStartEvent()] + [ToolResultTextDeltaEvent() for _ in range(5)]
     out = await _collect(_fake_agent(events))
     types = [t for t, _ in out]
     assert types.count("model_progress") == 0
@@ -79,8 +98,8 @@ async def test_throttle_suppresses_model_progress():
 
 @pytest.mark.asyncio
 async def test_tool_arguments_stream_as_bounded_deltas_then_one_final_call(monkeypatch):
-    monkeypatch.setattr(streaming_state_module, 'TOOL_CALL_DELTA_FLUSH_CHARS', 8)
-    monkeypatch.setattr(streaming_state_module, 'TOOL_CALL_DELTA_FLUSH_INTERVAL_S', 999.0)
+    monkeypatch.setattr(streaming_state_module, 'DELTA_FLUSH_CHARS', 8)
+    monkeypatch.setattr(streaming_state_module, 'DELTA_FLUSH_INTERVAL_S', 999.0)
     events = [
         ToolCallStartEvent(),
         ToolCallDeltaEvent(delta='{"command"'),
@@ -109,6 +128,7 @@ def _slow_model_agent(pre_events, silence_s):
         chat_id="c1",
         apply_request_context=lambda ctx, text: None,
         context=SimpleNamespace(extend=lambda msgs: None),
+        pending_mcp_progress=[],
     )
     return SimpleNamespace(state=state, model=None, reply_stream=reply_stream)
 

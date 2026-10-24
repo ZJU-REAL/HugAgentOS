@@ -10,7 +10,7 @@ from core.llm.context.compaction import build_compacted_history
 from core.llm.context.adapter import AgentScopeContextAdapter
 from core.llm.context.rendering import next_request_sequence, render_context_item
 from core.models.constants import PROVIDER_CONTEXT_META_KEY
-from core.llm.context.ir_state import KIND_USER_INPUT, POLICY_NEVER
+from core.llm.context.ir_constants import KIND_USER_INPUT, POLICY_NEVER
 from core.llm.context.items import make_text_context_item
 from core.harness.execution_manifest import PromptManifestBuilder, stable_hash
 from core.llm.runtime.manifest_agent import ManifestBoundAgent
@@ -38,6 +38,8 @@ class CountingSkillLoader(SkillLoaderBase):
 
 
 class CaptureModel:
+    from agentscope.formatter import OpenAIChatFormatter
+    formatter = OpenAIChatFormatter()
     model = "capture-model"
     context_size = 32_768
 

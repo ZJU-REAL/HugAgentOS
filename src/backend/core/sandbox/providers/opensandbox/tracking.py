@@ -85,3 +85,34 @@ class _OpenSandboxTrackingMixin:
                 raise SandboxNotFoundError(f"sandbox {sandbox_id} no longer exists")
         if response.status_code >= 400:
             raise SandboxError(f"sandbox metadata query failed: HTTP {response.status_code}")
+
+
+    async def _discover_idle_sessions(self):
+        """Maintenance owns shared bindings, regardless of which worker served them."""
+        import time
+        from core.sandbox.providers.opensandbox.volumes import _METADATA_USER_ID_KEY
+        for chat, sandbox_id, active_at in await session_registry.bindings():
+            if chat in self._sessions or time.time() - active_at < settings.sandbox.idle_ttl_s:
+                continue
+            lock = await self._get_session_lock(chat)
+            if lock.locked():
+                continue
+            try:
+                async with lock, session_registry.claim(chat):
+                    if await session_registry.lookup(chat) != sandbox_id:
+                        continue
+                    response = await self._get_http_client().get(
+                        f"{self._domain.rstrip('/')}/v1/sandboxes/{sandbox_id}"
+                    )
+                    if response.status_code == 404:
+                        if response.json().get("code") == "DOCKER::SANDBOX_NOT_FOUND":
+                            await session_registry.forget(chat, sandbox_id)
+                            continue
+                    response.raise_for_status()
+                    user_id = (response.json().get("metadata") or {}).get(_METADATA_USER_ID_KEY)
+                    session = await self._attach_session(sandbox_id, user_id)
+                    if session is not None:
+                        session.last_active_ts = time.monotonic() - max(0, time.time() - active_at)
+                        self._sessions[chat] = session
+            except Exception as exc:
+                logger.warning("sandbox discovery deferred chat=%s: %s", chat, exc)

@@ -64,10 +64,6 @@ class _ChatQuestions:
     last_ts: float = field(default_factory=time.monotonic)
 
 
-
-
-
-
 def _text(
     value: Any,
     *,
@@ -483,18 +479,14 @@ __all__ = [
 ]
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class UserQuestionsState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    LOCK: object = state_field(default_factory=lambda: threading.RLock())
-    CHATS: Dict[str, _ChatQuestions] = state_field(default_factory=lambda: {})
+    LOCK: object = field(default_factory=lambda: threading.RLock())
+    CHATS: Dict[str, _ChatQuestions] = field(default_factory=lambda: {})
 
-@state_cache(maxsize=1)
+
+_STATE = UserQuestionsState()
+
+
 def process_state() -> UserQuestionsState:
-    return UserQuestionsState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

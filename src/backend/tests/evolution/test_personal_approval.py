@@ -8,7 +8,7 @@ hole regardless of how convenient it is.
 """
 from core.evolution.cycle import activation as activation_module
 from core.evolution.profiles import personal_review as personal_review_module
-from core.evolution.profiles import user_settings_state as user_settings_state_module
+from core.evolution.profiles import user_settings_constants as user_settings_state_module
 
 import pytest
 from sqlalchemy import create_engine

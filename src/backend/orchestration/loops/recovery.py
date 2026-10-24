@@ -4,11 +4,20 @@ from __future__ import annotations
 
 import os
 
-import core.db.engine as engine
 import orchestration.loops.admission as _orchestration_loops_admission
 from core.infra.logging import get_logger
+from core.db.threads import run_in_session
 
 logger = get_logger(__name__)
+
+
+def _mark_interrupted(db, loop_ids) -> None:
+    from features.automation.loops import LoopService
+
+    for loop_id in loop_ids:
+        LoopService(db).mark_interrupted(
+            loop_id, reason="服务重启导致运行中断，可点击「继续」从断点续跑"
+        )
 
 
 async def resume_running_loops() -> int:
@@ -33,7 +42,7 @@ async def resume_running_loops() -> int:
         "yes",
     )
     resumed = 0
-    with engine.SessionLocal() as db:
+    def _running_loop_specs(db):
         loops = db.query(AgentLoop).filter(AgentLoop.status == "running").all()
         specs = [
             (
@@ -47,16 +56,12 @@ async def resume_running_loops() -> int:
             )
             for x in loops
         ]
+        return specs
+    specs = await run_in_session(_running_loop_specs)
 
     if not auto:
         if specs:
-            from features.automation.loops import LoopService as _LoopSvc
-
-            with engine.SessionLocal() as db:
-                for loop_id, *_rest in specs:
-                    _LoopSvc(db).mark_interrupted(
-                        loop_id, reason="服务重启导致运行中断，可点击「继续」从断点续跑"
-                    )
+            await run_in_session(_mark_interrupted, [spec[0] for spec in specs])
             logger.info("[startup] orphan loops marked interrupted: %d", len(specs))
         return 0
 

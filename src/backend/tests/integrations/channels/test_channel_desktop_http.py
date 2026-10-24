@@ -34,8 +34,7 @@ def cloud(api, monkeypatch):
 
 async def test_desktop_register_claim_renew_reply_complete_accept_cloud_envelopes(api, cloud):
     _, factory, sent = api
-    with factory() as db:
-        grant = await worker.prepare_binding(db, "owner")
+    grant = await worker.prepare_binding("owner")
     assert grant["device_name"]
     assert grant["device_id"] == "device-a"
 
@@ -88,9 +87,9 @@ async def test_invalid_registration_is_not_saved(api, cloud, monkeypatch, payloa
         transport=httpx.MockTransport(lambda request: httpx.Response(
             200, json={"code": 10000, "data": payload})), **kw,
     ))
+    with pytest.raises(BadRequestError, match="响应格式"):
+        await worker.prepare_binding("owner")
     with api[1]() as db:
-        with pytest.raises(BadRequestError, match="响应格式"):
-            await worker.prepare_binding(db, "owner")
         assert not db.scalar(select(ContentBlock).where(ContentBlock.id.like(worker.GRANT_PREFIX + "%")))
 
 
@@ -99,15 +98,13 @@ async def test_invalid_registration_is_not_saved(api, cloud, monkeypatch, payloa
 ])
 async def test_credential_channels_bind_to_registered_desktop(api, cloud, monkeypatch, channel, transport):
     from integrations.channels.registry import get_adapter
-    from integrations.channels.service import ChannelService
 
     async def validate(self, conn):
         return {}
     monkeypatch.setattr(type(get_adapter(channel)), "validate_credentials", validate)
-    monkeypatch.setattr(ChannelService, "_start_long_conn", lambda *args: None)
+    monkeypatch.setattr("integrations.channels.service._start_long_conn", lambda *args: None)
     client, factory, _ = api
-    with factory() as db:
-        grant = await worker.prepare_binding(db, "owner")
+    grant = await worker.prepare_binding("owner")
     response = client.post("/v1/channels/bots", json={
         "channel_type": channel, "app_id": "fixture-app", "app_secret": "fixture-secret",
         "transport": transport, "execution_location": "local", "local_binding_id": grant["binding_id"],
@@ -121,7 +118,6 @@ async def test_credential_channels_bind_to_registered_desktop(api, cloud, monkey
 async def test_weixin_qr_local_binding_preserves_selected_device(api, cloud, monkeypatch):
     from integrations.channels.adapters.weixin import WeixinAdapter
     from core.infra.ephemeral import LocalEphemeralState
-    from integrations.channels.service import ChannelService
 
     async def start():
         return {"qrcode": "fixture-qr", "qrcode_img_content": "fixture-png"}
@@ -132,10 +128,9 @@ async def test_weixin_qr_local_binding_preserves_selected_device(api, cloud, mon
     monkeypatch.setattr("core.infra.ephemeral.get_ephemeral_state", lambda: ephemeral)
     monkeypatch.setattr(WeixinAdapter, "start_qr_bind", staticmethod(start))
     monkeypatch.setattr(WeixinAdapter, "poll_qr_status", staticmethod(poll))
-    monkeypatch.setattr(ChannelService, "_start_long_conn", lambda *args: None)
+    monkeypatch.setattr("integrations.channels.service._start_long_conn", lambda *args: None)
     client, factory, _ = api
-    with factory() as db:
-        grant = await worker.prepare_binding(db, "owner")
+    grant = await worker.prepare_binding("owner")
     result = client.post("/v1/channels/weixin/bind/start", params={
         "execution_location": "local", "local_binding_id": grant["binding_id"],
     })
@@ -203,8 +198,8 @@ async def test_other_account_cannot_bind_device_grant_over_http(api, cloud):
     from core.auth.backend import UserContext, get_current_user
 
     client, factory, _ = api
+    grant = await worker.prepare_binding("owner")
     with factory() as db:
-        grant = await worker.prepare_binding(db, "owner")
         db.add(UserShadow(user_id="other", username="other", extra_data={"can_create_channel_bot": True}))
         db.commit()
     client.app.dependency_overrides[get_current_user] = lambda: UserContext(

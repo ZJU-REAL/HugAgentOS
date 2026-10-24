@@ -85,7 +85,7 @@ SSE follower: chat_run_executor.follow_run_as_sse()
 
 ### Run decoupling and reconnect/resume
 
-Every sent message creates a `ChatRun` and a background task (`orchestration/chat_run_executor.py`); events are written to a Redis Stream (`maxlen=5000`; the default TTL is the 7,200-second maximum human wait plus a 1,800-second recovery grace period). The HTTP connection is merely a *follower*, which enables:
+Every sent message creates a `ChatRun` and a background task (`core/chat/runtime/`); events are written to a Redis Stream (`maxlen=5000`; the default TTL is the 7,200-second maximum human wait plus a 1,800-second recovery grace period). The HTTP connection is merely a *follower*, which enables:
 
 | Capability | Endpoint |
 |---|---|
@@ -150,7 +150,7 @@ A permission chip sits next to the project selector in the composer toolbar. It 
 | Approve for me | `auto` | Ordinary writes and edits pass silently; **destructive operations** (`DESTRUCTIVE_OPS`) and commands the local policy tagged `danger:<category>` still stop and ask |
 | Full access | `full` | No tool confirmation is ever raised |
 
-The vocabulary is declared once in `core/llm/tool_permissions.py` (`APPROVAL_ASK` / `APPROVAL_AUTO` / `APPROVAL_FULL`), travels with the chat context into `PermissionRuntime`, and is the single criterion every tool confirmation gate consults. No preset does more than skip the *asking* — a hard deny from the local security policy still denies. Whether a given call counts as dangerous is recovered by `core/sandbox/permissions/models.py::danger_categories()` from the `danger:` prefix in the verdict reasons, never by matching prose. Legacy stored values (`standard`, `readonly`) fall back to the most conservative preset, `ask`.
+The vocabulary is declared once in `core/llm/tool_permissions/` (`APPROVAL_ASK` / `APPROVAL_AUTO` / `APPROVAL_FULL`), travels with the chat context into `PermissionRuntime`, and is the single criterion every tool confirmation gate consults. No preset does more than skip the *asking* — a hard deny from the local security policy still denies. Whether a given call counts as dangerous is recovered by `core/sandbox/permissions/models.py::danger_categories()` from the `danger:` prefix in the verdict reasons, never by matching prose. Legacy stored values (`standard`, `readonly`) fall back to the most conservative preset, `ask`.
 
 Trusted unattended entry points (channel bots, scheduled automation) take the `default_allow` branch and are unaffected by the preset.
 
@@ -160,17 +160,17 @@ Trusted unattended entry points (channel bots, scheduled automation) take the `d
 
 `create_agent_executor()` is the shared factory for every mode (main chat, plan, batch, sub-agents, automation):
 
-- **MCP tools**: after the three-layer filter of catalog + per-user overrides + request context (see [Capability Center](catalog.md)), stable servers reuse the process-level connection pool (`core/llm/mcp/pool.py`); per-request servers (e.g. `retrieve_dataset_content`, which needs per-request HTTP headers) are spawned fresh; the user's self-added private MCP servers are merged in with owner isolation.
+- **MCP tools**: after the three-layer filter of catalog + per-user overrides + request context (see [Capability Center](catalog.md)), stable servers reuse the process-level connection pool (`core/llm/mcp/`); per-request servers (e.g. `retrieve_dataset_content`, which needs per-request HTTP headers) are spawned fresh; the user's self-added private MCP servers are merged in with owner isolation.
 - **Skills**: registered as AgentScope Agent Skills via `core/capabilities/skills/loader.py`, with `view_text_file` allow-listed to read SKILL.md files (see [Agent Skills](agent-skills.md)).
 - **File / sandbox tools**: `bash`, `sandbox_put_artifact`, `sandbox_get_artifact` are always registered; Read/Edit/Write/Glob/Grep/Delete/Move/mkdir plus the MySpace tools are gated by `CODE_CAPABILITY_ENABLED` and share one `ReadStateTracker` to keep the "must Read before Edit" invariant.
-- **Middlewares** (onion model, `core/llm/middlewares.py`): `DynamicModelMiddleware` (switches the model per chat_mode, see [Model Providers](model-providers.md)), `FileContextMiddleware` (injects uploaded/historical file context), `SteerMiddleware` (injects follow-ups after tool results and before the next reasoning round), `WorkspacePinHintMiddleware`, `FinishPinGuardMiddleware`.
+- **Middlewares** (onion model, `core/llm/runtime/`): `DynamicModelMiddleware` (switches the model per chat_mode, see [Model Providers](model-providers.md)), `FileContextMiddleware` (injects uploaded/historical file context), `SteerMiddleware` (injects follow-ups after tool results and before the next reasoning round), `WorkspacePinHintMiddleware`, `FinishPinGuardMiddleware`.
 - **Context compression**: `CompactingAgent` routes the pre-turn, mid-turn, and post-turn trigger points through one persistent checkpoint engine and one Codex-style handoff prompt. `ContextConfig` remains only for tool-result limiting. Compaction uses the unified coordinator without a second framework summary fallback. Failure preserves the original context. If the final request still exceeds its budget, the run saves a checkpoint and pauses before calling the reply model.
 - **Permissions**: every registered tool gets a native `PermissionRule(ALLOW)` seed, preserving AgentScope's built-in dangerous-operation checks (no blanket BYPASS).
 - **Iteration caps**: main agent defaults to `max_iters=50`, isolated sub-agents to 10.
 
 ## SSE event types and payloads
 
-`orchestration/streaming.py::StreamingAgent` coalesces AgentScope 2.0 `reply_stream` events into internal events. Tiny tool-argument fragments are batched at 256 characters or 50ms, keeping them visible without recreating an SSE event storm. `workflow.py` and `chats.py::_stream_sse_response` enrich them with chat-level fields before they hit the wire. Events as the frontend sees them:
+`core/llm/runtime/streaming.py::StreamingAgent` coalesces AgentScope 2.0 `reply_stream` events into internal events. Tiny tool-argument fragments are batched at 256 characters or 50ms, keeping them visible without recreating an SSE event storm. `workflow.py` and `chats.py::_stream_sse_response` enrich them with chat-level fields before they hit the wire. Events as the frontend sees them:
 
 | `type` | Meaning | Key fields |
 |---|---|---|
@@ -219,7 +219,7 @@ data: [DONE]
 
 After `meta`, `chat_run_executor.py` persists the assistant message, backfills artifacts,
 and launches a background follow-up-question generator
-(`orchestration/followups.py`; results land in the message's
+(`core/chat/followups.py`; results land in the message's
 `extra_data.follow_up_questions` and are fetched through
 `GET /v1/chats/{chat_id}/messages/{message_id}/followups`). The frontend
 collects ontology events in a standalone **Domain Ontology Governance** module
@@ -272,9 +272,9 @@ Each canonical tool-result step is persisted before its display event, independe
 
 Citations make every fact in the answer traceable back to a specific tool result. Numbering authority belongs to a single backend source of truth — the model only **copies** ids, never computes them. The chain has four segments:
 
-1. **Anchor allocation & injection (backend middleware)**: `core/llm/middlewares.py::CitationAnchorMiddleware` hooks AgentScope 2.0's `on_acting` and, before a tool result reaches the model, calls `orchestration/citation_anchor.py` to extract → allocate → inject: each citable item gets a session-monotonic anchor id (`e1`, `e2`, … — unique across tools, calls, and turns; a new turn continues from the max anchor found in the chat's persisted messages), and `"cite_id": "e7"` is written into the result JSON in place (plain-text results get a trailing `[cite_id: e7]` line). **The allocator is bound to the agent instance** (`attach_allocator()` / `resolve_allocator()`), which is how the orchestrator and the middleware share one counter; the ContextVar is only a fallback for sub-agent chains, because `astream_chat_workflow` is an async generator whose context does not reach the task the agent actually runs in. Extraction degrades through four layers: tool-declared `__citations__` → the tool spec registry (`TOOL_SPECS` config: list paths + CN/EN field aliases) → a generic heuristic (unique dict-array field) → the whole result as one anchor. Operational tools (file writes, pin, etc. — `SKIP_TOOLS`) pass through untouched. Any exception passes the original result through — citations degrade, the conversation never breaks.
+1. **Anchor allocation & injection (backend middleware)**: `core/llm/runtime/` hooks AgentScope 2.0's `on_acting` and, before a tool result reaches the model, calls `core/llm/citations/hook.py` to extract → allocate → inject: each citable item gets a session-monotonic anchor id (`e1`, `e2`, … — unique across tools, calls, and turns; a new turn continues from the max anchor found in the chat's persisted messages), and `"cite_id": "e7"` is written into the result JSON in place (plain-text results get a trailing `[cite_id: e7]` line). **The allocator is bound to the agent instance** (`attach_allocator()` / `resolve_allocator()`), which is how the orchestrator and the middleware share one counter; the ContextVar is only a fallback for sub-agent chains, because `astream_chat_workflow` is an async generator whose context does not reach the task the agent actually runs in. Extraction degrades through four layers: tool-declared `__citations__` → the tool spec registry (`TOOL_SPECS` config: list paths + CN/EN field aliases) → a generic heuristic (unique dict-array field) → the whole result as one anchor. Operational tools (file writes, pin, etc. — `SKIP_TOOLS`) pass through untouched. Any exception passes the original result through — citations degrade, the conversation never breaks.
 2. **Prompt contract**: the system prompt (fallback file `prompts/prompt_text/default/system/40_format.system.md`; the active DB version is authoritative at runtime) needs only one tool-count-independent rule: copy the `cite_id` annotated in the result verbatim into `[anchor text](cite:e7)` (or `[来源](cite:e7)` at sentence end); never self-number.
-3. **Orchestration consumption**: each `tool_result` event calls `collect_citation_dicts()`, which fetches `CitationItem`s (`id` / `tool_name` / `tool_id` / `title` / `url` / `snippet` / `source_type` / `item_index`) from the allocator registry keyed by `tool_id`; when no allocator is installed (legacy replay paths) it falls back to the old offset extraction in `orchestration/citations.py`. `source_type` values: CE ships `internet`, `knowledge_base`, and `database`; industry citation types such as `industry_news`, `ai_news`, `chain_info`, and `company_profile` are added by the Enterprise Edition (EE).
+3. **Orchestration consumption**: each `tool_result` event calls `collect_citation_dicts()`, which fetches `CitationItem`s (`id` / `tool_name` / `tool_id` / `title` / `url` / `snippet` / `source_type` / `item_index`) from the allocator registry keyed by `tool_id`; when no allocator is installed (legacy replay paths) it falls back to the old offset extraction in `core/llm/citations/`. `source_type` values: CE ships `internet`, `knowledge_base`, and `database`; industry citation types such as `industry_news`, `ai_news`, `chain_info`, and `company_profile` are added by the Enterprise Edition (EE).
 4. **Frontend rendering**: citations ride on `tool_result` and `meta` events and are persisted with the message (what is persisted is the annotated result, so replay/share shows the same numbering as generation). `components/citation/CitationMarkdownBlock.tsx` recognizes three marker forms in parallel — `[anchor text](cite:eN)` (rendered as a text link with a hover source card), `[[eN]]` (obsidian-style tolerance), and the legacy `[ref:tool_name-N]` (historical messages, rendered as a superscript badge). Tool cards show a matching `cite_id` chip on each item (`jx-tr-citeTag`), and tools without a dedicated renderer fall back to a generic list-card renderer.
 
 **Tool development convention**: a tool (in-house or MCP) that wants precise citation granularity should return a `__citations__` field in its JSON — `[{"title": "...", "url": "...", "snippet": "...", "source_type": "..."}, …]`, entries ordered to match the result body; the middleware adopts it verbatim and injects `cite_id` in place. Tools without the field fall back to registry config or heuristics — at worst the whole result becomes one anchor, so **every tool is citable by default**. See the citation-declaration section in [MCP tools](mcp-tools.md).
@@ -297,7 +297,7 @@ Cards are persisted with the message (`metadata.referenced_chats`) and history r
 
 ## Plan Mode
 
-Plan Mode splits complex tasks into "generate plan → user reviews/edits → execute step by step", implemented in `orchestration/subagents/plan_mode.py`:
+Plan Mode splits complex tasks into "generate plan → user reviews/edits → execute step by step", implemented in `orchestration/plans/`:
 
 - **Generate** (`astream_generate_plan` / `POST /v1/plans/generate`): a "bare LLM" agent (`disable_tools=True`) produces a structured JSON plan. System-prompt resolution: active `plan_mode` version in the prompt pool → legacy `system/90_plan_mode` part → fallback file `prompts/prompt_text/plan_mode/plan_mode.system.md` → hardcoded minimal prompt.
 - **Execute** (`astream_execute_plan` / `POST /v1/plans/{plan_id}/execute`): each step gets its own agent, executed sequentially, with step-level MCP/skill/sub-agent bindings and cancellation (`is_run_cancelled` polling); execution also goes through ChatRun + Redis Stream, so it survives disconnects.
@@ -351,7 +351,7 @@ the `subagents` prompt-pool kind. That kind stays in backend storage and
 migration snapshots for compatibility;
 `extensions/agents/default/<role>/system.md` is only the seed and failure fallback.
 
-In addition, user-created sub-agents (`api/routes/v1/agents.py`, DB table `UserAgent`)
+In addition, user-created sub-agents (`edition_ee/routes/agents.py`, DB table `UserAgent`)
 can carry their own system prompt, MCP, skill, plugin, and knowledge base
 bindings, plus model parameters such as provider, temperature, `max_tokens`,
 and `max_iters`. When you create or edit a sub-agent, the resource picker
@@ -438,7 +438,7 @@ Three complementary layers:
 
 | Layer | Implementation | Trigger |
 |---|---|---|
-| Chat title summary | `core/llm/summarizer.py::ConversationSummarizer` (`summarizer` model role, `ENABLE_SUMMARY` flag), `POST /v1/summary` | Auto-titling new chats |
+| Chat title summary | `core/models/completions/summarizer.py::ConversationSummarizer` (`summarizer` model role, `ENABLE_SUMMARY` flag), `POST /v1/summary` | Auto-titling new chats |
 | Unified context checkpoint | `core/chat/compaction/service.py::run_compaction()`; pre-turn, mid-turn, and post-turn share one trigger ratio, handoff prompt, replacement shape, and persistent checkpoint | Context reaches the configured fraction of the model window |
 | Deterministic overflow protection | `ContextConfig.tool_result_limit` bounds individual tool results first; failed compaction preserves the original context, and an over-budget final request saves a checkpoint and pauses | A tool result is oversized or unified compaction is temporarily unavailable |
 
@@ -486,29 +486,29 @@ Storage is Redis (`chat_share:*` key groups + TTL) with an in-process memory fal
 
 ## Other entry points
 
-The same orchestration foundation also powers: response regeneration (`POST /v1/chats/{chat_id}/regenerate`), edit-and-resend (`POST /v1/chats/{chat_id}/edit`), non-streaming `POST /v1/agents/responses` with `stream: false` (see [Automation](automation.md)), and scheduled automation (`orchestration/schedulers/`).
+The same orchestration foundation also powers: response regeneration (`POST /v1/chats/{chat_id}/regenerate`), edit-and-resend (`POST /v1/chats/{chat_id}/edit`), non-streaming `POST /v1/agents/responses` with `stream: false` (see [Automation](automation.md)), and scheduled automation (`orchestration/automations/`).
 
 ## Source map
 
 | Topic | Path |
 |---|---|
 | Chat routes / SSE egress | `src/backend/api/routes/v1/chats/__init__.py` |
-| Run decoupling / Redis Stream / resume | `src/backend/orchestration/chat_run_executor.py`, `api/routes/v1/chat_runs.py` |
-| Streaming orchestration | `src/backend/orchestration/workflow.py` |
-| Event mapping (reply_stream → SSE) | `src/backend/orchestration/streaming.py` |
+| Run decoupling / Redis Stream / resume | `src/backend/core/chat/runtime/`, `api/routes/v1/chat_runs.py` |
+| Streaming orchestration | `src/backend/core/agent_runtime/runner.py` |
+| Event mapping (reply_stream → SSE) | `src/backend/core/llm/runtime/streaming.py` |
 | Runtime context assembly | `src/backend/core/chat/context.py` |
 | Agent factory | `src/backend/core/llm/factory/build.py` |
-| Middlewares | `src/backend/core/llm/middlewares.py` (pure-function helpers in `core/llm/runtime/hooks.py`) |
-| Citation extraction | `src/backend/orchestration/citations.py` |
+| Middlewares | `src/backend/core/llm/runtime/` (pure-function helpers in `core/harness/hooks.py`) |
+| Citation extraction | `src/backend/core/llm/citations/` |
 | Cross-chat references (cards / digests / paging) | `src/backend/core/chat/references.py` |
 | Cross-chat history tools | `src/backend/core/llm/tools/chat_history_tool.py` |
 | Citation rendering | `src/frontend/src/utils/citations.ts`, `src/frontend/src/components/citation/` |
-| Plan mode | `src/backend/orchestration/subagents/plan_mode.py`, `api/routes/v1/plans.py` |
-| Sub-agent tool | `src/backend/core/llm/subagents/tool.py`, `api/routes/v1/agents.py` |
-| Title summarization / context compaction / window protection | `src/backend/core/llm/summarizer.py`, `compaction.py`, `core/chat/compaction/service.py`, `context_manager.py` |
+| Plan mode | `src/backend/orchestration/plans/`, `api/routes/v1/plans.py` |
+| Sub-agent tool | `src/backend/core/llm/subagents/tool.py`, `edition_ee/routes/agents.py` |
+| Title summarization / context compaction / window protection | `src/backend/core/models/completions/summarizer.py`, `compaction.py`, `core/chat/compaction/service.py`, `context_manager.py` |
 | Oversized-result offloading | `src/backend/core/llm/context/offloader.py` |
 | Chat sharing | `src/backend/api/routes/v1/chat_shares.py` |
-| Follow-up generation | `src/backend/orchestration/followups.py` |
+| Follow-up generation | `src/backend/core/chat/followups.py` |
 | Frontend stream parsing / follow-up queue | `src/frontend/src/hooks/chatStream.ts`, `useStreaming.ts`, `components/chat/QueuedMessageCard.tsx` |
 
 ### Desktop tool permissions and operation confirmation

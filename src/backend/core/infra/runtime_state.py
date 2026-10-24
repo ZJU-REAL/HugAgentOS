@@ -9,9 +9,8 @@ here on startup; monitoring reads them back through this neutral registry.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any, Dict
-
-
 
 
 def register(name: str, handle: Any) -> None:
@@ -29,17 +28,13 @@ def clear() -> None:
     process_state().REGISTRY.clear()
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
+@dataclass
+class RuntimeState:
+    REGISTRY: Dict[str, Any] = field(default_factory=lambda: {})
 
-@state_dataclass
-class RuntimeStateState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    REGISTRY: Dict[str, Any] = state_field(default_factory=lambda: {})
 
-@state_cache(maxsize=1)
-def process_state() -> RuntimeStateState:
-    return RuntimeStateState()
+_STATE = RuntimeState()
 
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+
+def process_state() -> RuntimeState:
+    return _STATE

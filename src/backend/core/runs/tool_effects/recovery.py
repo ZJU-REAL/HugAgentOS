@@ -1,30 +1,30 @@
-"""recovery responsibilities."""
+"""Recover tool effects left incomplete by a lost process."""
 from __future__ import annotations
-from core.runs.tool_effects import journal as journal_module_
+from core.runs.tool_effects.journal import ToolEffectJournal
 import asyncio
 import time
 import uuid
 from contextlib import suppress
 from typing import Optional
 import logging
+from core.runs.tool_effects import errors
+from core.runs.tool_effects import gateway
+from core.runs.tool_effects.registry import DEFAULT_TOOL_RECOVERY_REGISTRY, ToolRecoveryRegistry
+from core.runs.tool_effects import types
+
 logger = logging.getLogger(__name__)
-from core.runs.tool_effects import errors as errors_module
-from core.runs.tool_effects import gateway as gateway_module
-from core.runs.tool_effects import journal as journal_module
-from core.runs.tool_effects import registry as registry_module
-from core.runs.tool_effects import types as types_module
 
 async def recover_incomplete_tool_effects(
     *,
-    journal: Optional[journal_module_.ToolEffectJournal] = None,
-    registry: Optional[registry_module.ToolRecoveryRegistry] = None,
+    journal: Optional[ToolEffectJournal] = None,
+    registry: Optional[ToolRecoveryRegistry] = None,
     lease_seconds: int = 120,
     heartbeat_interval: Optional[float] = None,
-) -> list[types_module.RecoverySweepDecision]:
+) -> list[types.RecoverySweepDecision]:
     """Recover each orphan independently; one broken adapter cannot starve later work."""
 
-    journal = journal or journal_module_.ToolEffectJournal()
-    registry = registry or registry_module.DEFAULT_TOOL_RECOVERY_REGISTRY
+    journal = journal or ToolEffectJournal()
+    registry = registry or DEFAULT_TOOL_RECOVERY_REGISTRY
     from core.harness.usage import UsageAttempt, attempt_status_for_exception, record_usage_safely
     from core.harness.ledger import HarnessUsageLedger
 
@@ -34,7 +34,7 @@ async def recover_incomplete_tool_effects(
         started = time.monotonic()
         status = "failed"
         try:
-            result = await gateway_module.ToolEffectGateway._call(handler, intent)
+            result = await gateway.ToolEffectGateway._call(handler, intent)
             status = "success"
             return result
         except asyncio.CancelledError:
@@ -60,12 +60,12 @@ async def recover_incomplete_tool_effects(
             except Exception:  # noqa: BLE001
                 logger.debug("tool recovery usage persistence failed", exc_info=True)
 
-    decisions: list[types_module.RecoverySweepDecision] = []
+    decisions: list[types.RecoverySweepDecision] = []
     for effect_id in await asyncio.to_thread(journal.pending_effect_ids):
         terminal_intent = journal.settle_terminal_run_intent(effect_id)
         if terminal_intent is not None:
             decisions.append(
-                types_module.RecoverySweepDecision(
+                types.RecoverySweepDecision(
                     effect_id, terminal_intent.run_id, "terminal_unknown"
                 )
             )
@@ -110,32 +110,32 @@ async def recover_incomplete_tool_effects(
                     reason="non-replayable tool intent has no committed result",
                 )
                 decisions.append(
-                    types_module.RecoverySweepDecision(effect_id, intent.run_id, "needs_attention")
+                    types.RecoverySweepDecision(effect_id, intent.run_id, "needs_attention")
                 )
                 continue
             if intent.recovery_policy == "replay_safe":
                 if policy.replayer is None:
-                    raise errors_module.ToolEffectError("replay_safe policy has no replay adapter")
+                    raise errors.ToolEffectError("replay_safe policy has no replay adapter")
                 result = await _recorded_recovery_call(
                     policy.replayer, intent, "replay"
                 )
                 if claim_lost.is_set():
-                    raise errors_module.ToolEffectLeaseLost(effect_id)
+                    raise errors.ToolEffectLeaseLost(effect_id)
                 journal.commit_recovered_result(
                     effect_id, result, recovery_owner=recovery_owner
                 )
                 decisions.append(
-                    types_module.RecoverySweepDecision(effect_id, intent.run_id, "replayed")
+                    types.RecoverySweepDecision(effect_id, intent.run_id, "replayed")
                 )
                 continue
 
             if policy.reconciler is None:
-                raise errors_module.ToolEffectError("reconcile policy has no reconciliation adapter")
-            reconciliation = gateway_module.ToolEffectGateway._reconciliation(
+                raise errors.ToolEffectError("reconcile policy has no reconciliation adapter")
+            reconciliation = gateway.ToolEffectGateway._reconciliation(
                 await _recorded_recovery_call(policy.reconciler, intent, "reconcile")
             )
             if claim_lost.is_set():
-                raise errors_module.ToolEffectLeaseLost(effect_id)
+                raise errors.ToolEffectLeaseLost(effect_id)
             if reconciliation.outcome == "applied":
                 result = reconciliation.result
             elif (
@@ -152,23 +152,23 @@ async def recover_incomplete_tool_effects(
                     reason="reconciliation could not determine external outcome",
                 )
                 decisions.append(
-                    types_module.RecoverySweepDecision(effect_id, intent.run_id, "needs_attention")
+                    types.RecoverySweepDecision(effect_id, intent.run_id, "needs_attention")
                 )
                 continue
             if claim_lost.is_set():
-                raise errors_module.ToolEffectLeaseLost(effect_id)
+                raise errors.ToolEffectLeaseLost(effect_id)
             journal.commit_recovered_result(
                 effect_id, result, recovery_owner=recovery_owner
             )
             decisions.append(
-                types_module.RecoverySweepDecision(effect_id, intent.run_id, "reconciled")
+                types.RecoverySweepDecision(effect_id, intent.run_id, "reconciled")
             )
         except Exception:  # noqa: BLE001 - release this claim and continue the sweep
             try:
                 journal.release_recovery_claim(effect_id, recovery_owner=recovery_owner)
-            except errors_module.ToolEffectError:
+            except errors.ToolEffectError:
                 pass
-            decisions.append(types_module.RecoverySweepDecision(effect_id, intent.run_id, "retry"))
+            decisions.append(types.RecoverySweepDecision(effect_id, intent.run_id, "retry"))
         finally:
             heartbeat.cancel()
             with suppress(asyncio.CancelledError):

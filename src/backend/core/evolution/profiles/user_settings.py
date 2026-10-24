@@ -1,10 +1,11 @@
-"""user settings responsibilities."""
+"""Read and update whether a user's episodes feed the evolution loop."""
 from __future__ import annotations
 from typing import Any, Dict, Optional
 from core.db.engine import SessionLocal
 import logging
+from core.evolution.profiles import user_settings_constants
+
 logger = logging.getLogger(__name__)
-from core.evolution.profiles import user_settings_state as user_settings_state_module
 
 def is_contribution_enabled(metadata: Optional[Dict[str, Any]]) -> bool:
     """Whether this user's episodes may feed the evolution loop.
@@ -25,13 +26,13 @@ def is_contribution_enabled(metadata: Optional[Dict[str, Any]]) -> bool:
 
 def privacy_class_for(metadata: Optional[Dict[str, Any]]) -> str:
     """The Episode privacy class implied by the user's setting."""
-    return user_settings_state_module.PRIVACY_TENANT if is_contribution_enabled(metadata) else user_settings_state_module.PRIVACY_PRIVATE
+    return user_settings_constants.PRIVACY_TENANT if is_contribution_enabled(metadata) else user_settings_constants.PRIVACY_PRIVATE
 
 
 def resolve_for_user(user_id: str) -> Dict[str, Any]:
     """Read the setting for one user. Degrades to the default, never raises."""
     if not user_id:
-        return {user_settings_state_module.SETTING_KEY: False, "privacy_class": user_settings_state_module.PRIVACY_PRIVATE}
+        return {user_settings_constants.SETTING_KEY: False, "privacy_class": user_settings_constants.PRIVACY_PRIVATE}
     try:
         from core.db.models import UserShadow
 
@@ -43,7 +44,7 @@ def resolve_for_user(user_id: str) -> Dict[str, Any]:
         metadata = {}
 
     enabled = is_contribution_enabled(metadata)
-    return {user_settings_state_module.SETTING_KEY: enabled, "privacy_class": privacy_class_for(metadata)}
+    return {user_settings_constants.SETTING_KEY: enabled, "privacy_class": privacy_class_for(metadata)}
 
 
 def update_for_user(user_id: str, enabled: bool) -> Dict[str, Any]:
@@ -63,7 +64,7 @@ def update_for_user(user_id: str, enabled: bool) -> Dict[str, Any]:
     merged = update_prefs(user_id, {"enabled": bool(enabled)})
     on = bool(merged.get("enabled", False))
     return {
-        user_settings_state_module.SETTING_KEY: on,
-        "privacy_class": user_settings_state_module.PRIVACY_TENANT if on else user_settings_state_module.PRIVACY_PRIVATE,
+        user_settings_constants.SETTING_KEY: on,
+        "privacy_class": user_settings_constants.PRIVACY_TENANT if on else user_settings_constants.PRIVACY_PRIVATE,
         "note": "仅影响此后新产生的证据；已贡献的证据需单独撤回",
     }

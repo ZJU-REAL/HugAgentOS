@@ -63,7 +63,7 @@ def _admission(task_ids, owner):
     return attach
 
 def prepare(rows, owner):
-    from core.llm.context.ir_state import KIND_REMINDER, POLICY_NEVER, SESSION_CONTEXT_META_KEY
+    from core.llm.context.ir_constants import KIND_REMINDER, POLICY_NEVER, SESSION_CONTEXT_META_KEY
     from core.llm.context.items import make_text_context_item, session_context_metadata
     first = rows[0]
     with store.SessionLocal() as db:

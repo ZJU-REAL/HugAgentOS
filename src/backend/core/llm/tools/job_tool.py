@@ -1,9 +1,10 @@
 """SDK binding for the user-scoped batch job action service."""
+from core.llm.factory.tools.definitions import function_tool
 import json
 from typing import Any, Dict, List, Optional
 from agentscope.message import TextBlock
 from agentscope.tool import Toolkit
-from agentscope.tool._response import ToolChunk as ToolResponse
+from agentscope.tool._response import ToolChunk
 from core.harness.registry.job_operations import job_operations
 
 def register_run_job(
@@ -44,10 +45,10 @@ def register_run_job(
         status: str = "",
         progress_wake_sec: int = 300,
         on_conflict: str = "block",
-    ) -> ToolResponse:
+    ) -> ToolChunk:
         payload = await execute(action=action, script_path=script_path, name=name, job_id=job_id, wait=wait, interpreter=interpreter, max_calls=max_calls, max_seconds=max_seconds, concurrency=concurrency, dest_path=dest_path, status=status, progress_wake_sec=progress_wake_sec, on_conflict=on_conflict)
-        return ToolResponse(content=[TextBlock(type="text", text=json.dumps(payload, ensure_ascii=False))])
+        return ToolChunk(content=[TextBlock(type="text", text=json.dumps(payload, ensure_ascii=False))])
 
     from .job_description import RUN_JOB_DESCRIPTION
     run_job.__doc__ = RUN_JOB_DESCRIPTION
-    toolkit.register_tool_function(run_job)
+    toolkit.append(function_tool(run_job))

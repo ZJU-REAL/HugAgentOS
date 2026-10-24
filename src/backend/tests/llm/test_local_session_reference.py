@@ -61,17 +61,17 @@ def test_session_canvas_saves_original_and_rechecks_ownership(local_project, db_
     source = session_file(tmp_path, monkeypatch)
     result = json.loads(asyncio.run(pin_tool(None, "pin-chat")(file_paths=[str(source)])).content[0].text)
     fid = result["pinned"][0]["file_id"]
-    response = asyncio.run(overwrite_file(
+    response = overwrite_file(
         fid, UploadFile(filename="report.txt", file=io.BytesIO(b"saved in original")),
         SimpleNamespace(user_id="pin-user"), db_session,
-    ))
+    )
     assert response["file_id"] == fid
     assert source.read_text() == "saved in original"
     with pytest.raises(HTTPException):
-        asyncio.run(overwrite_file(
+        overwrite_file(
             fid, UploadFile(filename="report.txt", file=io.BytesIO(b"unauthorized")),
             SimpleNamespace(user_id="other-user"), db_session,
-        ))
+        )
 
 
 @pytest.mark.parametrize("change", ["symlink", "revoked"])
@@ -101,19 +101,19 @@ def test_session_access_revalidates_source(local_project, db_session, tmp_path, 
 def test_write_and_pin_use_same_session_reference(local_project, tmp_path, monkeypatch):
     from core.llm.tools.write_tool import register_write
     from core.llm.tools._state import ReadStateTracker
-    from core.llm.runtime.tool_collector import ToolCollector
+    from core.llm.factory.tools.definitions import ToolAssembly
     from core.sandbox.permissions.dispatch_models import CURRENT_PERMISSION_TICKET, PermissionTicket, PermissionIntent
 
     source = session_file(tmp_path, monkeypatch)
     source.unlink()
-    collector = ToolCollector()
+    collector = ToolAssembly()
     monkeypatch.setattr("core.sandbox.get_sandbox_provider", lambda: SimpleNamespace(name="script_runner"))
     register_write(collector, chat_id="pin-chat", user_id="pin-user", state=ReadStateTracker())
     token = CURRENT_PERMISSION_TICKET.set(PermissionTicket(
         "Write", "write", "", "test", (PermissionIntent("local_path", "write", str(source), "create"),),
     ))
     try:
-        written = json.loads(asyncio.run(collector.get_tool("Write")._func(
+        written = json.loads(asyncio.run(next(t for t in collector if t.name == "Write")._func(
             file_path=str(source), content="written original", register_as_artifact=True,
         )).content[0].text)
     finally:

@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
@@ -28,7 +29,6 @@ from core.infra.logging import get_logger
 logger = get_logger(__name__)
 
 TICKET_KEY_PREFIX = "jx:oa_ticket:"
-
 
 
 def _ttl_seconds() -> int:
@@ -109,17 +109,13 @@ async def consume_ticket(token: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class OaTicketStoreState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    MEMORY_TICKETS: dict[str, dict[str, Any]] = state_field(default_factory=lambda: {})
+    MEMORY_TICKETS: dict[str, dict[str, Any]] = field(default_factory=lambda: {})
 
-@state_cache(maxsize=1)
+
+_STATE = OaTicketStoreState()
+
+
 def process_state() -> OaTicketStoreState:
-    return OaTicketStoreState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

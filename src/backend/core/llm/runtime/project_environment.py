@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from threading import Lock
 
 from core.projects.environment.config import FIELDS
@@ -11,7 +11,6 @@ from core.projects.environment.service import ProjectEnvironmentService
 from fastapi import HTTPException
 
 # Compare-and-store only; resource lookups never run under this lock.
-
 
 
 def _snapshot(context, key, value):
@@ -171,17 +170,13 @@ def validate_project_environment(request):
         raise HTTPException(403, "项目资源权限已变更，本轮已暂停，请重新发起对话")
 
 
-from dataclasses import dataclass as state_dataclass, field as state_field
-from functools import lru_cache as state_cache
-
-@state_dataclass
+@dataclass
 class ProjectEnvironmentState:
-    """Process-owned storage; domain operations retain locks and cleanup responsibility."""
-    snapshot_lock: object = state_field(default_factory=lambda: Lock())
+    snapshot_lock: object = field(default_factory=lambda: Lock())
 
-@state_cache(maxsize=1)
+
+_STATE = ProjectEnvironmentState()
+
+
 def process_state() -> ProjectEnvironmentState:
-    return ProjectEnvironmentState()
-
-# Initialize under the import lock before concurrent callers share the owner.
-process_state()
+    return _STATE

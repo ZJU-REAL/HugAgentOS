@@ -5,16 +5,16 @@ import json
 from pathlib import Path
 import pytest
 from core.capabilities.plugins.management.contract import tools, localize
-from core.llm.mcp.pool import make_client
+from core.llm.tools.cloud_manifest import manifest_tools
 from core.capabilities.manifest_protocol import canonical_hash
 
 
 def manifest_client(manager, specs, user="local-u1", remote=False):
-    return make_client("test-manager", {"transport": "streamable_http", "url": "http://localhost/inert",
+    return manifest_tools("test-manager", {"transport": "streamable_http", "url": "http://localhost/inert",
         "schema_source": "cloud_manifest" if remote else "plugin_manifest", "origin": "local_plugin", "manifest_tools": specs,
         "gateway_invoke_url": "https://cloud.example/api/v1/desktop/capability/gateway/test-manager/call" if remote else "",
         "schema_hash": canonical_hash(specs), "gateway_plugin": manager,
-        "headers": {"X-Current-User-Id": user}}, is_stateful=False)
+        "headers": {"X-Current-User-Id": user}})
 
 
 @pytest.mark.asyncio
@@ -23,7 +23,7 @@ async def test_declared_local_install_updates_page_projection(client, tmp_path, 
     from core.harness.registry import execution_catalog
     monkeypatch.setattr(execution_catalog, "local_plugin_configs", lambda user, enabled_only=True: {"test-manager": {"gateway_plugin": "skill-manager"}} if user == "local-u1" else {})
     mcp = manifest_client("skill-manager", tools("skill-manager", "cloud"))
-    tool = await mcp.get_tool("install_skill")
+    tool = next(t for t in mcp if t.name == "install_skill")
     assert "artifact_id" not in json.dumps(tool.input_schema)
     root = tmp_path / "from-tool"
     root.mkdir()
@@ -34,7 +34,7 @@ async def test_declared_local_install_updates_page_projection(client, tmp_path, 
     assert body["install_id"] in {x["install_id"] for x in device_catalog.catalog_overlay(user_id="local-u1")["skills"]}
     rejected = await tool(source={"kind": "artifact", "artifact_id": "not-local"})
     assert json.loads(rejected.content[0].text)["ok"] is False
-    assert "upload_skill_to_cloud" not in [t.name for t in await mcp.list_tools()]
+    assert "upload_skill_to_cloud" not in [t.name for t in mcp]
 
 
 @pytest.mark.asyncio
@@ -47,8 +47,8 @@ async def test_offline_plugin_package_supplies_manager_without_remote_discovery(
     servers = configs("local-u1")
     sid = installed["components"]["mcp"][0]
     assert sid in servers
-    mcp = make_client(sid, servers[sid], is_stateful=False)
-    names = [t.name for t in await mcp.list_tools()]
+    mcp = manifest_tools(sid, servers[sid])
+    names = [t.name for t in mcp]
     assert "install_skill" in names
     assert "upload_skill_to_cloud" not in names
     assert not configs("other")
@@ -71,8 +71,8 @@ async def test_installed_local_manager_exposes_upload_only_to_bound_cloud_user(c
     root = Path(__file__).resolve().parents[4] / "extensions/plugins/marketplace/skill-manager"
     installed = local_plugin_service.install("local-u1", str(root))
     sid = installed["components"]["mcp"][0]
-    mcp = make_client(sid, configs("local-u1")[sid], is_stateful=False)
-    assert "upload_skill_to_cloud" in [t.name for t in await mcp.list_tools()]
+    mcp = manifest_tools(sid, configs("local-u1")[sid])
+    assert "upload_skill_to_cloud" in [t.name for t in mcp]
 
 
 @pytest.mark.asyncio
@@ -84,13 +84,13 @@ async def test_cloud_delivered_manager_contract_executes_locally(client, tmp_pat
     monkeypatch.setattr(bridge_gateway, 'bridge_context', lambda: {"servers": [{"server_id": "test-manager", "source_plugin": "skill-manager", "tools": specs}]})
     monkeypatch.setattr('features.desktop.capabilities.skill_account.current_local_user_id', lambda: "local-u1")
     mcp = manifest_client("skill-manager", specs, remote=True)
-    tool = await mcp.get_tool("install_skill")
+    tool = next(t for t in mcp if t.name == "install_skill")
     root = tmp_path / "hybrid-skill"
     root.mkdir()
     (root / "SKILL.md").write_text("---\nname: hybrid-skill\ndescription: Hybrid\n---\nBody")
     result = json.loads((await tool(source={"kind": "local_path", "path": str(root)})).content[0].text)
     assert result["ok"] and result["source"] == "local"
-    assert "upload_skill_to_cloud" in [t.name for t in await mcp.list_tools()]
+    assert "upload_skill_to_cloud" in [t.name for t in mcp]
     monkeypatch.setattr(bridge_gateway, 'bridge_context', lambda: {"servers": []})
     revoked = json.loads((await tool(source={"kind": "local_path", "path": str(root)})).content[0].text)
     assert not revoked["ok"]

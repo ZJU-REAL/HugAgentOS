@@ -1,4 +1,4 @@
-"""base responsibilities."""
+"""CRUD, versioning and permission checks for user-defined agents."""
 from __future__ import annotations
 from core.capabilities.agents import available_resources
 from core.capabilities.agents import version_history
@@ -9,9 +9,17 @@ from core.db.repository import AuditLogRepository, UserAgentRepository
 from core.harness.registry.build_governance import ensure_ontology_build_valid
 from sqlalchemy.orm import Session
 import logging
+from core.capabilities.agents import base_constants
+
 logger = logging.getLogger(__name__)
-from core.capabilities.agents import account_store as account_store_module
-from core.capabilities.agents import base_state as base_state_module
+
+
+def desktop_store() -> bool:
+    """Whether this process keeps a desktop capability file store (agents projected there)."""
+    from core.harness.registry.run_capabilities import has_run_capabilities
+
+    return has_run_capabilities()
+
 
 class UserAgentBaseService:
     """Service for user agent CRUD and permission checks."""
@@ -25,7 +33,7 @@ class UserAgentBaseService:
     def list_for_user(self, user_id: str) -> List[Dict[str, Any]]:
         agents = self.repo.list_for_user(user_id)
         rows = [self._serialize(a) for a in agents]
-        if account_store_module.desktop_store():
+        if desktop_store():
             # Desktop: the bridged account's stored agents join the device's own;
             # a display-name clash is decided by the resolver, never by order.
             from core.harness.registry.local_publication import local_publication
@@ -67,7 +75,7 @@ class UserAgentBaseService:
 
     @staticmethod
     def _stored_account_agent(agent_id: str, user_id: Optional[str] = None):
-        if not account_store_module.desktop_store():
+        if not desktop_store():
             return None
         from core.harness.registry.local_publication import local_publication
         from core.harness.registry.execution_account import account_authorized_for
@@ -77,7 +85,7 @@ class UserAgentBaseService:
         return local_publication().account_agent_definition(agent_id)
 
     def _project_to_store(self, agent: UserAgent) -> None:
-        if not account_store_module.desktop_store():
+        if not desktop_store():
             return
         from core.harness.registry.local_publication import local_publication
 
@@ -85,7 +93,7 @@ class UserAgentBaseService:
 
     @staticmethod
     def _remove_from_store(agent_id: str) -> None:
-        if not account_store_module.desktop_store():
+        if not desktop_store():
             return
         from core.harness.registry.local_publication import local_publication
 
@@ -125,7 +133,7 @@ class UserAgentBaseService:
         created_at = self._now_iso()
         creation_history = [
             {
-                "version": base_state_module.DEFAULT_AGENT_VERSION,
+                "version": base_constants.DEFAULT_AGENT_VERSION,
                 "timestamp": created_at,
                 "content": "创建了子智能体",
                 "operator_name": operator_name or user_id or "未知用户",
@@ -135,7 +143,7 @@ class UserAgentBaseService:
         extra_config = self._merge_extra_config(
             current_extra=None,
             incoming_extra=incoming_extra,
-            version=base_state_module.DEFAULT_AGENT_VERSION,
+            version=base_constants.DEFAULT_AGENT_VERSION,
             change_history=creation_history,
         )
 
@@ -198,8 +206,8 @@ class UserAgentBaseService:
         )
 
         changed_fields = self._collect_changed_fields(agent, data)
-        versioned_fields = [field for field in changed_fields if field not in base_state_module.NON_VERSIONED_FIELDS]
-        changed_labels = [base_state_module.VERSIONED_FIELDS[field] for field in changed_fields]
+        versioned_fields = [field for field in changed_fields if field not in base_constants.NON_VERSIONED_FIELDS]
+        changed_labels = [base_constants.VERSIONED_FIELDS[field] for field in changed_fields]
         next_version = self._read_version(current_extra)
         change_history = self._read_change_history(current_extra)
 
@@ -219,7 +227,7 @@ class UserAgentBaseService:
                     "details": change_details,
                 }
             )
-            change_history = change_history[-base_state_module.MAX_CHANGE_HISTORY:]
+            change_history = change_history[-base_constants.MAX_CHANGE_HISTORY:]
 
         payload = dict(data)
         payload["extra_config"] = self._merge_extra_config(
@@ -283,8 +291,8 @@ class UserAgentBaseService:
         if owner_type == "user":
             if not user_id:
                 raise ValueError("user_id required for user agents")
-            if self.repo.count_user_agents(user_id) >= base_state_module.MAX_USER_AGENTS:
-                raise ValueError(f"Maximum {base_state_module.MAX_USER_AGENTS} agents per user reached")
+            if self.repo.count_user_agents(user_id) >= base_constants.MAX_USER_AGENTS:
+                raise ValueError(f"Maximum {base_constants.MAX_USER_AGENTS} agents per user reached")
             return
         if owner_type == "admin":
             return

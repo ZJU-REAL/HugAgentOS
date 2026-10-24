@@ -9,6 +9,8 @@ from core.chat.compaction.history import normalize_rows
 
 
 class CaptureModel:
+    from agentscope.formatter import OpenAIChatFormatter
+    formatter = OpenAIChatFormatter()
     model = "budget-probe"
     context_size = 100
 

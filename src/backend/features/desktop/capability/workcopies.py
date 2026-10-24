@@ -223,7 +223,6 @@ def _activate(db, user, kind, key, files, row):
             owner_user_id=str(user),
             created_by=str(user),
             display_name=spec.get("display_name") or key,
-            is_stable=False,
         )
         db.add(row)
     for field in ("display_name", "description", "transport", "url"):

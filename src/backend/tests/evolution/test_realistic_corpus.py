@@ -16,7 +16,7 @@ These tests pin the corpus shape that broke it.
 from core.evolution.cycle import candidate_records as candidate_records_module
 from core.evolution.cycle import ordering as ordering_module
 from core.evolution.cycle import patterns as patterns_module
-from core.evolution.cycle import promotion_state as promotion_state_module
+from core.evolution.cycle import promotion_constants as promotion_state_module
 from core.evolution.cycle import promotion_types as promotion_types_module
 
 import pytest

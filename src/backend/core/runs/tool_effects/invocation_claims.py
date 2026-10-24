@@ -1,9 +1,9 @@
-"""invocation claims operations."""
+"""Acquire, renew and abandon invocation claims."""
 from __future__ import annotations
 from datetime import timedelta
 from core.db.models import ChatRun, ToolEffectLease, ToolEffectLedger
 from core.runs.journal import LIVE_STATUSES
-from core.runs.tool_effects import errors as errors_module
+from core.runs.tool_effects import errors
 
 def acquire_invocation_claim(
     self,
@@ -41,7 +41,7 @@ def acquire_invocation_claim(
         )
         if not affected or self._terminal_row(db, effect_id) is not None:
             db.rollback()
-            raise errors_module.ToolEffectLeaseLost(effect_id)
+            raise errors.ToolEffectLeaseLost(effect_id)
         db.commit()
 
 
@@ -67,7 +67,7 @@ def renew_invocation_claim(
             lease_seconds=lease_seconds,
         )
         return True
-    except errors_module.ToolEffectLeaseLost:
+    except errors.ToolEffectLeaseLost:
         return False
 
 

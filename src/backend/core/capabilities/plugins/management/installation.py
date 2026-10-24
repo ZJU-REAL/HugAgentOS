@@ -1,4 +1,4 @@
-"""Plugin installation responsibilities."""
+"""Install plugins from the marketplace, a directory or a zip, and bootstrap the defaults."""
 
 from __future__ import annotations
 

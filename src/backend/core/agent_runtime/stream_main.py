@@ -1,7 +1,7 @@
 """Translate main-agent model and tool output into chat events."""
 
 from __future__ import annotations
-from core.llm.citations import allocator as allocator_module
+from core.llm.citations import allocator
 
 import json
 import logging
@@ -12,7 +12,6 @@ import core.agent_runtime.skills as skills
 import core.chat.plan_progress as plan_progress
 import core.chat.tool_payloads as tool_payloads
 import core.config.display_names as display_names
-import core.llm.citations.anchor as citation_anchor
 import core.llm.tools.plan_update as plan_update_tool
 from core.agent_runtime.main_state import MainTurn
 
@@ -180,6 +179,9 @@ async def stream_main(turn: MainTurn):
                     **({"subagent_name": _tc_sa_name} if _tc_sa_name else {}),
                 }
 
+            elif event_type == "tool_progress":
+                yield {"type": "tool_progress", **payload}
+
             elif event_type == "tool_result":
                 tool_name = payload.get("name", "unknown")
                 tool_id = payload.get("id", "")
@@ -223,6 +225,8 @@ async def stream_main(turn: MainTurn):
                     tool_result_json = json.loads(tool_content) if tool_content else {}
                 except json.JSONDecodeError:
                     tool_result_json = {"result": tool_content}
+                if isinstance(payload.get("mcp"), dict):
+                    tool_result_json = payload["mcp"]
 
                 # Skill load: replace the full SKILL.md text with the same curated detail used by the capability center
                 if is_skill_result:
@@ -251,7 +255,7 @@ async def stream_main(turn: MainTurn):
                         extracted_query = result_data.get("query", result_data.get("question", ""))
 
                 # Citations
-                cit_dicts = allocator_module.collect_citation_dicts(tool_id, turn.anchor_allocator)
+                cit_dicts = allocator.collect_citation_dicts(tool_id, turn.anchor_allocator)
                 turn.all_citations.extend(cit_dicts)
                 turn.ontology_trace.append(
                     {

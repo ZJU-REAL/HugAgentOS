@@ -1,4 +1,4 @@
-"""Plugin projection responsibilities."""
+"""Project plugin changes into the desktop store and refresh dependent caches."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""memory responsibilities."""
+"""Memory retrieval for a turn: background recall, the frozen memory block and post-turn saving."""
 from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
@@ -9,8 +9,9 @@ from core.memory.context import MemoryContext
 from core.memory.retrieval_types import MemoryRetrievalResult
 from core.memory.service import retrieve_memories_structured
 import logging
+from core.agent_runtime.integrations import memory_state
+
 logger = logging.getLogger(__name__)
-from core.agent_runtime.integrations import memory_state as memory_state_module
 
 async def launch_memory_retrieval(
     user_id: str,
@@ -66,24 +67,24 @@ def as_result(value: object) -> Optional[MemoryRetrievalResult]:
 def track_memory_retrieval(task: asyncio.Task, *, budget_s: Optional[float] = None) -> asyncio.Task:
     """Attach lifecycle observation without taking ownership of cancellation."""
 
-    memory_state_module.process_state().retrieval_states[task] = "running"
+    memory_state.process_state().retrieval_states[task] = "running"
     if budget_s is not None:
-        memory_state_module.process_state().retrieval_budgets[task] = max(0.0, budget_s)
+        memory_state.process_state().retrieval_budgets[task] = max(0.0, budget_s)
 
     def _finished(done: asyncio.Task) -> None:
-        previous = memory_state_module.process_state().retrieval_states.get(done)
+        previous = memory_state.process_state().retrieval_states.get(done)
         if done.cancelled():
-            memory_state_module.process_state().retrieval_states[done] = "cancelled"
+            memory_state.process_state().retrieval_states[done] = "cancelled"
             return
         try:
             value = done.result()
         except Exception:
-            memory_state_module.process_state().retrieval_states[done] = "failed"
+            memory_state.process_state().retrieval_states[done] = "failed"
             return
         result = as_result(value)
         if result is not None:
             set_last_retrieval(done, result)
-        memory_state_module.process_state().retrieval_states[done] = (
+        memory_state.process_state().retrieval_states[done] = (
             "completed_after_timeout" if previous == "timed_out_running" else "completed"
         )
 
@@ -94,12 +95,12 @@ def track_memory_retrieval(task: asyncio.Task, *, budget_s: Optional[float] = No
 def get_retrieval_state(task: Optional[asyncio.Task]) -> Optional[str]:
     if task is None:
         return None
-    return memory_state_module.process_state().retrieval_states.get(task)
+    return memory_state.process_state().retrieval_states.get(task)
 
 
 def set_last_retrieval(task: asyncio.Task, result: MemoryRetrievalResult) -> None:
     try:
-        memory_state_module.process_state().last_retrieval[task] = result
+        memory_state.process_state().last_retrieval[task] = result
     except TypeError:  # pragma: no cover - non-weakrefable task
         pass
 
@@ -113,7 +114,7 @@ def get_last_retrieval(task: Optional[asyncio.Task]) -> Optional[MemoryRetrieval
     if task is None:
         return None
     try:
-        return memory_state_module.process_state().last_retrieval.get(task)
+        return memory_state.process_state().last_retrieval.get(task)
     except TypeError:  # pragma: no cover
         return None
 
@@ -175,7 +176,7 @@ async def build_frozen_memory_block(
             # started before the agent was created, so in most cases it is nearly done by now.
             # The old value of 50ms was measured to be far below Milvus warm search's ~200ms,
             # so Fact injection almost never hit.
-            wait_budget_s = memory_state_module.process_state().retrieval_budgets.get(
+            wait_budget_s = memory_state.process_state().retrieval_budgets.get(
                 memory_task, max(0.1, settings.memory.retrieval_budget_ms / 1000.0)
             )
             fact_result = as_result(
@@ -192,7 +193,7 @@ async def build_frozen_memory_block(
                 set_last_retrieval(memory_task, fact_result)
         except asyncio.TimeoutError:
             if not memory_task.done():
-                memory_state_module.process_state().retrieval_states[memory_task] = "timed_out_running"
+                memory_state.process_state().retrieval_states[memory_task] = "timed_out_running"
             logger.info(
                 "[memory] fact retrieval still running past wait window, skipping injection"
             )

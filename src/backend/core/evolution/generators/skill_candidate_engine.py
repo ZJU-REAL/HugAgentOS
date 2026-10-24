@@ -18,7 +18,7 @@ LLM 只出现在其中一步，且只写正文；工具授权、作用域、证�
 """
 
 from __future__ import annotations
-from core.evolution.generators import skill_gen as skill_gen_module
+from core.evolution.generators import skill_gen
 
 import logging
 from dataclasses import dataclass, field
@@ -102,10 +102,9 @@ def create_skill_candidate(
     if spec.write_document:
         if run_async is None:
             return {"status": STATUS_REJECTED, "code": "no_async_runner"}
-        import core.evolution.generators.skill_gen as skill_gen
 
         document, draft = run_async(
-            skill_gen_module.generate_skill_document(
+            skill_gen.generate_skill_document(
                 skill_id=spec.asset_id,
                 episodes=spec.views,
                 ordering_constraints=spec.ordering_constraints,

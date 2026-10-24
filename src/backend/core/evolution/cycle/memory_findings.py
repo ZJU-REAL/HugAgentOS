@@ -1,7 +1,7 @@
-"""memory findings responsibilities."""
+"""Reorganisation proposals for the memory layer."""
 from __future__ import annotations
 from typing import Any, Dict, List, Optional, Sequence
-from core.evolution.cycle import cycle_extras_state as cycle_extras_state_module
+from core.evolution.cycle import cycle_extras_constants
 
 def memory_findings(
     views: Sequence[Dict[str, Any]],
@@ -76,10 +76,10 @@ def memory_findings(
     #    never deleted — a wrong reweight is recoverable and a wrong deletion is
     #    not.
     for ref, count in retrieved.items():
-        if count < cycle_extras_state_module.DEMOTE_MIN_HITS:
+        if count < cycle_extras_constants.DEMOTE_MIN_HITS:
             continue
         rate = helped.get(ref, 0) / count
-        if rate <= cycle_extras_state_module.DEMOTE_SUCCESS_CEILING:
+        if rate <= cycle_extras_constants.DEMOTE_SUCCESS_CEILING:
             ops.append(
                 MemoryOp(
                     operation=OP_REWEIGHT,

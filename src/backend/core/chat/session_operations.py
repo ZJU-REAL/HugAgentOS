@@ -1,4 +1,4 @@
-"""session operations operations."""
+"""Create, list, update and delete chat sessions, with ownership and sharing checks."""
 from __future__ import annotations
 import uuid
 from typing import Any, Dict, List, Optional, Tuple

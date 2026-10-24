@@ -30,6 +30,7 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from core.db.models import AdminSkill, SkillDependencyRequest
+from core.db.threads import run_in_session
 from core.capabilities.skills.deps.prober import names_of, probe_still_missing
 
 logger = logging.getLogger(__name__)
@@ -74,8 +75,27 @@ def _upsert_pending(db: Session, skill_id: str, *, user_id: Optional[str], missi
     req.reason = None
 
 
+def _skill_exists(db: Session, skill_id: str) -> bool:
+    return db.query(AdminSkill.skill_id).filter(AdminSkill.skill_id == skill_id).first() is not None
+
+
+def _record_verdict(
+    db: Session, skill_id: str, owner_user_id: Optional[str], missing: dict
+) -> bool:
+    skill = db.query(AdminSkill).filter(AdminSkill.skill_id == skill_id).first()
+    if skill is None:
+        return False
+    if not missing:
+        _mark_ready(db, skill)
+        db.commit()
+        return False
+    skill.dep_status = "installing"
+    _upsert_pending(db, skill_id, user_id=owner_user_id, missing=missing)
+    db.commit()
+    return True
+
+
 async def gate_skill_deps(
-    db: Session,
     skill_id: str,
     *,
     owner_user_id: Optional[str],
@@ -87,14 +107,11 @@ async def gate_skill_deps(
     - All already present in the sandbox -> ``ready``, return False (do not bother the admin);
     - Packages truly missing (or probe inconclusive, conservatively treated as missing) -> ``installing`` + pending, return True.
     """
-    skill = db.query(AdminSkill).filter(AdminSkill.skill_id == skill_id).first()
-    if skill is None:
-        return False
-
     declared = _extract_declared(dependencies)
     if not owner_user_id or not declared:
-        _mark_ready(db, skill)
-        db.commit()
+        await run_in_session(_record_verdict, skill_id, owner_user_id, {})
+        return False
+    if not await run_in_session(_skill_exists, skill_id):
         return False
 
     probed = await probe_still_missing(declared)
@@ -105,17 +122,12 @@ async def gate_skill_deps(
     else:
         missing = {k: v for k, v in probed.items() if v}
 
-    if not missing:
-        _mark_ready(db, skill)
-        db.commit()
+    pending = await run_in_session(_record_verdict, skill_id, owner_user_id, missing)
+    if pending:
+        logger.info("[skill-deps] %s flagged installing; missing=%s", skill_id, missing)
+    else:
         logger.info("[skill-deps] %s deps already satisfied in sandbox; ready", skill_id)
-        return False
-
-    skill.dep_status = "installing"
-    _upsert_pending(db, skill_id, user_id=owner_user_id, missing=missing)
-    db.commit()
-    logger.info("[skill-deps] %s flagged installing; missing=%s", skill_id, missing)
-    return True
+    return pending
 
 
 def list_pending(db: Session) -> list[dict[str, Any]]:
@@ -187,40 +199,31 @@ def get_reject_reason(db: Session, skill_id: str) -> Optional[str]:
     return (req.reason if req else None) or None
 
 
-async def verify_pending_after_rebuild(db: Session, run_id: str) -> dict[str, int]:
-    """After a successful sandbox rebuild: **re-probe** the dependencies of each pending request's skill, one by one.
-
-    Truly installed (no more missing packages in the sandbox) -> set satisfied + restore
-    the skill to ready; still missing -> keep pending and refresh the missing list (this
-    rebuild did not install it). Inconclusive probes also stay pending (conservative).
-    Returns ``{"satisfied": n, "still_pending": m}``. Idempotent: returns all zeros when
-    there are no pending requests.
-    """
+def _pending_declarations(db: Session) -> list[tuple[str, dict]]:
     rows = (
         db.query(SkillDependencyRequest)
         .filter(SkillDependencyRequest.status == "pending")
         .all()
     )
-    if not rows:
-        return {"satisfied": 0, "still_pending": 0}
+    out = []
+    for r in rows:
+        skill = db.query(AdminSkill).filter(AdminSkill.skill_id == r.skill_id).first()
+        out.append((r.request_id, _extract_declared(skill.dependencies if skill else None)))
+    return out
 
+
+def _record_probes(db: Session, run_id: str, probes: dict[str, Optional[dict]]) -> dict[str, int]:
     now = utc_now()
     satisfied = 0
     still_pending = 0
-    for r in rows:
-        skill = db.query(AdminSkill).filter(AdminSkill.skill_id == r.skill_id).first()
-        declared = _extract_declared(skill.dependencies if skill else None)
-        if not declared:
-            # Skill no longer declares dependencies (edited/emptied) -> treat as satisfied.
-            probed: Optional[dict] = {k: [] for k in _DEP_KINDS}
-        else:
-            probed = await probe_still_missing(declared)
-
-        if probed is None:
+    for request_id, probed in probes.items():
+        r = db.get(SkillDependencyRequest, request_id)
+        if probed is None or r is None or r.status != "pending":
             still_pending += 1
             continue
         missing = {k: v for k, v in probed.items() if v}
         if not missing:
+            skill = db.query(AdminSkill).filter(AdminSkill.skill_id == r.skill_id).first()
             r.status = "satisfied"
             r.satisfied_at = now
             r.satisfied_by_run_id = run_id
@@ -231,8 +234,31 @@ async def verify_pending_after_rebuild(db: Session, run_id: str) -> dict[str, in
             r.missing = missing
             still_pending += 1
     db.commit()
+    return {"satisfied": satisfied, "still_pending": still_pending}
+
+
+async def verify_pending_after_rebuild(run_id: str) -> dict[str, int]:
+    """After a successful sandbox rebuild: **re-probe** the dependencies of each pending request's skill, one by one.
+
+    Truly installed (no more missing packages in the sandbox) -> set satisfied + restore
+    the skill to ready; still missing -> keep pending and refresh the missing list (this
+    rebuild did not install it). Inconclusive probes also stay pending (conservative).
+    Returns ``{"satisfied": n, "still_pending": m}``. Idempotent: returns all zeros when
+    there are no pending requests.
+    """
+    pending = await run_in_session(_pending_declarations)
+    if not pending:
+        return {"satisfied": 0, "still_pending": 0}
+
+    probes: dict[str, Optional[dict]] = {}
+    for request_id, declared in pending:
+        # Skill no longer declares dependencies (edited/emptied) -> treat as satisfied.
+        probes[request_id] = (
+            await probe_still_missing(declared) if declared else {k: [] for k in _DEP_KINDS}
+        )
+    result = await run_in_session(_record_probes, run_id, probes)
     logger.info(
         "[skill-deps] rebuild %s verified: satisfied=%d still_pending=%d",
-        run_id, satisfied, still_pending,
+        run_id, result["satisfied"], result["still_pending"],
     )
-    return {"satisfied": satisfied, "still_pending": still_pending}
+    return result

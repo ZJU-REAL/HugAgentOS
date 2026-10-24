@@ -66,12 +66,11 @@ async def native_tools(
         # Skill files reach the sandbox via the unified /workspace/skills bind
         # mount (built-in synced at startup, DB skills materialized on demand —
         # see agent_skills.config.get_sandbox_skills_dir), so Bash needs no
-        # per-call sync. loader/loaded_skill_ids kept for backward compat.
+        # per-call sync.
         if request.allow_bash:
             register_bash(
                 toolkit,
                 loader=loader,
-                loaded_skill_ids=loaded_skill_ids,
                 source_run_id=request.run_id,
                 chat_id=request.chat_id,
                 sandbox_session_id=_sbx_sess,

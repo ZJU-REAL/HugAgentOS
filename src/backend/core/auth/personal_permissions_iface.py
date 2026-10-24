@@ -77,7 +77,7 @@ def require_project_access(
 
     from core.auth.backend import UserContext, get_current_user  # 避免循环导入
 
-    async def _dep(
+    def _dep(
         project_id: str = Path(..., description="项目 ID"),
         request: Request = None,
         user: "UserContext" = Depends(get_current_user),

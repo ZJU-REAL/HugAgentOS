@@ -189,7 +189,7 @@ class AgentScopeHookAdapter(MiddlewareBase):
         invocation = adapt_agentscope_event(event, run_id=run_id)
         if invocation is None:
             return
-        await self.bus.event_sink.append(
+        await self.bus.event_sink.publish(
             Event.create(
                 run_id=run_id,
                 event_type="framework_invocation",

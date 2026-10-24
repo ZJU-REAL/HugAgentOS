@@ -7,7 +7,7 @@ rebuild succeeded, both crude judgments. This module actually runs a probe scrip
 
 - pip: ``importlib.metadata.distribution(name)`` queries the distribution in the sandbox Python interpreter (with PEP 503 normalization);
 - apt: ``dpkg -s <name>`` exit code;
-- npm: ``npm ls -g <name>`` exit code (dependencies are baked in via ``npm install -g``, see docker/Dockerfile.opensandbox).
+- npm: ``npm ls -g <name>`` exit code (dependencies are baked in via ``npm install -g``, see docker/sandbox/Dockerfile.opensandbox).
 
 Returns the subset that is **still missing**. When the probe is uncertain (sandbox unreachable /
 script error / output unparseable) it returns ``None``, and the caller handles it as
@@ -45,7 +45,7 @@ def _build_script(names: dict[str, list[str]]) -> str:
     """Generate the probe script to run inside the sandbox. Package names are embedded as JSON literals (the source is the detector, not free user input).
 
     Key point: the sandbox's ``execute(language=python)`` runs the system ``/usr/bin/python3``, while the skill's pip
-    dependencies are installed under ``$PY_BIN`` (see ``ENV PY_BIN=...`` in docker/Dockerfile.opensandbox +
+    dependencies are installed under ``$PY_BIN`` (see ``ENV PY_BIN=...`` in docker/sandbox/Dockerfile.opensandbox +
     ``$PY_BIN -m pip install -r requirements-skills.txt``). So pip must query distributions **against the $PY_BIN
     interpreter**, not the currently running interpreter, otherwise everything is judged missing.
     """

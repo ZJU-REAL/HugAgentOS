@@ -1,7 +1,7 @@
-"""execution options responsibilities."""
+"""Execution switches read from system config: code capability, turbo mode, planning."""
 from __future__ import annotations
 from core.config.store import system_config
-from core.config.store import system_config_state
+from core.config.store import system_config_constants
 
 def code_capability_enabled() -> bool:
     """Master switch for the main agent's code execution capability (single source of truth at runtime).
@@ -24,13 +24,13 @@ def turbo_mcp_server_ids() -> frozenset[str]:
     （逗号分隔）。刻意不与能力目录（catalog）的启停求交集——极速模式的工具面
     是独立的产品契约。配置异常或解析为空时回退到内置检索三件套。
     """
-    default = ",".join(sorted(system_config_state.DEFAULT_TURBO_MCP_SERVER_IDS))
+    default = ",".join(sorted(system_config_constants.DEFAULT_TURBO_MCP_SERVER_IDS))
     try:
         raw = system_config.SystemConfigService.get_instance().get("turbo.mcp_server_ids", default) or default
     except Exception:  # noqa: BLE001 — conservatively fall back to the built-in trio
-        return system_config_state.DEFAULT_TURBO_MCP_SERVER_IDS
+        return system_config_constants.DEFAULT_TURBO_MCP_SERVER_IDS
     ids = frozenset(part.strip() for part in str(raw).split(",") if part.strip())
-    return ids or system_config_state.DEFAULT_TURBO_MCP_SERVER_IDS
+    return ids or system_config_constants.DEFAULT_TURBO_MCP_SERVER_IDS
 
 
 def turbo_skill_ids() -> tuple[str, ...]:

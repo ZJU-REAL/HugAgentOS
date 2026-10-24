@@ -80,7 +80,7 @@ async def test_failed_offload_is_not_presented_as_a_file(runner_workspace, strea
     from agentscope.tool import Toolkit
     from agentscope.tool._response import ToolChunk
     from core.llm.context.compacting_agent import CompactingAgent
-    from core.llm.runtime.tool_collector import ToolCollector
+    from core.llm.factory.tools.definitions import ToolAssembly, function_tool
     from tests.llm.test_tool_result_images import CaptureModel
 
     class UnwritableFiles:
@@ -91,14 +91,14 @@ async def test_failed_offload_is_not_presented_as_a_file(runner_workspace, strea
         """Read diagnostic logs."""
         return ToolChunk(content=[TextBlock(text="BEGIN " + "log line " * 20_000 + " END")])
 
-    collector = ToolCollector()
-    collector.register_tool_function(logs)
+    collector = ToolAssembly()
+    collector.append(function_tool(logs))
     model = CaptureModel("logs", {})
     agent = CompactingAgent(
         name="agent",
         system_prompt="Inspect logs.",
         model=model,
-        toolkit=Toolkit(tools=collector.function_tools),
+        toolkit=Toolkit(tools=list(collector)),
         context_config=ContextConfig(tool_result_limit=100),
         offloader=SandboxOffloader(UnwritableFiles(), "chat-a"),
     )
@@ -198,7 +198,7 @@ async def test_full_output_can_be_read_from_the_path_seen_by_model(runner_worksp
     from agentscope.tool import Toolkit
     from agentscope.tool._response import ToolChunk
     from core.llm.context.compacting_agent import CompactingAgent
-    from core.llm.runtime.tool_collector import ToolCollector
+    from core.llm.factory.tools.definitions import ToolAssembly, function_tool
     from tests.llm.test_tool_result_images import CaptureModel
 
     text = 'BEGIN\n{"数据": "' + "line " * 30_000 + '"}\nEND'
@@ -207,15 +207,15 @@ async def test_full_output_can_be_read_from_the_path_seen_by_model(runner_worksp
         """Read diagnostic logs."""
         return ToolChunk(content=[TextBlock(text=text)])
 
-    collector = ToolCollector()
-    collector.register_tool_function(logs)
+    collector = ToolAssembly()
+    collector.append(function_tool(logs))
     model = CaptureModel("logs", {})
     files = RunnerFiles()
     agent = CompactingAgent(
         name="agent",
         system_prompt="Inspect logs.",
         model=model,
-        toolkit=Toolkit(tools=collector.function_tools),
+        toolkit=Toolkit(tools=list(collector)),
         context_config=ContextConfig(tool_result_limit=100),
         offloader=SandboxOffloader(files, "chat-a", user_id="u1"),
     )

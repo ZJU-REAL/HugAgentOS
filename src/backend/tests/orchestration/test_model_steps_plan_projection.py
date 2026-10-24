@@ -15,7 +15,6 @@ import json
 from types import SimpleNamespace
 
 import core.agent_runtime.integrations.memory as memory
-import core.agent_runtime.resources as resources
 import core.agent_runtime.runner as runner
 import core.agent_runtime.targets as targets
 import core.chat.plan_progress as plan_progress
@@ -63,6 +62,7 @@ async def test_plan_bar_and_canonical_results_survive_workflow_and_persistence(
                 state="success",
             )
             state = SimpleNamespace(
+                pending_mcp_progress=[],
                 user_id="",
                 chat_id="",
                 run_id="",
@@ -148,8 +148,7 @@ async def test_plan_bar_and_canonical_results_survive_workflow_and_persistence(
     monkeypatch.setattr(catalog_resolver, "enabled_mcp_ids_from_context", lambda _ctx: [])
     monkeypatch.setattr(catalog_resolver, "enabled_kb_ids_from_context", lambda _ctx: [])
     monkeypatch.setattr(targets, "_resolve_mode_spec", lambda _ctx: None)
-    monkeypatch.setattr("core.agent_runtime.prepare_main.streaming_module", SimpleNamespace(StreamingAgent=FakeStreamingAgent))
-    monkeypatch.setattr(resources.process_state(), 'persistent_clients', [])
+    monkeypatch.setattr("core.agent_runtime.prepare_main.streaming", SimpleNamespace(StreamingAgent=FakeStreamingAgent))
 
     if not persist_result:
         original_refresh = services_ChatService_module.ChatService.refresh_streaming_message
