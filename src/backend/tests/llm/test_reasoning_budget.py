@@ -7,9 +7,9 @@ reasoning quietly rode along under "messages". Now that reasoning is handed back
 model on every turn, what it costs has to be visible.
 """
 
-from core.llm.context_adapter import AgentScopeContextAdapter
-from core.llm.context_ir import KIND_ASSISTANT, KIND_THINKING, KIND_TOOL_CALL
-from core.llm.context_usage import BREAKDOWN_KEYS, _manifest_breakdown
+from core.llm.context.adapter import AgentScopeContextAdapter
+from core.llm.context.ir_constants import KIND_ASSISTANT, KIND_THINKING, KIND_TOOL_CALL
+from core.llm.context.usage import BREAKDOWN_KEYS, _manifest_breakdown
 
 _REASONING = "先查论文再对比专利，" * 20
 

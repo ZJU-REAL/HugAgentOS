@@ -85,16 +85,14 @@ class SanitizeResult:
 
 
 _RULES_CACHE_TTL = 300  # seconds
-_rules_cache: dict = {"patterns": None, "classified": None, "loaded_at": 0.0}
-_rules_lock = Lock()
 
 
 def invalidate_rules_cache() -> None:
     """Called proactively after an admin adds/removes rules; the next sanitize re-pulls from the DB."""
-    with _rules_lock:
-        _rules_cache["patterns"] = None
-        _rules_cache["classified"] = None
-        _rules_cache["loaded_at"] = 0.0
+    with process_state().rules_lock:
+        process_state().rules_cache["patterns"] = None
+        process_state().rules_cache["classified"] = None
+        process_state().rules_cache["loaded_at"] = 0.0
 
 
 def _load_rules_with_db_overrides() -> tuple[dict[str, Pattern[str]], tuple[str, ...]]:
@@ -108,12 +106,12 @@ def _load_rules_with_db_overrides() -> tuple[dict[str, Pattern[str]], tuple[str,
     On DB query failure, falls back to the hardcoded rules without affecting the main flow.
     """
     now = time.time()
-    with _rules_lock:
+    with process_state().rules_lock:
         if (
-            _rules_cache["patterns"] is not None
-            and now - _rules_cache["loaded_at"] < _RULES_CACHE_TTL
+            process_state().rules_cache["patterns"] is not None
+            and now - process_state().rules_cache["loaded_at"] < _RULES_CACHE_TTL
         ):
-            return _rules_cache["patterns"], _rules_cache["classified"]
+            return process_state().rules_cache["patterns"], process_state().rules_cache["classified"]
 
     patterns = dict(REDACT_PATTERNS)
     classified = list(CLASSIFIED_TERMS)
@@ -141,10 +139,10 @@ def _load_rules_with_db_overrides() -> tuple[dict[str, Pattern[str]], tuple[str,
         logger.debug("[sanitizer] DB overrides unavailable, using hardcoded only: %s", exc)
 
     result_classified = tuple(classified)
-    with _rules_lock:
-        _rules_cache["patterns"] = patterns
-        _rules_cache["classified"] = result_classified
-        _rules_cache["loaded_at"] = now
+    with process_state().rules_lock:
+        process_state().rules_cache["patterns"] = patterns
+        process_state().rules_cache["classified"] = result_classified
+        process_state().rules_cache["loaded_at"] = now
     return patterns, result_classified
 
 
@@ -177,3 +175,16 @@ def sanitize(text: str) -> SanitizeResult:
             hits.append(name)
             cleaned = pat.sub(f"[REDACTED:{name}]", cleaned)
     return SanitizeResult(text=cleaned, hits=hits, reject=False)
+
+
+@dataclass
+class SanitizerState:
+    rules_cache: dict = field(default_factory=lambda: {'patterns': None, 'classified': None, 'loaded_at': 0.0})
+    rules_lock: object = field(default_factory=lambda: Lock())
+
+
+_STATE = SanitizerState()
+
+
+def process_state() -> SanitizerState:
+    return _STATE

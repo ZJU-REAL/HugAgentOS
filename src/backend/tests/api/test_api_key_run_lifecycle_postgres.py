@@ -8,9 +8,9 @@ from datetime import datetime, timezone
 from threading import Event
 
 from core.db.models import ChatRun, ChatSession, UserApiKey, UserShadow
-from core.services.api_key_runs import cancel_key_runs, require_admission_key
-from core.services.api_key_service import ApiKeyService
-from core.services.chat_sequencer import ChatSequencer
+from core.auth.api_key_runs import cancel_key_runs, require_admission_key
+from core.auth.api_keys import ApiKeyService
+from core.chat.sequencer import ChatSequencer
 from fastapi import HTTPException
 from sqlalchemy.orm import sessionmaker
 

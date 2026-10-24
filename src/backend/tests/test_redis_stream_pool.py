@@ -55,7 +55,7 @@ def test_follower_asks_for_the_blocking_pool():
     """Only the tailing read may park on a connection from the stream pool."""
     import inspect
 
-    from orchestration import run_event_stream
+    import core.runs.events.store as run_event_stream
 
     backend = run_event_stream.RedisRunEventStream
     assert "get_redis(blocking=True)" in inspect.getsource(backend.wait)
@@ -66,7 +66,7 @@ def test_follower_asks_for_the_blocking_pool():
 def test_both_seams_use_redis_when_it_is_configured(monkeypatch):
     """A configured deployment keeps the Redis backends — nothing regresses."""
     import core.infra.ephemeral as ephemeral
-    import orchestration.run_event_stream as res
+    import core.runs.events.store as res
 
     monkeypatch.setattr(ephemeral, "redis_configured", lambda: True)
     monkeypatch.setattr(res, "redis_configured", lambda: True)
@@ -77,7 +77,7 @@ def test_both_seams_use_redis_when_it_is_configured(monkeypatch):
 
 def test_cursor_grammar_is_shared_by_both_backends():
     """Callers parse the millisecond half, so both backends must mint it alike."""
-    import orchestration.run_event_stream as res
+    import core.runs.events.store as res
 
     assert res.cursor_millis("1788745632008-0") == 1788745632008
     assert res.cursor_millis("nonsense") is None

@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from core.services.compaction_history import normalize_rows
+from core.chat.compaction.history import normalize_rows
 
 
 def test_cancelled_tail_survives_without_repeating_completed_text():

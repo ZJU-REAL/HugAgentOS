@@ -11,6 +11,11 @@ The fix empties the trees in place; these tests pin that behaviour.
 """
 
 from __future__ import annotations
+from integrations.lark import process as lark_process
+from integrations.lark import service as lark_service
+import integrations.email.storage as integrations_email_storage
+import integrations.lark.storage as integrations_lark_storage
+import integrations.dingtalk.storage as integrations_dingtalk_storage
 
 import asyncio
 from pathlib import Path
@@ -18,6 +23,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 import core.db.models  # noqa: F401  registers all models (FKs depend on users_shadow)
 import core.sandbox.workspace.credentials as common_credentials
@@ -37,9 +43,12 @@ _MOUNT_SUBPATHS = (
 
 
 @pytest.fixture
-def db():
-    eng = create_engine("sqlite:///:memory:")
+def db(monkeypatch):
+    eng = create_engine(
+        "sqlite:///:memory:", poolclass=StaticPool, connect_args={"check_same_thread": False}
+    )
     Base.metadata.create_all(eng)
+    monkeypatch.setattr("core.db.engine.SessionLocal", sessionmaker(bind=eng))
     s = sessionmaker(bind=eng)()
     s.add(UserShadow(user_id="u1", username="alice"))
     s.commit()
@@ -105,31 +114,31 @@ def test_purge_keeps_the_root_itself(tmp_path):
 def test_email_purge_config_preserves_the_himalaya_mount(db, monkeypatch, tmp_path):
     """The easiest path to trigger: this runs on **every failed mailbox
     verification**, not just on disconnect."""
-    from core.services.email_service import EmailService
+    from integrations.email.service import EmailService
 
     root = tmp_path / "email_cache" / "u1"
     inodes = _seed_tree(root)
-    monkeypatch.setattr(common_credentials, "email_cache_dir", lambda uid: tmp_path / "email_cache" / uid)
+    monkeypatch.setattr(integrations_email_storage, 'email_cache_dir', lambda uid: tmp_path / "email_cache" / uid)
 
-    EmailService(db)._purge_config("u1")
+    EmailService()._purge_config("u1")
 
     _assert_emptied_but_mounted(root, inodes)
 
 
 def test_lark_disconnect_preserves_the_lark_cli_mounts(db, monkeypatch, tmp_path):
-    from core.services import lark_service as ls
+    from integrations.lark import service as ls
 
     root = tmp_path / "lark_cache" / "u1"
     inodes = _seed_tree(root)
-    monkeypatch.setattr(common_credentials, "lark_cache_dir", lambda uid: tmp_path / "lark_cache" / uid)
+    monkeypatch.setattr(integrations_lark_storage, 'lark_cache_dir', lambda uid: tmp_path / "lark_cache" / uid)
 
     async def _fake_run(*_a, **_kw):
         return "", "", 0
 
-    monkeypatch.setattr(ls, "_run_lark", _fake_run)
+    monkeypatch.setattr(lark_process, 'run_lark', _fake_run)
 
-    svc = ls.LarkService(db)
-    svc.repo.ensure("u1")
+    svc = lark_service.LarkService()
+    asyncio.run(svc.repo.ensure("u1"))
     result = asyncio.run(svc.disconnect("u1"))
 
     assert result["status"] == "disconnected"
@@ -137,19 +146,19 @@ def test_lark_disconnect_preserves_the_lark_cli_mounts(db, monkeypatch, tmp_path
 
 
 def test_dingtalk_disconnect_preserves_the_dws_mounts(db, monkeypatch, tmp_path):
-    from core.services import dingtalk_service as ds
+    from integrations.dingtalk import service as ds
 
     root = tmp_path / "dws_cache" / "u1"
     inodes = _seed_tree(root)
-    monkeypatch.setattr(common_credentials, "dws_cache_dir", lambda uid: tmp_path / "dws_cache" / uid)
+    monkeypatch.setattr(integrations_dingtalk_storage, 'dws_cache_dir', lambda uid: tmp_path / "dws_cache" / uid)
 
     async def _fake_run(*_a, **_kw):
         return "", "", 0
 
     monkeypatch.setattr(ds, "_run_dws", _fake_run)
 
-    svc = ds.DingTalkService(db)
-    svc.repo.ensure("u1")
+    svc = ds.DingTalkService()
+    asyncio.run(svc.repo.ensure("u1"))
     result = asyncio.run(svc.disconnect("u1"))
 
     assert result["status"] == "disconnected"

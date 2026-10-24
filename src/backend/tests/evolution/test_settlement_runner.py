@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from core.evolution import settlement_runner as R
+from core.evolution.settlement import settlement_runner as R
 
 
 @pytest.fixture(autouse=True)
@@ -25,7 +25,7 @@ def persisted(monkeypatch):
     """Capture what settlement persists instead of touching the DB."""
     calls = []
     monkeypatch.setattr(
-        "core.evolution.settlement_store.persist_summary",
+        'core.evolution.settlement.settlement_store.persist_summary',
         lambda message_id, summary: calls.append((message_id, summary)) or True,
     )
     return calls

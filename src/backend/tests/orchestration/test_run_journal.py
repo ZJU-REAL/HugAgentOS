@@ -10,12 +10,7 @@ from threading import Barrier
 import pytest
 from core.db.engine import Base
 from core.db.models import ChatMessage, ChatRun, ChatRunOperation, ChatSession
-from core.services.run_journal import (
-    RunAlreadyExists,
-    RunJournal,
-    RunLeaseLost,
-    durable_run_binding,
-)
+from core.runs.journal import RunAlreadyExists, RunJournal, RunLeaseLost, durable_run_binding
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -576,7 +571,7 @@ async def test_durable_internal_binding_preserves_wrapped_unknown_tool_outcome(
     journal_env,
 ):
     _journal, sessions, _clock = journal_env
-    from core.services.tool_effect_ledger import ToolOutcomeUnknown
+    from core.runs.tool_effects.errors import ToolOutcomeUnknown
 
     run_id = ""
     with pytest.raises(ExceptionGroup):

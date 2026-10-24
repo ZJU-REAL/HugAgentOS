@@ -2,10 +2,10 @@
 
 from datetime import timedelta
 
+import core.runs.watchdog as watchdog
 import pytest
 from core.db.models import ChatRun, ChatSession
 from core.infra.time import utc_now
-from orchestration import chat_run_executor as executor
 
 pytest_plugins = ["tests.orchestration.test_stale_reaper"]
 
@@ -38,6 +38,6 @@ async def test_live_automation_beyond_shared_age_cap_survives(reaper_env, kind):
             )
         )
         db.commit()
-    assert await executor.reap_stale_runs() == 0
+    assert await watchdog.reap_stale_runs() == 0
     with factory() as db:
         assert db.get(ChatRun, "successor").status == "running"

@@ -9,7 +9,7 @@ from unittest.mock import Mock
 import pytest
 from tests.sandbox.test_opensandbox_controller_patch import SOURCE, extract, patch
 
-spec = importlib.util.spec_from_file_location("expirations", Path(__file__).resolve().parents[4] / "docker/opensandbox_expirations.py")
+spec = importlib.util.spec_from_file_location("expirations", Path(__file__).resolve().parents[4] / "docker/opensandbox-server/opensandbox_expirations.py")
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
@@ -112,6 +112,8 @@ def test_failed_initial_lease_rolls_back_container_and_mounts(failed_step):
         namespace[name] = name
     if failed_step == "mount":
         namespace["initialize_mounts"].side_effect = OSError("disk full")
+    from contextlib import nullcontext
+    namespace["sandbox_capacity"] = lambda service: nullcontext()
     provision = extract(source, "_provision_sandbox", namespace)
     with pytest.raises(OSError, match="disk full"):
         provision(service, "sandbox", request, datetime.now(timezone.utc), datetime(2099,1,1,tzinfo=timezone.utc))

@@ -6,7 +6,7 @@ from core.config.settings import settings
 
 import core.sandbox.sessions.registry as session_registry
 from core.sandbox.providers.opensandbox.accounting import finish_accounting
-from core.sandbox.providers.opensandbox.models import _Session
+from core.sandbox.providers.opensandbox.models import SandboxSessionRecord as _Session
 from core.sandbox.providers.opensandbox.runtime import logger
 
 
@@ -50,7 +50,7 @@ class _OpenSandboxReclamationMixin:
         await asyncio.gather(*(protect(chat_id, sess) for chat_id, sess in entries))
 
     async def _destroy_session(self, session_id, sess, *, reuse_sandbox=False):
-        from core.plugins.resources.prewarm import closing, stop
+        from core.capabilities.plugins.resources.prewarm import closing, stop
         import asyncio
         async with closing(session_id):
             clean = False

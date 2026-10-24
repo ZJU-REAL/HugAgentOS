@@ -17,7 +17,7 @@ function fixture(name) {
   cpSync(join(repo, 'packages'), join(root, 'packages'), {recursive: true,
     filter: path => !['node_modules', 'dist'].includes(path.split('/').at(-1))});
   for (const path of ['src/frontend/package.json', 'src/frontend/package-lock.json',
-    'src/backend/core/applications/schemas']) {
+    'src/backend/features/workbench/schemas']) {
     mkdirSync(dirname(join(root, path)), {recursive: true});
     cpSync(join(repo, path), join(root, path), {recursive: true});
   }

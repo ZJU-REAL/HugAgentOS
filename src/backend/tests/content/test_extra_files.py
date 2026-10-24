@@ -19,7 +19,7 @@ import pytest
 
 
 def test_agent_skill_spec_has_extra_files():
-    from core.agent_skills.registry import AgentSkillSpec
+    from core.capabilities.skills.registry import AgentSkillSpec
 
     spec = AgentSkillSpec(
         id="test",
@@ -35,7 +35,7 @@ def test_agent_skill_spec_has_extra_files():
 
 
 def test_agent_skill_spec_extra_files_defaults_empty():
-    from core.agent_skills.registry import AgentSkillSpec
+    from core.capabilities.skills.registry import AgentSkillSpec
 
     spec = AgentSkillSpec(
         id="test",
@@ -52,7 +52,7 @@ def test_agent_skill_spec_extra_files_defaults_empty():
 
 
 def test_filesystem_backend_get_extra_files():
-    from core.agent_skills.backends.filesystem import FilesystemBackend
+    from core.capabilities.skills.backends.filesystem import FilesystemBackend
 
     with tempfile.TemporaryDirectory() as tmpdir:
         skill_dir = Path(tmpdir) / "my-skill"
@@ -75,7 +75,7 @@ def test_filesystem_backend_get_extra_files():
 
 
 def test_filesystem_backend_get_extra_files_missing_skill():
-    from core.agent_skills.backends.filesystem import FilesystemBackend
+    from core.capabilities.skills.backends.filesystem import FilesystemBackend
 
     with tempfile.TemporaryDirectory() as tmpdir:
         backend = FilesystemBackend(root_dir=tmpdir, source_name="test")
@@ -86,7 +86,7 @@ def test_filesystem_backend_get_extra_files_missing_skill():
 
 
 def test_database_backend_get_extra_files():
-    from core.agent_skills.backends.database import DatabaseBackend
+    from core.capabilities.skills.backends.database import DatabaseBackend
 
     mock_session = MagicMock()
     mock_session.query.return_value.filter.return_value.scalar.return_value = {
@@ -102,7 +102,7 @@ def test_database_backend_get_extra_files():
 
 
 def test_database_backend_get_extra_files_none():
-    from core.agent_skills.backends.database import DatabaseBackend
+    from core.capabilities.skills.backends.database import DatabaseBackend
 
     mock_session = MagicMock()
     mock_session.query.return_value.filter.return_value.scalar.return_value = None
@@ -114,7 +114,7 @@ def test_database_backend_get_extra_files_none():
 
 
 def test_database_backend_get_extra_files_skill_not_found():
-    from core.agent_skills.backends.database import DatabaseBackend
+    from core.capabilities.skills.backends.database import DatabaseBackend
 
     mock_session = MagicMock()
     mock_session.query.return_value.filter.return_value.scalar.return_value = None
@@ -129,8 +129,8 @@ def test_database_backend_get_extra_files_skill_not_found():
 
 
 def test_composite_backend_get_extra_files():
-    from core.agent_skills.backends.composite import CompositeBackend
-    from core.agent_skills.backends.protocol import SkillFileInfo
+    from core.capabilities.skills.backends.composite import CompositeBackend
+    from core.capabilities.skills.backends.protocol import SkillFileInfo
 
     mock_fs = MagicMock()
     mock_fs.source_name = "built-in"
@@ -152,7 +152,7 @@ def test_composite_backend_get_extra_files():
 
 
 def test_composite_backend_get_extra_files_not_found():
-    from core.agent_skills.backends.composite import CompositeBackend
+    from core.capabilities.skills.backends.composite import CompositeBackend
 
     mock = MagicMock()
     mock.source_name = "test"
@@ -305,7 +305,7 @@ def test_migration_file_valid():
 
 
 def test_loader_get_extra_files():
-    from core.agent_skills.loader import MultiSourceSkillLoader
+    from core.capabilities.skills.loader import MultiSourceSkillLoader
 
     mock_backend = MagicMock()
     mock_backend.get_extra_files.return_value = {"f.txt": "content"}
@@ -318,8 +318,8 @@ def test_loader_get_extra_files():
 
 
 def test_loader_get_skill_dir_filesystem():
-    from core.agent_skills.loader import MultiSourceSkillLoader
-    from core.agent_skills.backends.protocol import SkillFileInfo
+    from core.capabilities.skills.loader import MultiSourceSkillLoader
+    from core.capabilities.skills.backends.protocol import SkillFileInfo
 
     mock_backend = MagicMock()
     mock_backend.get_skill_info.return_value = SkillFileInfo(
@@ -337,8 +337,8 @@ def test_loader_get_skill_dir_filesystem():
 
 
 def test_loader_get_skill_dir_db_materializes():
-    from core.agent_skills.loader import MultiSourceSkillLoader
-    from core.agent_skills.backends.protocol import SkillFileInfo
+    from core.capabilities.skills.loader import MultiSourceSkillLoader
+    from core.capabilities.skills.backends.protocol import SkillFileInfo
 
     mock_backend = MagicMock()
     mock_backend.get_skill_info.return_value = SkillFileInfo(
@@ -371,8 +371,8 @@ def test_loader_get_skill_dir_db_materializes():
 
 def test_register_skills_to_toolkit():
     from agentscope.tool import Toolkit
-    from core.llm.tool_collector import ToolCollector
-    from core.agent_skills.loader import MultiSourceSkillLoader
+    from core.llm.factory.tools.definitions import ToolAssembly
+    from core.capabilities.skills.loader import MultiSourceSkillLoader
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create a real skill directory
@@ -383,15 +383,13 @@ def test_register_skills_to_toolkit():
         )
         (skill_dir / "config.json").write_text('{"key": "val"}')
 
-        from core.agent_skills.backends.filesystem import FilesystemBackend
-        from core.agent_skills.backends.composite import CompositeBackend
+        from core.capabilities.skills.backends.filesystem import FilesystemBackend
+        from core.capabilities.skills.backends.composite import CompositeBackend
 
         backend = CompositeBackend([FilesystemBackend(root_dir=tmpdir, source_name="test")])
         loader = MultiSourceSkillLoader(backend=backend)
 
-        # AgentScope 2.0: register_skills_to_toolkit writes into ToolCollector (register_agent_skill);
-        # the collected skill directories live in collector.skill_loaders, passed to Toolkit(skills_or_loaders=).
-        c = ToolCollector()
+        c = ToolAssembly()
         n = loader.register_skills_to_toolkit(c)
         assert n == 1
         assert len(c.skill_loaders) == 1

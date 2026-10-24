@@ -2,27 +2,11 @@
 
 from __future__ import annotations
 
-from core.llm.steer_middleware import SteerMiddleware
-from core.llm.command_middleware import CommandCompletionMiddleware
 
-from core.llm.agentscope_hook_adapter import AgentScopeHookAdapter
+from core.llm.runtime.agentscope_hook_adapter import AgentScopeHookAdapter
 from core.llm.factory.request import AgentRequest
 from core.llm.factory.runtime import evidence as factory_evidence_helpers
-from core.llm.middlewares import (
-    ActingToolCallIdMiddleware,
-    AgentRuntimeState,
-    CitationAnchorMiddleware,
-    DynamicModelMiddleware,
-    FileContextMiddleware,
-    FinishPinGuardMiddleware,
-    IterBudgetReminderMiddleware,
-    JobLedgerReminderMiddleware,
-    OntologyGateMiddleware,
-    PlanStaleReminderMiddleware,
-    StallInterventionMiddleware,
-    ToolEffectMiddleware,
-    WorkspacePinHintMiddleware,
-)
+from core.llm.runtime.state import AgentRuntimeState
 
 
 async def middleware_stack(
@@ -43,14 +27,11 @@ async def middleware_stack(
     tool_schemas,
     toolkit,
 ):
-    from core.llm.tool_permissions import (
-        PermissionRuntime,
-        ToolPermissionMiddleware,
-        ToolPermissionRegistry,
-        ToolPermissionService,
-    )
+    from core.sandbox.permissions.dispatch_models import PermissionRuntime
+    from core.sandbox.permissions.tool_specs import ToolPermissionRegistry
+    from core.llm.tool_permissions import ToolPermissionService
 
-    _builtin_tool_names = {ft.name for ft in toolkit.function_tools}
+    _builtin_tool_names = {ft.name for ft in list(toolkit)}
     _all_tool_names = {
         str(s.get("function", {}).get("name") or "")
         for s in tool_schemas
@@ -84,7 +65,7 @@ async def middleware_stack(
     )
 
     # AgentScope's native permission engine remains a coarse first gate. Names
-    # present in the registry additionally pass ToolPermissionMiddleware and
+    # present in the registry additionally pass the permission hook and
     # the final Toolkit ticket guard below.
     from agentscope.permission import PermissionContext
 
@@ -104,62 +85,51 @@ async def middleware_stack(
         permission_context=PermissionContext(),
     )
 
-    _policy_middlewares: list = [
-        DynamicModelMiddleware(),  # on_reply: switch models by chat_mode
-        FileContextMiddleware(),  # on_reply: inject file context
-        *([CommandCompletionMiddleware()] if _eval_scope is None and _api_scope is None else []),
-        SteerMiddleware(),  # on_acting/on_reasoning: inject queued user steer before tool I/O
-        WorkspacePinHintMiddleware(),  # on_reasoning: remind to pin
-        IterBudgetReminderMiddleware(),  # on_reasoning: inject a wrap-up reminder near max_iters
-        # on_acting: the active profile's intervention rules, applied to *this*
-        # loop. Previously they only reached the autonomous loop, which left the
-        # orchestration profile with one field that governed nothing on the axis
-        # almost all traffic takes.
-        StallInterventionMiddleware(profile.intervention_rules),
-        OntologyGateMiddleware(_ontology_runtime),  # on_acting: zero-LLM L-a contract gate
-        ToolPermissionMiddleware(_permission_service),
-        CitationAnchorMiddleware(),  # on_acting: 证据锚点——工具结果回给模型前发号回注 cite_id
-        ActingToolCallIdMiddleware(),  # on_acting: expose call_subagent's tool_call.id to tools (parent-child linkage)
-        ToolEffectMiddleware(),  # on_acting: durable Intent before every actual tool invocation
-    ]
-    if request.project_environment is not None:
-        from core.llm.project_environment_middleware import ProjectEnvironmentMiddleware
+    from core.harness.registry import hook_specs
 
-        _policy_middlewares.insert(0, ProjectEnvironmentMiddleware(request))
-
-    # on_reasoning: 会话里有未收敛的批量作业时，每轮把台账数字回灌进上下文。
-    # 进度是外部事实（job_items 表），不是模型的记忆——不主动回灌，隔十几轮之后就会
-    # 退化成"边际收益递减，先交付吧"（568 行只补 66 行正是这么停的）。
-    # 子作业内部不挂（isolated），避免嵌套噪声。
-    if request.workflow_mode and not request.isolated and request.chat_id:
-        _policy_middlewares.append(
-            JobLedgerReminderMiddleware(chat_id=request.chat_id, user_id=request.current_user_id)
-        )
-    # on_reasoning: 计划栏停在半路时把当前清单回灌回去，催模型调 update_plan。
-    # 只在真的注册了 update_plan 工具的那条路径上挂（同一个正向开关），派生/非交互
-    # 的构造一律拿不到——催一个不存在的工具只会让模型编造调用。
-    if _plan_tool_enabled:
-        _policy_middlewares.append(PlanStaleReminderMiddleware())
-    # The legacy guard directly pins ids found in arbitrary tool output. API
-    # delivery must go through the scoped tool's ownership check and persistence.
-    if _api_scope is None and _eval_scope is None:
-        _policy_middlewares.append(FinishPinGuardMiddleware())
+    from core.llm.tool_permissions.hook import ToolPermissionHook
+    permission_policy = ToolPermissionHook(_permission_service)
+    adapter = AgentScopeHookAdapter(permission_policy=permission_policy, durable_tools=True)
+    from core.harness.registry.hook_factories import create_steering_policy
+    steering = None
     if request.profile:
-        from core.extensions import agent_profile
-
-        for middleware in agent_profile(request.profile).middlewares(request):
-            if isinstance(middleware, SteerMiddleware):
-                # Profiles change the source, not its position before approvals
-                # and durable tool effects.
-                index = next(i for i, item in enumerate(_policy_middlewares)
-                             if isinstance(item, SteerMiddleware))
-                _policy_middlewares[index] = middleware
-            else:
-                _policy_middlewares.append(middleware)
-    # The Agent sees one framework adapter. Transitional AgentScope policies
-    # execute inside its compatibility chain and can be deleted one by one as
-    # their neutral HookSpec replacements reach parity.
-    _middlewares: list = [AgentScopeHookAdapter(legacy_middlewares=tuple(_policy_middlewares))]
+        from core.harness.registry import agent_profile
+        selected_profile = agent_profile(request.profile)
+        steering = selected_profile.steering(request)
+        for spec in selected_profile.hooks(request):
+            adapter.bus.register(spec)
+    for spec in (steering or create_steering_policy()).specs():
+        adapter.bus.register(spec)
+    if request.project_environment is not None:
+        from core.llm.runtime.project_environment_hook import project_environment_hook
+        adapter.bus.register(project_environment_hook(request))
+    if _eval_scope is None and _api_scope is None:
+        from core.harness.registry.hook_factories import command_completion_hooks
+        for spec in command_completion_hooks():
+            adapter.bus.register(spec)
+    adapter.bus.register(permission_policy.spec())
+    from core.models.selection_hook import model_selection_hook
+    adapter.bus.register(model_selection_hook())
+    from core.llm.citations.hook import citation_hook
+    adapter.bus.register(citation_hook())
+    from core.ontology.tool_hook import ontology_tool_hooks
+    for spec in ontology_tool_hooks(_ontology_runtime):
+        adapter.bus.register(spec)
+    from core.evolution.profiles.stall_hook import stall_hooks
+    for spec in stall_hooks(profile.intervention_rules):
+        adapter.bus.register(spec)
+    from core.llm.context.attachment_hook import attachment_context_hook
+    adapter.bus.register(attachment_context_hook())
+    from core.llm.context.reasoning_hooks import iteration_budget_hook
+    adapter.bus.register(iteration_budget_hook())
+    from core.llm.context.workspace_hooks import workspace_pin_hooks, plan_stale_hook
+    for spec in workspace_pin_hooks(allow_finish=_api_scope is None and _eval_scope is None):
+        adapter.bus.register(spec)
+    if _plan_tool_enabled:
+        adapter.bus.register(plan_stale_hook())
+    for spec in hook_specs(request):
+        adapter.bus.register(spec)
+    _middlewares: list = [adapter]
 
     # At this point the collector has gathered all tools (including any subagent tools) → construct the final Toolkit.
     toolkit = _build_toolkit()

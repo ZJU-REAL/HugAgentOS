@@ -7,7 +7,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from core.services import ChatService
+from core.chat.service import ChatService
 
 
 def test_update_session_merges_mode_flags_into_extra_data(db_session):

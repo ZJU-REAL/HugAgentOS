@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from core.agent_skills.loader import get_skill_loader
-from core.agent_skills.registry import render_skills_prompt
+from core.capabilities.skills.loader_factory import get_skill_loader
+from core.capabilities.skills.registry import render_skills_prompt
 
 
 def main() -> int:

@@ -18,11 +18,7 @@ from core.evolution.contract import (
     AssetKind,
     AssetRef,
 )
-from core.evolution.runtime_binding import (
-    bind_runtime_assets,
-    get_bundle,
-    resolve_bundle_for_run,
-)
+from core.evolution.cycle.runtime_binding import bind_runtime_assets, get_bundle, resolve_bundle_for_run
 
 __all__ = [
     "ASSET_KINDS",

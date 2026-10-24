@@ -2,9 +2,9 @@
 
 from sqlalchemy.orm import sessionmaker
 
-from core.db.model_repository import assign_role, create_provider, unassign_role, update_provider
-from core.services import model_config
-from core.services.model_config import ModelConfigService
+from core.models.repository import assign_role, create_provider, unassign_role, update_provider
+from core.models import config as model_config
+from core.models.config import ModelConfigService
 
 
 def test_independent_workers_observe_committed_role_and_provider_changes(db_session, monkeypatch):
@@ -59,7 +59,7 @@ def test_separate_process_observes_commit_without_restart(tmp_path):
         assign_role(db, "subagent", provider.provider_id)
         script = """
 import sys
-from core.services.model_config import ModelConfigService
+from core.models.config import ModelConfigService
 service = ModelConfigService()
 print(service.resolve('subagent').model_name, flush=True)
 sys.stdin.readline()
@@ -91,3 +91,45 @@ print(service.resolve('subagent'), flush=True)
                 child.kill()
                 child.wait()
     engine.dispose()
+
+
+def test_current_snapshot_is_served_while_another_thread_reloads(db_session, monkeypatch):
+    import threading
+
+    monkeypatch.setattr(model_config, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
+    provider = create_provider(
+        db_session,
+        display_name="main",
+        provider_type="chat",
+        base_url="http://example.invalid",
+        api_key="test",
+        model_name="main",
+    )
+    assign_role(db_session, "main_agent", provider.provider_id)
+    service = ModelConfigService()
+    assert service.resolve("main_agent").model_name == "main"
+
+    # A reload in progress elsewhere must not hold up lookups whose revision matches.
+    with service._refresh_lock:
+        result = []
+        reader = threading.Thread(target=lambda: result.append(service.resolve("main_agent")))
+        reader.start()
+        reader.join(timeout=5)
+        assert not reader.is_alive()
+    assert result[0].model_name == "main"
+
+
+def test_context_length_falls_back_to_unassigned_providers(db_session, monkeypatch):
+    monkeypatch.setattr(model_config, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
+    create_provider(
+        db_session,
+        display_name="spare",
+        provider_type="chat",
+        base_url="http://example.invalid",
+        api_key="test",
+        model_name="spare",
+        extra_config={"context_length": 32768},
+    )
+    service = ModelConfigService()
+    assert service.get_context_length_by_model_name("spare") == 32768
+    assert service.get_context_length_by_model_name("missing") is None

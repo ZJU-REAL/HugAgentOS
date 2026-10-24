@@ -1,0 +1,407 @@
+"""本机能力安装接口（桌面双端的本机后端侧）。
+
+  GET  /v1/desktop/capabilities/installations      账号意图 + 设备状态 + 本轮解析结果
+  POST /v1/desktop/capabilities/sync               同步云端清单并把缺的文件准备好
+  POST /v1/desktop/capabilities/views/rebuild      重建运行视图
+  GET  /v1/desktop/capabilities/mcp-json           mcp.json 投影（只读诊断，不含密钥）
+
+登录时准备能力；本地变更由用户在卡片上比较并显式提交，独立于对话执行。
+
+全部端点只在「桌面壳孵化、且配置了能力文件存储」的本机后端开放；云端部署恒 403。
+身份来自桥接头解析出的当前用户（与云端同一账号），视图按该用户重建。
+"""
+
+from __future__ import annotations
+from features.desktop.capabilities import skill_account
+from features.desktop.capabilities import skill_candidates
+from features.desktop.capabilities import skill_views
+from features.desktop.capabilities import skills
+
+import asyncio
+import logging
+from typing import Any, Dict, List, Optional
+
+from core.auth.backend import UserContext, get_current_user
+from core.infra.logging import quiet_access_log
+from core.infra.responses import success_response
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/v1/desktop/capabilities", tags=["Desktop Capabilities"])
+
+
+class ChangePreviewBody(BaseModel):
+    install_id: str = Field(min_length=1, max_length=300)
+
+
+@router.post("/changes/preview", summary="比较本机与云端能力文件")
+async def preview_changes(body: ChangePreviewBody, user: UserContext = Depends(get_current_user)):
+    _require_desktop_store()
+    uid = str(user.user_id)
+    state = _bridge_state(uid)
+    from features.desktop.capabilities.change_sync import preview
+    from core.harness.capability_errors import CapabilityError
+    from features.desktop.capabilities.mcp_json import McpJsonError
+    try:
+        return success_response(data=await asyncio.to_thread(preview, uid, body.install_id, state))
+    except (CapabilityError, McpJsonError, OSError, ValueError) as exc:
+        raise HTTPException(409, detail="无法比较当前本机文件，请检查文件或重新登录；对话不受影响") from exc
+
+
+class ChangeCommitBody(BaseModel):
+    preview_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    choices: Dict[str, Dict[str, str]] = Field(default_factory=dict)
+    acknowledge_sensitive: bool = False
+    fork_key: Optional[str] = Field(default=None, pattern=r"^[a-z0-9_-]{1,63}$")
+
+
+@router.post("/changes/commit", summary="确认提交能力变更")
+async def commit_changes(body: ChangeCommitBody, user: UserContext = Depends(get_current_user)):
+    _require_desktop_store()
+    uid = str(user.user_id)
+    state = _bridge_state(uid)
+    from features.desktop.capabilities.change_sync import commit
+    from core.harness.capability_errors import CapabilityError
+    from features.desktop.capabilities.mcp_json import McpJsonError
+    try:
+        return success_response(data=await asyncio.to_thread(
+            commit, uid, body.preview_id, body.choices, state,
+            acknowledge_sensitive=body.acknowledge_sensitive, fork_key=body.fork_key))
+    except (CapabilityError, McpJsonError, OSError, ValueError) as exc:
+        raise HTTPException(409, detail="提交状态需要重新比较确认，本地文件已保留；对话不受影响") from exc
+
+
+def _require_desktop_store() -> None:
+    from features.desktop.auth.bridge import bridge_enabled
+    from core.harness.registry.run_capabilities import has_run_capabilities
+
+    if not bridge_enabled():
+        raise HTTPException(status_code=403, detail="仅桌面双端本机后端可用")
+    if not has_run_capabilities():
+        raise HTTPException(status_code=403, detail="本机未配置能力文件存储（HUGAGENT_CAPS_ROOT）")
+
+
+def _authorized_profile(user_id: str) -> Optional[str]:
+    from features.desktop.capabilities import skills
+
+    return skill_account.current_account_profile() if skill_account.account_authorized_for(user_id) else None
+
+
+def _bridge_state(user_id: str) -> Dict[str, Any]:
+    from features.desktop.bridge.identity import get_state
+
+    st = get_state()
+    if not st:
+        raise HTTPException(
+            status_code=409, detail={"code": "cloud_unavailable", "message": "尚未登录云端账号"}
+        )
+    if not _authorized_profile(user_id):
+        raise HTTPException(status_code=403, detail="cloud account does not match current user")
+    return st
+
+
+def _device_item(inst, *, runtime_name: str, usable: bool) -> Dict[str, Any]:
+    item = inst.to_dict()
+    item.update(
+        registered=True,
+        profile=inst.profile_id,
+        revision=inst.resolved_revision,
+        runtime_name=runtime_name,
+        usable=bool(usable and inst.enabled),
+    )
+    return item
+
+
+from features.desktop.capabilities.management_context import management_context as _readiness_context, connectors_view as _connectors_view
+
+
+def _agents_view(user_id: str) -> Dict[str, Any]:
+    from features.desktop.capabilities import agents as caps_agents
+    from features.desktop.capabilities import registry, skills
+    from core.capabilities.identity_rules import KIND_AGENT
+    from core.db.engine import SessionLocal
+    from core.capabilities.agents.edition import UserAgentService
+
+    with SessionLocal() as db:
+        svc = UserAgentService(db)
+        local_rows = [svc._serialize(a) for a in svc.repo.list_for_user(user_id)]
+    res = caps_agents.resolve_visible(user_id, local_rows)
+    chosen = {c.install_id for c in res.chosen.values()}
+    shadowed = {c.install_id for cs in res.shadowed.values() for c in cs}
+    conflicted = {c.install_id for cs in res.conflicts.values() for c in cs}
+    items: List[Dict[str, Any]] = []
+    profile = _authorized_profile(user_id)
+    context = _readiness_context(user_id)
+    from features.desktop.capabilities.readiness import apply_to_item, file_readiness, files_ready
+
+    for inst in registry.list_installations(
+        kind=KIND_AGENT, profiles=[p for p in ("local", profile) if p]
+    ):
+        if inst.profile_id == "local" and inst.payload.get("owner_user_id") not in (None, user_id):
+            continue
+        entry = _device_item(inst, runtime_name=inst.display_name, usable=inst.ready)
+        outcome = (
+            "chosen"
+            if inst.install_id in chosen
+            else (
+                "conflict"
+                if inst.install_id in conflicted
+                else "shadowed" if inst.install_id in shadowed else "unusable"
+            )
+        )
+        entry["resolution"] = {"outcome": outcome, "reason": res.reasons.get(inst.display_name)}
+        apply_to_item(entry, file_readiness(inst, context), downloaded=files_ready(inst))
+        items.append(entry)
+    return {
+        "kind": "agent",
+        "profile_id": profile,
+        "items": items,
+        "conflicts": {n: [c.install_id for c in cs] for n, cs in res.conflicts.items()},
+        "preferences": _preferences("agent", user_id),
+    }
+
+
+def _plugins_view(user_id: str) -> Dict[str, Any]:
+    from features.desktop.capabilities import registry
+    from core.capabilities.identity_rules import KIND_PLUGIN
+
+    profile = _authorized_profile(user_id)
+    context = _readiness_context(user_id)
+    from features.desktop.capabilities.readiness import file_readiness, files_ready
+
+    items: List[Dict[str, Any]] = []
+    for inst in registry.list_installations(
+        kind=KIND_PLUGIN, profiles=[p for p in ("local", profile) if p]
+    ):
+        owner = inst.payload.get("owner_user_id")
+        if owner and owner != user_id:
+            continue
+        readiness = file_readiness(inst, context)
+        entry = _device_item(inst, runtime_name=inst.key, usable=readiness["ready"])
+        entry["readiness"] = readiness
+        entry["files_ready"] = files_ready(inst)
+        entry["resolution"] = {
+            "outcome": "chosen" if entry["readiness"]["ready"] else "unusable",
+            "reason": None,
+        }
+        items.append(entry)
+    return {
+        "kind": "plugin",
+        "profile_id": profile,
+        "items": items,
+        "conflicts": {},
+        "preferences": {},
+    }
+
+
+def _installations_view(user_id: str, kind: str) -> Dict[str, Any]:
+    from features.desktop.capabilities import skills
+    from core.capabilities.identity_rules import KIND_AGENT, KIND_MCP, KIND_PLUGIN, KIND_SKILL
+
+    if kind == KIND_MCP:
+        return _connectors_view(user_id)
+    if kind == KIND_AGENT:
+        return _agents_view(user_id)
+    if kind == KIND_PLUGIN:
+        return _plugins_view(user_id)
+    if kind != KIND_SKILL:
+        raise HTTPException(status_code=400, detail=f"unknown kind {kind!r}")
+    from features.desktop.capabilities.discovery import scan
+    discovery_errors = scan(user_id)
+    res = skills.resolve_for_user(user_id)
+    chosen = {c.install_id: name for name, c in res.chosen.items()}
+    shadowed = {c.install_id: name for name, cs in res.shadowed.items() for c in cs}
+    conflicted = {c.install_id: name for name, cs in res.conflicts.items() for c in cs}
+    unusable = {c.install_id: name for name, cs in res.unusable.items() for c in cs}
+
+    def _resolution_of(install_id: str) -> Dict[str, Any]:
+        if install_id in chosen:
+            return {"outcome": "chosen", "reason": res.reasons.get(chosen[install_id])}
+        if install_id in conflicted:
+            return {"outcome": "conflict", "reason": res.reasons.get(conflicted[install_id])}
+        if install_id in shadowed:
+            return {"outcome": "shadowed", "reason": res.reasons.get(shadowed[install_id])}
+        if install_id in unusable:
+            return {"outcome": "unusable", "reason": res.reasons.get(unusable[install_id])}
+        return {"outcome": "absent", "reason": None}
+
+    context = _readiness_context(user_id)
+    from features.desktop.capabilities.readiness import apply_to_item, builtin_readiness, file_readiness, files_ready
+
+    items: List[Dict[str, Any]] = []
+    for cand in skill_candidates.candidates(user_id):
+        entry = cand.to_dict()
+        from features.desktop.capabilities import registry
+
+        inst = registry.get(cand.install_id)
+        entry["registered"] = inst is not None
+        entry["enabled"] = inst.enabled if inst else True
+        if inst:
+            for key in ("derived_from", "derived_resource_ref", "derived_revision"):
+                if key in inst.payload:
+                    entry[key] = inst.payload[key]
+        entry["resolution"] = _resolution_of(cand.install_id)
+        report = file_readiness(inst, context) if inst else builtin_readiness(cand, context)
+        apply_to_item(entry, report, downloaded=files_ready(inst) if inst else cand.path is not None)
+        items.append(entry)
+    return {
+        "kind": kind,
+        "profile_id": _authorized_profile(user_id),
+        "items": items,
+        "conflicts": {name: [c.install_id for c in cs] for name, cs in res.conflicts.items()},
+        "preferences": _preferences(kind, user_id),
+        "discovery_errors": discovery_errors,
+    }
+
+
+def _preferences(kind: str, user_id: str) -> Dict[str, str]:
+    from features.desktop.capabilities import registry
+
+    return registry.preferences(kind, user_id=user_id)
+
+
+@router.get("/installations", summary="本机能力：意图、设备状态与解析结果")
+@quiet_access_log
+async def list_installations(kind: str = "skill", user: UserContext = Depends(get_current_user)):
+    _require_desktop_store()
+    from features.desktop.capabilities.change_sync import annotate
+    def listing():
+        return annotate(str(user.user_id), _installations_view(str(user.user_id), kind))
+    return success_response(
+        data=await asyncio.to_thread(listing)
+    )
+
+
+@router.get("/sync-check", summary="只读比较当前账号云端与本机能力清单")
+async def check_sync(user: UserContext = Depends(get_current_user)):
+    _require_desktop_store()
+    st = _bridge_state(str(user.user_id))
+    from core.harness.capability_errors import CloudUnavailable
+    from features.desktop.capability.sync_check import check
+
+    try:
+        return success_response(data=await asyncio.to_thread(check, st))
+    except CloudUnavailable:
+        raise HTTPException(status_code=409, detail="cloud account changed; retry") from None
+
+
+@router.post("/sync", summary="立即同步云端能力清单")
+async def sync_now(user: UserContext = Depends(get_current_user)):
+    _require_desktop_store()
+    st = _bridge_state(str(user.user_id))
+    from features.desktop.bridge import bundles as desktop_cloud_bundles, skills as desktop_cloud_skills
+    from features.desktop.bridge.client import sync_capabilities_blocking, sync_tool_manifest_blocking
+
+    await asyncio.to_thread(sync_tool_manifest_blocking, st)
+    await asyncio.to_thread(sync_capabilities_blocking, st)
+    status = desktop_cloud_skills.status()
+    status["bundles"] = desktop_cloud_bundles.status()
+    errors = [status.get("last_error")] + [v.get("last_error") for v in status["bundles"].values()]
+    errors = [e for e in errors if e]
+    if errors:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "cloud_unavailable", "message": "; ".join(errors), "retryable": True},
+        )
+    from features.desktop.capabilities import skills
+
+    await asyncio.to_thread(skill_views.rebuild_views, str(user.user_id))
+    return success_response(data=status)
+
+
+@router.post("/views/rebuild", summary="重建运行视图")
+async def rebuild_views(user: UserContext = Depends(get_current_user)):
+    _require_desktop_store()
+    from features.desktop.capabilities import skills
+
+    reports = await asyncio.to_thread(skill_views.rebuild_views, str(user.user_id))
+    return success_response(data={k: v.to_dict() for k, v in reports.items()})
+
+
+# ── mcp.json ──────────────────────────────────────────────────────────
+
+
+def _mcp_json_doc(user_id: str) -> Dict[str, Any]:
+    from features.desktop.capabilities import mcp_json, skills
+
+    try:
+        doc = mcp_json.load()
+    except mcp_json.McpJsonCorrupt as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "integrity_failed",
+                "message": str(exc),
+                "recovery_action": "repair_mcp_json",
+            },
+        ) from exc
+    return {
+        "path": str(mcp_json.mcp_json_path()),
+        "generation": doc.generation,
+        "digest": doc.digest,
+        "local": doc.local,
+        "managedProfiles": {
+            p: v for p, v in doc.managed.items() if p == _authorized_profile(user_id)
+        },
+    }
+
+
+@router.get("/mcp-json", summary="mcp.json 投影（不含任何密钥）")
+async def get_mcp_json(_user: UserContext = Depends(get_current_user)):
+    _require_desktop_store()
+    return success_response(data=await asyncio.to_thread(_mcp_json_doc, str(_user.user_id)))
+
+
+@router.get("/sync-status", summary="首次能力同步进度")
+async def initial_sync_status_route(user: UserContext = Depends(get_current_user)):
+    _require_desktop_store()
+    _bridge_state(str(user.user_id))
+    from features.desktop.bridge.status import initial_sync_status
+    return success_response(data=await asyncio.to_thread(initial_sync_status))
+
+
+@router.post("/sync/retry", summary="重试首次能力同步")
+async def retry_initial_sync_route(user: UserContext = Depends(get_current_user)):
+    _require_desktop_store()
+    st = _bridge_state(str(user.user_id))
+    from features.desktop.bridge.client import retry_initial_sync
+    await asyncio.to_thread(retry_initial_sync, st)
+    return success_response(data={"ok": True})
+
+
+def _accept_synced_capabilities(st, user_id):
+    from features.desktop.bridge.identity import account_scope
+    from features.desktop.bridge.status import initial_sync_status
+    from features.desktop.capabilities import registry, session_availability, skills
+    from features.desktop.capabilities.readiness import file_readiness
+    from features.desktop.capabilities.paths import revision_for_hash
+
+    with account_scope(st):
+        status = initial_sync_status()
+        if not status["can_continue"]:
+            raise HTTPException(status_code=409, detail="只能在同步失败后选择使用已同步能力")
+        profile = _authorized_profile(user_id)
+        context = _readiness_context(user_id)
+        revisions = {}
+        for row in registry.list_installations(profile_id=profile):
+            if (row.kind not in ("skill", "agent", "plugin") or not row.enabled
+                    or not row.ready or not row.content_hash
+                    or row.resolved_revision != revision_for_hash(row.content_hash)):
+                continue
+            if file_readiness(row, context)["ready"]:
+                revisions[row.install_id] = row.resolved_revision
+        session_availability.activate(profile, revisions)
+        registry._bump()
+        skills.bump_view_generation()
+        from core.capabilities.catalog.resolver import invalidate_capability_cache
+        invalidate_capability_cache(user_id)
+        return {"ok": True, "partial": True, "available_count": len(revisions)}
+
+
+@router.post("/sync/continue", summary="使用已同步并验证可用的能力继续")
+async def accept_synced_capabilities_route(user: UserContext = Depends(get_current_user)):
+    _require_desktop_store()
+    st = _bridge_state(str(user.user_id))
+    return success_response(data=await asyncio.to_thread(_accept_synced_capabilities, st, str(user.user_id)))

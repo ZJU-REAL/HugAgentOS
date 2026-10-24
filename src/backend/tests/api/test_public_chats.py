@@ -1,3 +1,4 @@
+from core.auth.public_identity import resolve_public_user
 """Public links cannot inherit cookies or cross visitor/resource boundaries."""
 
 import asyncio
@@ -23,13 +24,14 @@ from core.db.models import (
     UserFolder,
     UserShadow,
 )
-from core.services import public_chat_service as service
-from core.services.agent_api_service import prepare_agent_api_request
-from core.services.project_api_service import prepare_project_api_request
+from core.chat import public as service
+from core.auth.agent_api import prepare_agent_api_request
+from core.projects.api import prepare_project_api_request
 from fastapi import HTTPException, Response
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
+from tests.db_support import share_session
 
 
 @pytest.fixture
@@ -81,6 +83,8 @@ def db(tmp_path, monkeypatch):
         monkeypatch.setattr(
             module, "decrypt_secret", lambda value: value.removeprefix("encrypted:")
         )
+    monkeypatch.setattr("core.auth.public_identity.decrypt_secret", lambda value: value.removeprefix("encrypted:"))
+    share_session(monkeypatch, session)
     yield session
     session.close()
     engine.dispose()
@@ -107,8 +111,8 @@ def test_link_lifecycle_and_visitor_isolation(db, kind, resource):
     link = service.create_link(db, "owner", kind, resource)
     assert service.create_link(db, "owner", kind, resource) == link
     assert db.query(UserApiKey).count() == 1
-    first = service.resolve_public_user(db, link["token"], "a" * 48)
-    second = service.resolve_public_user(db, link["token"], "b" * 48)
+    first = resolve_public_user(db, link["token"], "a" * 48)
+    second = resolve_public_user(db, link["token"], "b" * 48)
     assert first.public_chat_visitor != second.public_chat_visitor
     assert not hasattr(first, "api_key")
     body = ChatRequest(
@@ -136,16 +140,16 @@ def test_link_lifecycle_and_visitor_isolation(db, kind, resource):
         with pytest.raises(HTTPException):
             authenticate_public_chat(request(link["token"], "b" * 48, path), db)
     # Supplying the public credential must beat even an existing owner cookie.
-    resolved = asyncio.run(get_current_user(allowed, None, db))
+    resolved = asyncio.run(get_current_user(allowed, None))
     assert resolved.public_chat_visitor == first.public_chat_visitor
-    optional = asyncio.run(require_auth(False)(allowed, db))
+    optional = asyncio.run(require_auth(False)(allowed))
     assert optional.public_chat_visitor == first.public_chat_visitor
     service.set_enabled(db, "owner", kind, resource, False)
     with pytest.raises(HTTPException):
-        asyncio.run(get_current_user(allowed, None, db))
+        asyncio.run(get_current_user(allowed, None))
     assert service.get_link(db, "owner", kind, resource)["enabled"] is False
     service.set_enabled(db, "owner", kind, resource, True)
-    assert service.resolve_public_user(db, link["token"], "a" * 48)
+    assert resolve_public_user(db, link["token"], "a" * 48)
 
 
 def test_cannot_publish_someone_elses_resource(db):
@@ -159,8 +163,8 @@ def test_bootstrap_returns_only_current_visitor(db):
     from api.routes.v1.public_chats import bootstrap
 
     link = service.create_link(db, "owner", "agents", "agent")
-    first = service.resolve_public_user(db, link["token"], "a" * 48)
-    second = service.resolve_public_user(db, link["token"], "b" * 48)
+    first = resolve_public_user(db, link["token"], "a" * 48)
+    second = resolve_public_user(db, link["token"], "b" * 48)
     for user, chat_id in ((first, "first"), (second, "second")):
         prepare_agent_api_request(
             db, user, ChatRequest(chat_id=chat_id, message="Hi", agent_id="agent")
@@ -172,11 +176,11 @@ def test_bootstrap_returns_only_current_visitor(db):
 
 
 def test_public_agent_artifact_roundtrip(db, monkeypatch):
-    from core.llm.agent_api_runtime import artifact_in_scope, parse_api_scope
-    from core.services.agent_api_service import make_agent_api_scope
+    from core.llm.api_runtime.agent import artifact_in_scope, parse_api_scope
+    from core.auth.agent_api import make_agent_api_scope
 
     link = service.create_link(db, "owner", "agents", "agent")
-    user = service.resolve_public_user(db, link["token"], "a" * 48)
+    user = resolve_public_user(db, link["token"], "a" * 48)
     prepare_agent_api_request(
         db, user, ChatRequest(chat_id="files-chat", message="Hi", agent_id="agent")
     )
@@ -207,8 +211,8 @@ def test_public_agent_artifact_roundtrip(db, monkeypatch):
 @pytest.mark.parametrize("kind,resource", [("agents", "agent"), ("projects", "project")])
 def test_public_composer_capabilities_and_uploads(db, kind, resource):
     link = service.create_link(db, "owner", kind, resource)
-    user = service.resolve_public_user(db, link["token"], "a" * 48)
-    other = service.resolve_public_user(db, link["token"], "b" * 48)
+    user = resolve_public_user(db, link["token"], "a" * 48)
+    other = resolve_public_user(db, link["token"], "b" * 48)
     for path, method in (("/v1/models/capabilities", "GET"),
                          ("/v1/tool-approval", "GET"), ("/v1/tool-approval", "PUT"),
                          ("/v1/file/upload", "POST")):
@@ -247,11 +251,11 @@ def test_public_composer_capabilities_and_uploads(db, kind, resource):
 
 def test_public_approval_preferences_are_independent(db, monkeypatch):
     from api.routes.v1.tool_approval import ApprovalModeBody, get_tool_approval_mode, set_tool_approval_mode
-    from core.services.user_service import UserService
+    from core.auth.users import UserService
 
     link = service.create_link(db, "owner", "projects", "project")
-    first = service.resolve_public_user(db, link["token"], "a" * 48)
-    second = service.resolve_public_user(db, link["token"], "b" * 48)
+    first = resolve_public_user(db, link["token"], "a" * 48)
+    second = resolve_public_user(db, link["token"], "b" * 48)
     monkeypatch.setattr(UserService, "get_user_settings", lambda *_: {"tool_approval_mode": "auto"})
     def must_not_change_owner(*args, **kwargs):
         raise AssertionError("visitor must not change the owner's global setting")

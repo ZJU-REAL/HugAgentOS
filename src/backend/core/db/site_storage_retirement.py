@@ -20,7 +20,7 @@ def retire_site_storage(engine, directory: Path):
         return retire_connection(connection, directory, strict=False)
 
 
-def _digest(payload):
+def digest(payload):
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()
     ).hexdigest()
@@ -50,7 +50,7 @@ def retire_connection(connection, directory: Path, *, strict=True):
             required = {row["site_id"] for rows in payload.values() for row in rows}
             if (
                 receipt.get("verified") is True
-                and receipt.get("legacy_sha256") == _digest(payload)
+                and receipt.get("legacy_sha256") == digest(payload)
                 and required <= covered
             ):
                 verified = True
@@ -66,7 +66,7 @@ def retire_connection(connection, directory: Path, *, strict=True):
     archive = directory / f"site-storage-{uuid4().hex}.json"
     manifest = {
         "revision": revision,
-        "sha256": _digest(payload),
+        "sha256": digest(payload),
         "tables": payload,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -76,7 +76,7 @@ def retire_connection(connection, directory: Path, *, strict=True):
         handle.flush()
         os.fsync(handle.fileno())
     verified = json.loads(archive.read_text(encoding="utf-8"))
-    if verified["sha256"] != _digest(verified["tables"]) or verified["tables"] != payload:
+    if verified["sha256"] != digest(verified["tables"]) or verified["tables"] != payload:
         raise RuntimeError("Retired storage backup verification failed")
     for name in existing:
         sa.Table(name, sa.MetaData(), autoload_with=connection).drop(connection)

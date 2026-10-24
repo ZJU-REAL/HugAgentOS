@@ -8,7 +8,7 @@ import asyncio
 import logging
 import time
 from collections import deque
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from core.sandbox.errors import SandboxError
 
@@ -149,9 +149,7 @@ class _JupyterUserPool:
                     logger.info(
                         "[jupyter-user-pool] release user=%s sandbox_id=%s -> idle "
                         "(idle_count=%d)",
-                        user_id,
-                        getattr(sbx, "id", "?"),
-                        len(q),
+                        user_id, getattr(sbx, "id", "?"), len(q),
                     )
                 else:
                     should_destroy = sbx

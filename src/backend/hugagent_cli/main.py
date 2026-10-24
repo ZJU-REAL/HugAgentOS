@@ -9,13 +9,27 @@ import uuid
 from .transport import Client
 
 
-SERVER_COMMANDS = {"onboard", "serve", "doctor"}
+# Commands of the local server, which `hugagent-server` owns. This client only
+# manages sessions and never runs them, so it points the caller there instead.
+SERVER_COMMANDS = {"onboard", "serve", "doctor", "engine"}
+# The server's options that may precede its command (`--port 3002 serve`).
+SERVER_OPTIONS = {"--host", "--port"}
 
 
-def server_installed():
-    from importlib.util import find_spec
-
-    return find_spec("cli") is not None
+def server_command(argv):
+    """The server command among argv's leading server options, if any."""
+    index = 0
+    while index < len(argv):
+        token = argv[index]
+        if token in SERVER_COMMANDS:
+            return token
+        if token in SERVER_OPTIONS:
+            index += 2
+        elif token.split("=", 1)[0] in SERVER_OPTIONS:
+            index += 1
+        else:
+            return None
+    return None
 
 
 def paging(sub):
@@ -24,10 +38,9 @@ def paging(sub):
 
 
 def parser():
-    description = "Manage HugAgentOS cloud and device sessions and project chats."
-    if server_installed():
-        description += " Existing server commands: onboard, serve, doctor."
-    p = argparse.ArgumentParser(description=description)
+    p = argparse.ArgumentParser(
+        description="Manage HugAgentOS cloud and device sessions and project chats."
+    )
     p.add_argument("--server", default=os.environ.get("HUGAGENT_SERVER"))
     p.add_argument("--target", default="cloud", help="cloud or device:<id>")
     p.add_argument(
@@ -108,14 +121,12 @@ def operation(client, target, name, args, key, wait):
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv and argv[0] in SERVER_COMMANDS and not server_installed():
-        print(json.dumps({"error": argv[0] + " needs a full HugAgentOS server installation. "
-                          "This lightweight client only manages sessions."}))
+    command = server_command(argv)
+    if command:
+        print(json.dumps({"error": command + " is a server command: run `hugagent-server "
+                          + command + "` on a full HugAgentOS installation. "
+                          "This lightweight client only manages sessions."}), file=sys.stderr)
         return 2
-    if (not argv and server_installed()) or (argv and argv[0] in SERVER_COMMANDS):
-        from cli import main as server_main
-
-        return server_main(argv)
     args = parser().parse_args(argv)
     try:
         client = Client(args.server or "", os.environ.get("HUGAGENT_API_KEY", ""))

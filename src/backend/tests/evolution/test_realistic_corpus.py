@@ -13,10 +13,15 @@ had two blockers that only that unrealistic shape hid:
 
 These tests pin the corpus shape that broke it.
 """
+from core.evolution.cycle import candidate_records as candidate_records_module
+from core.evolution.cycle import ordering as ordering_module
+from core.evolution.cycle import patterns as patterns_module
+from core.evolution.cycle import promotion_constants as promotion_state_module
+from core.evolution.cycle import promotion_types as promotion_types_module
 
 import pytest
 
-from core.evolution import promotion as P
+from core.evolution.cycle import promotion as P
 
 
 def _varied_corpus():
@@ -46,13 +51,13 @@ def _varied_corpus():
 
 def test_no_sequence_pattern_survives_a_realistic_corpus():
     """The premise: exact-sequence mining finds nothing when shapes vary."""
-    patterns = P.discover_patterns(_varied_corpus())
-    assert [p for p in patterns if p.kind == P.PATTERN_SUCCESS_SUBSEQUENCE] == []
+    patterns = patterns_module.discover_patterns(_varied_corpus())
+    assert [p for p in patterns if p.kind == promotion_state_module.PATTERN_SUCCESS_SUBSEQUENCE] == []
 
 
 def test_ordering_rules_do_survive_it():
     corpus = _varied_corpus()
-    rules = P.extract_ordering_constraints(corpus)
+    rules = ordering_module.extract_ordering_constraints(corpus)
     pair = next((c for c in rules if (c.before, c.after) == ("verify", "query")), None)
     assert pair is not None
     assert pair.contexts >= 2
@@ -61,17 +66,17 @@ def test_ordering_rules_do_survive_it():
 
 def test_the_cycle_emits_a_rules_only_candidate():
     """Where the loop previously produced nothing at all."""
-    from core.evolution import loop as L
+    from core.evolution.cycle import loop as L
 
     corpus = _varied_corpus()
-    rules = P.extract_ordering_constraints(corpus)
+    rules = ordering_module.extract_ordering_constraints(corpus)
     assert rules, "precondition: the corpus yields rules"
 
     # No sequence candidate exists, so every rule is uncovered.
-    orphans = L._uncovered_constraints(rules, [])
+    orphans = candidate_records_module.uncovered_constraints(rules, [])
     assert orphans
 
-    decision = L.assign_credit(L._features_for_ordering_rules(orphans))
+    decision = L.assign_credit(candidate_records_module.features_for_ordering_rules(orphans))
     assert decision.may_produce_candidate, (
         f"attribution refused a rules-only candidate: "
         f"{decision.selected} conf={decision.confidence}"
@@ -80,11 +85,11 @@ def test_the_cycle_emits_a_rules_only_candidate():
 
 
 def test_a_rule_already_carried_by_a_sequence_skill_is_not_duplicated():
-    from core.evolution import loop as L
+    from core.evolution.cycle import loop as L
 
-    rules = P.extract_ordering_constraints(_varied_corpus())
+    rules = ordering_module.extract_ordering_constraints(_varied_corpus())
     covered = [["verify", "query", "chart", "export"]]
-    remaining = L._uncovered_constraints(rules, covered)
+    remaining = candidate_records_module.uncovered_constraints(rules, covered)
     assert all(
         not ({c.before, c.after} <= set(covered[0])) for c in remaining
     )
@@ -92,10 +97,10 @@ def test_a_rule_already_carried_by_a_sequence_skill_is_not_duplicated():
 
 def test_thin_evidence_still_resolves_to_no_update():
     """The floor must stay a floor: one weak observation is not a capability."""
-    from core.evolution import loop as L
+    from core.evolution.cycle import loop as L
 
-    thin = [P.OrderingConstraint(before="a", after="b", support=0, contexts=0)]
-    decision = L.assign_credit(L._features_for_ordering_rules(thin))
+    thin = [promotion_types_module.OrderingConstraint(before="a", after="b", support=0, contexts=0)]
+    decision = L.assign_credit(candidate_records_module.features_for_ordering_rules(thin))
     assert decision.may_produce_candidate is False
 
 
@@ -108,16 +113,11 @@ def test_rules_only_skill_renders_parseable_markdown_carrying_the_rules():
     The skill document is the only channel by which a learned rule reaches the
     model, so a rule absent from it is a rule the runtime never receives.
     """
-    from core.agent_skills.registry import _load_skill_from_str
-    from core.evolution.activation import (
-        _skill_description,
-        _skill_label,
-        _skill_markdown,
-        _tools_from_constraints,
-    )
+    from core.capabilities.skills.registry import _load_skill_from_str
+    from core.evolution.cycle.skill_document import skill_description as _skill_description, skill_label as _skill_label, skill_markdown as _skill_markdown, tools_from_constraints as _tools_from_constraints
 
     constraints = [
-        c.to_dict() for c in P.extract_ordering_constraints(_varied_corpus())
+        c.to_dict() for c in ordering_module.extract_ordering_constraints(_varied_corpus())
     ]
     tools = _tools_from_constraints(constraints)
     assert tools and tools.index("verify") < tools.index("query")
@@ -157,7 +157,7 @@ def test_a_contradicted_rule_is_withheld_rather_than_annotated():
     The rule survives in the JSON side file for a runtime applier that knows the
     task type — which is where a scope decision belongs.
     """
-    from core.evolution.activation import _ordering_rules_section
+    from core.evolution.cycle.skill_document import ordering_rules_section as _ordering_rules_section
 
     section = _ordering_rules_section(
         [

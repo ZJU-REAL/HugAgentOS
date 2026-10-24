@@ -6,6 +6,7 @@
 
     GET    /v1/projects                      列表（个人）
     POST   /v1/projects                      创建（仅 kind=personal）
+    POST   /v1/projects/local/resolve        按本机目录解析 / 新建本地项目（仅本机模式）
     GET    /v1/projects/{id}                 详情（带 folder_name / 容量）
     PATCH  /v1/projects/{id}                 改名 / 描述 / pin / icon / instructions
     DELETE /v1/projects/{id}                 软删（不删挂钩文件夹）
@@ -26,16 +27,16 @@ from typing import Literal, Optional
 from urllib.parse import quote
 
 from core.auth.backend import UserContext, get_current_user
-from core.auth.permissions_iface import ProjectAccess, require_project_access
+from core.auth.edition import ProjectAccess, require_project_access
 from core.config.local_mode import local_mode_enabled
 from core.db.engine import get_db
 from core.db.models import Artifact
 from core.infra.responses import created_response, paginated_response, success_response
 from core.infra.time import utc_now
-from core.project_environment.config import ProjectEnvironment
-from core.services.project_environment import ProjectEnvironmentService
-from core.services.project_file_service import ProjectFileService
-from core.services.project_service import ProjectService
+from core.projects.environment.config import ProjectEnvironment
+from core.projects.environment.service import ProjectEnvironmentService
+from core.projects.files import ProjectFileService
+from core.projects.edition import ProjectService
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -89,7 +90,7 @@ class UpdateInstructionsBody(BaseModel):
 
 
 @router.get("", summary="列出可见项目")
-async def list_projects(
+def list_projects(
     q: Optional[str] = Query(None, description="按 name / description 模糊搜索"),
     sort: str = Query("-last_activity_at", description="-last_activity_at | name | created"),
     page: int = Query(1, ge=1),
@@ -106,7 +107,7 @@ async def list_projects(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, summary="创建项目")
-async def create_project(
+def create_project(
     body: CreateProjectBody,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -144,11 +145,43 @@ async def create_project(
         return created_response(data=svc.get(project.project_id, user_id))
 
 
+class ResolveLocalProjectBody(BaseModel):
+    path: str = Field(..., min_length=1, max_length=4096)
+    create: bool = True
+    name: Optional[str] = Field(None, min_length=1, max_length=120)
+    # Also grant the folder read-write to the OS sandbox (the terminal client works in it).
+    grant: bool = False
+
+
+@router.post("/local/resolve", summary="按本机目录解析本地项目")
+def resolve_local_project(
+    body: ResolveLocalProjectBody,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """终端客户端用：按 realpath 匹配当前用户的本地项目，不存在且 create=true 时新建。
+
+    非本机模式返回 404，云端 / Web 部署不暴露该端点。
+    """
+    if not local_mode_enabled():
+        raise HTTPException(status_code=404, detail="Not Found")
+    from core.projects.local_resolve import resolve_local_project as operation
+
+    data = operation(
+        db, ProjectService(db), str(user.user_id), body.path, create=body.create, name=body.name
+    )
+    if body.grant:
+        from features.desktop.local.grants import ensure_workspace_grant
+
+        ensure_workspace_grant(data["local_path"])
+    return success_response(data=data)
+
+
 # ── Detail / Update / Delete ─────────────────────────────────────────────
 
 
 @router.get("/{project_id}", summary="项目详情")
-async def get_project(
+def get_project(
     access: ProjectAccess = Depends(require_project_access("view")),
     db: Session = Depends(get_db),
 ):
@@ -164,7 +197,7 @@ async def get_project(
 
 
 @router.patch("/{project_id}", summary="更新项目元信息 / instructions")
-async def update_project(
+def update_project(
     body: UpdateProjectBody,
     access: ProjectAccess = Depends(require_project_access("edit")),
     db: Session = Depends(get_db),
@@ -179,7 +212,7 @@ async def update_project(
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT, summary="软删项目")
-async def delete_project(
+def delete_project(
     access: ProjectAccess = Depends(require_project_access("admin")),
     db: Session = Depends(get_db),
 ):
@@ -193,7 +226,7 @@ async def delete_project(
 
 
 @router.post("/{project_id}/favorite", summary="收藏项目")
-async def favorite_project(
+def favorite_project(
     access: ProjectAccess = Depends(require_project_access("view")),
     db: Session = Depends(get_db),
 ):
@@ -204,7 +237,7 @@ async def favorite_project(
 
 
 @router.delete("/{project_id}/favorite", summary="取消收藏")
-async def unfavorite_project(
+def unfavorite_project(
     access: ProjectAccess = Depends(require_project_access("view")),
     db: Session = Depends(get_db),
 ):
@@ -218,7 +251,7 @@ async def unfavorite_project(
 
 
 @router.patch("/{project_id}/instructions", summary="更新项目指令（system prompt 末段注入）")
-async def update_instructions(
+def update_instructions(
     body: UpdateInstructionsBody,
     access: ProjectAccess = Depends(require_project_access("edit")),
     db: Session = Depends(get_db),
@@ -240,7 +273,7 @@ async def update_instructions(
 
 
 @router.get("/{project_id}/files", summary="项目文件列表（递归挂钩文件夹子树）")
-async def list_project_files(
+def list_project_files(
     access: ProjectAccess = Depends(require_project_access("view")),
     db: Session = Depends(get_db),
 ):
@@ -342,7 +375,7 @@ def _local_project_file_path(path: str, access: ProjectAccess) -> str:
 
 
 @router.post("/{project_id}/files/upload", summary="直传文件到项目（写入挂钩文件夹）")
-async def upload_project_file(
+def upload_project_file(
     file: UploadFile = File(...),
     access: ProjectAccess = Depends(require_project_access("edit")),
     db: Session = Depends(get_db),
@@ -350,7 +383,7 @@ async def upload_project_file(
     """直传文件到项目挂钩文件夹（filename 含路径时自动创建子文件夹）；需 edit 权限。"""
     if not file.filename:
         raise HTTPException(status_code=400, detail="文件名不能为空")
-    contents = await file.read()
+    contents = file.file.read()
     if not contents:
         raise HTTPException(status_code=400, detail="文件内容为空")
     pf_svc = ProjectFileService(db)
@@ -366,7 +399,7 @@ async def upload_project_file(
 
 
 @router.delete("/{project_id}/files/{artifact_id}", summary="软删项目文件（同步 MySpace）")
-async def remove_project_file(
+def remove_project_file(
     artifact_id: str,
     access: ProjectAccess = Depends(require_project_access("edit")),
     db: Session = Depends(get_db),
@@ -400,7 +433,7 @@ async def remove_project_file(
 
 
 @router.get("/{project_id}/chats", summary="项目内的会话列表")
-async def list_project_chats(
+def list_project_chats(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
     scope: Literal["all", "mine", "shared"] = Query(

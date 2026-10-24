@@ -3,7 +3,7 @@
 The complete desktop package includes the platform-specific CE backend and a private Python runtime.
 Starting local mode verifies and extracts the bundled resources without requiring Docker, system Python,
 pip or a first-run dependency download. Thin packages support remote connections only.
-See [Windows deployment](windows-deployment.md), [UOS deployment](uos1070-desktop.md) and
+See [Windows deployment](windows-deployment.md) and
 the [deployment overview](README.md) for installation options.
 
 ## Persistent data

@@ -21,11 +21,11 @@ from agentscope.message import (
 from agentscope.model import ChatResponse
 from agentscope.tool import Toolkit
 from agentscope.tool._response import ToolChunk
-from core.llm.chat_models import OpenAICompatChatModel, ReasoningEchoChatFormatter
-from core.llm.compacting_agent import CompactingAgent
-from core.llm.context_ir import IMAGE_TOKEN_RESERVE
-from core.llm.offloader import SandboxOffloader
-from core.llm.tool_collector import ToolCollector
+from core.models.chat_models import OpenAICompatChatModel, ReasoningEchoChatFormatter
+from core.llm.context.compacting_agent import CompactingAgent
+from core.models.constants import IMAGE_TOKEN_RESERVE
+from core.llm.context.offloader import SandboxOffloader
+from core.llm.factory.tools.definitions import ToolAssembly, function_tool
 from core.llm.tools.read_image_tool import register_read_image
 from PIL import Image
 
@@ -109,9 +109,9 @@ async def test_read_image_reaches_model_without_text_offload(monkeypatch, large_
         return large_png
 
     monkeypatch.setattr("core.llm.tools.read_image_tool._read_path_bytes", read_bytes)
-    collector = ToolCollector()
+    collector = ToolAssembly()
     register_read_image(collector, chat_id="shared-workspace", user_id="u1", vision_mode="native")
-    toolkit = Toolkit(tools=collector.function_tools)
+    toolkit = Toolkit(tools=list(collector))
     messages, files = await run_tool(toolkit, CaptureModel(), streaming=streaming)
     images = wire_images(messages)
     assert len(images) == 1, json.dumps(messages)[:2000]
@@ -137,10 +137,10 @@ async def test_mixed_result_preserves_images_and_offloads_only_long_text(large_p
         """Read screenshots with optional diagnostic output."""
         return ToolChunk(content=[image, TextBlock(text=text), remote] if text else [image, remote])
 
-    collector = ToolCollector()
-    collector.register_tool_function(screenshots)
+    collector = ToolAssembly()
+    collector.append(function_tool(screenshots))
     messages, files = await run_tool(
-        Toolkit(tools=collector.function_tools), CaptureModel("screenshots", {})
+        Toolkit(tools=list(collector)), CaptureModel("screenshots", {})
     )
     assert wire_images(messages) == [
         "data:image/png;base64," + encoded,
@@ -165,10 +165,10 @@ async def test_plain_text_still_offloads_when_over_limit():
         """Return large plain text output."""
         return ToolChunk(content=[TextBlock(text=text)])
 
-    collector = ToolCollector()
-    collector.register_tool_function(logs)
+    collector = ToolAssembly()
+    collector.append(function_tool(logs))
     messages, files = await run_tool(
-        Toolkit(tools=collector.function_tools), CaptureModel("logs", {})
+        Toolkit(tools=list(collector)), CaptureModel("logs", {})
     )
     assert wire_images(messages) == []
     assert len(files) == 1
@@ -207,15 +207,15 @@ async def test_large_image_does_not_trigger_false_context_compaction(
         "settings",
         replace(settings, compaction=replace(settings.compaction, enabled=compaction_enabled)),
     )
-    monkeypatch.setattr("core.services.compaction_summary._summarize", unexpected_summary)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', unexpected_summary)
     monkeypatch.setattr("core.llm.tools.read_image_tool._read_path_bytes", read_bytes)
     model = CaptureModel()
     monkeypatch.setattr(model, "generate_structured_output", unexpected_summary)
-    collector = ToolCollector()
+    collector = ToolAssembly()
     register_read_image(collector, chat_id="shared-workspace", user_id="u1", vision_mode="native")
 
     messages, files = await run_tool(
-        Toolkit(tools=collector.function_tools), model, streaming=streaming
+        Toolkit(tools=list(collector)), model, streaming=streaming
     )
 
     assert attempts == []
@@ -226,8 +226,8 @@ async def test_large_image_does_not_trigger_false_context_compaction(
 
 
 def test_history_estimate_and_summary_do_not_treat_image_as_text():
-    from core.llm import compaction as C
-    from core.services.compaction_budget import estimate_history_tokens
+    from core.llm.context import compaction as C
+    from core.llm.context.budget import estimate_history_tokens
 
     encoded = "A" * 800_000
     history = [
@@ -281,10 +281,10 @@ def jx_chat_model_classes() -> list[type]:
     from agentscope.model import ChatModelBase
 
     for module in (
-        "core.llm.chat_models",
-        "core.llm.failover",
-        "core.llm.providers.vendor_models",
-        "core.llm.responses_models",
+        "core.models.chat_models",
+        "core.models.failover",
+        "core.models.providers.vendor_models",
+        "core.models.responses",
     ):
         importlib.import_module(module)
 
@@ -292,7 +292,7 @@ def jx_chat_model_classes() -> list[type]:
 
     def walk(cls: type) -> None:
         for sub in cls.__subclasses__():
-            if sub.__module__.startswith("core.llm") and sub not in seen:
+            if sub.__module__.startswith("core.models") and sub not in seen:
                 seen.append(sub)
             walk(sub)
 

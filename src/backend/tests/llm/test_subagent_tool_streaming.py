@@ -1,12 +1,12 @@
 """Sub-agent sidebar events reuse the main streaming event mapper."""
+from core.llm.runtime import streaming_constants as streaming_state_module
 
 from types import SimpleNamespace
 
+import core.llm.runtime.streaming as streaming_mod
 import pytest
-
-from core.llm.subagent_tool import _SubMapper, _map_subagent_event
-from orchestration.streaming import StreamingAgent
-import orchestration.streaming as streaming_mod
+from core.llm.runtime.streaming import StreamingAgent
+from core.llm.subagents.tool import _map_subagent_event, _SubMapper
 
 
 class TextBlockDeltaEvent:
@@ -48,17 +48,20 @@ async def test_structured_subagent_content_streams_before_model_call_end():
     mapper = _SubMapper()
 
     first = await _map(stream, mapper, TextBlockDeltaEvent("hello"))
+    # Within the flush interval the next delta is merged, not sent on its own.
     second = await _map(stream, mapper, TextBlockDeltaEvent(" world"))
+    tail = [sub for kind, payload in stream._deltas.drain() for sub in mapper.feed(kind, payload)]
 
     assert first == [{"sub_type": "content", "delta": "hello"}]
-    assert second == [{"sub_type": "content", "delta": " world"}]
+    assert second == []
+    assert tail == [{"sub_type": "content", "delta": " world"}]
     assert mapper.finish_turn() == []
 
 
 @pytest.mark.asyncio
 async def test_subagent_tool_arguments_use_main_mapper(monkeypatch):
-    monkeypatch.setattr(streaming_mod, "_TOOL_CALL_DELTA_FLUSH_CHARS", 8)
-    monkeypatch.setattr(streaming_mod, "_TOOL_CALL_DELTA_FLUSH_INTERVAL_S", 999.0)
+    monkeypatch.setattr(streaming_state_module, 'DELTA_FLUSH_CHARS', 8)
+    monkeypatch.setattr(streaming_state_module, 'DELTA_FLUSH_INTERVAL_S', 999.0)
     stream = _stream(structured=True)
     mapper = _SubMapper()
 

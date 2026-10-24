@@ -6,7 +6,6 @@ import XxxRepository`` keeps working unchanged.
 """
 from core.infra.time import utc_now
 
-import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -14,7 +13,7 @@ import sqlalchemy as sa
 from core.db.reserved_chats import ordinary_chat_filter, reserved_chat_error, reserved_chat_owner
 from core.db.models import ChatMessage, ChatSession
 from core.db.models.chat import reserve_chat_message_sequences
-from sqlalchemy import and_, desc, func, or_, select
+from sqlalchemy import desc, func, or_
 from sqlalchemy.orm import Session
 
 
@@ -240,18 +239,6 @@ class ChatMessageRepository:
         stable sequence boundary in the visible history without exposing the
         checkpoint row or its replacement payload.
         """
-        return int(
-            self.db.query(ChatMessage)
-            .filter(
-                ChatMessage.chat_id == chat_id,
-                ChatMessage.role != "system",
-                ChatMessage.chat_seq <= covered_seq,
-            )
-            .count()
-        )
-
-    def count_visible_through_seq(self, chat_id: str, covered_seq: int) -> int:
-        """Count user-facing rows at or below an exact compaction watermark."""
         return int(
             self.db.query(ChatMessage)
             .filter(

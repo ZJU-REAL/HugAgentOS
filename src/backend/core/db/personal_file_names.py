@@ -8,7 +8,9 @@ INDEX_NAMES = ("uq_personal_file_folder_name", "uq_personal_file_root_name")
 
 
 def personal_file_indexes(*, enterprise=False):
-    scope = ""
+    from core.db.edition import personal_index_scope
+
+    scope = personal_index_scope(enterprise)
     return tuple(
         Index(
             name, *columns, unique=True,
@@ -37,7 +39,7 @@ def validate_filename(filename):
 
 def check_name(db, user_id, folder_id, filename, exclude_id=None, exclude_folder=None):
     from core.db.models import Artifact, UserFolder
-    from core.services.artifact_edition import personal_artifact_predicates
+    from core.db.artifact_scope import personal_artifact_predicates
 
     validate_filename(filename)
     with db.no_autoflush:
@@ -63,8 +65,8 @@ def check_name(db, user_id, folder_id, filename, exclude_id=None, exclude_folder
 @event.listens_for(Session, "before_flush")
 def validate_personal_filenames(db, flush_context, instances):
     from core.db.models import Artifact, UserFolder, UserShadow
-    from core.services.artifact_edition import is_personal_artifact
-    from core.services.folder_batch import lock_folder_owner
+    from core.db.artifact_scope import is_personal_artifact
+    from core.db.repository.folder import lock_folder_owner
 
     candidates = []
     for row in db.new.union(db.dirty):
@@ -72,6 +74,9 @@ def validate_personal_filenames(db, flush_context, instances):
             fields = ("user_id", "parent_folder_id", "name", "deleted_at")
         elif isinstance(row, Artifact) and is_personal_artifact(row):
             fields = ("user_id", "user_folder_id", "filename", "deleted_at")
+            from core.db.edition import personal_artifact_scope_fields
+
+            fields += tuple(name for name in personal_artifact_scope_fields() if name in inspect(row).attrs)
         else:
             continue
         if row.deleted_at is None and (row in db.new or any(

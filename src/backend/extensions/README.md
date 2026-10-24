@@ -19,7 +19,7 @@ policy and iteration limits. Core runtime code applies the policy against the
 parent's actual grants. Active database prompt parts (`subagents` kind) take
 precedence over the shipped Markdown. The files remain the seed and fallback.
 
-Lifecycle code stays in `core/agent_skills/`, `core/plugins/` and
+Lifecycle code stays in `core/capabilities/skills/`, `core/capabilities/plugins/` and
 `core/capabilities/`. Agent execution stays in `core/llm/` and `orchestration/`.
 User installations, credentials and mutable state belong to the configured
 runtime stores, never this directory.

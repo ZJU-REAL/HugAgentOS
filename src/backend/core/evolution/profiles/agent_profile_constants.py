@@ -1,0 +1,102 @@
+"""Signals, actions and limits allowed in agent profiles."""
+from __future__ import annotations
+
+
+SIGNAL_NO_PROGRESS = "no_progress"
+
+
+SIGNAL_REPEATED_ACTIONS = "repeated_actions"
+
+
+SIGNAL_NO_DIFF = "no_diff"
+
+
+SIGNAL_REVIEWER_FLAT = "reviewer_score_flat"
+
+
+SIGNAL_BUDGET_LOW = "budget_low"
+
+
+SIGNAL_TOOL_ERROR_STREAK = "tool_error_streak"
+
+
+ALLOWED_SIGNALS = (
+    SIGNAL_NO_PROGRESS,
+    SIGNAL_REPEATED_ACTIONS,
+    SIGNAL_NO_DIFF,
+    SIGNAL_REVIEWER_FLAT,
+    SIGNAL_BUDGET_LOW,
+    SIGNAL_TOOL_ERROR_STREAK,
+)
+
+
+REACT_OBSERVABLE_SIGNALS = frozenset(
+    {SIGNAL_NO_PROGRESS, SIGNAL_REPEATED_ACTIONS, SIGNAL_TOOL_ERROR_STREAK}
+)
+
+
+LOOP_ONLY_SIGNALS = frozenset(
+    {SIGNAL_NO_DIFF, SIGNAL_REVIEWER_FLAT, SIGNAL_BUDGET_LOW}
+)
+
+
+ACTION_RETRY = "retry"
+
+
+ACTION_CHANGE_STRATEGY = "change_strategy"
+
+
+ACTION_ROLLBACK_AND_FORK = "rollback_and_fork"
+
+
+ACTION_NARROW_SCOPE = "narrow_scope"
+
+
+ACTION_DELEGATE = "delegate"
+
+
+ACTION_ESCALATE = "escalate"
+
+
+ACTION_STOP = "stop"
+
+
+ALLOWED_ACTIONS = (
+    ACTION_RETRY,
+    ACTION_CHANGE_STRATEGY,
+    ACTION_ROLLBACK_AND_FORK,
+    ACTION_NARROW_SCOPE,
+    ACTION_DELEGATE,
+    ACTION_ESCALATE,
+    ACTION_STOP,
+)
+
+
+MIN_BUDGET_MULTIPLIER = 0.25
+
+
+MAX_BUDGET_MULTIPLIER = 3.0
+
+
+MIN_REACT_TURNS = 3
+
+
+MAX_REACT_TURNS = 80
+
+
+UNBOUNDED_REACT_TURNS = 0
+
+
+MIN_MEMORY_BUDGET_MS = 100
+
+
+MAX_MEMORY_BUDGET_MS = 5000
+
+
+MIN_LOOP_ATTEMPTS = 2
+
+
+MAX_LOOP_ATTEMPTS = 20
+
+
+TARGET_KIND = "agent_profile"

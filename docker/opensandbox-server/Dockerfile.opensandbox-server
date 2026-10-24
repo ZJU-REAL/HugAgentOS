@@ -1,0 +1,17 @@
+# Pinned controller patch; tests run against the actual upstream source at build time.
+FROM opensandbox/server:v0.1.13
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends s3fs fuse && rm -rf /var/lib/apt/lists/*
+COPY docker/opensandbox-server/opensandbox_capacity.py /app/opensandbox_server/services/docker/capacity.py
+COPY docker/opensandbox-server/opensandbox_expirations.py /app/opensandbox_server/services/docker/expirations.py
+COPY docker/opensandbox-server/opensandbox_mount_worker.py /app/opensandbox_server/services/docker/mount_worker.py
+COPY src/backend/core/sandbox/sessions/metadata.py /app/opensandbox_server/services/docker/sandbox_metadata.py
+COPY docker/opensandbox-server/opensandbox_mount_recovery.py /app/opensandbox_server/services/docker/mount_recovery.py
+COPY docker/opensandbox-server/opensandbox_object_mounts.py /app/opensandbox_server/services/docker/object_mounts.py
+COPY docker/opensandbox-server/patch_opensandbox_server.py /tmp/hugagent-controller/patch.py
+COPY src/backend/tests/sandbox/test_opensandbox_controller_patch.py /tmp/hugagent-controller/test_patch.py
+RUN OPENSANDBOX_PATCH_SCRIPT=/tmp/hugagent-controller/patch.py \
+    OPENSANDBOX_TEST_SOURCE=/app/opensandbox_server \
+    python /tmp/hugagent-controller/test_patch.py -v \
+    && python /tmp/hugagent-controller/patch.py --root /app/opensandbox_server \
+    && rm -rf /tmp/hugagent-controller

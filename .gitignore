@@ -3,7 +3,7 @@
 # Runtime-generated catalog (synced from DB + filesystem at startup)
 src/backend/configs/catalog.json
 
-# OpenSandbox config — generated from docker/opensandbox-config.toml.tpl by the
+# OpenSandbox config — generated from docker/opensandbox-server/opensandbox-config.toml.tpl by the
 # opensandbox-config-init service at compose-up (sed 把 @@HOST_REPO_PATH@@
 # 替换成各机 .env 里的实际仓库路径)。.tpl 入库，实文件不入库。
 opensandbox-config.toml
@@ -60,6 +60,8 @@ spike/
 .DS_Store
 
 # Project specific
+# 根目录 examples/（示例工程）仅本地使用，不入库
+/examples/
 output/
 images/
 logs/
@@ -164,10 +166,12 @@ deploy_kit/
 node_modules/
 
 # 建站模板必须完整入库（覆盖上面的 lib/ 与 AGENTS.md 规则），但依赖树除外
-!docker/site-template/**
-docker/site-template/react-vite/node_modules/
+!docker/sandbox/site-template/**
+docker/sandbox/site-template/react-vite/node_modules/
 .jobtest/
 
 # Local scratch scripts and verification artifacts
 /.scratch/
+# macOS native release archives (desktop/scripts/workbench-macos-native.mjs)
+/release-archive/
 .ageval

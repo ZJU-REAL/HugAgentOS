@@ -219,23 +219,17 @@ Linux 桌面运行环境未提供输入驱动时，连接只包含会话管理�
 
 先按项目部署文档准备企业版、PostgreSQL、Redis 和 OpenSandbox 镜像。
 
-1. 构建专用电脑镜像：`docker build -f docker/Dockerfile.personal-agent -t hugagent-personal-agent:v5 .`。不要覆盖正在运行的电脑使用的标签。
+1. 构建专用电脑镜像：`docker build -f docker/personal-agent/Dockerfile.personal-agent -t hugagent-personal-agent:v5 .`。不要覆盖正在运行的电脑使用的标签。
 2. 设置 `HOST_STORAGE_PATH` 为宿主机绝对路径。
 3. 为 `PERSONAL_AGENT_OPENSANDBOX_API_KEY` 设置至少 32 个字符的独立随机密钥。
 4. 设置 `PERSONAL_AGENT_OPENSANDBOX_DOMAIN=personal-agent-opensandbox:8080`。
 5. 设置 `PERSONAL_AGENT_IMAGE=hugagent-personal-agent:v5`。已有电脑在下次重建时使用新镜像。
-6. 使用根 Compose 文件和附加文件：`docker compose -f docker-compose.yml -f docker/compose.personal-agent.yml --profile personal-agent up -d`。
+6. 使用根 Compose 文件和附加文件：`docker compose -f docker-compose.yml -f docker/personal-agent/compose.personal-agent.yml --profile personal-agent up -d`。
 7. 按项目现有迁移流程升级数据库。依次应用 `personalagent01` 至 `personalagent05`。这些迁移创建模块表、回填消息关联、建立独立任务会话，并增加跨设备会话操作表。
 
 附加文件创建独立控制器、专用网络和私有配置卷。控制器需要访问 Docker socket。密钥不得提交到 Git。现有数据库密钥用于加密沙盒和邮箱凭据。
 
 配置缺失时，Personal Agent 不能连接普通控制器作为替代。后台服务每分钟检查永久电脑。用户暂停任务队列时，电脑仍保留。
-
-## 验证范围
-
-自动化测试覆盖单一身份、并发任务、租约、审批、设备撤销、历史分页和普通聊天入口限制。隔离环境还验证了实际模型、真实云端截图和输入、文件持久化、SMTP/IMAP 附件和前后端流程。
-
-Ethereal 测试邮箱捕获邮件。它不能证明向普通互联网邮箱投递成功。Mac 和 Windows 原生桌面测试必须在对应系统完成。具体已通过项和待验项见内部验收记录。
 
 回滚 personalagent02 前，必须等待所有消息回复完成。回滚把任务关联及独立指令归档到原消息元数据中。重新升级会恢复这些关联和指令。
 
@@ -265,6 +259,8 @@ Personal Agent 用一个类型化工具 `pa_hugagent` 管理用户的 HugAgentOS
 - **运行结束自动汇报**：任务发出消息后可以不等运行结束直接完成。运行结束（完成、失败、取消或需要用户处理）时，系统把结果作为事件交给 Personal Agent，由它告诉用户。任务自己等到了结束的运行不会重复汇报。
 
 云端电脑内置轻量 `hugagent` CLI。CLI 管理现有后台。网页端和桌面端的云端模式共用 `cloud`。桌面端的本机模式使用 `device:<id>`。
+
+云端电脑里这个客户端就叫 `hugagent`。在云电脑以外安装同一个客户端（`pip install` 后端源码，或 `scripts/build-hugagent-cli.py` 打出的 wheel）时，命令名是 `hugagent-session`，用法相同。工作站上的 `hugagent` 是终端客户端（`packages/cli`）。本机服务的 `onboard`、`serve`、`doctor`、`engine` 由 `hugagent-server` 提供，会话客户端收到这些命令时只提示改用 `hugagent-server`。
 
 ```bash
 hugagent device list

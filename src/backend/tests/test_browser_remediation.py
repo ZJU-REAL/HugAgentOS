@@ -26,7 +26,7 @@ async def test_locator_and_dns_errors_are_specific(browser, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_non_json_runtime_error_is_safe():
-    from core.plugins.resources.transport import RuntimeTransport
+    from core.capabilities.plugins.resources.transport import RuntimeTransport
     async with RuntimeTransport({"url": "http://probe", "headers": {}}) as transport:
         await transport.client.aclose()
         transport.client = httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(500, text="private details")))
@@ -71,9 +71,9 @@ async def test_screenshot_is_mcp_image(monkeypatch):
 async def test_chat_recovers_only_live_owned_resources(runtime, monkeypatch):
     from api.routes.v1.plugin_resources import chat_resources
     from types import SimpleNamespace
-    from core.plugins.resources import service
+    from core.capabilities.plugins.resources import service
     db, _, _, _ = runtime
-    await service.create(db, "browser", "browser", "warm-user", "warm-chat")
+    await service.create("browser", "browser", "warm-user", "warm-chat")
     result = await chat_resources("warm-chat", SimpleNamespace(user_id="warm-user"), db)
     assert len(result["data"]["items"]) == 1
     async def closed(*args):

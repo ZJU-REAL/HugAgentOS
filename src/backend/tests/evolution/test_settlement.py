@@ -7,7 +7,7 @@ appear is every memory the turn wrote, each carrying the handle the user needs
 to edit or delete it.
 """
 
-from core.evolution import settlement as S
+from core.evolution.settlement import settlement as S
 
 
 def _entry(handle="m-1", text="做财务分析前先核验主体", layer=S.LAYER_PROCEDURE, **kw):

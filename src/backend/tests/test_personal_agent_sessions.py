@@ -137,27 +137,27 @@ async def test_task_grants_are_bound_to_run_owner_and_running_lease(db, monkeypa
     request = Request(
         {"type": "http", "headers": [(b"authorization", ("Bearer " + token).encode())]}
     )
-    user, grant = await session_auth.resolve(request, db)
+    user, grant = await session_auth.resolve(request)
     assert user.user_id == "owner" and grant["task"] == task
     row.run_id = "replacement-run"
     db.commit()
     with pytest.raises(HTTPException) as exc:
-        await session_auth.resolve(request, db)
+        await session_auth.resolve(request)
     assert exc.value.status_code == 401
     row.run_id = "run"
     db.commit()
     row.owner = "replacement"
     db.commit()
     with pytest.raises(HTTPException):
-        await session_auth.resolve(request, db)
+        await session_auth.resolve(request)
     row.owner = "worker"
     row.lease_until = time.time() - 1
     db.commit()
     with pytest.raises(HTTPException):
-        await session_auth.resolve(request, db)
+        await session_auth.resolve(request)
     await store.drop(session_auth.key(token))
     with pytest.raises(HTTPException):
-        await session_auth.resolve(request, db)
+        await session_auth.resolve(request)
 
 
 def test_trusted_cloud_installer_script_is_valid_python():
@@ -204,7 +204,7 @@ def test_project_operations_map_to_fixed_endpoints():
 
 
 def test_send_runs_in_the_chats_own_project(db):
-    from core.services.session_operations.admission import _check_project
+    from core.chat.operations.admission import _check_project
     from core.chat.schemas import ChatRequest
     from core.db.models import ChatSession, Project
 

@@ -3,7 +3,7 @@
   "mcpServers": {
     "agent_manager": {
       "type": "streamable-http",
-      "url": "http://mcp:9115/mcp/"
+      "url": "http://mcp:9115/mcp"
     }
   }
 }

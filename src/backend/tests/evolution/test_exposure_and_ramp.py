@@ -12,9 +12,10 @@ verification is actually owed.
 
 import pytest
 
-from core.evolution import release as R
-from core.evolution.activation import _entry_stage, ActivationError
-from core.evolution.exposure import is_evolved_skill_id, visible_evolved_skill_ids
+from core.evolution.cycle import release as R
+from core.evolution.cycle.activation_policy import entry_stage as _entry_stage
+from core.evolution.cycle.activation_types import ActivationError
+from core.evolution.evidence.exposure import is_evolved_skill_id, visible_evolved_skill_ids
 
 
 class _Candidate:
@@ -156,7 +157,7 @@ def test_an_evolved_skill_with_no_release_is_withheld():
 
 
 def test_hand_authored_skills_are_never_filtered():
-    from core.evolution.exposure import filter_skill_ids
+    from core.evolution.evidence.exposure import filter_skill_ids
 
     ids = ["officecli-docx", "officecli-pptx"]
     assert filter_skill_ids(ids, user_id="u1") == ids

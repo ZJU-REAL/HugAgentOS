@@ -1,17 +1,18 @@
 """Authenticated background command status, output and cancellation."""
 import asyncio
-from fastapi import APIRouter, Depends, HTTPException, Request
-from starlette.responses import StreamingResponse
+
 from core.auth.backend import UserContext, get_current_user
 from core.infra.responses import success_response
-from core.services.commands import store
-from orchestration.commands.runtime import runtime
+from core.sandbox.commands.runtime import runtime
+from core.sandbox.commands import store
+from fastapi import APIRouter, Depends, HTTPException, Request
+from starlette.responses import StreamingResponse
 
 router = APIRouter(prefix="/v1/commands", tags=["Commands"])
 
 @router.get("/events")
 async def events(request: Request, chat_id: str):
-    from orchestration.commands.subscription import authorize, subscribe
+    from core.sandbox.commands.subscription import authorize, subscribe
     user_id = await authorize(request, chat_id)
     return StreamingResponse(subscribe(request, chat_id, user_id),
         media_type="text/event-stream",

@@ -1,10 +1,10 @@
 # HugAgentOS 文档 / Documentation
 
-> 最后更新：2026-07-21
+> 最后更新 / Last updated：2026-10-23
 
-HugAgentOS 是一个企业级 AI Agent 平台（FastAPI + React + AgentScope 2.0），以 open-core 模式提供 **开源社区版（CE）** 与 **商业版（EE）** 双形态。产品文档按语言分树维护：
+HugAgentOS 是一个开源、可自托管的 Agent Harness：你提出的问题在云端持续执行，关掉电脑也不会中断；在此之上提供 7×24 小时在线的 Personal Agent，并以 HugAgentOS Cloud（服务器）和 HugAgentOS Local（桌面本机）两种形态运行，以 open-core 模式提供 **开源社区版（CE）** 与 **商业版（EE）**。产品文档按语言分树维护：
 
-HugAgentOS is an enterprise-grade AI agent platform (FastAPI + React + AgentScope 2.0), shipped in an open-core model as a **Community Edition (CE)** and an **Enterprise Edition (EE)**. Product documentation is maintained per language:
+HugAgentOS is an open-source, self-hosted agent harness: your request keeps running in the cloud even after you close your computer. On top of it, HugAgentOS provides an always-on Personal Agent and runs as HugAgentOS Cloud (on your server) or HugAgentOS Local (on your desktop), shipped in an open-core model as a **Community Edition (CE)** and an **Enterprise Edition (EE)**. Product documentation is maintained per language:
 
 | 语言 / Language | 入口 / Entry |
 |---|---|
@@ -19,14 +19,13 @@ HugAgentOS is an enterprise-grade AI agent platform (FastAPI + React + AgentScop
 document/
 ├── zh-CN/ · en/             # 双语产品文档（镜像）
 │   ├── getting-started/     # 产品简介、快速开始、领域本体快速入门
-│   ├── deployment/          # 部署总览(选型) + 无 Docker 一键安装 / Docker Compose / 离线生产 / Windows(WSL2) / 环境变量参考
+│   ├── deployment/          # 部署总览、Docker Compose、桌面本机模式、一键安装、Windows / macOS / UOS、环境变量
 │   ├── architecture/        # 总体架构、后端、前端、数据模型
-│   ├── modules/             # 17 个功能模块文档（对话/提示词/能力目录/模型/
-│   │                        #   MCP 工具/技能/沙箱/记忆/知识库/存储/项目空间/
-│   │                        #   认证/管理台/自动化/画布与产物）
-│   ├── api/                 # API 总览（信封/鉴权/SSE/路由清单）、错误码
+│   ├── modules/             # 功能模块：对话与 Run、Personal Agent、自主循环、后台作业、MCP、技能、沙箱、
+│   │                        #   记忆、本体治理、知识库、站点与应用托管、存储、项目空间、认证、管理台等
+│   ├── api/                 # API 总览（信封 / 鉴权 / SSE / 路由清单）、错误码
 │   ├── editions/            # 社区版 vs 商业版、License 机制、CE 构建管线
-│   └── development/         # 后端 / 前端开发指南
+│   └── development/         # 后端 / 前端开发、界面定制、工作台（Workbench）协议与 SDK
 └── internal/                # ⚠️ 内部文档（仅主仓，不随社区版分发）
     ├── agents/              # 开发工作流约定（development-flow / issue-tracker /
     │                        #   triage-labels / domain），被 .agents/skills 与 CLAUDE.md 引用
@@ -44,151 +43,13 @@ document/
 
 `zh-CN/`, `en/`, and this index are **public product docs**, shipped with the Community Edition derived tree; EE-only capabilities are explicitly labeled. `internal/` holds **internal documents** (business strategy, split blueprints, design drafts) and is excluded from the CE tree via `ce/manifest.yaml` — put any new internal document there.
 
-云文档在线编辑：Markdown、TXT 和代码文件的编辑、保存、权限与版本冲突处理见
-[我的空间](zh-CN/modules/projects-myspace.md#云文档在线编辑) /
-[Online cloud document editing](en/modules/projects-myspace.md#online-cloud-document-editing)。
-
-工作台协议 / Workbench protocol：
-[中文接入说明](zh-CN/development/workbench-protocol.md) /
-[English integration guide](en/development/workbench-protocol.md)。
-
-普通外部应用：[中文](zh-CN/development/workbench-external-apps.md) · [English](en/development/workbench-external-apps.md)。
-
-工作台目录与布局策略：[中文](zh-CN/development/workbench-access-policies.md) · [English](en/development/workbench-access-policies.md)。
-
-工作台导航偏好：[中文](zh-CN/development/workbench-navigation-preferences.md) · [English](en/development/workbench-navigation-preferences.md)。
-
-独立 SDK 与插件页面：[中文](zh-CN/development/workbench-sdk.md) · [English](en/development/workbench-sdk.md)。
-
-工作台独立工程与权限预览：[中文](zh-CN/development/workbench-preview.md) · [English](en/development/workbench-preview.md)。
-工作台管理员指南：[中文](zh-CN/development/workbench-administration.md) · [English](en/development/workbench-administration.md)。
-工作台错误码：[中文](zh-CN/development/workbench-errors.md) · [English](en/development/workbench-errors.md)。
-工作台兼容与迁移：[中文](zh-CN/development/workbench-migration.md) · [English](en/development/workbench-migration.md)。
-
-工作台目录通知与撤销：[中文](zh-CN/development/workbench-invalidation.md) · [English](en/development/workbench-invalidation.md)。
-
-- [工作台构建与交付](zh-CN/development/workbench-build.md)
-
-- [workbench-sdk](en/development/workbench-sdk.md)
-
-- [workbench-access-policies](en/development/workbench-access-policies.md)
-
-- [workbench-external-apps](en/development/workbench-external-apps.md)
-
-- [workbench-plugin-upgrades](en/development/workbench-plugin-upgrades.md)
-
-- [workbench-protocol](en/development/workbench-protocol.md)
-
-- [workbench-navigation-preferences](en/development/workbench-navigation-preferences.md)
-
-- [workbench-sdk](zh-CN/development/workbench-sdk.md)
-
-- [workbench-access-policies](zh-CN/development/workbench-access-policies.md)
-
-- [workbench-external-apps](zh-CN/development/workbench-external-apps.md)
-
-- [workbench-plugin-upgrades](zh-CN/development/workbench-plugin-upgrades.md)
-
-- [workbench-protocol](zh-CN/development/workbench-protocol.md)
-
-- [workbench-navigation-preferences](zh-CN/development/workbench-navigation-preferences.md)
-
-- [workbench-origins](en/development/workbench-origins.md)
-
-- [workbench-sdk](en/development/workbench-sdk.md)
-
-- [workbench-access-policies](en/development/workbench-access-policies.md)
-
-- [workbench-external-apps](en/development/workbench-external-apps.md)
-
-- [workbench-protocol](en/development/workbench-protocol.md)
-
-- [workbench-navigation-preferences](en/development/workbench-navigation-preferences.md)
-
-- [workbench-origins](zh-CN/development/workbench-origins.md)
-
-- [workbench-sdk](zh-CN/development/workbench-sdk.md)
-
-- [workbench-access-policies](zh-CN/development/workbench-access-policies.md)
-
-- [workbench-external-apps](zh-CN/development/workbench-external-apps.md)
-
-- [workbench-protocol](zh-CN/development/workbench-protocol.md)
-
-- [workbench-navigation-preferences](zh-CN/development/workbench-navigation-preferences.md)
-
-- [workbench-sdk](en/development/workbench-sdk.md)
-
-- [workbench-platform-adapters](en/development/workbench-platform-adapters.md)
-
-- [workbench-access-policies](en/development/workbench-access-policies.md)
-
-- [workbench-external-apps](en/development/workbench-external-apps.md)
-
-- [workbench-protocol](en/development/workbench-protocol.md)
-
-- [workbench-navigation-preferences](en/development/workbench-navigation-preferences.md)
-
-- [workbench-sdk](zh-CN/development/workbench-sdk.md)
-
-- [workbench-platform-adapters](zh-CN/development/workbench-platform-adapters.md)
-
-- [workbench-access-policies](zh-CN/development/workbench-access-policies.md)
-
-- [workbench-external-apps](zh-CN/development/workbench-external-apps.md)
-
-- [workbench-protocol](zh-CN/development/workbench-protocol.md)
-
-- [workbench-navigation-preferences](zh-CN/development/workbench-navigation-preferences.md)
-
-- [workbench-sdk](en/development/workbench-sdk.md)
-
-- [workbench-access-policies](en/development/workbench-access-policies.md)
-
-- [workbench-external-apps](en/development/workbench-external-apps.md)
-
-- [workbench-activity](en/development/workbench-activity.md)
-
-- [workbench-protocol](en/development/workbench-protocol.md)
-
-- [workbench-navigation-preferences](en/development/workbench-navigation-preferences.md)
-
-- [workbench-sdk](zh-CN/development/workbench-sdk.md)
-
-- [workbench-access-policies](zh-CN/development/workbench-access-policies.md)
-
-- [workbench-external-apps](zh-CN/development/workbench-external-apps.md)
-
-- [workbench-activity](zh-CN/development/workbench-activity.md)
-
-- [workbench-protocol](zh-CN/development/workbench-protocol.md)
-
-- [workbench-navigation-preferences](zh-CN/development/workbench-navigation-preferences.md)
-
-- [workbench-sdk](en/development/workbench-sdk.md)
-
-- [workbench-access-policies](en/development/workbench-access-policies.md)
-
-- [workbench-external-apps](en/development/workbench-external-apps.md)
-
-- [workbench-diagnostics](en/development/workbench-diagnostics.md)
-
-- [workbench-protocol](en/development/workbench-protocol.md)
-
-- [workbench-navigation-preferences](en/development/workbench-navigation-preferences.md)
-
-- [workbench-sdk](zh-CN/development/workbench-sdk.md)
-
-- [workbench-access-policies](zh-CN/development/workbench-access-policies.md)
-
-- [workbench-external-apps](zh-CN/development/workbench-external-apps.md)
-
-- [workbench-diagnostics](zh-CN/development/workbench-diagnostics.md)
-
-- [workbench-protocol](zh-CN/development/workbench-protocol.md)
-
-- [workbench-navigation-preferences](zh-CN/development/workbench-navigation-preferences.md)
-
-项目与智能体独立对话链接 / Standalone project and agent chat links：[中文](zh-CN/modules/chat.md#项目和智能体的独立对话链接) · [English](en/modules/chat.md#standalone-chat-links-for-projects-and-agents)。
-
-模块页面滚动与应用中心：[中文](zh-CN/architecture/frontend.md#模块页面滚动与应用中心) · [English](en/architecture/frontend.md#module-page-scrolling-and-app-center)。
+## 常用专题 / Frequently referenced topics
+
+| 专题 / Topic | 中文 | English |
+|---|---|---|
+| Personal Agent | [Personal Agent](zh-CN/modules/personal-agent.md) | [Personal Agent](en/modules/personal-agent.md) |
+| 桌面本机与混合模式 / Desktop local and hybrid modes | [桌面离线本机模式](zh-CN/deployment/desktop-local-mode.md) | [Desktop local mode](en/deployment/desktop-local-mode.md) |
+| 云文档在线编辑 / Online cloud document editing | [我的空间](zh-CN/modules/projects-myspace.md#云文档在线编辑) | [Projects & My Space](en/modules/projects-myspace.md#online-cloud-document-editing) |
+| 项目与智能体独立对话链接 / Standalone chat links | [对话](zh-CN/modules/chat.md#项目和智能体的独立对话链接) | [Chat](en/modules/chat.md#standalone-chat-links-for-projects-and-agents) |
+| 模块页面滚动与应用中心 / Module scrolling and app center | [前端架构](zh-CN/architecture/frontend.md#模块页面滚动与应用中心) | [Frontend](en/architecture/frontend.md#module-page-scrolling-and-app-center) |
+| 工作台协议与 SDK / Workbench protocol and SDK | [工作台文档](zh-CN/README.md#开发指南) | [Workbench docs](en/README.md#development) |

@@ -4,10 +4,10 @@
 !src/frontend/
 !src/frontend/**
 !src/backend/
-!src/backend/core/
-!src/backend/core/applications/
-!src/backend/core/applications/schemas/
-!src/backend/core/applications/schemas/**
+!src/backend/features/
+!src/backend/features/workbench/
+!src/backend/features/workbench/schemas/
+!src/backend/features/workbench/schemas/**
 !packages/
 !packages/workbench-protocol/
 !packages/workbench-protocol/**

@@ -71,7 +71,7 @@ Frontend entry: the **"Autonomous loop" toggle in the chat input** (`components/
 
 ## Related code
 
-- Driver `orchestration/autonomous_loop.py`, planner `orchestration/loop_planner.py`, reviewer `orchestration/subagents/loop_reviewer.py`
-- ChatRun integration `orchestration/chat_run_executor.py` (`start_autonomous_loop_run` / startup reconciliation `resume_running_loops`)
-- Service `core/services/loop_service.py` (ledger mirror / start params / steering queue), API `api/routes/v1/loops.py`
+- Driver `orchestration/loops/driver.py`, planner `orchestration/loops/planner.py`, reviewer `orchestration/loops/reviewer.py`
+- ChatRun integration `core/chat/runtime/` (`start_autonomous_loop_run` / startup reconciliation `resume_running_loops`)
+- Service `orchestration/loops/run.py` (ledger mirror / start params / steering queue), API `api/routes/v1/loops.py`
 - Tables `agent_loops` / `loop_iterations`

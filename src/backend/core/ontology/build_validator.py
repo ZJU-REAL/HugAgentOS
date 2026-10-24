@@ -9,7 +9,7 @@ from core.config.display_names import MCP_SERVER_DISPLAY_NAMES, TOOL_DISPLAY_NAM
 from core.db.models import AdminMcpServer, AdminSkill, InstalledPlugin
 from core.infra.exceptions import BadRequestError
 from core.ontology.schemas import OntologyPackDocument
-from core.ontology.validator import activate_runtime_for_asset
+from core.ontology.runtime_pack import activate_runtime_for_asset
 from sqlalchemy.orm import Session
 
 
@@ -65,7 +65,7 @@ class OntologyBuildValidator:
         output_schema: dict[str, Any] | None = None,
         tool_schemas: dict[str, dict[str, Any]] | None = None,
     ) -> BuildValidationReport:
-        from core.services.ontology_service import OntologyService
+        from core.ontology.service import OntologyService
 
         task = "\n".join(item for item in (name, description, instructions[:4000]) if item)
         runtime = OntologyService(self.db).build_runtime(task=task)
@@ -343,7 +343,7 @@ class OntologyBuildValidator:
         suggestions: list[str],
     ) -> None:
         """Check discovered tool inputs directly against active pack rules."""
-        from core.services.ontology_service import OntologyService
+        from core.ontology.service import OntologyService
 
         service = OntologyService(self.db)
         for version in service.repo.get_active_versions():

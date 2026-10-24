@@ -1,6 +1,8 @@
 """Declarative tool-permission registry and pre-dispatch enforcement."""
 
 from __future__ import annotations
+from tests.orchestration.hook_support import permission_adapter
+from types import SimpleNamespace
 
 import json
 from types import SimpleNamespace
@@ -10,18 +12,11 @@ import pytest
 from agentscope.message import ToolCallBlock, ToolResultState
 from agentscope.state import AgentState
 from agentscope.tool._response import ToolChunk, ToolResponse
-from core.llm.tool_collector import ToolCollector
-from core.llm.tool_permissions import (
-    CURRENT_PERMISSION_TICKET,
-    PermissionRuntime,
-    ToolPermissionMiddleware,
-    ToolPermissionRegistry,
-    ToolPermissionService,
-    allow_tool,
-    local_command_tool,
-    local_path_tool,
-)
-from core.ontology.toolkit import OntologyFilteredToolkit
+from core.llm.factory.tools.definitions import ToolAssembly, function_tool
+from core.sandbox.permissions.dispatch_models import CURRENT_PERMISSION_TICKET, PermissionRuntime
+from core.sandbox.permissions.tool_specs import ToolPermissionRegistry, allow_tool, local_command_tool, local_path_tool
+from core.llm.tool_permissions import ToolPermissionService
+from core.llm.tools.ontology_toolkit import OntologyFilteredToolkit
 from core.sandbox.permissions.models import Grant
 from core.sandbox.permissions.models import Policy
 
@@ -53,11 +48,11 @@ def test_native_tool_registration_does_not_require_a_declaration():
     async def brand_new_tool() -> ToolResponse:
         return ToolResponse()
 
-    collector = ToolCollector()
-    collector.register_tool_function(brand_new_tool)
+    collector = ToolAssembly()
+    collector.append(function_tool(brand_new_tool))
     assert "brand_new_tool" not in collector.permission_specs
 
-    collector.register_tool_function(brand_new_tool, permission=allow_tool())
+    collector.append(function_tool(brand_new_tool, dispatch_spec=allow_tool()))
     assert collector.permission_specs["brand_new_tool"].key == "allow"
 
 
@@ -84,7 +79,7 @@ async def test_unregistered_tool_passes_without_a_ticket():
 
 @pytest.mark.asyncio
 async def test_middleware_dispatches_unregistered_tool_without_binding_ticket():
-    middleware = ToolPermissionMiddleware(
+    middleware = permission_adapter(
         ToolPermissionService(
             ToolPermissionRegistry(),
             PermissionRuntime(
@@ -151,11 +146,11 @@ async def test_local_path_decision_is_resolved_once_by_generic_service():
     with (
         patch("core.config.local_mode.local_mode_enabled", return_value=True),
         patch(
-            "core.services.local_grant_service.grants_for_gate",
+            'features.desktop.local.grants.grants_for_gate',
             return_value=[Grant("/data/project", "read")],
         ),
         patch(
-            "core.services.local_grant_service.policy_for_gate",
+            'features.desktop.local.grants.policy_for_gate',
             return_value=Policy(),
         ),
     ):
@@ -170,7 +165,7 @@ async def test_local_path_decision_is_resolved_once_by_generic_service():
 async def test_middleware_binds_ticket_only_around_matching_dispatch():
     registry = ToolPermissionRegistry()
     registry.register("safe", allow_tool(), source="native")
-    middleware = ToolPermissionMiddleware(
+    middleware = permission_adapter(
         ToolPermissionService(
             registry,
             PermissionRuntime(
@@ -240,9 +235,9 @@ async def test_toolkit_dispatch_guard_does_not_require_ticket_for_unregistered_t
             state=ToolResultState.SUCCESS,
         )
 
-    collector = ToolCollector()
-    collector.register_tool_function(brand_new_tool)
-    toolkit = OntologyFilteredToolkit(tools=collector.function_tools)
+    collector = ToolAssembly()
+    collector.append(function_tool(brand_new_tool))
+    toolkit = OntologyFilteredToolkit(tools=list(collector))
     toolkit.set_tool_permission_service(
         ToolPermissionService(
             ToolPermissionRegistry(),
@@ -283,11 +278,11 @@ async def test_local_command_ticket_carries_os_sandbox_constraints():
     with (
         patch("core.config.local_mode.local_mode_enabled", return_value=True),
         patch(
-            "core.services.local_grant_service.grants_for_gate",
+            'features.desktop.local.grants.grants_for_gate',
             return_value=[Grant("/data/project", "readwrite")],
         ),
         patch(
-            "core.services.local_grant_service.policy_for_gate",
+            'features.desktop.local.grants.policy_for_gate',
             return_value=Policy(),
         ),
     ):

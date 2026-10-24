@@ -125,42 +125,19 @@ if (eventType === 'error') {
     }
     throw new Error(streamError);
 }
-if (eventType === 'tool_pending' && ontologyRevisionTool) {
-    const revision = ensureOntologyRevision(s);
-    revision.status = 'streaming';
-    revision.toolPending = true;
-    appendOrUpdate(s, true, s.allCitations);
-    return true;
-}
-if (eventType === 'tool_pending') {
-    if (!s.toolPending) {
-        s.toolPending = true;
-        appendOrUpdate(s, true);
-    }
-    return true;
-}
-if (s.toolPending && eventType !== 'heartbeat') {
-    s.toolPending = false;
-    appendOrUpdate(s, true);
-}
 if (eventType === 'ontology_repair') {
     const revision = ensureOntologyRevision(s, typeof eventObj.source === 'string' ? eventObj.source : undefined);
     revision.status = eventObj.status === 'completed' ? 'completed' : 'streaming';
     if (eventObj.status === 'started')
         autoOpenOntologySidebar(s);
-    if (eventObj.status === 'started' || eventObj.status === 'completed') {
-        revision.toolPending = false;
-    }
     if (typeof eventObj.tool_calls === 'number')
         revision.toolCallCount = eventObj.tool_calls;
     appendOrUpdate(s, true, s.allCitations);
     return true;
 }
 if (eventType === 'ontology_revision_thinking') {
-    const content = String(eventObj.delta || eventObj.content || '');
-    if (content)
-        appendRevisionThinking(s, content);
-    ensureOntologyRevision(s).toolPending = false;
+    ensureOntologyRevision(s);
+    appendRevisionThinking(s, String(eventObj.delta || eventObj.content || ''));
     appendOrUpdate(s, true, s.allCitations);
     return true;
 }
@@ -172,7 +149,6 @@ if (eventType === 'ontology_revision') {
     // whole candidate as hidden reasoning when no </think> tag follows.
     const revision = ensureOntologyRevision(s);
     revision.status = 'streaming';
-    revision.toolPending = false;
     autoOpenOntologySidebar(s);
     if (content)
         appendRevisionText(s, content);
@@ -181,7 +157,6 @@ if (eventType === 'ontology_revision') {
 }
 if (ontologyRevisionTool && (eventType === 'tool_use' || eventType === 'tool_call_start' || eventType === 'tool_call' || eventType === 'tool_start')) {
     const revision = ensureOntologyRevision(s);
-    revision.toolPending = false;
     const eventToolId = getEventToolId(s, eventObj);
     const existingIndex = eventToolId ? toolCardIndexById(revision.toolCalls, eventToolId) : -1;
     const toolInput = eventObj.input ?? eventObj.args ?? eventObj.tool_args ?? eventObj.arguments;
@@ -210,7 +185,6 @@ if (ontologyRevisionTool && (eventType === 'tool_use' || eventType === 'tool_cal
 }
 if (ontologyRevisionTool && eventType === 'tool_call_delta') {
     const revision = ensureOntologyRevision(s);
-    revision.toolPending = false;
     const eventToolId = getEventToolId(s, eventObj);
     const delta = typeof eventObj.arguments_delta === 'string' ? eventObj.arguments_delta : '';
     const index = eventToolId ? toolCardIndexById(revision.toolCalls, eventToolId) : -1;
@@ -236,7 +210,6 @@ if (ontologyRevisionTool && eventType === 'tool_call_delta') {
 }
 if (ontologyRevisionTool && (eventType === 'tool_result' || eventType === 'tool_end')) {
     const revision = ensureOntologyRevision(s);
-    revision.toolPending = false;
     const eventToolId = getEventToolId(s, eventObj);
     const toolName = getEventToolRawName(s, eventObj);
     // 同上：带 id 就只认 id，认不到就往下走「新建一张卡」，不按名字抢别人的。
@@ -267,7 +240,6 @@ if (ontologyRevisionTool && (eventType === 'tool_result' || eventType === 'tool_
 }
 if (ontologyRevisionTool && eventType === 'subagent_event') {
     const revision = ensureOntologyRevision(s);
-    revision.toolPending = false;
     if (applySubagentEvent(revision.toolCalls, eventObj)) {
         if (Array.isArray(eventObj.citations)) {
             s.allCitations = [...s.allCitations, ...(eventObj.citations as CitationItem[])];
@@ -309,6 +281,20 @@ if (eventType === 'tool_use' || eventType === 'tool_call_start' || eventType ===
         });
     }
     appendOrUpdate(s, true);
+    return true;
+}
+if (eventType === 'tool_progress') {
+    const toolId = getEventToolId(s, eventObj);
+    if (!toolId) return true;
+    const index = toolCardIndexById(s.toolCalls, toolId);
+    if (index >= 0 && s.toolCalls[index].status === 'running') {
+        const value = typeof eventObj.progress === 'number' ? eventObj.progress : undefined;
+        const total = typeof eventObj.total === 'number' ? eventObj.total : undefined;
+        const message = typeof eventObj.message === 'string' ? eventObj.message.slice(0, 500) : '';
+        s.toolCalls[index] = { ...s.toolCalls[index], progressNote:
+            [message, value === undefined ? '' : total ? `${value}/${total}` : String(value)].filter(Boolean).join(' · ') };
+        appendOrUpdate(s, true);
+    }
     return true;
 }
 if (eventType === 'tool_call_delta') {

@@ -15,17 +15,16 @@ async def runtime_listeners(
     _manifest_for_surface,
     _plugin_runtime,
     agent,
-    http_clients,
+    mcp_resources,
     profile,
     skill_selection,
     system_prompt,
     toolkit,
-    transient_mcp_clients,
 ):
     async def _publish_context_manifest(request_manifest):  # noqa: ANN001, ANN202
         """Bind the exact post-budget context manifest used for this request."""
         try:
-            from core.evolution.runtime_binding import rebind_execution_manifest
+            from core.evolution.cycle.runtime_binding import rebind_execution_manifest
 
             request_bundle = rebind_execution_manifest(
                 run_id=request.run_id,
@@ -46,7 +45,7 @@ async def runtime_listeners(
             # treats a missing bundle as partial instead of falsely persisting
             # the pre-context surface as complete request evidence.
             agent.clear_request_evidence(request_manifest)
-            from core.evolution.runtime_binding import clear_run_binding
+            from core.evolution.cycle.runtime_binding import clear_run_binding
 
             clear_run_binding(request.run_id, capability_scope=request.capability_scope)
 
@@ -71,15 +70,17 @@ async def runtime_listeners(
             _log.warning("[manifest] surface generation refresh unavailable: %s", exc)
             try:
                 agent.bind_execution_surface(None, bundle=_bind_manifest(None))
-            except Exception:  # pragma: no cover - last-resort availability path
-                pass
+            except Exception as fallback_error:  # pragma: no cover - last-resort availability path
+                from core.infra.failures import record_best_effort_failure
+                record_best_effort_failure('core.llm.factory.runtime.listeners:_publish_surface_generation', fallback_error)
 
     toolkit.set_execution_surface_listener(_publish_surface_generation)
     if skill_selection is not None:
         try:
             setattr(agent, "_jx_skill_selection", skill_selection)
-        except Exception:  # pragma: no cover
-            pass
+        except Exception as fallback_error:  # pragma: no cover
+            from core.infra.failures import record_best_effort_failure
+            record_best_effort_failure('core.llm.factory.runtime.listeners:runtime_listeners', fallback_error)
     # Which assembly governed this run, for the turn card. Carried rather than
     # re-resolved after the response: by then a profile may have been published
     # or switched off, and the card would name one the run never used.
@@ -94,17 +95,21 @@ async def runtime_listeners(
                 "narrowed_tools": profile.tool_allowlist is not None,
             },
         )
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as fallback_error:  # pragma: no cover
+        from core.infra.failures import record_best_effort_failure
+        record_best_effort_failure('core.llm.factory.runtime.listeners:runtime_listeners', fallback_error)
 
     _log.info("[factory] +%s agent created, TOTAL setup done", _elapsed())
 
-    # Only transient (per-request) stdio clients + HTTP clients get closed;
-    # pooled stable clients stay open for reuse (closing them would defeat the
-    # pool and hand dead clients to the next request).
-    all_transient = [*transient_mcp_clients, *http_clients]
+    for resource in mcp_resources:
+        if resource.interactions is not None:
+            resource.interactions.agent = agent
+    # Release each run's leases; chat-owned STDIO sessions expire independently.
+    all_transient = list(mcp_resources)
     # Clients connected by a mid-run load_plugin activation are appended to this
     # same list object, so the caller's close_clients() teardown covers them.
     if _plugin_runtime is not None:
         _plugin_runtime["close_list"] = all_transient
+        _plugin_runtime["agent"] = agent
+        _plugin_runtime["request"] = request
     return agent, all_transient

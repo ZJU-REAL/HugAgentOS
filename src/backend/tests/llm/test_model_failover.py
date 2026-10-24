@@ -8,8 +8,8 @@ from typing import Any
 import httpx
 import openai
 import pytest
-from core.llm import failover
-from core.llm.failover import FailoverChatModel, provider_is_unusable
+from core.models import failover
+from core.models.failover import FailoverChatModel, provider_is_unusable
 
 
 def _status(code: int, cls: type = openai.APIStatusError) -> openai.APIStatusError:
@@ -27,7 +27,8 @@ class _Candidate:
         self.parameters = SimpleNamespace()
         self.stream = stream
         self.context_size = 32000
-        self.formatter = SimpleNamespace()
+        from agentscope.formatter import OpenAIChatFormatter
+        self.formatter = OpenAIChatFormatter()
         self.wire_protocol = "openai_chat"
         self.structured_reasoning = False
         self._behaviour = behaviour
@@ -240,17 +241,17 @@ def _cfg(pid: str, ctx: int = 32000):
 @pytest.mark.asyncio
 async def test_with_failover_switches_end_to_end(monkeypatch):
     """真实装配路径：主供应商 402 时整条链要把答案接住，而不是把错误抛给用户。"""
-    from core.llm import failover as mod
+    from core.models import failover as mod
 
     primary_cfg = _cfg("deepseek")
     backup = _Candidate("backup", ("stream", ["接住了"]))
 
     monkeypatch.setattr(
-        "core.services.model_config.ModelConfigService.get_instance",
+        'core.models.config.ModelConfigService.get_instance',
         lambda: SimpleNamespace(resolve_failover_chain=lambda p: [primary_cfg, _cfg("backup")]),
     )
     monkeypatch.setattr(
-        "core.llm.chat_models.build_model_for_mode",
+        'core.models.chat_models.build_model_for_mode',
         lambda cfg, **kw: backup,
     )
 
@@ -263,11 +264,11 @@ async def test_with_failover_switches_end_to_end(monkeypatch):
 
 def test_with_failover_returns_bare_model_when_alone(monkeypatch):
     """只配了一家时不该平白多包一层。"""
-    from core.llm import failover as mod
+    from core.models import failover as mod
 
     only = _cfg("solo")
     monkeypatch.setattr(
-        "core.services.model_config.ModelConfigService.get_instance",
+        'core.models.config.ModelConfigService.get_instance',
         lambda: SimpleNamespace(resolve_failover_chain=lambda p: [only]),
     )
     primary = _Candidate("solo", ("stream", ["x"]))
@@ -276,12 +277,12 @@ def test_with_failover_returns_bare_model_when_alone(monkeypatch):
 
 def test_with_failover_survives_a_broken_chain_lookup(monkeypatch):
     """取备选链本身失败时，至少要把主模型原样交出去，不能连累正常请求。"""
-    from core.llm import failover as mod
+    from core.models import failover as mod
 
     def _boom():
         raise RuntimeError("db down")
 
-    monkeypatch.setattr("core.services.model_config.ModelConfigService.get_instance", _boom)
+    monkeypatch.setattr('core.models.config.ModelConfigService.get_instance', _boom)
     primary = _Candidate("p1", ("stream", ["x"]))
     assert mod.with_failover(primary, _cfg("p1"), mode="medium") is primary
 
@@ -307,8 +308,8 @@ class _Row:
 
 def _chain_from(rows, monkeypatch, db_session):
     from sqlalchemy.orm import sessionmaker
-    from core.services import model_config as mc
-    from core.db.model_repository import create_provider
+    from core.models import config as mc
+    from core.models.repository import create_provider
 
     for row in rows:
         create_provider(
@@ -359,7 +360,7 @@ _IMAGE = {"type": "data", "source": {"media_type": "image/png"}}
 
 def test_carries_media_sees_uploads_and_tool_results():
     """图可能直接挂在消息上，也可能折在工具回执里——两处都得认出来。"""
-    from core.llm.failover import carries_media
+    from core.models.failover import carries_media
 
     assert carries_media([_msg({"type": "text", "text": "hi"})]) is False
     assert carries_media([_msg(_IMAGE)]) is True

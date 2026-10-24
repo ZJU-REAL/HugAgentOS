@@ -16,6 +16,11 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 
+import core.jobs.callback as jobs_callback
+import core.jobs.notifications as notifications
+import core.jobs.owner as jobs_owner
+import core.jobs.state as state
+import core.jobs.supervisor as supervisor
 import pytest
 from core.db.engine import Base
 from core.db.models import Job
@@ -32,8 +37,12 @@ def run_reaper():
     return asyncio.run(run())
 
 
-import orchestration.job_runtime as jr
-from orchestration.jobs import callback, notifications, owner, state, supervisor
+import core.jobs.callback as callback
+import core.jobs.notifications as notifications
+import core.jobs.owner as owner
+import core.jobs.runtime as jr
+import core.jobs.state as state
+import core.jobs.supervisor as supervisor
 
 
 @pytest.fixture()
@@ -43,10 +52,10 @@ def db_session(monkeypatch):
     )
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
-    monkeypatch.setattr(jr, "SessionLocal", Session)
+    monkeypatch.setattr("core.db.engine.SessionLocal", Session)
     monkeypatch.setattr(state, "SessionLocal", Session)
-    monkeypatch.setattr(owner, "_loop", None)
-    monkeypatch.setattr(supervisor, "_entries", {})
+    monkeypatch.setattr(jobs_owner.process_state(), 'loop', None)
+    monkeypatch.setattr(supervisor.process_state(), 'entries', {})
 
     async def _no_wake(job_row_id):
         return None
@@ -148,7 +157,7 @@ def test_explicit_env_wins_and_skips_probing(monkeypatch):
     async def _boom(*a, **k):  # 手动指定即信任，不该再去沙箱里探
         raise AssertionError("probe must not run when JOB_CALLBACK_URL is set")
 
-    monkeypatch.setattr(callback, "_sbx_bash", _boom)
+    monkeypatch.setattr(jobs_callback, "_sbx_bash", _boom)
 
     assert asyncio.run(callback.resolve_callback_base(session_id="s", user_id="u")) == (
         "http://custom:9000/api"
@@ -162,7 +171,7 @@ def test_probe_picks_the_reachable_base(monkeypatch):
     async def fake_bash(cmd, *, session_id, user_id, timeout=60):
         return 0, "PICK http://backend:8011\n", ""
 
-    monkeypatch.setattr(callback, "_sbx_bash", fake_bash)
+    monkeypatch.setattr(jobs_callback, "_sbx_bash", fake_bash)
 
     assert asyncio.run(callback.resolve_callback_base(session_id="s", user_id="u")) == (
         "http://backend:8011"
@@ -180,7 +189,7 @@ def test_unreachable_callback_refuses_to_start(monkeypatch):
     async def fake_bash(cmd, *, session_id, user_id, timeout=60):
         return 0, "NONE\n", ""
 
-    monkeypatch.setattr(callback, "_sbx_bash", fake_bash)
+    monkeypatch.setattr(jobs_callback, "_sbx_bash", fake_bash)
 
     with pytest.raises(RuntimeError) as exc:
         asyncio.run(callback.resolve_callback_base(session_id="s", user_id="u"))

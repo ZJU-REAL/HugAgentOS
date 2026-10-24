@@ -225,16 +225,25 @@ class BubblewrapBackend(BasePlatformBackend):
             (entry.root for entry in resolved.roots_for(AccessMode.DENY)),
             key=lambda item: (path_depth(item), item),
         )
+        readable = [entry.root for entry in resolved.roots_for(AccessMode.READ)]
         for path in denied:
             if os.path.isdir(path) and not os.path.islink(path):
                 descendants = [root for root in writable if root != path and is_within(root, path)]
-                perms = _DENIED_DIR_PERMS_TRAVERSABLE if descendants else _DENIED_DIR_PERMS_OPAQUE
+                read_only = [
+                    root for root in readable
+                    if root != path and is_within(root, path) and root not in descendants
+                    and os.path.isdir(root)
+                ]
+                perms = (
+                    _DENIED_DIR_PERMS_TRAVERSABLE if descendants or read_only else _DENIED_DIR_PERMS_OPAQUE
+                )
                 args += ["--perms", perms, "--tmpfs", path]
-                # Re-create the re-opened writable descendants inside the fresh
-                # tmpfs before freezing it: bubblewrap cannot create a mount
-                # point under a directory it has already remounted read-only.
-                for descendant in sorted(descendants, key=path_depth):
-                    args += ["--bind", descendant, descendant]
+                # Re-create the re-opened descendants inside the fresh tmpfs
+                # before freezing it: bubblewrap cannot create a mount point
+                # under a directory it has already remounted read-only.
+                reopened = [(root, "--bind") for root in descendants] + [(root, "--ro-bind") for root in read_only]
+                for descendant, flag in sorted(reopened, key=lambda item: path_depth(item[0])):
+                    args += [flag, descendant, descendant]
                 args += ["--remount-ro", path]
                 continue
             args += ["--ro-bind", _NULL_DEVICE, path]

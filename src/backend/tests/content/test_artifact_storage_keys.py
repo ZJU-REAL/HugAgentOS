@@ -1,6 +1,6 @@
 import pytest
 
-from core.content.artifact_refs import require_artifact_storage_key
+from core.files.artifacts.refs import require_artifact_storage_key
 
 
 def test_new_artifact_without_an_authoritative_key_is_rejected():
@@ -8,7 +8,7 @@ def test_new_artifact_without_an_authoritative_key_is_rejected():
         require_artifact_storage_key("unregistered-file")
 
 from types import SimpleNamespace
-from core.content.artifact_key_repair import verified_legacy_key
+from core.files.artifacts.key_repair import verified_legacy_key
 
 
 class Objects:
@@ -35,7 +35,7 @@ def test_real_extensionless_object_and_unmatched_size_are_preserved():
     assert verified_legacy_key(row(), Objects({"artifacts/old": b"content"})) is None
     assert verified_legacy_key(row(), Objects({"artifacts/old.docx": b"other"})) is None
 
-from core.content.artifact_key_repair import repair_legacy_key
+from core.files.artifacts.key_repair import repair_legacy_key
 from core.db.models import Artifact
 
 
@@ -53,7 +53,7 @@ def test_repair_is_audited_idempotent_and_keeps_content_version(db_session):
     assert art.extra_data["storage_key_repair"]["old_key"] == "artifacts/old"
     assert not repair_legacy_key(db_session, art, storage)
 
-from core.content.artifact_key_repair import rollback_legacy_key
+from core.files.artifacts.key_repair import rollback_legacy_key
 
 
 def test_audited_repair_can_be_rolled_back_but_not_after_content_changes(db_session):
@@ -73,7 +73,7 @@ def test_audited_repair_can_be_rolled_back_but_not_after_content_changes(db_sess
 
 
 def test_explicit_historical_placeholder_is_resolved_to_verified_suffix(monkeypatch):
-    monkeypatch.setattr("core.storage.get_storage", lambda: Objects({"artifacts/old.docx": b"content"}))
+    monkeypatch.setattr('core.files.storage.get_storage', lambda: Objects({"artifacts/old.docx": b"content"}))
     assert require_artifact_storage_key("old", "artifacts/old", filename="report.docx", size=7) == "artifacts/old.docx"
 
 

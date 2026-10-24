@@ -1,4 +1,4 @@
-from core.plugins.ui.contract import normalize_ui, public_contributions
+from features.workbench.ui.contract import normalize_ui, public_contributions
 
 def test_resource_module_retains_safe_runtime_and_binding():
     ui, dropped = normalize_ui({"version": 2, "contributes": {"modules": [{

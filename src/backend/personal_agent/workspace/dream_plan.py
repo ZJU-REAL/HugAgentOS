@@ -84,8 +84,8 @@ def plan(payload, answer, run_id, at):
 
 async def complete(payload, provider_id=None):
     from dataclasses import replace
-    from core.services.model_config import ModelConfigService
-    from core.llm.chat_models import build_model_for_mode
+    from core.models.config import ModelConfigService
+    from core.models.chat_models import build_model_for_mode
     from agentscope.message import Msg, TextBlock
     service = ModelConfigService.get_instance()
     cfg = (service.resolve_provider(provider_id) if provider_id else None) or service.resolve("main_agent")

@@ -21,6 +21,31 @@ def enabled(value):
     return str(value).strip().lower() not in {"0", "false", "no", "off"}
 
 
+DETAIL_LIMIT = 300
+
+
+def error_detail(exc):
+    """The server's own reason for an HTTP error, as one bounded line."""
+    try:
+        body = json.loads(exc.read(64 * 1024) or b"null")
+    except (OSError, ValueError):
+        return ""
+    reason = body
+    # FastAPI puts it in "detail" (text, object or validation list); the
+    # project envelope in "message".
+    for _ in range(3):
+        if isinstance(reason, dict):
+            reason = reason.get("detail") or reason.get("message") or reason.get("msg")
+        elif isinstance(reason, list) and reason:
+            reason = reason[0]
+        else:
+            break
+    if not isinstance(reason, (str, int, float)) or isinstance(reason, bool):
+        return ""
+    text = " ".join(str(reason).split())
+    return text if len(text) <= DETAIL_LIMIT else text[: DETAIL_LIMIT - 1] + "…"
+
+
 class Client:
     def __init__(self, server, token, *, timeout=35):
         parsed = urlsplit(server)
@@ -78,7 +103,7 @@ class Client:
                 if len(raw) > 2 * 1024 * 1024:
                     raise RuntimeError("Response exceeds limit")
                 if not raw:
-                    return {"deleted": True}
+                    return {"deleted": True} if method == "DELETE" else {}
                 result = json.loads(raw)
                 return (
                     result["data"]
@@ -86,7 +111,10 @@ class Client:
                     else result
                 )
         except HTTPError as exc:
-            raise RuntimeError("HugAgentOS HTTP " + str(exc.code) + "; request refused") from None
+            reason = error_detail(exc)
+            raise RuntimeError(
+                "HugAgentOS HTTP " + str(exc.code) + ": " + (reason or "request refused")
+            ) from None
         except (URLError, TimeoutError, OSError):
             raise RuntimeError(
                 "Connection unavailable; check operation status before retry"

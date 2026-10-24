@@ -83,7 +83,7 @@ def test_hint_states_the_real_wait_default(hint: str):
 
 def test_hint_progress_interval_matches_runtime(hint: str):
     """提示段里的唤醒间隔必须等于 job_runtime 的真值（曾漂移成 15 分钟）。"""
-    seconds = _module_constant("orchestration/jobs/supervisor.py", "PROGRESS_WAKE_SECONDS")
+    seconds = _module_constant('core/jobs/supervisor.py', "PROGRESS_WAKE_SECONDS")
     stated = re.search(r"默认\s*(\d+)\s*分钟[^）]*`progress_wake_sec`", hint)
     assert stated, "提示段应说明默认唤醒间隔（写成「默认 N 分钟，`progress_wake_sec` 可调」）"
     assert int(stated.group(1)) * 60 == int(

@@ -6,10 +6,11 @@ import shutil
 import tempfile
 from urllib.parse import quote
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
-from core.content.archive_browser import ArchiveError, inspect_archive, read_archive_member
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
+from core.files.content.archive_browser import ArchiveError, inspect_archive, read_archive_member
+from core.infra.byte_range import byte_range_response
 from core.infra.responses import success_response
-from core.spaces.files import SpaceFiles
+from core.files.spaces.files import SpaceFiles
 from api.routes.v1.space_files import service
 
 router = APIRouter(prefix="/v1/myspace/content")
@@ -58,7 +59,7 @@ def archive(space: str, path: str, response: Response, files: SpaceFiles = Depen
 
 
 @router.get("/archive/member")
-def member(space: str, path: str, member: str, inline: bool = False,
+def member(request: Request, space: str, path: str, member: str, inline: bool = False,
            files: SpaceFiles = Depends(service)):
     with source(files, space, path) as (local, name):
         data = read_archive_member(local, name, member)
@@ -67,7 +68,7 @@ def member(space: str, path: str, member: str, inline: bool = False,
     if mime in ("text/html", "image/svg+xml"):
         mime = "text/plain"
     safe = inline and (mime.startswith(("image/", "audio/", "video/", "text/")) or mime == "application/pdf")
-    return Response(data, media_type=mime, headers={
+    return byte_range_response(data, request.headers.get("range"), media_type=mime, headers={
         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
         "Content-Security-Policy": "sandbox; default-src 'none'",
         "Content-Disposition": ("inline" if safe else "attachment") + "; filename*=UTF-8''" + quote(filename, safe=""),

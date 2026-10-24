@@ -3,8 +3,8 @@
 import inspect
 from pathlib import Path
 
-import core.services.session_operations.request_context as chat_request_context
 import core.chat.context as chat_context
+import core.chat.operations.request_context as chat_request_context
 from core.chat.schemas import ChatRequest
 from core.llm.factory import create_agent_executor
 
@@ -12,13 +12,14 @@ from core.llm.factory import create_agent_executor
 def test_site_flag_is_metadata_not_an_agent_prompt_switch(monkeypatch) -> None:
     monkeypatch.setattr(chat_context, "collect_historical_attachments", lambda **_kwargs: [])
     request = ChatRequest(chat_id="chat-1", message="做个公司官网", site_chat=True)
-    ctx = chat_request_context._build_ctx(request, "user-1", None, None, None)
+    ctx = chat_request_context.build_ctx(request, "user-1", None, None, None)
 
     assert ctx["site_chat"] is True
     assert "site_mode" not in inspect.signature(create_agent_executor).parameters
 
-    workflow_src = Path(__file__).resolve().parents[2].joinpath("orchestration/workflow.py")
-    assert "site_mode=" not in workflow_src.read_text()
+    runtime_dir = Path(__file__).resolve().parents[2] / "core/agent_runtime"
+    for module in runtime_dir.rglob("*.py"):
+        assert "site_mode=" not in module.read_text(), module
 
 
 def test_user_message_carries_no_site_rules() -> None:
@@ -56,7 +57,7 @@ def test_history_repair_keeps_only_what_the_user_typed() -> None:
         for row in rows:
             conn.execute(
                 text(
-                    "INSERT INTO chat_messages (message_id, role, content) " "VALUES (:a, :b, :c)"
+                    "INSERT INTO chat_messages (message_id, role, content) "  "VALUES (:a, :b, :c)"
                 ),
                 dict(zip("abc", row)),
             )

@@ -28,7 +28,7 @@ MAX_TOTAL_BYTES = 64 * 1024 * 1024  # 64 MB 解压后总量
 def read_artifact_bytes(file_id: str) -> Optional[bytes]:
     """从共享产物库按 file_id 读回字节（local: 读 path；oss: download_bytes）。"""
     try:
-        from core.artifacts import store
+        from core.files.artifacts import store
 
         meta = store.get_artifact(file_id)
         if not meta:
@@ -39,7 +39,7 @@ def read_artifact_bytes(file_id: str) -> Optional[bytes]:
                 return fh.read()
         key = meta.get("storage_key")
         if key:
-            from core.storage import get_storage
+            from core.files.storage import get_storage
 
             return bytes(get_storage().download_bytes(key))
     except Exception as exc:  # noqa: BLE001
@@ -129,7 +129,7 @@ def is_plugin_root(root: Path) -> bool:
     却能从后台上传导入——同一个包两条通路结论不同。所以直接问导入器。
     """
     try:
-        from core.plugins.packaging.importer import detect_manifest
+        from core.capabilities.plugins.packaging.importer import detect_manifest
 
         detect_manifest(root)
         return True

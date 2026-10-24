@@ -54,7 +54,7 @@ def inspect_new_sandbox(view, shared):
 
 
 def test_new_readonly_sandbox_after_replace_and_delete_has_exact_files(cloud):
-    from core.agent_skills.publication import prepare_skill_view
+    from core.capabilities.skills.publication import prepare_skill_view
 
     upload(cloud.client, {"old.txt": "old", "nested/run.txt": "v1"})
     view = prepare_skill_view("alice")

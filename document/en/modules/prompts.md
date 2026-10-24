@@ -30,7 +30,7 @@ src/backend/prompts/prompt_text/default/system/
 └── 40_format.system.md        # output format + [ref:tool-N] citation contract
 ```
 
-After the base prompt, runtime appends dynamic sections per context: the tools & skills notice (`_TOOLS_AND_SKILLS_NOTICE`), the lightweight KB catalog (`prompts/kb_lite_section.py`), the project-mode section (`prompts/project_section.py`, injected only for project chats), the code-execution segment and batch-mode hint (appended by `factory/build.py`), and the sub-agent routing table (`core/llm/subagent_tool.py::build_subagent_prompt_section`).
+After the base prompt, runtime appends dynamic sections per context: the tools & skills notice (`_TOOLS_AND_SKILLS_NOTICE`), the lightweight KB catalog (`prompts/kb_lite_section.py`), the project-mode section (`prompts/project_section.py`, injected only for project chats), the code-execution segment and batch-mode hint (appended by `factory/build.py`), and the sub-agent routing table (`core/llm/subagents/tool.py::build_subagent_prompt_section`).
 
 ### Caching
 
@@ -49,7 +49,7 @@ Pool management and runtime assembly share this read path. After an active versi
 
 ### Execution manifest and runtime binding
 
-Before an Agent can execute, `core/llm/execution_manifest.py::PromptManifestBuilder` records the exact final request surface. Every ordered prompt section records `id`, origin, trust level, priority, cache class, budget, token estimate, content hash and version. Every final tool definition similarly hashes its name, complete description, canonical parameter schema, permission policy and recovery policy. Tool definitions are sorted by stable id; prompt sections retain their deliberate prefix order.
+Before an Agent can execute, `core/harness/execution_manifest.py::PromptManifestBuilder` records the exact final request surface. Every ordered prompt section records `id`, origin, trust level, priority, cache class, budget, token estimate, content hash and version. Every final tool definition similarly hashes its name, complete description, canonical parameter schema, permission policy and recovery policy. Tool definitions are sorted by stable id; prompt sections retain their deliberate prefix order.
 
 The builder emits `prompt_hash`, `prompt_manifest_hash`, `tool_manifest_hash`, `context_hash` and one `aggregate_hash`. Manifest construction and AgentScope model input consume the same run-scoped frozen tool/skill snapshot, so the recorded surface cannot differ from the request. Progressive plugin activation invalidates that snapshot and publishes an explicit next `surface_generation` before the next model call.
 
@@ -59,15 +59,15 @@ Prompt text, project instructions, file names, tool descriptions and schemas are
 
 ### Canonical Context IR
 
-Immediately before every model call, `core/llm/context_ir.py` converts the complete request context into immutable `ContextItem` records. User input, assistant history, account identity, frozen memory, project/file material, attachments, tool calls/results, compaction summaries, steer messages and harness reminders therefore carry machine-readable `kind`, `origin`, `trust`, visibility, priority, item budget, truncation policy, content reference/hash, cache class and creation sequence. Compatibility rendering may still use a `user` role for memory and mid-turn reminders, but their provenance is no longer inferred from XML tags or from that role.
+Immediately before every model call, `core/llm/context/ir.py` converts the complete request context into immutable `ContextItem` records. User input, assistant history, account identity, frozen memory, project/file material, attachments, tool calls/results, compaction summaries, steer messages and harness reminders therefore carry machine-readable `kind`, `origin`, `trust`, visibility, priority, item budget, truncation policy, content reference/hash, cache class and creation sequence. Compatibility rendering may still use a `user` role for memory and mid-turn reminders, but their provenance is no longer inferred from XML tags or from that role.
 
 `ContextAssembler` applies a deterministic order and an explicit message budget: the model window minus a 15% response reserve and the canonical final-tool-schema reserve. Critical system/current-user items cannot be silently displaced; optional items are selected by priority; text and tool outputs use declared head/tail policies; and every tool call/result pair is kept, shortened or excluded as one unit. The sanitized context manifest explains every inclusion, truncation and exclusion without retaining plaintext. Its hash is folded into the request's `context_hash` and `aggregate_hash`, then rebound to the run's Asset Bundle.
 
-`core/llm/context_adapter.py::AgentScopeContextAdapter` is the sole Context IR ↔ AgentScope message conversion seam. Persisted session metadata survives history replay, while final model roles and SSE behavior remain compatible. `ManifestBoundAgent` performs final assembly through the public `Agent.reply` path after the run-scoped tool/skill surface has been frozen.
+`core/llm/context/adapter.py::AgentScopeContextAdapter` is the sole Context IR ↔ AgentScope message conversion seam. Persisted session metadata survives history replay, while final model roles and SSE behavior remain compatible. `ManifestBoundAgent` performs final assembly through the public `Agent.reply` path after the run-scoped tool/skill surface has been frozen.
 
 ## Prompt version pool (prompt_versions)
 
-The pool stores multiple prompt sets in a single `ContentBlock(id="prompt_versions")` row with payload `{active: {kind: version_id}, versions: [...]}`; the service layer is `core/services/prompt_version_service.py`:
+The pool stores multiple prompt sets in a single `ContentBlock(id="prompt_versions")` row with payload `{active: {kind: version_id}, versions: [...]}`; the service layer is `core/llm/prompt_versions.py`:
 
 - **Six kinds** (`VALID_KINDS`): `system` (main agent), `code_exec` (code-execution segment), `distillation` (skill distillation), `plan_mode` (plan mode), `subagents` (independent prompts for the platform-default Explorer, Worker, and Reviewer), and `turbo` (the standalone turbo-mode prompt).
 - Each version carries `(kind, id, name, description, parts[])`, a part being `{part_id, display_name, content, sort_order, is_enabled}`.
@@ -100,8 +100,8 @@ their own enablement state.
 | kind | Runtime consumer | Resolution order |
 |---|---|---|
 | `code_exec` | `factory/build.py` appends this segment (the code-capability prompt) to the system prompt when `CODE_CAPABILITY_ENABLED=true`; the single source of truth is `prompt_version_service.render_code_capability_segment()`, also used by the console preview | active DB version → `prompts/prompt_text/code_exec/system/*.system.md` |
-| `distillation` | Skill distillation (`core/llm/skill_distiller.py`, distilling conversation trajectories into reusable skills) | active DB version → `prompts/prompt_text/distillation/skill_distiller.system.md` |
-| `plan_mode` | The plan-generation sub-agent (`orchestration/subagents/plan_mode.py::_load_plan_prompt`) | active `plan_mode` DB version → legacy `system/90_plan_mode` part → `prompts/prompt_text/plan_mode/plan_mode.system.md` → hardcoded fallback |
+| `distillation` | Skill distillation (`features/distillation/`, distilling conversation trajectories into reusable skills) | active DB version → `prompts/prompt_text/distillation/skill_distiller.system.md` |
+| `plan_mode` | The plan-generation sub-agent (`orchestration/plans/`) | active `plan_mode` DB version → legacy `system/90_plan_mode` part → `prompts/prompt_text/plan_mode/plan_mode.system.md` → hardcoded fallback |
 | `turbo` | Turbo mode (when the chat-mode picker is set to Turbo, `factory/build.py` **replaces** the assembled main system prompt with this one). The tool set is admin-configurable via Config "System Config → Turbo" (`turbo.mcp_server_ids`, defaulting to internet search / web fetch / KB retrieval, **independent of catalog enable/disable state**); explicitly summoned skills / @sub-agents / plugins may join per turn (`turbo.manual_invoke_enable`); the react-iteration cap is configurable (`turbo.max_iters`, default 4). The single source of truth is `prompt_version_service.render_turbo_system_prompt()` | active `turbo` DB version → `prompts/prompt_text/turbo/turbo.system.md` → hardcoded fallback |
 
 Sub-agents do not use the full pool assembly: `prompt_runtime.py::build_subagent_system_prompt()` builds around the user-defined `system_prompt`, reusing the `20_tools_policy` / `65_citations` / `60_format` parts from the active version (or files). See [Chat & Agent Orchestration](chat.md).
@@ -126,18 +126,6 @@ Prompts live only in the database and never ship with code; migration across env
 
 Both accept `ADMIN_TOKEN` or `CONFIG_TOKEN`. Snapshots are validated against `PROMPT_BLOCK_MAP`, so docs snapshots and prompt snapshots cannot be imported through the wrong endpoint.
 
-### Scripts (src/backend/scripts/)
-
-```bash
-# Export (via a running backend API; --database-url for direct DB access also works)
-python scripts/export_content.py --api-url http://localhost:3000/api --only prompts
-# → scripts/exported/prompts_snapshot_<ts>.json
-
-# Import into the target environment (use the target machine's ADMIN_TOKEN)
-python scripts/import_content.py --api-url http://<HOST>/api --prompts prompts_snapshot_<ts>.json
-# supports --no-overwrite / --dry-run
-```
-
 The same flow works for offline production (image-pack delivery, persistent DB volume): copy the snapshot in alongside the image pack and `curl -X POST .../v1/content/prompts/import` inside the backend container — no restart required. When migrating to a differently-branded environment, review the snapshot manually and rewrite brand-specific wording in context before importing (never do mechanical find-and-replace).
 
 ## Source map
@@ -147,10 +135,9 @@ The same flow works for offline production (image-pack delivery, persistent DB v
 | Runtime assembly + caching | `src/backend/prompts/prompt_runtime.py` |
 | Providers (filesystem/inline/minimal) | `src/backend/prompts/provider.py` |
 | Config (provider/parts/PROMPT_DIR) | `src/backend/prompts/prompt_config.py`, `prompts/config/default.json` |
-| Version pool service | `src/backend/core/services/prompt_version_service.py` |
+| Version pool service | `src/backend/core/llm/prompt_versions.py` |
 | Console routes | `src/backend/api/routes/v1/admin_prompts.py` |
-| Migration endpoints (export/import) | `src/backend/api/routes/v1/content.py`, `core/content/content_blocks.py` |
-| Migration scripts | `src/backend/scripts/export_content.py`, `scripts/import_content.py` |
+| Migration endpoints (export/import) | `src/backend/api/routes/v1/content.py`, `core/files/content/content_blocks.py` |
 | System prompt fallback files | `src/backend/prompts/prompt_text/default/system/` |
 | Scenario prompt fallbacks | `src/backend/prompts/prompt_text/{code_exec,distillation,plan_mode,turbo}/` |
 | Dynamic sections | `src/backend/prompts/kb_lite_section.py`, `prompts/project_section.py` |

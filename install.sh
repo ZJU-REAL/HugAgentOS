@@ -339,7 +339,7 @@ pip_install --upgrade \
     "pymilvus==2.5.18" \
     "milvus-lite==3.1.0"
 info "Installing Agent Skills Python dependencies"
-pip_install -r docker/requirements-script-runner.txt
+pip_install -r docker/sandbox/requirements-script-runner.txt
 pip_install --no-deps -e .
 
 SKILL_NODE_DIR="${HUGAGENT_DATA_DIR}/node"
@@ -365,7 +365,7 @@ info "Building the web application"
     VITE_EDITION=ce VITE_DEFAULT_LANGUAGE=en NODE_OPTIONS="${BUILD_NODE_OPTIONS# }" npm run build
 )
 
-HUGAGENT_BIN="${VENV_DIR}/bin/hugagent"
+HUGAGENT_BIN="${VENV_DIR}/bin/hugagent-server"
 [[ -x "${HUGAGENT_BIN}" ]] || die "The HugAgentOS command was not installed correctly."
 
 printf '\n'

@@ -1,4 +1,7 @@
 """Personal Agent workspace persona files and the assembled system prompt."""
+from core.llm import prompt_files as prompt_files_module
+from core.llm import prompt_kinds as prompt_kinds_module
+from core.llm import prompt_rendering as prompt_rendering_module
 import personal_agent.workspace.constants as _pa_constants
 import personal_agent.workspace.files as _pa_files
 import personal_agent.workspace.prompting as _pa_prompting
@@ -98,9 +101,9 @@ def test_bootstrap_introduces_hugo_and_offers_a_rename(tmp_path, monkeypatch):
 
 
 def test_prompts_come_from_the_version_pool(workspace, monkeypatch):
-    from core.services import prompt_version_service as pvs
+    from core.llm import prompt_versions as pvs
     edited = {"platform_rules": "# Rules\nTask {task_id}; skills {skill_ids}.", "template_soul": "# SOUL.md - edited"}
-    monkeypatch.setattr(pvs, "render_active_prompt_part", lambda kind, part_id, db=None: edited.get(part_id) if kind == _pa_constants.PROMPT_KIND else None)
+    monkeypatch.setattr(prompt_rendering_module, 'render_active_prompt_part', lambda kind, part_id, db=None: edited.get(part_id) if kind == _pa_constants.PROMPT_KIND else None)
     text = _pa_prompting.render(_pa_prompting.sections(IDENT, task_id="t9", skill_ids=["a", "b"], seed_missing=False))
     assert text.startswith("# Rules\nTask <task_id>; skills a, b.")
     # The skill list is generated, so an edited rules version still carries it.
@@ -112,12 +115,12 @@ def test_prompts_come_from_the_version_pool(workspace, monkeypatch):
 
 
 def test_prompt_kind_ships_every_part():
-    from core.services import prompt_version_service as pvs
-    pvs.register_kind(_pa_constants.PROMPT_KIND, _pa_prompting.prompt_spec())
+    from core.llm import prompt_versions as pvs
+    prompt_kinds_module.register_kind(_pa_constants.PROMPT_KIND, _pa_prompting.prompt_spec())
     try:
-        parts = {p["part_id"] for p in pvs._read_fs_parts(_pa_constants.PROMPT_KIND)}
+        parts = {p["part_id"] for p in prompt_files_module.read_fs_parts(_pa_constants.PROMPT_KIND)}
     finally:
-        pvs.KIND_SPECS.pop(_pa_constants.PROMPT_KIND)
+        prompt_kinds_module.KIND_SPECS.pop(_pa_constants.PROMPT_KIND)
     assert {"platform_rules", "platform_workspace_files", *_pa_constants.TEMPLATE_PARTS.values()} <= parts
 
 

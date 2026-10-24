@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass, field
 from threading import Lock
 from typing import Optional
 
@@ -30,17 +31,12 @@ logger = logging.getLogger(__name__)
 # ─── Global semaphore (lazy init) ──────────────────────────────────────────
 
 
-_bg_semaphore: Optional[asyncio.Semaphore] = None
-_sem_lock = Lock()
-
-
 def get_background_semaphore() -> asyncio.Semaphore:
     """Return the global background-task semaphore. Must be first called inside an event loop."""
-    global _bg_semaphore
-    with _sem_lock:
-        if _bg_semaphore is None:
-            _bg_semaphore = asyncio.Semaphore(settings.memory.bg_max_concurrency)
-        return _bg_semaphore
+    with process_state().sem_lock:
+        if process_state().bg_semaphore is None:
+            process_state().bg_semaphore = asyncio.Semaphore(settings.memory.bg_max_concurrency)
+        return process_state().bg_semaphore
 
 
 # ─── Circuit breaker ───────────────────────────────────────────────────────
@@ -153,8 +149,21 @@ def _report_settlement(
     if not message_id:
         return
     try:
-        from core.evolution.settlement_runner import report_memory_writes
+        from core.memory.settlement_port import memory_settlement
 
-        report_memory_writes(message_id, items=list(items or []), failed=failed)
+        memory_settlement().report_writes(message_id, items=list(items or []), failed=failed)
     except Exception as exc:  # noqa: BLE001 - settlement must never break writes
         logger.debug("[memory_pipeline] settlement report skipped: %s", exc)
+
+
+@dataclass
+class PipelineState:
+    bg_semaphore: Optional[asyncio.Semaphore] = None
+    sem_lock: object = field(default_factory=lambda: Lock())
+
+
+_STATE = PipelineState()
+
+
+def process_state() -> PipelineState:
+    return _STATE

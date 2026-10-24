@@ -6,12 +6,14 @@ the cycle reports success, and it finds nothing. That is indistinguishable from
 "there was nothing to find" — so nobody investigates, and the feature looks
 switched on while doing almost nothing.
 """
+from core.evolution.cycle import loop as loop_module
+from core.models import embedding as vector_embedding
 
 import pytest
 
-from core.evolution import loop as L
-from core.evolution import personal as PE
-from core.evolution import readiness as R
+from core.evolution.cycle import loop as L
+from core.evolution.profiles import personal as PE
+from core.evolution.cycle import readiness as R
 
 
 def _not_ready(reason="embedding"):
@@ -26,7 +28,7 @@ def _not_ready(reason="embedding"):
 
 def test_the_fleet_cycle_refuses_rather_than_running_degraded(monkeypatch):
     monkeypatch.setattr(R, "check_readiness", lambda **_kw: _not_ready())
-    report = L.run_evolution_cycle(limit=10)
+    report = loop_module.run_evolution_cycle(limit=10)
     assert report["skipped"] == "not_ready"
     assert report["candidates"] == []
     # And it says which dependency, because "not ready" without a reason is the
@@ -55,12 +57,12 @@ def test_an_unreachable_embedding_service_is_not_ready(monkeypatch):
     A configured-but-unreachable endpoint produces exactly the silent
     degradation this check exists to surface.
     """
-    import core.kb.kb_vector as kb_vector
+    import features.knowledge.kb_vector as kb_vector
 
     def explode(*_a, **_kw):
         raise RuntimeError("connection refused")
 
-    monkeypatch.setattr(kb_vector, "embed_text", explode)
+    monkeypatch.setattr(vector_embedding, 'embed_text', explode)
     R.reset_cache()
     requirement = R._check_embedding()
     assert requirement.ok is False
@@ -69,9 +71,9 @@ def test_an_unreachable_embedding_service_is_not_ready(monkeypatch):
 
 
 def test_an_empty_vector_is_not_ready(monkeypatch):
-    import core.kb.kb_vector as kb_vector
+    import features.knowledge.kb_vector as kb_vector
 
-    monkeypatch.setattr(kb_vector, "embed_text", lambda *_a, **_kw: [])
+    monkeypatch.setattr(vector_embedding, 'embed_text', lambda *_a, **_kw: [])
     R.reset_cache()
     assert R._check_embedding().ok is False
 

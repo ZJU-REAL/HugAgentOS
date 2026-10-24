@@ -1,0 +1,56 @@
+/* 电子表格「引用选区」胶囊：浮在 Univer 画布右下角（L2 浮层） */
+
+.jx-spreadsheetQuote{
+  position:absolute;
+  right:16px;
+  bottom:48px;
+  z-index:20;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  max-width:calc(100% - 32px);
+  height:32px;
+  padding:0 12px;
+  border:1px solid color-mix(in srgb, var(--color-text-placeholder) 18%, transparent);
+  border-radius:999px;
+  background:color-mix(in srgb, var(--color-bg-container) 96%, transparent);
+  box-shadow:var(--shadow-dropdown);
+  backdrop-filter:blur(10px);
+  color:var(--color-text-secondary);
+  font-size:13px;
+  cursor:pointer;
+  transition:background var(--motion-duration-fast) var(--motion-ease-standard), color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.jx-spreadsheetQuote:hover{
+  background:color-mix(in srgb, var(--color-text) 6%, var(--color-bg-container));
+  color:var(--color-text);
+}
+
+.jx-spreadsheetQuote:active{
+  transform:scale(.97);
+}
+
+.jx-spreadsheetQuote:focus-visible{
+  outline:2px solid var(--color-primary);
+  outline-offset:2px;
+}
+
+.jx-spreadsheetQuote-icon{
+  font-size:14px;
+}
+
+.jx-spreadsheetQuote-label{
+  font-weight:500;
+  white-space:nowrap;
+}
+
+.jx-spreadsheetQuote-range{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:var(--color-text-tertiary);
+  font-family:var(--font-family-number);
+  font-variant-numeric:tabular-nums;
+}

@@ -3,13 +3,13 @@
 import re
 
 from core.db.models import Artifact, ChatRun, ChatSession
-from core.services.public_chat_service import resolve_public_user
+from core.auth.public_identity import resolve_public_user
 from fastapi import HTTPException
 
 
 def public_session_matches(session, user):
-    from core.services.agent_api_service import make_agent_api_scope, session_matches_scope
-    from core.services.project_api_service import make_project_api_scope, project_session_matches
+    from core.auth.agent_api import make_agent_api_scope, session_matches_scope
+    from core.projects.api import make_project_api_scope, project_session_matches
 
     if not session:
         return False

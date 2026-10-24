@@ -3,9 +3,8 @@ from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
-
-from core.llm.context_ir import SESSION_CONTEXT_META_KEY
-from orchestration.streaming import StreamingAgent
+from core.llm.context.ir_constants import SESSION_CONTEXT_META_KEY
+from core.llm.runtime.streaming import StreamingAgent
 
 
 @pytest.mark.asyncio

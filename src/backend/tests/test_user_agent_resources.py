@@ -1,11 +1,11 @@
 """Bindable resource coverage for user-created sub-agents."""
 
-from core.capabilities.agents import AgentDefinition
+from features.desktop.capabilities.agents import AgentDefinition
 
 import pytest
 
 from core.db.models import AdminMcpServer
-from core.services.user_agent_service import UserAgentService
+from core.capabilities.agents.edition import UserAgentService
 
 
 def _mcp(
@@ -43,15 +43,15 @@ def test_available_resources_include_personally_disabled_mcps(
     db_session.commit()
 
     monkeypatch.setattr(
-        "core.config.catalog_resolver.resolve_all_runtime_enabled",
+        'core.capabilities.catalog.resolver.resolve_all_runtime_enabled',
         lambda _db, _user_id: ([], [], ["global_enabled"]),
     )
     monkeypatch.setattr(
-        "core.plugins.management.builtin_plugin_component_ids",
+        'core.capabilities.plugins.management.builtin_plugin_component_ids',
         lambda: (set(), {"builtin_plugin_tool"}),
     )
     monkeypatch.setattr(
-        "core.config.catalog_runtime.get_runtime_catalog",
+        'core.capabilities.catalog.runtime.get_runtime_catalog',
         lambda _db, include_runtime_details=False: {
             "mcp": [
                 {
@@ -111,13 +111,13 @@ async def test_agent_factory_loads_disabled_private_mcp_only_for_explicit_subage
 ):
     from core.llm import factory as agent_factory
     from core.llm.factory.tools import mcp_config as factory_mcp_config
-    import core.services.mcp_service as mcp_service
+    import core.capabilities.mcp.service as mcp_service
     import prompts.prompt_config as prompt_config
 
     from sqlalchemy.orm import sessionmaker
 
     monkeypatch.setattr(
-        "core.services.model_config.SessionLocal", sessionmaker(bind=db_session.get_bind())
+        'core.models.config.SessionLocal', sessionmaker(bind=db_session.get_bind())
     )
     calls = []
 
@@ -137,7 +137,7 @@ async def test_agent_factory_loads_disabled_private_mcp_only_for_explicit_subage
     monkeypatch.setattr(prompt_config, "load_prompt_config", lambda: object())
     monkeypatch.setattr(
         factory_mcp_config,
-        "_effective_mcp_server_keys",
+        'effective_mcp_server_keys',
         lambda *_args, **_kwargs: (_ for _ in ()).throw(StopAfterOwnedMcpResolution()),
     )
 

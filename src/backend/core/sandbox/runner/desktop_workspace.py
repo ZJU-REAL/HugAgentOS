@@ -37,7 +37,21 @@ def extra_roots(root: str, user_id, *, read_only=False):
 def subprocess_environment(cwd):
     import sys
 
-    return {"PY_BIN": sys.executable}
+    from . import server, user_env
+
+    clean = {"PY_BIN": sys.executable}
+    if not user_env.is_user_folder(cwd, server.WORKSPACE_ROOT):
+        return clean
+    # A folder the user chose works like their own terminal; the runner's
+    # scratch sessions keep the clean environment. Built-in skills are linked
+    # under the workspace; plugin skills stay in the capability store.
+    # The runner ships without backend modules, so the env name is spelled out here.
+    skill_roots = [os.getenv("SANDBOX_SKILLS_DIR", "").strip(), os.getenv("HUGAGENT_CAPS_ROOT", "").strip()]
+    try:
+        return user_env.project_environment({**server.SAFE_ENV, **clean}, server.WORKSPACE_ROOT, skill_roots)
+    except OSError:
+        # Never let the environment stop a command: run it as before instead.
+        return clean
 
 
 def execution_directory(raw: str) -> Path:

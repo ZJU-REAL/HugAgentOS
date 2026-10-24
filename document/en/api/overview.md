@@ -59,13 +59,13 @@ The backend runs several parallel authentication mechanisms, each covering a dif
 | Mechanism | How to send the credential | Scope | Implementation |
 |---|---|---|---|
 | **Session cookie** | `Cookie: jx_session=<token>` (set automatically on login) | All end-user-facing `/v1/*` endpoints (chats, projects, kb, memories, …) | `get_current_user`: cookie → Redis session lookup |
-| **Personal API key** | `Authorization: Bearer sk-jx-...` | Same user identity as a session cookie; intended for scripts / third-party integrations | Recognized by the `sk-jx-` prefix; plaintext returned only once at creation, DB stores SHA256 only (`core/services/api_key_service.py`); self-managed at `/v1/me/api-keys` |
+| **Personal API key** | `Authorization: Bearer sk-jx-...` | Same user identity as a session cookie; intended for scripts / third-party integrations | Recognized by the `sk-jx-` prefix; plaintext returned only once at creation, DB stores SHA256 only (`core/auth/api_keys.py`); self-managed at `/v1/me/api-keys` |
 | **Bearer token (mock/remote mode)** | `Authorization: Bearer <token>` | `AUTH_MODE=mock` (development: any token, or none, resolves to the mock user) or `remote` (verified against the user center) | Fallback branch of `get_current_user`; not accepted under `AUTH_MODE=session` |
 | **ADMIN_TOKEN** | `Authorization: Bearer <ADMIN_TOKEN>` | `/admin` console backend (`/v1/admin/skills`, `/v1/admin/kb`, …) and content-block write endpoints | `require_admin` (env var `ADMIN_TOKEN`) |
 | **CONFIG_TOKEN** | `Authorization: Bearer <CONFIG_TOKEN>` | `/config` console backend (`/v1/config/*`, `/v1/models`, `/v1/service-configs`, some `/v1/admin/*` observability endpoints) | `require_config` (env var `CONFIG_TOKEN`) |
 | **ADMIN or CONFIG (either)** | Same as above | Prompt snapshot export/import (`/v1/content/prompts/export|import`) | `require_admin_or_config` |
 | **super_admin session** | Session cookie (user with `extra_data.role == "super_admin"`); a valid ADMIN_TOKEN works as fallback | A few cross-user management operations | `require_super_admin` |
-| **BACKEND_INTERNAL_TOKEN** | `Authorization: Bearer <token>` | Internal site, browser and security-tool service calls; requests are rejected when unset | `api/routes/v1/internal_site_auth.py`, `internal_security.py` |
+| **BACKEND_INTERNAL_TOKEN** | `Authorization: Bearer <token>` | Internal site, browser and security-tool service calls; requests are rejected when unset | `features/sites/api/internal_site_auth.py`, `internal_security.py` |
 
 Resolution order in `get_current_user`: **cookie session → API-key Bearer (`sk-jx-` prefix) → mock/remote Bearer**. A Bearer that looks like an API key but fails validation gets an immediate 401 — it is never silently downgraded to anonymous.
 
@@ -120,7 +120,7 @@ curl -X POST 'https://<HOST>/api/v1/agents/responses' \
 
 ## SSE Streaming Protocol
 
-The streaming chat endpoint `POST /v1/agents/responses` (`src/backend/api/routes/v1/agent_responses.py`, `stream: true`) starts a background run after validation, then follows that run over SSE; after a disconnect, the client can resume from any offset via `GET /v1/chats/stream/{run_id}`. Events are produced by `src/backend/orchestration/workflow.py` and serialized to the wire by `src/backend/orchestration/chat_run_executor.py`.
+The streaming chat endpoint `POST /v1/agents/responses` (`src/backend/api/routes/v1/agent_responses.py`, `stream: true`) starts a background run after validation, then follows that run over SSE; after a disconnect, the client can resume from any offset via `GET /v1/chats/stream/{run_id}`. Events are produced by `src/backend/core/agent_runtime/runner.py` and serialized to the wire by `src/backend/core/chat/runtime/`.
 
 **Wire format**: `Content-Type: text/event-stream`; each event is one `data: {JSON}` line with the event type in the JSON `type` field (the SSE `event:` line is not used). The stream terminates with `data: [DONE]`. After 15 seconds of silence, an SSE comment line `: heartbeat` keeps reverse-proxy connections alive.
 
@@ -197,7 +197,7 @@ All endpoints use the current user identity and verify chat ownership. Pending r
 
 The answer count, question IDs, and order must exactly match the request. Private option IDs must come from the pending response, a single-select answer cannot contain multiple options, and every question must be answered or explicitly use `skipped=true`. The backend projects those private IDs back to the original option labels before returning the DSH-compatible model result `{"answers":[{"id":"scope","selected":["Minimal"]}]}`. The first valid answer/cancel atomically claims the request; concurrent submissions return `stale=true` and cannot wake the tool twice. A successful POST represents that atomic server claim, so the submitting tab may remove the exact `request_id` immediately; `user_question_resolved` and periodic authoritative pending snapshots synchronize other tabs and disconnected clients.
 
-`[ref:tool_name-N]` markers in the answer text are parsed into `citations` items by `orchestration/citations.py`; the frontend renders them as citation badges (see [Chat module](../modules/chat.md)).
+`[ref:tool_name-N]` markers in the answer text are parsed into `citations` items by `core/llm/citations/`; the frontend renders them as citation badges (see [Chat module](../modules/chat.md)).
 
 ### Resume, Steer, and cancel
 

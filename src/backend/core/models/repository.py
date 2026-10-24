@@ -1,0 +1,350 @@
+"""Repository layer for model_providers and model_role_assignments."""
+
+from __future__ import annotations
+from core.infra.time import utc_now
+
+import uuid
+from datetime import datetime
+from typing import Optional
+
+from sqlalchemy.orm import Session, joinedload
+
+from core.db.models import ModelProvider, ModelRoleAssignment
+from core.db.model_config_revision import bump_revision
+from core.models.providers.registry import get_spec
+
+
+# ── Predefined roles ─────────────────────────────────────────────────────────
+
+ROLE_DEFINITIONS: dict[str, dict] = {
+    "main_agent": {"label": "主智能体推理", "type": "chat"},
+    "subagent": {"label": "子智能体", "type": "chat"},
+    "summarizer": {"label": "标题摘要 + 分类", "type": "chat"},
+    "followup": {"label": "追问生成", "type": "chat"},
+    "memory": {"label": "记忆提取 (mem0)", "type": "chat"},
+    "audio_transcription": {"label": "语音转文字", "type": "audio"},
+    "embedding": {"label": "文本向量化", "type": "embedding"},
+    "reranker": {"label": "搜索结果重排序", "type": "reranker"},
+    "plan_agent": {"label": "计划模式推理", "type": "chat"},
+    "code_exec": {"label": "代码执行推理", "type": "chat"},
+    # 自主循环的评审员/规划器共用此角色（后台模型管理页可独立指定；未配置时回落 main_agent）。
+    "loop_reviewer": {"label": "自主循环评审与规划", "type": "chat"},
+    # 知识库 Wiki 生成（实体/概念抽取、引文标注、页面撰写）。这是纯离线批处理，
+    # 调用量随文档量线性增长，通常应当单配一个便宜模型；未配置时回落 main_agent。
+    "kb_wiki": {"label": "知识库 Wiki 实体抽取", "type": "chat"},
+    # 视觉桥：主模型是纯文本时，由这个多模态模型把图片转成结构化文字证据再注入。
+    # ``requires`` 把「必须是多模态模型」从口头约定变成硬约束：只有 extra_config 里
+    # 勾了该能力位的供应商才能被指派（指派接口校验 + 前端下拉过滤）。指到纯文本模型
+    # 的话，每张图都会白打一次注定失败的请求，而且失败得很晚、很难查。
+    # 未配置时，若主模型自身勾了「支持读图」就用主模型兜底，否则降级为「看不见图」。
+    "vision": {
+        "label": "图像理解（视觉桥）",
+        "type": "chat",
+        "requires": "supports_vision",
+    },
+}
+
+
+def role_required_capability(role_key: str) -> Optional[str]:
+    """该角色额外要求供应商具备的 ``extra_config`` 能力位；无要求返回 ``None``。
+
+    provider_type 只能表达「是对话模型还是向量模型」，表达不了「这个对话模型得能看图」。
+    能力位补的就是这一层。
+    """
+    return (ROLE_DEFINITIONS.get(role_key) or {}).get("requires")
+
+
+def provider_has_capability(provider: ModelProvider, capability: str) -> bool:
+    """供应商是否声明了某个能力位（``extra_config`` 里为真）。"""
+    if not capability:
+        return True
+    return bool((provider.extra_config or {}).get(capability))
+
+
+# ── Provider CRUD ─────────────────────────────────────────────────────────────
+
+def list_providers(db: Session) -> list[ModelProvider]:
+    return db.query(ModelProvider).order_by(ModelProvider.created_at.desc()).all()
+
+
+def get_provider(db: Session, provider_id: str) -> Optional[ModelProvider]:
+    return db.query(ModelProvider).filter(ModelProvider.provider_id == provider_id).first()
+
+
+def get_active_role_provider(
+    db: Session,
+    role_key: str,
+    *,
+    provider_type: str | None = None,
+) -> Optional[ModelProvider]:
+    """Return the active provider assigned to a role, optionally enforcing its type."""
+    query = (
+        db.query(ModelProvider)
+        .join(
+            ModelRoleAssignment,
+            ModelRoleAssignment.provider_id == ModelProvider.provider_id,
+        )
+        .filter(
+            ModelRoleAssignment.role_key == role_key,
+            ModelProvider.is_active.is_(True),
+        )
+    )
+    if provider_type:
+        query = query.filter(ModelProvider.provider_type == provider_type)
+    return query.first()
+
+
+def create_provider(db: Session, *, display_name: str, provider_type: str,
+                    base_url: str, api_key: str, model_name: str,
+                    provider: str = "openai_compatible",
+                    gateway_group: str | None = None,
+                    weight: int = 1, priority: int = 0,
+                    extra_config: dict | None = None, is_active: bool = True) -> ModelProvider:
+    provider_row = ModelProvider(
+        provider_id=str(uuid.uuid4()),
+        display_name=display_name,
+        provider_type=provider_type,
+        provider=provider,
+        base_url=base_url,
+        api_key=api_key,
+        model_name=model_name,
+        gateway_group=(gateway_group or None),
+        weight=weight,
+        priority=priority,
+        extra_config=extra_config or {},
+        is_active=is_active,
+    )
+    db.add(provider_row)
+    bump_revision(db)
+    db.commit()
+    db.refresh(provider_row)
+    return provider_row
+
+
+def update_provider(db: Session, provider_id: str, **fields) -> Optional[ModelProvider]:
+    provider = get_provider(db, provider_id)
+    if provider is None:
+        return None
+    for key, val in fields.items():
+        if val is not None and hasattr(provider, key):
+            setattr(provider, key, val)
+    provider.updated_at = utc_now()
+    bump_revision(db)
+    db.commit()
+    db.refresh(provider)
+    return provider
+
+
+def delete_provider(db: Session, provider_id: str) -> bool:
+    """Delete provider. Returns False if not found."""
+    provider = get_provider(db, provider_id)
+    if provider is None:
+        return False
+    db.delete(provider)
+    bump_revision(db)
+    db.commit()
+    return True
+
+
+def provider_is_referenced(db: Session, provider_id: str) -> list[str]:
+    """Return role_keys that reference this provider."""
+    rows = (
+        db.query(ModelRoleAssignment.role_key)
+        .filter(ModelRoleAssignment.provider_id == provider_id)
+        .all()
+    )
+    return [r.role_key for r in rows]
+
+
+def set_provider_test_result(db: Session, provider_id: str, success: bool) -> None:
+    provider = get_provider(db, provider_id)
+    if provider is None:
+        return
+    provider.last_tested_at = utc_now()
+    provider.last_test_status = "success" if success else "failure"
+    db.commit()
+
+
+# ── Role assignment CRUD ──────────────────────────────────────────────────────
+
+def list_role_assignments(db: Session) -> list[dict]:
+    """Return all roles (including unassigned) with their provider info."""
+    assignments = (
+        db.query(ModelRoleAssignment)
+        .options(joinedload(ModelRoleAssignment.provider))
+        .all()
+    )
+    assignment_map = {a.role_key: a for a in assignments}
+
+    result = []
+    for role_key, role_def in ROLE_DEFINITIONS.items():
+        entry: dict = {
+            "role_key": role_key,
+            "label": role_def["label"],
+            "required_type": role_def["type"],
+            # 供前端把下拉收窄到合格的供应商；None = 该角色对能力位无额外要求。
+            # 通用字段而非写死 vision，以后再加同类角色不用动前端。
+            "requires_capability": role_def.get("requires"),
+            "provider_id": None,
+            "provider_name": None,
+            "model_name": None,
+            "updated_at": None,
+            "updated_by": None,
+        }
+        a = assignment_map.get(role_key)
+        if a and a.provider:
+            entry["provider_id"] = a.provider_id
+            entry["provider_name"] = a.provider.display_name
+            entry["model_name"] = a.provider.model_name
+            entry["updated_at"] = a.updated_at.isoformat() if a.updated_at else None
+            entry["updated_by"] = a.updated_by
+        result.append(entry)
+    return result
+
+
+def assign_role(db: Session, role_key: str, provider_id: str, updated_by: str = "admin") -> bool:
+    """Assign a provider to a role. Returns False if role_key invalid or provider not found."""
+    if role_key not in ROLE_DEFINITIONS:
+        return False
+    provider = get_provider(db, provider_id)
+    if provider is None:
+        return False
+
+    existing = db.query(ModelRoleAssignment).filter(
+        ModelRoleAssignment.role_key == role_key
+    ).first()
+    if existing:
+        existing.provider_id = provider_id
+        existing.updated_at = utc_now()
+        existing.updated_by = updated_by
+    else:
+        db.add(ModelRoleAssignment(
+            role_key=role_key,
+            provider_id=provider_id,
+            updated_at=utc_now(),
+            updated_by=updated_by,
+        ))
+    bump_revision(db)
+    db.commit()
+    return True
+
+
+def unassign_role(db: Session, role_key: str) -> bool:
+    row = db.query(ModelRoleAssignment).filter(ModelRoleAssignment.role_key == role_key).first()
+    if row is None:
+        return False
+    db.delete(row)
+    bump_revision(db)
+    db.commit()
+    return True
+
+
+# ── Export / Import ───────────────────────────────────────────────────────────
+
+def export_all(db: Session) -> dict:
+    """Export model settings and role assignments without credentials."""
+    providers = list_providers(db)
+    assignments = db.query(ModelRoleAssignment).all()
+
+    return {
+        "providers": [
+            {
+                "provider_id": p.provider_id,
+                "display_name": p.display_name,
+                "provider_type": p.provider_type,
+                "provider": getattr(p, "provider", "openai_compatible"),
+                "base_url": p.base_url,
+                "model_name": p.model_name,
+                "gateway_group": getattr(p, "gateway_group", None),
+                "weight": getattr(p, "weight", 1),
+                "priority": getattr(p, "priority", 0),
+                "extra_config": {
+                    key: value for key, value in (p.extra_config or {}).items()
+                    if key not in {
+                        field.key for field in get_spec(p.provider).fields if field.secret
+                    }
+                },
+                "is_active": p.is_active,
+            }
+            for p in providers
+        ],
+        "role_assignments": [
+            {
+                "role_key": a.role_key,
+                "provider_id": a.provider_id,
+            }
+            for a in assignments
+        ],
+    }
+
+
+def import_all(db: Session, data: dict, overwrite: bool = True) -> dict:
+    """Import providers + role assignments. Returns counts."""
+    from core.models.import_validation import validate_import_graph
+    validate_import_graph(db, data, overwrite)
+    imported_providers = 0
+    imported_roles = 0
+
+    for p in data.get("providers", []):
+        existing = get_provider(db, p["provider_id"])
+        if existing and not overwrite:
+            continue
+        if existing:
+            for key in ("display_name", "provider_type", "provider", "base_url", "api_key",
+                        "model_name", "gateway_group", "weight", "priority", "extra_config", "is_active"):
+                if key in p:
+                    value = p[key]
+                    if key == "extra_config":
+                        # Config-only imports must retain omitted vendor credentials.
+                        secrets = {
+                            field.key for field in get_spec(existing.provider).fields
+                            if field.secret
+                        }
+                        value = {
+                            **{k: v for k, v in (existing.extra_config or {}).items()
+                               if k in secrets},
+                            **(value or {}),
+                        }
+                    setattr(existing, key, value)
+            existing.updated_at = utc_now()
+        else:
+            db.add(ModelProvider(
+                provider_id=p["provider_id"],
+                display_name=p["display_name"],
+                provider_type=p["provider_type"],
+                provider=p.get("provider", "openai_compatible"),
+                base_url=p["base_url"],
+                api_key=p.get("api_key", ""),
+                model_name=p["model_name"],
+                gateway_group=p.get("gateway_group") or None,
+                weight=p.get("weight", 1),
+                priority=p.get("priority", 0),
+                extra_config=p.get("extra_config", {}),
+                is_active=p.get("is_active", True),
+            ))
+        imported_providers += 1
+
+    db.flush()
+
+    for a in data.get("role_assignments", []):
+        role_key = a["role_key"]
+        if role_key not in ROLE_DEFINITIONS:
+            continue
+        existing = db.query(ModelRoleAssignment).filter(
+            ModelRoleAssignment.role_key == role_key
+        ).first()
+        if existing:
+            existing.provider_id = a["provider_id"]
+            existing.updated_at = utc_now()
+            existing.updated_by = "import"
+        else:
+            db.add(ModelRoleAssignment(
+                role_key=role_key,
+                provider_id=a["provider_id"],
+                updated_by="import",
+            ))
+        imported_roles += 1
+
+    bump_revision(db)
+    db.commit()
+    return {"imported_providers": imported_providers, "imported_roles": imported_roles}

@@ -11,8 +11,8 @@ from core.llm.factory.runtime.listeners import runtime_listeners
 from core.llm.factory.runtime.manifest_binding import manifest_binding
 from core.llm.factory.runtime.middleware_stack import middleware_stack
 from core.llm.factory.runtime.model_selection import model_selection
-from core.llm.factory.selection.device_bindings import device_bindings
-from core.llm.factory.selection.device_preparation import device_preparation
+from core.llm.factory.runtime.capability_bindings import device_bindings
+from core.harness.registry.run_capabilities import prepare_run_capabilities
 from core.llm.factory.selection.entry_policy import entry_policy
 from core.llm.factory.selection.mode_bindings import mode_bindings
 from core.llm.factory.selection.profile_selection import profile_selection
@@ -28,7 +28,7 @@ from core.llm.factory.tools.tool_surface import tool_surface
 
 
 async def assemble_agent(request: AgentRequest):
-    from core.llm.project_environment import bind_project_environment
+    from core.llm.runtime.project_environment import bind_project_environment
 
     _caps_skill_ids = None
     (
@@ -124,7 +124,7 @@ async def assemble_agent(request: AgentRequest):
         _caps_skill_ids,
         _desktop_progressive,
         _prepared_capabilities,
-    ) = await device_preparation(
+    ) = await prepare_run_capabilities(
         request,
         _api_scope=_api_scope,
         _capability_run_key=_capability_run_key,
@@ -177,11 +177,9 @@ async def assemble_agent(request: AgentRequest):
         _required_connector_tool_names,
         _required_plugin_mcp_tool_names,
         _tool_approval_available,
-        http_clients,
+        mcp_resources,
         loader,
-        mcp_clients,
         toolkit,
-        transient_mcp_clients,
     ) = await mcp_connections(
         request,
         _api_scope=_api_scope,
@@ -261,9 +259,8 @@ async def assemble_agent(request: AgentRequest):
         required=required,
         _required_connector_tool_names=_required_connector_tool_names,
         _required_plugin_mcp_tool_names=_required_plugin_mcp_tool_names,
-        http_clients=http_clients,
+        mcp_resources=mcp_resources,
         loader=loader,
-        mcp_clients=mcp_clients,
         skill_ids_to_register=skill_ids_to_register,
         toolkit=toolkit,
     )
@@ -400,10 +397,9 @@ async def assemble_agent(request: AgentRequest):
         _manifest_for_surface=_manifest_for_surface,
         _plugin_runtime=_plugin_runtime,
         agent=agent,
-        http_clients=http_clients,
+        mcp_resources=mcp_resources,
         profile=profile,
         skill_selection=skill_selection,
         system_prompt=system_prompt,
         toolkit=toolkit,
-        transient_mcp_clients=transient_mcp_clients,
     )

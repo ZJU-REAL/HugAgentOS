@@ -85,7 +85,6 @@ const evidence=resolve('../../.scratch/sidebar-task-status');await mkdir(evidenc
 try{
  const context=await browser.newContext({viewport:{width:960,height:820}});
  const page=await context.newPage();page.on('pageerror',e=>{errors.push(e.message);console.error(e.stack);});page.on('console',message=>{if(message.type()==='error')console.error('BROWSER',message.text());});
- await page.addInitScript(() => localStorage.setItem('jx_lang', 'zh-CN'));
  await page.goto('http://127.0.0.1:'+server.address().port);await page.bringToFront();
  const row=id=>page.locator('#ordinary .jx-historyItem').filter({has:page.locator('[data-task-status="'+id+'"]')});
  await page.locator('#ordinary [data-task-status="running"]').waitFor({timeout:6000}).catch(async error=>{console.error('FIXTURE DOM',await page.locator('#root').innerHTML());console.error('ERRORS',errors);await page.screenshot({path:resolve(evidence,'failure.png'),fullPage:true});throw error;});
@@ -119,8 +118,11 @@ try{
  assert.equal(await spinner.locator('.jx-taskSpinnerMotion').evaluate(el=>getComputedStyle(el).animationDuration),'1.5s');
  assert.equal(await page.locator('#ordinary [data-task-status="completed"]').evaluate(el=>getComputedStyle(el).backgroundColor),await page.locator('#ordinary').evaluate(el=>{const probe=document.createElement('span');probe.style.color='var(--color-primary)';el.append(probe);const color=getComputedStyle(probe).color;probe.remove();return color;}),'unread completion uses the primary blue');
  await page.locator('#personal .jx-personalUnread').waitFor();assert.equal(await page.locator('#personal .jx-personalUnread').innerText(),'3');
- assert.equal(await page.locator('#personal [data-task-status="running"]').count(),1,'running and unread coexist');
- assert.match(await page.locator('#compact button').getAttribute('aria-label'),/运行中.*3 条未读消息/,'compact navigation announces task state and unread count');
+ assert.equal(await page.locator('#personal .jx-taskStatus').count(),1,'unread messages light the entry');
+ assert.equal(await page.locator('#personal [data-task-status]').count(),0,'task progress does not light the entry');
+ const compactLabel=await page.locator('#compact button').getAttribute('aria-label');
+ assert.match(compactLabel,/3 条未读消息/,'compact navigation announces the unread count');
+ assert.doesNotMatch(compactLabel,/运行中/,'compact navigation omits task progress');
  await page.screenshot({path:resolve(evidence,'light-four-states.png'),fullPage:true});
  await row('completed').click();await page.waitForTimeout(100);
  assert.equal(await page.locator('#ordinary [data-task-status="completed"]').getAttribute('data-task-unread'),'true','opening a scrolled-away result does not mark it read');
@@ -137,9 +139,9 @@ try{
  assert.equal(await page.locator('#ordinary [data-task-status="failed"]').getAttribute('data-task-unread'),'true','a later failed run shows a new reminder');
  await page.locator('#personal button').click();await page.getByTestId('reader').evaluate(el=>{el.scrollTop=el.scrollHeight;el.dispatchEvent(new Event('scroll'));});
  await page.waitForFunction(()=>!document.querySelector('#personal .jx-personalUnread'));
- assert.equal(await page.locator('#personal [data-task-status="running"]').count(),1,'reading messages does not stop the running lamp');
+ assert.equal(await page.locator('#personal .jx-taskStatus').count(),0,'reading every message turns the lamp off while a task still runs');
  personalRunning=false;await page.evaluate(()=>window.dispatchEvent(new Event('hugagent:personal-agent-updated')));
- await page.locator('#personal [data-task-status="completed"]').waitFor();
+ await page.locator('#personal .jx-taskStatus').waitFor();
  assert.equal(await page.locator('#personal .jx-personalUnread').innerText(),'1','completion after reading creates a new unread reminder');
  await page.locator('#open-dialog').click();
  await page.getByText('Earlier progress',{exact:true}).waitFor();
@@ -160,12 +162,12 @@ try{
  assert.ok(await page.locator('#compact .jx-taskStatus').isVisible());
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'narrow preview fits');
  const other=await page.context().newPage();await other.goto('http://127.0.0.1:'+server.address().port);
- await other.locator('#personal [data-task-status="completed"]').waitFor();
+ await other.locator('#personal .jx-personalUnread').waitFor();
  await page.evaluate(()=>{const store=window.reminders.getState();store.observe([{key:'chat:a',id:'new-a',status:'completed',startedAt:5,updatedAt:6,messageId:'new-message'}]);});
  await other.waitForFunction(()=>window.reminders.getState().notices['chat:a']?.id==='new-a');
  await page.evaluate(()=>window.reminders.getState().markSeen('chat:a','new-a'));
  await other.waitForFunction(()=>window.reminders.getState().notices['chat:a']?.id==='new-a'&&window.reminders.getState().notices['chat:a'].seen);
  await other.close();
  assert.deepEqual(errors,[]);
- console.log('PASS browser: running ring, blue unread dot, left project slots and right default markers; approval priority; actual viewport read; dismissed viewed failure and new failure reminder; Personal Agent simultaneous running/unread and new completion; reduced motion; dark mode; narrow rail.');
+ console.log('PASS browser: running ring, blue unread dot, left project slots and right default markers; approval priority; actual viewport read; dismissed viewed failure and new failure reminder; Personal Agent lamp only for unread messages; reduced motion; dark mode; narrow rail.');
 }finally{await browser.close();await new Promise(r=>server.close(r));}

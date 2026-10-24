@@ -1,15 +1,18 @@
 """IterBudgetReminderMiddleware unit tests.
 
-Tests only the pure logic _maybe_remind (synchronous), without starting a real agent: the middleware only depends on
+Tests the neutral budget policy without starting a real agent. It consumes
 agent.react_config.max_iters / agent.state.{cur_iter, reply_id, context},
 which can be faked with SimpleNamespace.
 """
+from core.evolution.profiles import agent_profile as agent_profile_module
+from core.evolution.profiles import agent_profile_constants as agent_profile_state_module
 
 from types import SimpleNamespace
 
 import pytest
 
-from core.llm.middlewares import IterBudgetReminderMiddleware
+from core.llm.context.reasoning_hooks import IterationBudgetHook
+from core.harness.hooks import Invocation, HookStage
 
 
 def _fake_agent(max_iters: int, cur_iter: int, reply_id: str = "r1"):
@@ -27,24 +30,40 @@ def _reminder_texts(agent) -> list:
     return texts
 
 
-def _remind(mw, agent):
-    mw._maybe_remind(agent, *mw._budget(agent))
+def _decision(policy, agent, tool_choice=None):
+    return policy(Invocation.create(run_id="budget-test", stage=HookStage.TRANSFORM_CONTEXT,
+        operation_name="agent_reasoning", data={"runtime": {
+            "max_iters": agent.react_config.max_iters, "cur_iter": agent.state.cur_iter,
+            "reply_id": agent.state.reply_id}, "context_items": [], "tool_choice": tool_choice}))
 
 
-def _force(mw, agent, input_kwargs):
-    max_iters, _cur, remaining = mw._budget(agent)
-    return mw._maybe_force_text(input_kwargs, max_iters, remaining)
+def _remind(policy, agent):
+    from core.llm.runtime.context_hook_adapter import append_hook_context
+    decision = _decision(policy, agent)
+    append_hook_context(agent, SimpleNamespace(data=decision.patch))
+
+
+def _force(policy, agent, input_kwargs):
+    from agentscope.tool import ToolChoice
+    # An explicit selection is never replaced; use a serializable marker for the snapshot.
+    existing = input_kwargs.get("tool_choice")
+    decision = _decision(policy, agent, {"mode": "auto"} if existing is not None else None)
+    choice = decision.patch.get("tool_choice")
+    if choice is not None:
+        from core.harness.events import thaw_value
+        return {**input_kwargs, "tool_choice": ToolChoice.model_validate(thaw_value(choice))}
+    return input_kwargs
 
 
 def test_no_remind_far_from_limit():
-    mw = IterBudgetReminderMiddleware()
+    mw = IterationBudgetHook()
     agent = _fake_agent(max_iters=10, cur_iter=5)  # 5 iterations left
     _remind(mw, agent)
     assert agent.state.context == []
 
 
 def test_remind_at_threshold_mentions_remaining():
-    mw = IterBudgetReminderMiddleware()
+    mw = IterationBudgetHook()
     agent = _fake_agent(max_iters=10, cur_iter=8)  # 2 iterations left (including this one)
     _remind(mw, agent)
     texts = _reminder_texts(agent)
@@ -54,7 +73,7 @@ def test_remind_at_threshold_mentions_remaining():
 
 
 def test_last_round_forbids_tool_calls():
-    mw = IterBudgetReminderMiddleware()
+    mw = IterationBudgetHook()
     agent = _fake_agent(max_iters=10, cur_iter=9)  # last iteration
     _remind(mw, agent)
     texts = _reminder_texts(agent)
@@ -64,7 +83,7 @@ def test_last_round_forbids_tool_calls():
 
 
 def test_dedupe_same_round_reminds_once():
-    mw = IterBudgetReminderMiddleware()
+    mw = IterationBudgetHook()
     agent = _fake_agent(max_iters=10, cur_iter=8)
     _remind(mw, agent)
     _remind(mw, agent)  # same (reply_id, cur_iter) triggered again
@@ -72,7 +91,7 @@ def test_dedupe_same_round_reminds_once():
 
 
 def test_escalates_across_rounds():
-    mw = IterBudgetReminderMiddleware()
+    mw = IterationBudgetHook()
     agent = _fake_agent(max_iters=10, cur_iter=8)
     _remind(mw, agent)
     agent.state.cur_iter = 9  # enter the next iteration
@@ -84,7 +103,7 @@ def test_escalates_across_rounds():
 
 
 def test_new_reply_resets_dedupe():
-    mw = IterBudgetReminderMiddleware()
+    mw = IterationBudgetHook()
     agent = _fake_agent(max_iters=10, cur_iter=9, reply_id="r1")
     _remind(mw, agent)
     # New reply: cur_iter is reset to zero and then runs to the critical iteration again
@@ -97,7 +116,7 @@ def test_new_reply_resets_dedupe():
 
 @pytest.mark.parametrize("max_iters", [1, 2, 3])
 def test_tiny_budget_never_reminds(max_iters):
-    mw = IterBudgetReminderMiddleware()  # threshold=2 -> max_iters<=3 skipped
+    mw = IterationBudgetHook()  # threshold=2 -> max_iters<=3 skipped
     agent = _fake_agent(max_iters=max_iters, cur_iter=max(0, max_iters - 1))
     _remind(mw, agent)
     assert agent.state.context == []
@@ -107,7 +126,7 @@ def test_tiny_budget_never_reminds(max_iters):
 
 
 def test_force_text_on_final_round():
-    mw = IterBudgetReminderMiddleware()
+    mw = IterationBudgetHook()
     agent = _fake_agent(max_iters=10, cur_iter=9)  # final round
     out = _force(mw, agent, {"tool_choice": None})
     tc = out.get("tool_choice")
@@ -115,7 +134,7 @@ def test_force_text_on_final_round():
 
 
 def test_no_force_text_before_final_round():
-    mw = IterBudgetReminderMiddleware()
+    mw = IterationBudgetHook()
     agent = _fake_agent(max_iters=10, cur_iter=8)  # 2 left
     out = _force(mw, agent, {"tool_choice": None})
     assert out.get("tool_choice") is None
@@ -123,7 +142,7 @@ def test_no_force_text_before_final_round():
 
 def test_force_text_respects_explicit_tool_choice():
     sentinel = object()
-    mw = IterBudgetReminderMiddleware()
+    mw = IterationBudgetHook()
     agent = _fake_agent(max_iters=10, cur_iter=9)
     out = _force(mw, agent, {"tool_choice": sentinel})
     assert out["tool_choice"] is sentinel
@@ -131,7 +150,7 @@ def test_force_text_respects_explicit_tool_choice():
 
 @pytest.mark.parametrize("max_iters", [1, 2, 3])
 def test_force_text_skips_tiny_budget(max_iters):
-    mw = IterBudgetReminderMiddleware()
+    mw = IterationBudgetHook()
     agent = _fake_agent(max_iters=max_iters, cur_iter=max(0, max_iters - 1))
     out = _force(mw, agent, {"tool_choice": None})
     assert out.get("tool_choice") is None
@@ -139,7 +158,7 @@ def test_force_text_skips_tiny_budget(max_iters):
 
 def test_force_text_kill_switch(monkeypatch):
     monkeypatch.setenv("CHAT_FINAL_ITER_FORCE_TEXT", "false")
-    mw = IterBudgetReminderMiddleware()
+    mw = IterationBudgetHook()
     agent = _fake_agent(max_iters=10, cur_iter=9)
     out = _force(mw, agent, {"tool_choice": None})
     assert out.get("tool_choice") is None
@@ -167,15 +186,15 @@ def test_turn_budget_hint_is_byte_stable():
 
 
 def test_unbounded_profile_is_valid_and_bad_bounds_are_not():
-    from core.evolution import agent_profile as AP
+    from core.evolution.profiles import agent_profile as AP
 
-    unbounded = AP.builtin_profile()
-    assert unbounded.max_react_turns == AP.UNBOUNDED_REACT_TURNS
-    ok, problems = AP.validate_profile(unbounded)
+    unbounded = agent_profile_module.builtin_profile()
+    assert unbounded.max_react_turns == agent_profile_state_module.UNBOUNDED_REACT_TURNS
+    ok, problems = agent_profile_module.validate_profile(unbounded)
     assert ok, problems
 
-    fenced = AP.builtin_profile()
+    fenced = agent_profile_module.builtin_profile()
     fenced.max_react_turns = 1  # below MIN_REACT_TURNS, and not the 0 sentinel
-    ok, problems = AP.validate_profile(fenced)
+    ok, problems = agent_profile_module.validate_profile(fenced)
     assert ok is False
     assert any("最大轮数" in p for p in problems)

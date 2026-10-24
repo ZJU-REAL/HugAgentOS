@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from core.agent_skills.loader import get_skill_loader
+from core.capabilities.skills.loader_factory import get_skill_loader
 
 
 def test_metadata_loading():

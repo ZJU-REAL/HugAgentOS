@@ -66,8 +66,8 @@ def up():
     else:
         raise RuntimeError("Devkit backend not ready")
     seed = """from core.db.engine import SessionLocal
-from core.db.model_repository import create_provider, assign_role
-from core.services.local_user_service import LocalUserService
+from core.models.repository import create_provider, assign_role
+from core.auth.local_users import LocalUserService
 with SessionLocal() as db:
     result = LocalUserService(db).create_by_admin('devkit_user', 'Devkit-Test-Only-456', nickname='Devkit Tester')
     assert result.ok, result.message

@@ -1,7 +1,38 @@
 # 图标资产清单
 
-本技能内置了项目 UI 设计稿中的全部 SVG 图标，位于 `assets/` 目录。
-当需要在前端使用图标时，优先从此清单中选取，保持视觉一致性。
+本技能带两批图标：
+
+- `assets/design-v2/`：**v2 设计规范**的界面图标风格样例、标志与网页图标（新代码以此为风格基准）
+- `assets/icons/`、`assets/mcp-icons/`：v1 设计稿导出的图标（存量界面在用，部分带硬编码色值，复用前先改成 `currentColor`）
+
+## v2 资产（`assets/design-v2/`）
+
+| 目录 | 内容 | 规则 |
+|---|---|---|
+| `icons-ui/` | 12 个界面图标：new-chat / search / knowledge / skill / automation / my-space / attachment / settings / send / chevron-right / check / close | 24px 画板、留白 2px、线宽 1.5、圆头圆角、`stroke="currentColor"` |
+| `logo/hugagentos-mark*.svg` | 方形标：标准 / small（≤24px 用）/ reverse（深色底）/ mono-black / mono-white | 只用于方形容器；禁止与标准字并排 |
+| `logo/hugagentos-glyph-*.svg` | 环线（无底板）：蓝 / 白 / 黑 | 头像、App 图标内自行合成 |
+| `logo/favicon.svg` | 网页图标（小尺寸版） | 16/32px 使用 |
+| `tokens/` | v2 令牌参考实现（CSS / JSON / motionTokens / appTheme） | 见 `css-variables.md` |
+
+图标规则（v2，详见 `ui-design-spec.md` §6）：图标是文字的一部分——尺寸跟随字号、线宽跟随字重（13px→1.5，15/20px→2）、
+颜色继承文字色；默认线性，选中态换面性。**不要给图标单独上品牌色，火花绿 `#19D3A7` 不进界面。**
+
+```tsx
+// v2 写法：currentColor + 跟随字号
+export function SearchIcon({ size = '1em' }: { size?: string | number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="6.5" /><path d="M16 16l4 4" />
+    </svg>
+  );
+}
+```
+
+---
+
+## v1 图标
 
 ## 使用方式
 
@@ -89,10 +120,9 @@ import sendIcon from '../assets/icons/send.svg';
 
 ---
 
-## 设计约束
+## 设计约束（v2 替代 v1 的约定）
 
-- **主色**: 图标主色为 `#126DFF`（蓝色），与设计规范一致
-- **灰色**: 非激活态图标用 `#808080`
-- **尺寸**: 常用 16px / 28px / 32px / 34px / 38px（均为 4 的倍数或接近）
-- **风格**: 线性为主，部分填充，圆角端点
-- 详见 `ui-design-spec.md` 第 3 节「图标」规范
+- v1 约定"图标主色 `#126DFF`、非激活 `#808080`"**已废止**：v2 图标继承文字色，激活态用面性而不是换色
+- v1 SVG 里的硬编码 `fill` / `stroke` 色值在深色模式下不会反相；复用前改成 `currentColor`，否则过不了视觉走查
+- 尺寸跟随字号（13 / 15 / 20px 常用），点击区按桌面 ≥32、触屏 ≥44 外扩
+- 详见 `ui-design-spec.md` §6「图标」

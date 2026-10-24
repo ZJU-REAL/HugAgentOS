@@ -12,7 +12,7 @@ CE_ROUTERS: tuple[tuple[str, str], ...] = (
     ("users", "router"),
     ("user_preferences", "router"),
     ("catalog", "router"),
-    ("kb", "router"),
+    ("features.knowledge.api.kb", "router"),
     ("summary", "router"),
     ("classify", "router"),
     ("config", "router"),
@@ -28,13 +28,13 @@ CE_ROUTERS: tuple[tuple[str, str], ...] = (
     ("agent_responses", "router"),
     ("agent_api_keys", "router"),
     ("project_api_keys", "router"),
-    ("agents", "router"),
+    ("api.edition", "router"),
     ("artifacts", "router"),
     ("space_files", "router"),
     ("space_previews", "router"),
     ("plans", "router"),
     ("loops", "router"),
-    ("automations", "router"),
+    ("features.automation.api.automations", "router"),
     ("chat_runs", "router"),
     ("me_system", "router"),
     ("me_logs", "router"),
@@ -45,42 +45,42 @@ CE_ROUTERS: tuple[tuple[str, str], ...] = (
     ("internal_jobs", "router"),
     ("jobs", "router"),
     ("commands", "router"),
-    ("internal_sites", "router"),
-    ("applications", "router"),
-    ("workbench", "router"),
-    ("application_transports", "internal_router"),
-    ("application_transports", "public_router"),
-    ("application_transports", "mcp_router"),
+    ("features.sites.api.internal_sites", "router"),
+    ("features.hosted_apps.api.applications", "router"),
+    ("features.workbench.api.workbench", "router"),
+    ("features.hosted_apps.api.application_transports", "internal_router"),
+    ("features.hosted_apps.api.application_transports", "public_router"),
+    ("features.hosted_apps.api.application_transports", "mcp_router"),
     ("project_environments", "router"),
     ("projects", "router"),
     ("api_keys", "router"),
     ("me_capabilities", "router"),
-    ("marketplace", "router"),
-    ("mcp_marketplace", "router"),
-    ("agent_marketplace", "router"),
-    ("plugin_ui", "router"),
+    ("features.marketplace.api.marketplace", "router"),
+    ("features.marketplace.api.mcp_marketplace", "router"),
+    ("features.marketplace.api.agent_marketplace", "router"),
+    ("features.workbench.api.plugin_ui", "router"),
     ("plugin_resources", "router"),
     ("plugins", "router"),
-    ("integrations", "router"),
-    ("channels", "router"),
-    ("channel_desktop", "router"),
+    ("integrations.api.integrations", "router"),
+    ("integrations.channels.api.channels", "router"),
+    ("integrations.channels.api.channel_desktop", "router"),
     ("meta", "router"),
     # 个人进化的证据面与偏好开关（结算查询 / prefs / 个人候选审批）。CE 完整
     # 可用；控制面（管理员审批/发布）在 EE。此前 CE 漏挂本路由，首启向导的
     # PATCH /v1/evolution/prefs 落到桌面本机 server 的 GET catch-all 上，
     # 「启动进化」直接 405。
     ("evolution", "router"),
-    ("sites", "router"),
-    ("desktop", "router"),
-    ("desktop_login", "router"),
+    ("features.sites.api.sites", "router"),
+    ("features.desktop.api.desktop", "router"),
+    ("features.desktop.api.desktop_login", "router"),
     # The desktop shell bridge and device capability management are CE runtime APIs.
-    ("desktop_capability", "router"),
-    ("desktop_observability", "router"),
-    ("desktop_capabilities", "router"),
+    ("features.desktop.api.desktop_capability", "router"),
+    ("features.desktop.api.desktop_observability", "router"),
+    ("features.desktop.api.desktop_capabilities", "router"),
     # This computer's link to a Personal Agent on the cloud it signed in to.
-    ("device_link", "router"),
-    ("local", "router"),
-    ("local_site_sources", "router"),
+    ("features.desktop.api.device_link", "router"),
+    ("features.desktop.api.local", "router"),
+    ("features.sites.api.local_site_sources", "router"),
     # 工具执行权限档（标准 / 只读 / 自动）——输入框工具栏那颗权限胶囊的数据源
     ("tool_approval", "router"),
 )
@@ -91,7 +91,8 @@ EE_ROUTERS: tuple = ()
 def iter_edition_routers(entries):
     for entry in entries:
         module_name, attr, *feature_items = entry
-        module = import_module(f"{__name__}.{module_name}")
+        module_path = module_name if "." in module_name else f"{__name__}.{module_name}"
+        module = import_module(module_path)
         feature = feature_items[0] if feature_items else None
         yield module_name, getattr(module, attr), feature
 

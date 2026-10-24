@@ -29,7 +29,7 @@ In CE, the frontend shows only **Private Knowledge Base**, and `/v1/catalog` ret
   Object storage write (storage_key)           │    · embed_text(query)
     │                                          │    · Milvus hybrid_search:
     ▼  BackgroundTask                          │      dense (IP) + sparse (BoW) → RRF(k=60)
-  core/content/kb_processing.py                │    · child hit → fetch parent chunk
+  core/files/content/kb_processing.py                │    · child hit → fetch parent chunk
   vectorise_document_background()              │      text from kb_chunks (PostgreSQL)
     · kb_parser.parse_and_chunk()              │    · optional reranker pass
     · (optional) LLM keywords / questions      │    · user_id isolation + global public KBs
@@ -68,9 +68,9 @@ ORM definitions live in `src/backend/core/db/models/knowledge.py`:
 | `kb_chunks` | **Parent chunk** text (returned to the LLM on retrieval), with `tags` and related `questions` |
 | `kb_assets` | **Media assets** carried by a document (figures cut out by layout parsing, standalone image uploads): bytes live in object storage; this table holds the owning chunk, the source position `locator`, the caption/OCR text `text_content`, and the model-generated description `caption` |
 
-The three Wiki tables (`kb_wiki_pages` / `kb_wiki_folders` / `kb_wiki_jobs`) are defined in `core/db/models/kb_wiki.py`; see [Knowledge Base Wiki](./knowledge-base-wiki.md).
+The three Wiki tables (`kb_wiki_pages` / `kb_wiki_folders` / `kb_wiki_jobs`) are defined in `features/knowledge/models.py`; see [Knowledge Base Wiki](./knowledge-base-wiki.md).
 
-Child chunks never touch the relational DB — they are vectorized into the Milvus collection `hugagent_kb_private` (`core/kb/kb_vector.py`); every row carries `user_id` / `kb_id` for ownership isolation, and `row_type` distinguishes chunk rows, question rows, and image rows.
+Child chunks never touch the relational DB — they are vectorized into the Milvus collection `hugagent_kb_private` (`features/knowledge/kb_vector.py`); every row carries `user_id` / `kb_id` for ownership isolation, and `row_type` distinguishes chunk rows, question rows, and image rows.
 
 ### Chunking and indexing
 
@@ -84,12 +84,12 @@ Parsing and chunking happen in `core/kb/kb_parser.py::parse_and_chunk()`, suppor
 | `recursive` | Recursive fixed-size splitting |
 | `embedding_semantic` | Semantic boundary detection via embedding similarity |
 
-Parent-child parameters are tunable per upload via `indexing_config`: `parent_chunk_size` (default 1024 tokens), `child_chunk_size` (128), `overlap_tokens` (20), `parent_child_indexing` (default true). LLM enrichment is opt-in: `auto_keywords_count` (keywords per parent chunk, stored as tags and fed into sparse retrieval) and `auto_questions_count` (generated questions per parent chunk, indexed as separate question rows in Milvus to boost question-style recall). The background vectorization task is `core/content/kb_processing.py::vectorise_document_background()`.
+Parent-child parameters are tunable per upload via `indexing_config`: `parent_chunk_size` (default 1024 tokens), `child_chunk_size` (128), `overlap_tokens` (20), `parent_child_indexing` (default true). LLM enrichment is opt-in: `auto_keywords_count` (keywords per parent chunk, stored as tags and fed into sparse retrieval) and `auto_questions_count` (generated questions per parent chunk, indexed as separate question rows in Milvus to boost question-style recall). The background vectorization task is `core/files/content/kb_processing.py::vectorise_document_background()`.
 
 ### Multimodal: image retrieval
 
 Figures inside documents are no longer discarded. Indexing runs through
-`core/kb/kb_assets.py`:
+`features/knowledge/kb_assets.py`:
 
 1. **Extraction** — for PDFs, the external parse service's layout pass returns the figure
    bytes along with its caption, page index and bbox; a standalone image upload is itself
@@ -98,7 +98,7 @@ Figures inside documents are no longer discarded. Indexing runs through
    service's temp paths are rewritten to real asset URLs.
 2. **Image understanding** — reuses the
    [vision bridge](./model-providers.md#vision-bridge-giving-text-only-models-eyes)
-   (`core/vision`): the same path and the same `vision` model role that lets a text-only
+   (`core/models/vision`): the same path and the same `vision` model role that lets a text-only
    chat model read images. Three things come for free with it — an **evidence cache keyed
    by image content** (re-indexing the same document costs nothing), three provider
    protocols with structured-output degradation, and the hard constraint that only a
@@ -149,7 +149,7 @@ Returned content follows the `[ref:retrieve_local_kb-N]` citation-marker convent
 
 ### API routes
 
-User-facing routes are prefixed `/v1/catalog/kb` (`src/backend/api/routes/v1/kb.py`, request models in `kb_models.py`):
+User-facing routes are prefixed `/v1/catalog/kb` (`src/backend/features/knowledge/api/kb.py`, request models in `kb_models.py`):
 
 | Method | Path | Description |
 |---|---|---|
@@ -165,7 +165,7 @@ User-facing routes are prefixed `/v1/catalog/kb` (`src/backend/api/routes/v1/kb.
 | GET / PATCH | `/v1/catalog/kb/{kb_id}/chunks[/{chunk_id}]` | Chunk list / edit tags and questions |
 | GET | `/v1/catalog/kb/assets/{asset_id}` | Read a media asset's raw bytes (visibility follows the owning space) |
 
-Business logic is centralized in `core/services/kb_service.py::KBService`.
+Business logic is centralized in `features/knowledge/service.py::KBService`.
 
 ### System-managed space: MySpace sync
 
@@ -173,13 +173,13 @@ Business logic is centralized in `core/services/kb_service.py::KBService`.
 
 ### Admin public knowledge bases (Enterprise Edition, EE)
 
-The `/v1/admin/kb/*` admin routes live in `src/backend/api/routes/v1/admin_kb.py`, gated by the `content_admin` feature flag (EE router table in `api/routes/v1/__init__.py`). Public spaces are owned by the synthetic system account `system_public_kb` (`kb_service.py::SYSTEM_KB_OWNER_ID`), have `visibility=public`, and are visible and searchable by all users. The admin side additionally offers raw file download, Office-to-PDF online preview, and chunk content editing / deletion.
+The `/v1/admin/kb/*` admin routes live in `src/backend/edition_ee/routes/admin_kb.py`, gated by the `content_admin` feature flag (EE router table in `api/routes/v1/__init__.py`). Public spaces are owned by the synthetic system account `system_public_kb` (`kb_service.py::SYSTEM_KB_OWNER_ID`), have `visibility=public`, and are visible and searchable by all users. The admin side additionally offers raw file download, Office-to-PDF online preview, and chunk content editing / deletion.
 
 Public retrieval through `retrieve_dataset_content` selects exactly one source according to platform configuration. Platform-local mode (`knowledge_base.provider=custom`) searches only local public/shared spaces accessible to the current user, excluding private spaces. External mode searches only the selected Dify, FastGPT or WeKnora backend using that backend's own connection settings. Results are never merged across sources, and empty results or errors never trigger a cross-source fallback. The public knowledge-base list uses the same source selection; private spaces remain accessible through the separate `retrieve_local_kb` tool.
 
 ## External Dify knowledge bases (Enterprise Edition, EE)
 
-The EE-only client is `src/backend/edition_ee/kb/dify.py`; shared routes call it through `core/kb/external_provider.py`. The derived CE tree replaces that seam with a disabled implementation and contains no Dify client. The `is_dify_enabled()` decision has three priority levels:
+The EE-only client is `src/backend/edition_ee/kb/dify.py`; shared routes call it through `features/knowledge/extension.py`. The derived CE tree replaces that seam with a disabled implementation and contains no Dify client. The `is_dify_enabled()` decision has three priority levels:
 
 1. DB system config `knowledge_base.provider == "dify"` (editable in the Config console);
 2. Environment variable `KNOWLEDGE_BASE=dify`;
@@ -195,9 +195,9 @@ DIFY_API_KEY=dataset-...               # alias: DIFY_AUTH_TOKEN
 
 ## Supported file formats
 
-KB upload validation is in `core/content/file_validation.py::validate_kb_file` (extension + magic-bytes double check), allowing: `.pdf` `.txt` `.md` `.doc` `.docx` `.xls` `.xlsx` `.csv` `.json`, plus images (`.png` `.jpg` `.jpeg` `.webp` `.gif`).
+KB upload validation is in `core/files/content/file_validation.py::validate_kb_file` (extension + magic-bytes double check), allowing: `.pdf` `.txt` `.md` `.doc` `.docx` `.xls` `.xlsx` `.csv` `.json`, plus images (`.png` `.jpg` `.jpeg` `.webp` `.gif`).
 
-The general-purpose parser `core/content/file_parser.py::parse_file()` (shared by chat attachments and MySpace files) covers a wider range: PDF, DOCX, DOC/WPS (via LibreOffice conversion), TXT, XLSX/XLS, CSV, PPTX, plus plain-text formats (HTML / Markdown / JSON / YAML / source code, etc.) decoded directly as UTF-8.
+The general-purpose parser `core/files/content/file_parser.py::parse_file()` (shared by chat attachments and MySpace files) covers a wider range: PDF, DOCX, DOC/WPS (via LibreOffice conversion), TXT, XLSX/XLS, CSV, PPTX, plus plain-text formats (HTML / Markdown / JSON / YAML / source code, etc.) decoded directly as UTF-8.
 
 ## Frontend
 
@@ -213,17 +213,17 @@ The general-purpose parser `core/content/file_parser.py::parse_file()` (shared b
 
 | Path | Responsibility |
 |---|---|
-| `src/backend/core/kb/kb_parser.py` | Document parsing + parent-child chunking (5 chunk methods) |
-| `src/backend/core/kb/kb_vector.py` | Milvus collection, embedding, hybrid search, reranking |
-| `src/backend/core/kb/kb_assets.py` | Media assets: storage, image understanding (via the vision bridge), retrieval rows, result attachment |
+| `src/backend/features/knowledge/kb_parser.py` | Document parsing + parent-child chunking (5 chunk methods) |
+| `src/backend/features/knowledge/kb_vector.py` | Milvus collection, embedding, hybrid search, reranking |
+| `src/backend/features/knowledge/kb_assets.py` | Media assets: storage, image understanding (via the vision bridge), retrieval rows, result attachment |
 | `src/backend/edition_ee/kb/dify.py` | Dify datasets client and enablement logic (EE only) |
-| `src/backend/core/kb/external_provider.py` | Edition-neutral external-provider seam; disabled by the CE overlay |
-| `src/backend/core/content/kb_processing.py` | Background vectorization, LLM keyword / question enrichment |
-| `src/backend/core/content/file_validation.py` | Upload validation (extension + magic bytes) |
-| `src/backend/core/content/file_parser.py` | General-purpose file parser |
-| `src/backend/core/services/kb_service.py` | KB business logic (incl. the system-managed sync space) |
-| `src/backend/api/routes/v1/kb.py` + `kb_models.py` | User-facing `/v1/catalog/kb` routes |
-| `src/backend/api/routes/v1/admin_kb.py` | Admin public KB routes (Enterprise Edition, EE) |
+| `src/backend/features/knowledge/extension.py` | Edition-neutral external-provider seam; disabled by the CE overlay |
+| `src/backend/features/knowledge/processing.py` | Background vectorization, LLM keyword / question enrichment |
+| `src/backend/core/files/content/file_validation.py` | Upload validation (extension + magic bytes) |
+| `src/backend/core/files/content/file_parser.py` | General-purpose file parser |
+| `src/backend/features/knowledge/service.py` | KB business logic (incl. the system-managed sync space) |
+| `src/backend/features/knowledge/api/kb.py` + `kb_models.py` | User-facing `/v1/catalog/kb` routes |
+| `src/backend/edition_ee/routes/admin_kb.py` | Admin public KB routes (Enterprise Edition, EE) |
 | `src/backend/api/routes/v1/catalog.py` | Catalog aggregation (private only in CE; Dify / public spaces added in EE) |
 | `src/backend/extensions/mcp_servers/retrieve_dataset_content_mcp/` | Retrieval MCP server (both tools) |
 | `src/backend/core/db/models/knowledge.py` | `KBSpace` / `KBDocument` / `KBChunk` / `KBAsset` ORM |

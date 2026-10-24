@@ -2,8 +2,8 @@
 
 from typing import Optional
 
-import core.services.session_operations.schemas as chat_models
-import core.services.session_operations.session_context as chat_session_context
+import core.chat.operations.schemas as chat_models
+import core.chat.operations.session_context as chat_session_context
 import core.auth.backend as auth_backend
 import core.chat.context as chat_context
 import core.db.engine as db_engine
@@ -39,7 +39,7 @@ def list_chats(
     - -created_at - Most recently created first
     - created_at - Oldest created first
     """
-    from core.services.session_operations.sessions import list_chats as operation
+    from core.chat.operations.sessions import list_chats as operation
 
     return operation(
         page=page,
@@ -63,7 +63,7 @@ def create_chat(
 
     The session is automatically associated with the current authenticated user.
     """
-    from core.services.session_operations.sessions import create_chat as operation
+    from core.chat.operations.sessions import create_chat as operation
 
     return operation(request=request, user=user, db=db)
 
@@ -87,7 +87,7 @@ def search_chats(
 
     Returns sessions with match_type ("title" or "content") and matched_snippet for content matches.
     """
-    from core.services.session_operations.sessions import search_chats as operation
+    from core.chat.operations.sessions import search_chats as operation
 
     return operation(q=q, scope=scope, page=page, page_size=page_size, user=user, db=db)
 
@@ -106,10 +106,10 @@ def list_referencable_chats(
     在项目里只给同项目的会话——项目是用户自己划的话题边界。只返回标题级信息，正文由
     智能体在回答时按需调 ``read_chat`` 读取。
     """
-    from core.services.chat_reference_service import list_referencable_sessions, session_brief
+    from core.chat.references import list_referencable_sessions, session_brief
 
     db_user_id = chat_context.resolve_db_user_id(
-        db, chat_session_context._authenticated_user_id(user)
+        db, chat_session_context.authenticated_user_id(user)
     )
     sessions = list_referencable_sessions(
         db,
@@ -132,7 +132,7 @@ def get_chat(
     db: Session = Depends(db_engine.get_db),
 ):
     """获取当前用户有权读取的会话详情。"""
-    from core.services.session_operations.sessions import get_chat as operation
+    from core.chat.operations.sessions import get_chat as operation
 
     return operation(chat_id=chat_id, user=user, db=db)
 
@@ -145,7 +145,7 @@ def update_chat(
     db: Session = Depends(db_engine.get_db),
 ):
     """更新当前用户有权修改的会话元信息。"""
-    from core.services.session_operations.sessions import update_chat as operation
+    from core.chat.operations.sessions import update_chat as operation
 
     return operation(chat_id=chat_id, request=request, user=user, db=db)
 
@@ -157,6 +157,6 @@ def delete_chat(
     db: Session = Depends(db_engine.get_db),
 ):
     """软删当前用户有权管理的会话。"""
-    from core.services.session_operations.sessions import delete_chat as operation
+    from core.chat.operations.sessions import delete_chat as operation
 
     return operation(chat_id=chat_id, user=user, db=db)

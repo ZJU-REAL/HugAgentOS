@@ -4,8 +4,8 @@ from uuid import uuid4
 
 import pytest
 from core.db.models import ChatCompactionState, ChatMessage, ChatRun, ChatSession
-from core.services.chat_service import ChatService
-from core.services.compaction_service import load_session_history
+from core.chat.service import ChatService
+from core.chat.compaction.service import load_session_history
 from tests.api.chat_fork_fixtures import fork_env  # noqa: F401
 
 
@@ -134,7 +134,7 @@ def test_empty_chat_and_all_running_history_do_not_create_branch(fork_env):
 
 def test_future_checkpoint_is_not_inherited_and_tool_context_is_replayed(fork_env):
     client, sessions, _ = fork_env
-    from core.llm.model_steps import record_assistant_step, record_tool_result_step
+    from core.llm.runtime.model_steps import record_assistant_step, record_tool_result_step
 
     steps = [
         record_assistant_step(
@@ -295,7 +295,7 @@ def test_long_history_is_not_limited_to_ui_page(fork_env, monkeypatch):
 
     from core.config import settings as config_settings
     from core.db import engine as engine_module
-    from core.services import compaction_service as compaction
+    from core.chat.compaction import service as compaction
 
     monkeypatch.setattr(engine_module, "SessionLocal", sessions)
     monkeypatch.setattr(
@@ -311,7 +311,7 @@ def test_long_history_is_not_limited_to_ui_page(fork_env, monkeypatch):
         assert "item 121" not in str(history)
         return "fork prefix summary"
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", summarize)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', summarize)
     with sessions() as db:
         history = load_session_history(ChatService(db), cid, "owner")
     history, compacted = asyncio.run(
@@ -421,7 +421,8 @@ def test_next_turn_collects_inherited_attachment_context(fork_env, monkeypatch):
 def test_branching_does_not_change_usage_or_billing_reports(fork_env):
     from api.deps import require_config
     from api.routes.v1 import admin_billing, admin_usage_logs, me_logs
-    from core.db.models import DesktopRecord, ModelPricing, ModelProvider, UserShadow
+    from features.desktop.models import DesktopRecord
+    from core.db.models import ModelPricing, ModelProvider, UserShadow
 
     client, sessions, _ = fork_env
     client.app.dependency_overrides[require_config] = lambda: None

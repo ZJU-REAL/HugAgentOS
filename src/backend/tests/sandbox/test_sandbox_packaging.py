@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[4]
 
 
 def test_opensandbox_controller_copy_sources_survive_restricted_context():
-    dockerfile = ROOT / "docker/Dockerfile.opensandbox-server"
+    dockerfile = ROOT / "docker/opensandbox-server/Dockerfile.opensandbox-server"
     rules = Path(f"{dockerfile}.dockerignore").read_text().splitlines()
     assert rules[0] == "**"
     included = {line[1:].rstrip("/") for line in rules if line.startswith("!")}
@@ -23,11 +23,11 @@ def test_opensandbox_controller_copy_sources_survive_restricted_context():
                 assert item.as_posix() in included, f"build context excludes {item}"
 
 
-def test_builtin_skill_mount_fallback_uses_central_extension_root(tmp_path, monkeypatch):
-    backend = tmp_path / "src/backend"
-    skills = backend / "extensions/skills"
-    skills.mkdir(parents=True)
-    monkeypatch.delenv("HOST_REPO_PATH", raising=False)
-    monkeypatch.setattr(volumes, "SKILLS_DIR", skills)
-    monkeypatch.setattr(volumes, "_BUILTIN_SKILLS_HOST_PATH", None)
-    assert volumes._resolve_builtin_skills_host_path() == str(skills)
+def test_skill_mount_requires_host_storage(monkeypatch):
+    from types import SimpleNamespace
+    import pytest
+    from core.sandbox.errors import SandboxError
+    monkeypatch.setattr(volumes, "settings", SimpleNamespace(
+        sandbox=SimpleNamespace(opensandbox_host_storage_path="")))
+    with pytest.raises(SandboxError, match="HOST_STORAGE_PATH"):
+        volumes._make_skills_volumes("user")

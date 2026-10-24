@@ -16,9 +16,10 @@ from personal_agent.tasks.task_threads import history, Transcript
 from personal_agent.delivery.outputs import listing
 
 @pytest.fixture
-def sessions():
+def sessions(monkeypatch):
     engine=create_engine("sqlite://",connect_args={"check_same_thread":False},poolclass=StaticPool)
     Base.metadata.create_all(engine);factory=sessionmaker(bind=engine,expire_on_commit=False)
+    monkeypatch.setattr("core.db.engine.SessionLocal",factory)
     with factory() as db:
         db.add_all([UserShadow(user_id=u,user_center_id=u,username=u) for u in ["owner","other"]]);db.commit()
     yield factory;engine.dispose()

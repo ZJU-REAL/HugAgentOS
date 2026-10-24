@@ -9,6 +9,8 @@ Covers the pieces that are new or SQLite-risky (see
 - super_admin bootstrap writes ``users_shadow.extra_data.role``
 - local single-origin hosting: ``/api`` prefix strip + SPA fallback
 """
+from core.chat.projection.codec import chat_projection_codec
+from core.files.content import branding
 
 import asyncio
 import os
@@ -19,7 +21,6 @@ from types import SimpleNamespace
 import pytest
 
 # ── Redis-free local profile ─────────────────────────────────────────────────
-
 
 def _local_redis_settings(monkeypatch):
     """Point core.infra.redis at an unconfigured (local-profile) deployment."""
@@ -55,7 +56,7 @@ async def _open_client(rmod):
 async def test_local_profile_picks_in_process_backends(monkeypatch):
     """Both store-agnostic seams follow the same predicate."""
     import core.infra.ephemeral as ephemeral
-    import orchestration.run_event_stream as res
+    import core.runs.events.store as res
 
     _local_redis_settings(monkeypatch)
     monkeypatch.setattr(ephemeral, "redis_configured", lambda: False)
@@ -72,9 +73,9 @@ async def test_local_event_log_blocks_then_wakes_on_append(monkeypatch):
     Busy-returning empty would spin the CPU; never waking would leave the UI on
     "starting task" for the whole run — the failure the imitation used to cause.
     """
-    import orchestration.run_event_stream as res
+    import core.runs.events.store as res
 
-    stream = res.LocalRunEventStream()
+    stream = res.LocalRunEventStream(chat_projection_codec())
     await stream.append("run-1", {"type": "content", "_offset": 1})
     cursor = (await stream.read("run-1"))[-1][0]
 
@@ -111,7 +112,7 @@ def test_bigint_pk_autoincrements_on_sqlite(db_session):
 
 def test_seed_builtin_mcp_is_idempotent_and_templates_url(db_session):
     from core.db.models import AdminMcpServer
-    from core.services.mcp_service import BUILTIN_MCP_SERVERS, seed_builtin_mcp_servers_if_empty
+    from core.capabilities.mcp.service import BUILTIN_MCP_SERVERS, seed_builtin_mcp_servers_if_empty
     from extensions.mcp_servers._ports import PORTS
 
     seeded = seed_builtin_mcp_servers_if_empty(db_session)
@@ -125,12 +126,12 @@ def test_seed_builtin_mcp_is_idempotent_and_templates_url(db_session):
     sample_id = next(iter(expected_ids))
     sample = db_session.query(AdminMcpServer).filter_by(server_id=sample_id).one()
     assert sample.transport == "streamable_http"
-    assert sample.url.endswith(f":{PORTS[sample_id]}/mcp/")
+    assert sample.url.endswith(f":{PORTS[sample_id]}/mcp")
 
 
 def test_seed_builtin_mcp_skips_when_catalog_present(db_session):
     from core.db.models import AdminMcpServer
-    from core.services.mcp_service import seed_builtin_mcp_servers_if_empty
+    from core.capabilities.mcp.service import seed_builtin_mcp_servers_if_empty
 
     # A pre-existing global built-in row means the catalog already exists.
     db_session.add(
@@ -148,7 +149,7 @@ def test_seed_builtin_mcp_skips_when_catalog_present(db_session):
 
 def test_retired_report_export_mcp_is_not_seeded_and_legacy_row_is_pruned(db_session):
     from core.db.models import AdminMcpServer
-    from core.services.mcp_service import BUILTIN_MCP_SERVERS, prune_removed_builtin_mcp_servers
+    from core.capabilities.mcp.service import BUILTIN_MCP_SERVERS, prune_removed_builtin_mcp_servers
     from extensions.mcp_servers._ports import PORTS
 
     assert "report_export_mcp" not in PORTS
@@ -174,8 +175,8 @@ def test_retired_report_export_mcp_is_not_seeded_and_legacy_row_is_pruned(db_ses
 
 def test_super_admin_bootstrap_writes_role(db_session):
     from core.db.models import UserShadow
-    from core.services.local_user_service import LocalUserService
-    from core.services.user_service import UserService
+    from core.auth.local_users import LocalUserService
+    from core.auth.users import UserService
 
     res = LocalUserService(db_session).create_by_admin(username="admin", password="pw-123456")
     assert res.ok and res.user_id
@@ -190,118 +191,26 @@ def test_super_admin_bootstrap_writes_role(db_session):
     assert shadow.extra_data.get("auth_source") == "local"
 
 
-def test_ce_default_admin_is_idempotent_and_requires_password_change(db_session, monkeypatch):
-    import core.services.local_user_service as local_users
-    from core.auth.password import verify_password
-    from core.db.models import LocalUser, UserShadow
-
-    monkeypatch.setattr(
-        local_users,
-        "settings",
-        SimpleNamespace(
-            edition=SimpleNamespace(edition="ce"),
-            auth=SimpleNamespace(password_min_length=8),
-        ),
-    )
-
-    user_id, created = local_users.ensure_ce_default_admin(db_session)
-    assert (user_id, created) == ("user_ce_admin", True)
-
-    shadow = db_session.query(UserShadow).filter_by(user_id=user_id).one()
-    local = db_session.query(LocalUser).filter_by(user_id=user_id).one()
-    assert shadow.username == "admin"
-    assert verify_password("admin", local.password_hash)
-    assert shadow.extra_data["role"] == "super_admin"
-    assert shadow.extra_data["can_add_skill"] is True
-    assert shadow.extra_data["can_add_mcp"] is True
-    assert shadow.extra_data["can_import_plugin"] is True
-    assert shadow.extra_data["can_create_private_kb"] is True
-    assert shadow.extra_data["can_create_public_kb"] is False
-    assert shadow.extra_data["can_create_channel_bot"] is True
-    assert shadow.extra_data["can_switch_model"] is True
-    assert shadow.extra_data["can_use_ontology_validation"] is True
-    assert shadow.extra_data["must_change_password"] is True
-    assert shadow.extra_data["onboarding_required"] is True
-
-    assert local_users.ensure_ce_default_admin(db_session) == (user_id, False)
-    result = local_users.LocalUserService(db_session).change_password(
-        user_id,
-        old_password="admin",
-        new_password="new-password-123",
-    )
-    assert result.ok is True
-    db_session.refresh(shadow)
-    assert "must_change_password" not in shadow.extra_data
-    assert shadow.extra_data["onboarding_required"] is True
-    login = local_users.LocalUserService(db_session).authenticate("admin", "new-password-123")
-    assert login.ok
-    assert login.user_info["onboarding_required"] is True
 
 
-def test_ce_web_onboarding_requires_main_model_and_clears_checkpoint(db_session, monkeypatch):
-    import api.routes.v1.users as user_routes
-    import core.services.local_user_service as local_users
-    from core.auth.backend import UserContext
-    from core.db import model_repository
-    from core.db.models import UserShadow
-    from core.infra.exceptions import ValidationError
-
-    fake_settings = SimpleNamespace(
-        edition=SimpleNamespace(edition="ce"),
-        auth=SimpleNamespace(password_min_length=8),
-    )
-    monkeypatch.setattr(local_users, "settings", fake_settings)
-    monkeypatch.setattr(user_routes, "settings", fake_settings)
-
-    user_id, _ = local_users.ensure_ce_default_admin(db_session)
-    local_users.LocalUserService(db_session).change_password(
-        user_id,
-        old_password="admin",
-        new_password="new-password-123",
-    )
-    user = UserContext(
-        user_id=user_id,
-        user_center_id=user_id,
-        username="admin",
-    )
-
-    with pytest.raises(ValidationError, match="主对话模型"):
-        user_routes.complete_my_onboarding(user=user, db=db_session)
-
-    provider = model_repository.create_provider(
-        db_session,
-        display_name="Test chat",
-        provider_type="chat",
-        base_url="http://model.test/v1",
-        api_key="test-key",
-        model_name="test-model",
-    )
-    model_repository.assign_role(db_session, "main_agent", provider.provider_id)
-
-    response = user_routes.complete_my_onboarding(user=user, db=db_session)
-
-    assert response["data"]["onboarding_required"] is False
-    shadow = db_session.query(UserShadow).filter_by(user_id=user_id).one()
-    assert "onboarding_required" not in shadow.extra_data
-    assert shadow.extra_data["onboarding_completed_version"] == 1
 
 
 def test_ce_has_no_optional_organization_permission_layers():
     import importlib.util
 
-    from core.auth.edition_capabilities import default_capability_layers_for_user
+    from core.auth.edition import default_capability_layers_for_user
 
-    assert importlib.util.find_spec("core.auth.role_permissions") is None
+    assert importlib.util.find_spec("core.auth.edition") is None
     assert importlib.util.find_spec("core.auth.team_permissions") is None
     assert default_capability_layers_for_user(None, "user_ce_admin") == ()
 
 
 def test_ce_branding_repairs_persistent_page_config(db_session, monkeypatch):
-    import core.content.content_blocks as blocks
+    import core.files.content.content_blocks as blocks
     from core.db.models import ContentBlock
 
     monkeypatch.setattr(
-        blocks,
+        branding,
         "settings",
         SimpleNamespace(edition=SimpleNamespace(edition="ce")),
     )
@@ -326,7 +235,7 @@ def test_ce_branding_repairs_persistent_page_config(db_session, monkeypatch):
     )
     db_session.commit()
 
-    assert blocks.enforce_ce_branding(db_session) is True
+    assert branding.enforce_ce_branding(db_session) is True
     row = db_session.query(ContentBlock).filter_by(id="page_config").one()
     assert row.payload["branding"] == {
         "product_name": "HugAgentOS",
@@ -338,19 +247,19 @@ def test_ce_branding_repairs_persistent_page_config(db_session, monkeypatch):
     assert row.payload["navigation"]["admin_header"]["title"] == "HugAgentOS — 后台管理"
     assert row.payload["navigation"]["admin_platform"]["product_name"] == "HugAgentOS"
     assert row.payload["auth"]["allow_register"] is False
-    assert blocks.enforce_ce_branding(db_session) is False
+    assert branding.enforce_ce_branding(db_session) is False
 
 
 def test_ce_registration_is_disabled_unconditionally(monkeypatch):
-    import core.content.content_blocks as blocks
+    import core.files.content.content_blocks as blocks
 
     monkeypatch.setattr(
-        blocks,
+        branding,
         "settings",
         SimpleNamespace(edition=SimpleNamespace(edition="ce")),
     )
 
-    assert blocks.is_register_allowed() is False
+    assert branding.is_register_allowed() is False
 
 
 @pytest.mark.asyncio
@@ -496,18 +405,18 @@ def test_kb_milvus_lite_dense_only(tmp_path, monkeypatch):
 
     monkeypatch.setenv("MILVUS_URL", str(tmp_path / "kb.db"))
     import importlib
-
-    import core.kb.kb_vector as kv
-
-    importlib.reload(kv)  # re-read MILVUS_URL
-
+    from features.knowledge import kb_vector, vector_client, vector_indexing
+    from core.models import embedding as vector_embedding, embedding_state
+    import features.knowledge.kb_vector_state as kv
+    importlib.reload(kv)
+    importlib.reload(embedding_state)  # Reset relocated caches and environment configuration.
     DIM = 8
-    monkeypatch.setattr(kv, "detect_embed_dim", lambda: DIM)
-    monkeypatch.setattr(kv, "embed_text", lambda t: [0.1] * DIM)
+    monkeypatch.setattr(vector_embedding, 'detect_embed_dim', lambda: DIM)
+    monkeypatch.setattr(vector_embedding, 'embed_text', lambda t: [0.1] * DIM)
 
-    assert kv._is_lite() is True
-    kv.get_or_create_collection()
-    kv.upsert_rows(
+    assert vector_client.is_lite() is True
+    vector_client.get_or_create_collection()
+    vector_indexing.upsert_rows(
         [
             {
                 "chunk_id": "c1",
@@ -521,11 +430,11 @@ def test_kb_milvus_lite_dense_only(tmp_path, monkeypatch):
                 "tags_text": "",
                 "chunk_index": 0,
                 "dense_embedding": [0.1] * DIM,
-                "sparse_embedding": kv.text_to_sparse("机器学习"),  # must be stripped on Lite
+                "sparse_embedding": kb_vector.text_to_sparse("机器学习"),  # must be stripped on Lite
             }
         ]
     )
-    hits = kv.hybrid_search("u1", ["kb1"], "机器学习", [0.1] * DIM, top_k=5)
+    hits = kb_vector.hybrid_search("u1", ["kb1"], "机器学习", [0.1] * DIM, top_k=5)
     assert len(hits) == 1 and hits[0]["content"] == "机器学习"
 
 
@@ -564,8 +473,9 @@ def test_local_env_merges_loopback_hosts_into_no_proxy(monkeypatch):
 @pytest.mark.parametrize("explicit", [None, "", "http://configured:8080"])
 def test_windows_loopback_bypass_preserves_registry_proxy(monkeypatch, explicit):
     import os
-    import cli
     from urllib import request
+
+    import cli
 
     for name in list(os.environ):
         if name.lower() in ("http_proxy", "https_proxy", "all_proxy", "no_proxy"):

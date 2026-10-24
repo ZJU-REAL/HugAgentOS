@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from core.channels.protocol import InboundMsg, SendResult
+from integrations.channels.protocol import InboundMsg, SendResult
 from core.db.models import Artifact, ChatMessage
 from personal_agent.channels import channel_bridge
 from personal_agent.context import AgentContext
@@ -43,8 +43,8 @@ def channel(sessions, monkeypatch):
             sent.append(("file", name, mime, content, msg.external_conversation_id))
             return SendResult.ok()
     adapter = Adapter()
-    monkeypatch.setattr("core.channels.registry.get_adapter", lambda kind: adapter)
-    monkeypatch.setattr("core.storage.get_storage", lambda: SimpleNamespace(download_bytes=lambda key: b"data"))
+    monkeypatch.setattr('integrations.channels.registry.get_adapter', lambda kind: adapter)
+    monkeypatch.setattr('core.files.storage.get_storage', lambda: SimpleNamespace(download_bytes=lambda key: b"data"))
     return SimpleNamespace(conn=conn, adapter=adapter, sent=sent, task=task)
 
 
@@ -186,7 +186,7 @@ async def test_artifact_deleted_after_queue_is_not_read(sessions, channel, monke
         db.commit()
     def unexpected_storage():
         pytest.fail("Deleted artifact must not reach storage")
-    monkeypatch.setattr("core.storage.get_storage", unexpected_storage)
+    monkeypatch.setattr('core.files.storage.get_storage', unexpected_storage)
     await channel_bridge.deliver_pending()
     assert len(channel.sent) == 1 and channel.sent[0][0] == "text"
 

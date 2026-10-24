@@ -8,8 +8,8 @@ running in CI.
 
 import pytest
 
-from core.evolution import fault_injection as FI
-from core.evolution.credit import T_NO_UPDATE, T_SKILL, CreditDecision
+from core.evolution.assessment import fault_injection as FI
+from core.evolution.evidence.credit import T_NO_UPDATE, T_SKILL, CreditDecision
 
 pytestmark = pytest.mark.slow
 

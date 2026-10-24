@@ -20,10 +20,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
-from core.immutable import FrozenDict, freeze_json, thaw_json
+from core.infra.immutable import FrozenDict, freeze_json, thaw_json
 
 # The four governed asset classes, plus the ones that turned out to matter in a
 # multi-provider / multi-KB deployment. Prompt is included because this project

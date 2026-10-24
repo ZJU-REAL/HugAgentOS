@@ -1,5 +1,6 @@
 """System prompt assembly; cache and public hooks live in prompt_runtime."""
 from __future__ import annotations
+from core.llm import prompt_versions as prompt_versions_module
 from prompts import prompt_runtime as runtime
 
 def build_system_prompt(
@@ -43,6 +44,11 @@ def build_system_prompt(
         ctx["desktop_environment"] = (ctx.get("preview_environment") if desktop_preview else None) or runtime.build_environment_context(
             ctx, current_date=runtime._PROMPT_NOW_SENTINEL
         )
+    if local_mode_enabled() and ctx.get("project_is_local") and ctx.get("project_local_path"):
+        # Outer AGENTS.md files are prompt inputs too: snapshot them before hashing.
+        from core.projects.instructions import inherited_local_instructions
+
+        ctx["project_inherited_instructions"] = inherited_local_instructions(ctx["project_local_path"])
     # Day granularity only: the date is constant within a day → the system prompt is
     # byte-stable all day → LLM prefix cache hits all day (a second-level timestamp
     # would change every request and bust the cache).
@@ -66,9 +72,9 @@ def build_system_prompt(
     # Active pool version (preferred source) — bust cache on change
     active_version_key: tuple[str, str] = ("", "")
     try:
-        from core.services import prompt_version_service as pvs
+        from core.llm import prompt_versions as pvs
 
-        _av = pvs.get_active_version("system")
+        _av = prompt_versions_module.get_active_version("system")
         if _av:
             active_version_key = (str(_av.get("id") or ""), str(_av.get("updated_at") or ""))
     except Exception:
@@ -160,9 +166,9 @@ def build_system_prompt(
     # collision for backward compatibility with rows created by the old admin UI.
     active_system_version: runtime.Optional[runtime.Dict[str, runtime.Any]] = None
     try:
-        from core.services import prompt_version_service as pvs
+        from core.llm import prompt_versions as pvs
 
-        active_system_version = pvs.get_active_version("system")
+        active_system_version = prompt_versions_module.get_active_version("system")
     except Exception:
         active_system_version = None
 
@@ -382,7 +388,7 @@ def build_system_prompt(
                 sensitive=True,
             )
 
-    from core.services.edition_workspace import workspace_instructions
+    from core.files.edition import workspace_instructions
     workspace_hint = workspace_instructions()
     if workspace_hint:
         base = (base + "\n\n" + workspace_hint).strip()
@@ -401,9 +407,10 @@ def build_system_prompt(
                 project_instructions=ctx.get("project_instructions") or "",
                 local_path=ctx.get("project_local_path") or "",
                 local_slug=ctx.get("project_local_slug") or "",
+                inherited_instructions=ctx.get("project_inherited_instructions") or (),
             )
         else:
-            from core.services.edition_workspace import context_directory
+            from core.files.edition import context_directory
             proj_section = runtime._build_project_section(
                 workspace_path=context_directory(ctx),
                 project_name=ctx.get("project_name") or "",

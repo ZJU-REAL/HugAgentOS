@@ -17,7 +17,7 @@ def upgrade() -> None:
     # CE intentionally owns an independent migration chain.  Reusing the CE
     # metadata reconciler creates the new core marketplace tables/columns while
     # continuing to omit every EE-only table and foreign-key dependency.
-    from core.db.edition_tables import ce_reconcile_schema
+    from core.db.edition import ce_reconcile_schema
 
     ce_reconcile_schema(op.get_bind())
 

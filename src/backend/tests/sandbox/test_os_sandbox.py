@@ -308,6 +308,137 @@ def test_seatbelt_carves_protected_metadata_out_of_the_write_grant(tmp_path):
     assert r"\.git" in profile
 
 
+def _nested_workspace_policy(tmp_path):
+    """The desktop layout: the workspace lives inside the denied data directory."""
+    state = tmp_path / "data"
+    workspace = state / "workspace"
+    workspace.mkdir(parents=True)
+    (state / "data.db").write_text("secret", encoding="utf-8")
+    script = workspace / "script.sh"
+    script.write_text("cat script.sh >/dev/null && echo NESTED_OK\n", encoding="utf-8")
+    policy = SandboxPolicy(
+        filesystem=build_filesystem_policy(writable_roots=[str(workspace)], denied_paths=[str(state)])
+    )
+    return policy, state, workspace, script
+
+
+def test_seatbelt_reopens_reads_for_a_workspace_inside_a_denied_directory(tmp_path):
+    policy, state, workspace, _ = _nested_workspace_policy(tmp_path)
+    _, argv = _seatbelt_profile(policy, _context(tmp_path, cwd=str(workspace)))
+    readable = {a.split("=", 1)[1] for a in argv if a.startswith("-DREADABLE_ROOT_") and "_EXCLUDED_" not in a}
+    excluded = {a.split("=", 1)[1] for a in argv if a.startswith("-DREADABLE_ROOT_0_EXCLUDED_")}
+    assert os.path.realpath(workspace) in readable
+    assert os.path.realpath(state) in excluded
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or not os.path.exists("/usr/bin/sandbox-exec"),
+    reason="needs macOS sandbox-exec",
+)
+def test_seatbelt_runs_a_script_in_a_nested_workspace_but_hides_the_data_directory(tmp_path):
+    import subprocess
+
+    policy, state, workspace, script = _nested_workspace_policy(tmp_path)
+    _, argv = _seatbelt_profile(policy, _context(tmp_path, cwd=str(workspace)))
+    ran = subprocess.run([*argv, "/bin/bash", str(script)], cwd=workspace, capture_output=True, text=True)
+    assert ran.returncode == 0, ran.stderr
+    assert ran.stdout.strip() == "NESTED_OK"
+    leaked = subprocess.run([*argv, "/bin/cat", str(state / "data.db")], cwd=workspace, capture_output=True, text=True)
+    assert leaked.returncode != 0 and "secret" not in leaked.stdout
+
+
+def _capability_store(tmp_path):
+    """A capability store laid out like the desktop one, credentials included."""
+    caps = tmp_path / "caps"
+    builtin = caps / "skills" / "builtin" / "docx" / "rev1"
+    plugin = caps / "plugins" / "local" / "visualize" / "rev1"
+    plugin_skill = plugin / "package" / "skills" / "visualize"
+    view = caps / ".capabilities" / "views" / ("a" * 64) / "skills"
+    for directory in (builtin, plugin_skill / "scripts", view):
+        directory.mkdir(parents=True)
+    (plugin_skill / "scripts" / "render.py").write_text("print('RENDER_OK')\n", encoding="utf-8")
+    (plugin / "plugin.json").write_text('{"secret": "plugin-manifest"}', encoding="utf-8")
+    (caps / "mcp.json").write_text('{"token": "mcp-secret"}', encoding="utf-8")
+    outside = tmp_path / "outside" / "skills"
+    outside.mkdir(parents=True)
+    escaped = caps / "plugins" / "local" / "evil" / "rev1" / "package"
+    escaped.mkdir(parents=True)
+    (escaped / "skills").symlink_to(outside, target_is_directory=True)
+    return caps, plugin_skill
+
+
+def test_only_skill_directories_of_the_capability_store_are_reopened(tmp_path, monkeypatch):
+    from core.sandbox.permissions import os_gate
+
+    caps, plugin_skill = _capability_store(tmp_path)
+    monkeypatch.setenv("HUGAGENT_CAPS_ROOT", str(caps))
+    roots = os_gate.capability_skill_roots()
+    assert roots == (
+        str(caps / "skills"),
+        str(plugin_skill.parent),
+        str(caps / ".capabilities" / "views" / ("a" * 64) / "skills"),
+    )
+    for credential in (caps / "mcp.json", caps / "plugins" / "local" / "visualize" / "rev1" / "plugin.json"):
+        assert not any(str(credential).startswith(root + os.sep) for root in roots)
+    monkeypatch.delenv("HUGAGENT_CAPS_ROOT")
+    assert os_gate.capability_skill_roots() == ()
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or not os.path.exists("/usr/bin/sandbox-exec"),
+    reason="needs macOS sandbox-exec",
+)
+def test_seatbelt_lets_a_skill_script_run_while_store_credentials_stay_hidden(tmp_path, monkeypatch):
+    import subprocess
+
+    from core.sandbox.permissions import os_gate
+
+    caps, plugin_skill = _capability_store(tmp_path)
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    monkeypatch.setenv("HUGAGENT_CAPS_ROOT", str(caps))
+    policy = SandboxPolicy(
+        filesystem=build_filesystem_policy(
+            writable_roots=[str(workspace)],
+            readable_roots=list(os_gate.capability_skill_roots()),
+            denied_paths=[str(caps)],
+        )
+    )
+    _, argv = _seatbelt_profile(policy, _context(tmp_path, cwd=str(workspace)))
+
+    def cat(path):
+        return subprocess.run([*argv, "/bin/cat", str(path)], cwd=workspace, capture_output=True, text=True)
+
+    assert cat(plugin_skill / "scripts" / "render.py").stdout.strip() == "print('RENDER_OK')"
+    for secret in (caps / "mcp.json", caps / "plugins" / "local" / "visualize" / "rev1" / "plugin.json"):
+        leaked = cat(secret)
+        assert leaked.returncode != 0 and "secret" not in leaked.stdout
+    wrote = subprocess.run(
+        [*argv, "/bin/sh", "-c", f"echo x > {plugin_skill / 'scripts' / 'render.py'}"],
+        cwd=workspace, capture_output=True, text=True,
+    )
+    assert wrote.returncode != 0, "skill directories are reopened for reading only"
+
+
+def test_bwrap_binds_readable_roots_back_inside_a_masked_directory(tmp_path):
+    state = tmp_path / "data"
+    workspace = state / "workspace"
+    skills = state / "plugins" / "local" / "visualize" / "rev1" / "package" / "skills"
+    workspace.mkdir(parents=True)
+    skills.mkdir(parents=True)
+    policy = SandboxPolicy(
+        filesystem=build_filesystem_policy(
+            writable_roots=[str(workspace)], readable_roots=[str(skills)], denied_paths=[str(state)]
+        )
+    )
+    resolved = policy.filesystem.resolve(_context(tmp_path, cwd=str(workspace)))
+    args = BubblewrapBackend()._denied_args(resolved, [str(workspace)])
+    triples = [args[index : index + 3] for index in range(len(args) - 2)]
+    assert ["--bind", str(workspace), str(workspace)] in triples
+    assert ["--ro-bind", str(skills), str(skills)] in triples
+    assert args.index("--remount-ro") > args.index(str(skills))
+
+
 # ── Windows ─────────────────────────────────────────────────────────────────
 
 
@@ -403,7 +534,7 @@ def test_labels_follow_the_plan_and_leave_with_it(tmp_path, monkeypatch):
     for name in ("label_writable", "label_read_only", "remove_label"):
         setattr(stub, name, lambda path, _name=name: calls.append((_name, path)))
     monkeypatch.setitem(sys.modules, "core.sandbox.oslayer.win32.label", stub)
-    monkeypatch.setattr(windows_runtime, "_IN_USE", Counter())
+    monkeypatch.setattr(windows_runtime.process_state(), 'IN_USE', Counter())
     state = str(tmp_path / "state")
     workspace, once, busy = (str(tmp_path / name) for name in ("ws", "once", "busy"))
 
@@ -426,7 +557,7 @@ def test_labels_follow_the_plan_and_leave_with_it(tmp_path, monkeypatch):
     assert LabeledRoots(state).load() == {root_key(p) for p in (workspace, once, busy)}
 
     calls.clear()
-    windows_runtime._IN_USE[root_key(busy)] += 1
+    windows_runtime.process_state().IN_USE[root_key(busy)] += 1
     windows_runtime.apply_labels(
         {"state_dir": state, "writable_roots": [{"path": workspace, "read_only": []}]}
     )

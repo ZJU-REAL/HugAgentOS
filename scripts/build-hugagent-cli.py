@@ -20,7 +20,7 @@ with tempfile.TemporaryDirectory(prefix="hugagent-cli-") as temporary:
         ignore=shutil.ignore_patterns("__pycache__"),
     )
     (base / "pyproject.toml").write_text(
-        '[build-system]\nrequires = ["setuptools>=68", "wheel"]\nbuild-backend = "setuptools.build_meta"\n[project]\nname = "hugagent-cli"\nversion = "0.1.0"\nrequires-python = ">=3.11"\ndescription = "HugAgentOS cloud and device session client"\n[project.scripts]\nhugagent = "hugagent_cli.main:main"\n'
+        '[build-system]\nrequires = ["setuptools>=68", "wheel"]\nbuild-backend = "setuptools.build_meta"\n[project]\nname = "hugagent-cli"\nversion = "0.1.0"\nrequires-python = ">=3.11"\ndescription = "HugAgentOS cloud and device session client"\n[project.scripts]\nhugagent-session = "hugagent_cli.main:main"\n'
     )
     subprocess.run(
         [

@@ -22,12 +22,9 @@ import asyncio
 import time
 
 import pytest
-from core.services.run_journal import RunLeaseLost
-from orchestration.chat_run_executor import (
-    _CANCEL_VISIBILITY_SEC,
-    _OFFSET_RESERVATION,
-    _EventOffsets,
-)
+from core.runs.events.writer import EventOffsets
+from core.runs.settings import _CANCEL_VISIBILITY_SEC, _OFFSET_RESERVATION
+from core.runs.journal import RunLeaseLost
 
 
 class CountingJournal:
@@ -53,7 +50,7 @@ class CountingJournal:
 
 def _offsets(lease_lost=None):
     journal = CountingJournal()
-    return journal, _EventOffsets(
+    return journal, EventOffsets(
         journal, "run", "owner", lease_lost=lease_lost or asyncio.Event()
     )
 

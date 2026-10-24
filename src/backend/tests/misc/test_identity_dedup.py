@@ -20,7 +20,7 @@ from core.db.engine import Base
 from core.db.identity_dedup import merge_duplicate_user_shadows
 from core.db.models import ChatSession, UserShadow
 from core.db.repository import UserRepository
-from core.services.user_service import UserService
+from core.auth.users import UserService
 
 CENTER_ID = "cloud:example.test:443:42"
 

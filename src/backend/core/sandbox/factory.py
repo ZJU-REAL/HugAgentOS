@@ -8,6 +8,7 @@ Test cases can call ``reset_provider_cache()`` to force the next
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 from core.config.settings import settings
 
@@ -15,34 +16,31 @@ from .protocol import SandboxProvider
 
 logger = logging.getLogger(__name__)
 
-_provider: SandboxProvider | None = None
-
 
 def _ordinary_provider() -> SandboxProvider:
-    global _provider
-    if _provider is not None:
-        return _provider
+    if process_state().provider is not None:
+        return process_state().provider
 
     kind = settings.sandbox.provider
     if kind == "script_runner":
         from core.sandbox.providers.script_runner.provider import ScriptRunnerProvider
 
-        _provider = ScriptRunnerProvider()
+        process_state().provider = ScriptRunnerProvider()
     elif kind == "opensandbox":
         from core.sandbox.providers.edition import PersistentSandboxProvider
 
-        _provider = PersistentSandboxProvider()
+        process_state().provider = PersistentSandboxProvider()
     elif kind == "cube":
         from core.sandbox.providers.cube.provider import CubeSandboxProvider
 
-        _provider = CubeSandboxProvider()
+        process_state().provider = CubeSandboxProvider()
     else:
         raise ValueError(
             f"未知 SANDBOX_PROVIDER: {kind!r}，可选: script_runner / opensandbox / cube"
         )
 
-    logger.info("[sandbox] activated provider=%s", _provider.name)
-    return _provider
+    logger.info("[sandbox] activated provider=%s", process_state().provider.name)
+    return process_state().provider
 
 
 def get_sandbox_provider() -> SandboxProvider:
@@ -53,5 +51,16 @@ def get_sandbox_provider() -> SandboxProvider:
 
 def reset_provider_cache() -> None:
     """For testing use only."""
-    global _provider
-    _provider = None
+    process_state().provider = None
+
+
+@dataclass
+class FactoryState:
+    provider: SandboxProvider | None = None
+
+
+_STATE = FactoryState()
+
+
+def process_state() -> FactoryState:
+    return _STATE

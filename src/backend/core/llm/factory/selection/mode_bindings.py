@@ -22,12 +22,7 @@ async def mode_bindings(request: AgentRequest, *, required: RequiredCapabilities
             _mode_plugin_ids = list(getattr(request.mode_spec, "plugin_ids", ()) or ())
             _turbo_code_exec = bool(getattr(request.mode_spec, "code_exec_enabled", False))
         else:
-            from core.services.system_config import (
-                turbo_manual_invoke_enabled,
-                turbo_mcp_server_ids,
-                turbo_plugin_ids,
-                turbo_skill_ids,
-            )
+            from core.config.store.execution_options import turbo_manual_invoke_enabled, turbo_mcp_server_ids, turbo_plugin_ids, turbo_skill_ids
 
             _mode_manual_invoke = turbo_manual_invoke_enabled()
             _mode_mcp_ids = sorted(turbo_mcp_server_ids())

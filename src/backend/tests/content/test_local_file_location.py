@@ -15,13 +15,14 @@ from core.auth.backend import UserContext, get_current_user
 from core.config import settings as settings_module
 from core.db.engine import Base, get_db
 from core.db.models import Artifact, Project, UserShadow
+from tests.db_support import share_session
 
 
 @pytest.fixture
 def local_files(tmp_path, monkeypatch):
-    from core.storage import factory
+    from core.files.storage import factory
 
-    monkeypatch.setattr(factory, "_storage_instance", None)
+    monkeypatch.setattr(factory.process_state(), 'storage_instance', None)
     monkeypatch.setenv("STORAGE_TYPE", "local")
     monkeypatch.setenv("STORAGE_PATH", str(tmp_path))
     settings = settings_module.settings
@@ -66,6 +67,7 @@ def local_files(tmp_path, monkeypatch):
     app.include_router(files.router)
     app.include_router(projects.router)
     app.dependency_overrides[get_db] = lambda: db
+    share_session(monkeypatch, db)
 
     def authenticate(request: Request):
         user_id = request.headers.get("x-test-user")

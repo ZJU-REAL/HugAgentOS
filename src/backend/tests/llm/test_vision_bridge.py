@@ -12,9 +12,9 @@ import json
 
 import pytest
 
-from core.vision.render import render_evidence, render_many, render_unavailable
-from core.vision.schema import VISION_JSON_SCHEMA, VisionEvidence, parse_evidence
-from core.vision.service import sniff_mime
+from core.models.vision.render import render_evidence, render_many, render_unavailable
+from core.models.vision.schema import VISION_JSON_SCHEMA, VisionEvidence, parse_evidence
+from core.models.vision.service import sniff_mime
 
 # 一张 1x1 的合法 PNG
 PNG_1X1 = base64.b64decode(
@@ -158,8 +158,8 @@ class _FakeCfg:
 
 def _bridge_with(monkeypatch, responses: list[str]):
     """把 provider 换成按序返回给定文本的假实现，返回 (bridge, 调用计数器)。"""
-    from core.vision import service as svc
-    from core.vision.provider import VisionCallResult
+    from core.models.vision import service as svc
+    from core.models.vision.provider import VisionCallResult
 
     calls = {"n": 0}
 
@@ -210,7 +210,7 @@ def test_describe_rejects_non_image_without_calling_model(monkeypatch):
 
 
 def test_describe_rejects_oversized_image(monkeypatch):
-    from core.vision import service as svc
+    from core.models.vision import service as svc
 
     bridge, calls = _bridge_with(monkeypatch, [json.dumps(GOOD_PAYLOAD)])
     monkeypatch.setattr(svc, "MAX_IMAGE_BYTES", 10)
@@ -219,7 +219,7 @@ def test_describe_rejects_oversized_image(monkeypatch):
 
 
 def test_describe_returns_none_when_unconfigured(monkeypatch):
-    from core.vision import service as svc
+    from core.models.vision import service as svc
 
     monkeypatch.setattr(svc, "resolve_vision_config", lambda: None)
     bridge = svc.VisionBridge()
@@ -235,7 +235,7 @@ def test_describe_many_is_concurrent_and_order_preserving(monkeypatch):
 
 
 def test_cache_key_changes_with_model_and_focus():
-    from core.vision.service import VisionBridge
+    from core.models.vision.service import VisionBridge
 
     class _Other(_FakeCfg):
         model_name = "another-vl"
@@ -250,7 +250,7 @@ def test_cache_key_changes_with_model_and_focus():
 
 
 def test_model_supports_vision_reads_explicit_flag():
-    from core.vision import model_supports_vision
+    from core.models.vision import model_supports_vision
 
     class _Cfg(_FakeCfg):
         extra = {"supports_vision": True}
@@ -261,7 +261,7 @@ def test_model_supports_vision_reads_explicit_flag():
 
 
 def test_vision_role_is_registered():
-    from core.db.model_repository import ROLE_DEFINITIONS
+    from core.models.repository import ROLE_DEFINITIONS
 
     assert ROLE_DEFINITIONS["vision"]["type"] == "chat"
 

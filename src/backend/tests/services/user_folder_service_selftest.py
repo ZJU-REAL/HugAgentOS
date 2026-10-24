@@ -15,11 +15,7 @@ def main() -> int:
     try:
         from core.db.engine import Base
         from core.db.models import Artifact, UserFolder, UserShadow
-        from core.services.user_folder_service import (
-            MAX_FOLDER_DEPTH,
-            UserFolderService,
-            _sanitize_name,
-        )
+        from core.projects.user_folders import MAX_FOLDER_DEPTH, UserFolderService, _sanitize_name
         from sqlalchemy import create_engine
         from sqlalchemy.orm import sessionmaker
     except ModuleNotFoundError as e:

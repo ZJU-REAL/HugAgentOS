@@ -5,11 +5,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from core.agent_skills.backends import (
-    CompositeBackend,
-    FilesystemBackend,
-    SkillFileInfo,
-)
+from core.capabilities.skills.backends import CompositeBackend, FilesystemBackend, SkillFileInfo
 
 
 def test_filesystem_backend_list():

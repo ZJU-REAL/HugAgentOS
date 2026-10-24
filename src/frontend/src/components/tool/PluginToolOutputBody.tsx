@@ -4,7 +4,9 @@ import { usePluginUiStore } from '../../stores/pluginUiStore';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { PluginModuleFrame, PluginView, resolveText } from '../../plugin-ui';
 import { renderToolOutputBody } from './ToolOutputRenderer';
-export function ToolOutputBody({ toolName, output }: { toolName: string; output: unknown }) {
+import { unwrapMcpResult } from './renderers/utils';
+export function ToolOutputBody({ toolName, output: rawOutput }: { toolName: string; output: unknown }) {
+  const output = useMemo(() => unwrapMcpResult(rawOutput), [rawOutput]);
   const { setDetailModal } = useUIStore();
   const items = usePluginUiStore((state) => state.items);
   const openPluginCanvas = useCanvasStore((state) => state.openPluginView);

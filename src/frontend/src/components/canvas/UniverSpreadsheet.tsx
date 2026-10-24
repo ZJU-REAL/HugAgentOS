@@ -1,7 +1,11 @@
 import { useEffect, useRef, useImperativeHandle, forwardRef, useState, useCallback } from 'react';
+import { message } from 'antd';
 import { t } from '../../i18n';
 import { authFetch } from '../../api';
 import { readLimitedArrayBuffer } from '../../utils/filePreviewSafety';
+import { useCanvasPane } from './useCanvasPane';
+import { fileQuote, quoteIntoChat, useCanvasChatId } from './selection/canvasChat';
+import { SpreadsheetQuoteButton } from './selection/SpreadsheetQuoteButton';
 
 type UniverCreationResult = ReturnType<(typeof import('@univerjs/presets'))['createUniver']>;
 
@@ -25,6 +29,10 @@ export const UniverSpreadsheet = forwardRef<UniverSpreadsheetHandle, UniverSprea
     const containerRef = useRef<HTMLDivElement>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    // `Sheet1!A1:C5` of the current selection; drives the "quote range" pill.
+    const [selectedRange, setSelectedRange] = useState<string | null>(null);
+    const artifact = useCanvasPane((s) => s.artifact);
+    const chatId = useCanvasChatId();
 
     const univerAPIRef = useRef<UniverCreationResult['univerAPI'] | null>(null);
     const dirtyRef = useRef(false);
@@ -113,6 +121,7 @@ export const UniverSpreadsheet = forwardRef<UniverSpreadsheetHandle, UniverSprea
       let disposed = false;
       let univerInstance: UniverCreationResult['univer'] | null = null;
       let parseWorker: Worker | null = null;
+      let selectionListener: { dispose: () => void } | null = null;
       const controller = new AbortController();
 
       (async () => {
@@ -212,6 +221,9 @@ export const UniverSpreadsheet = forwardRef<UniverSpreadsheetHandle, UniverSprea
           // "Univer not initialised"（问题 28：表格还在转圈时点保存直接报错）
           if (readOnly) workbook.setEditable(false);
           onReadyChange?.(true);
+          selectionListener = workbook.onSelectionChange(() => {
+            setSelectedRange(workbook.getActiveSheet().getActiveRange()?.getA1Notation(true) ?? null);
+          });
 
           // 6. Dirty detection — delayed to skip init commands
           setTimeout(() => {
@@ -251,6 +263,8 @@ export const UniverSpreadsheet = forwardRef<UniverSpreadsheetHandle, UniverSprea
         disposed = true;
         controller.abort();
         parseWorker?.terminate();
+        selectionListener?.dispose();
+        setSelectedRange(null);
         try { univerInstance?.dispose(); } catch { /* */ }
         onReadyChange?.(false);
         univerAPIRef.current = null;
@@ -258,6 +272,20 @@ export const UniverSpreadsheet = forwardRef<UniverSpreadsheetHandle, UniverSprea
         initDoneRef.current = false;
       };
     }, [fileName, maxBytes, url, readOnly]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const quoteSelection = () => {
+      const range = univerAPIRef.current?.getActiveWorkbook()?.getActiveSheet().getActiveRange();
+      if (!range || !chatId || !artifact) return;
+      // Whole-column selections reach the sheet's last row; drop the blank tail.
+      const rows = range.getDisplayValues();
+      while (rows.length && rows[rows.length - 1].every((cell) => !cell)) rows.pop();
+      const tsv = rows.map((row) => row.join('\t')).join('\n');
+      if (!tsv.trim()) {
+        message.info(t('选中的单元格都是空的'));
+        return;
+      }
+      quoteIntoChat(chatId, fileQuote(artifact, tsv, range.getA1Notation(true)));
+    };
 
     if (error) return <div className="jx-canvas-error">{error}</div>;
 
@@ -274,6 +302,9 @@ export const UniverSpreadsheet = forwardRef<UniverSpreadsheetHandle, UniverSprea
           <span>{t('正在加载电子表格...')}</span>
         </div>
         <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
+        {!loading && chatId && artifact && selectedRange && (
+          <SpreadsheetQuoteButton range={selectedRange} onQuote={quoteSelection} />
+        )}
       </div>
     );
   },

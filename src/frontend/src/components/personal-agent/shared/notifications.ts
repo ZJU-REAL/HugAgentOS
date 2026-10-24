@@ -2,7 +2,7 @@ import { needsResultCheck } from '../tasks/taskState';
 import { t } from '../../../i18n';
 import { useEffect } from 'react';
 import { useAuthStore } from '../../../stores/authStore';
-import { useTaskNotificationStore, normalizeTaskStatus, taskIndicator } from '../../../stores/taskNotificationStore';
+import { useTaskNotificationStore, normalizeTaskStatus } from '../../../stores/taskNotificationStore';
 import { personalRequest, type PersonalTask } from '../api';
 
 interface PersonalSidebarStatus {tasks:Array<PersonalTask & {result_seq?:number}>;replying:boolean;latest_seq:number;unread_count:number}
@@ -39,19 +39,14 @@ export function usePersonalAgentNotifications() {
   },[available,scope]);
 }
 export function usePersonalTaskIndicator(){
-  const notices=useTaskNotificationStore(s=>s.notices);
+  // The permanent agent entry lights up only for unread messages; task progress stays in the panel.
   const unread=useTaskNotificationStore(s=>s.personalUnread);
-  const replying=useTaskNotificationStore(s=>s.personalReplying);
-  const indicator=taskIndicator(Object.values(notices).filter(n=>n.key.startsWith('personal:')),replying);
-  if((indicator.status==='idle'||(indicator.status==='completed'&&indicator.seen))&&unread>0)return {status:'completed' as const,seen:false,unread};
-  // A completed and already-read task should not leave the permanent agent entry lit.
-  return {...indicator,status:indicator.status==='completed'&&indicator.seen?'idle' as const:indicator.status,unread};
+  return {lit:unread>0,unread};
 }
 
 export function usePersonalAgentStatusText(){
   const available=useAuthStore(s=>s.authUser?.can_use_personal_agent===true);
   const state=usePersonalTaskIndicator();
-  if(!available)return '';
-  const labels={running:t('运行中'),waiting:t('等待你的输入或确认'),failed:t('任务失败'),completed:t('任务已完成，结果未读'),idle:''};
-  return [labels[state.status],state.unread>0?t('{count} 条未读消息',{count:state.unread}):''].filter(Boolean).join(' · ');
+  if(!available||!state.lit)return '';
+  return t('{count} 条未读消息',{count:state.unread});
 }

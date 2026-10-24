@@ -1,0 +1,138 @@
+"""Community single-owner authorization contracts."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Literal
+
+from core.db.engine import get_db
+from core.db.models import ChatSession, Project
+from fastapi import Depends, HTTPException, Path, Request
+from sqlalchemy.orm import Session
+
+PermissionLevel = Literal["none", "view", "edit", "admin"]
+
+_RANK = {"none": 0, "view": 1, "edit": 2, "admin": 3}
+
+
+def has_permission(current: PermissionLevel, required: PermissionLevel) -> bool:
+    return _RANK[current] >= _RANK[required]
+
+
+def resolve_artifact_access(db: Session, user_id: str, owner_id, scope_id) -> PermissionLevel:
+    """Resolve access solely from personal ownership."""
+    if owner_id and str(owner_id) == str(user_id):
+        return "admin"
+    return "none"
+
+
+# ── 项目权限（CE：个人项目 owner 判定保留） ───────────────────────────────────
+
+ProjectPermissionLevel = Literal["none", "view", "edit", "admin"]
+
+
+@dataclass(frozen=True)
+class ProjectAccessInfo:
+    level: ProjectPermissionLevel
+    is_owner: bool
+
+
+NO_ACCESS = ProjectAccessInfo("none", False)
+
+
+def resolve_project_access(db: Session, user_id: str, project: Project) -> ProjectAccessInfo:
+    if project is None or project.deleted_at is not None:
+        return NO_ACCESS
+    # Personal (myspace-folder) and local (desktop host-folder) projects are both
+    # single-owner in CE; the owner is admin. Non-personal legacy data is never visible.
+    if project.kind in ("personal", "local") and project.owner_user_id == user_id:
+        return ProjectAccessInfo("admin", True)
+    return NO_ACCESS
+
+
+def resolve_project_permission(
+    db: Session, user_id: str, project: Project
+) -> ProjectPermissionLevel:
+    return resolve_project_access(db, user_id, project).level
+
+
+def is_project_owner(db: Session, user_id: str, project: Project) -> bool:
+    return resolve_project_access(db, user_id, project).is_owner
+
+
+@dataclass
+class ProjectAccess:
+    """传给路由的访问上下文：project + 用户权限 + user_id。"""
+
+    project: Project
+    level: ProjectPermissionLevel
+    user_id: str
+    is_owner: bool = False
+
+
+def require_project_access(
+    min_level: ProjectPermissionLevel = "view", *, owner_only: bool = False
+):
+    """FastAPI dependency factory（CE 单租户版，保留存在性 404）。"""
+
+    from core.auth.backend import UserContext, get_current_user  # 避免循环导入
+
+    def _dep(
+        project_id: str = Path(..., description="项目 ID"),
+        request: Request = None,
+        user: "UserContext" = Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ) -> ProjectAccess:
+        user_id = str(user.user_id)
+        project = (
+            db.query(Project)
+            .filter(Project.project_id == project_id, Project.deleted_at.is_(None))
+            .first()
+        )
+        if project is None:
+            raise HTTPException(status_code=404, detail="项目不存在或你无权访问")
+
+        info = resolve_project_access(db, user_id, project)
+        if info.level == "none":
+            raise HTTPException(status_code=404, detail="项目不存在或你无权访问")
+        if not has_permission(info.level, min_level):
+            raise HTTPException(status_code=403, detail="当前权限不足")
+        if owner_only and not info.is_owner:
+            raise HTTPException(status_code=403, detail="仅项目创建人可执行此操作")
+        return ProjectAccess(project=project, level=info.level, user_id=user_id, is_owner=info.is_owner)
+
+    return _dep
+
+
+# ── 会话权限（CE：owner-only） ───────────────────────────────────────────────
+
+ChatAccessLevel = Literal["none", "read", "edit", "admin"]
+
+
+def resolve_chat_access(db: Session, user_id: str, session: ChatSession) -> ChatAccessLevel:
+    if session is None or session.deleted_at is not None:
+        return "none"
+    return "admin" if session.user_id == user_id else "none"
+
+
+def can_delete_session(db: Session, user_id: str, session: ChatSession) -> bool:
+    if session is None or session.deleted_at is not None:
+        return False
+    return session.user_id == user_id
+
+
+__all__ = [
+    "ChatAccessLevel",
+    "can_delete_session",
+    "resolve_chat_access",
+    "ProjectAccess",
+    "ProjectAccessInfo",
+    "ProjectPermissionLevel",
+    "is_project_owner",
+    "require_project_access",
+    "resolve_project_access",
+    "resolve_project_permission",
+    "PermissionLevel",
+    "has_permission",
+    "resolve_artifact_access",
+]

@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from core.content.archive_browser import MAX_MEMBER_BYTES
+from core.files.content.archive_browser import MAX_MEMBER_BYTES
 from tests.api.test_archive_files import archive_client
 
 
@@ -109,7 +109,7 @@ def test_large_zip_member_cannot_be_expanded(archive_client):
 
 def test_expanded_tar_scan_has_a_hard_budget(archive_client, monkeypatch):
     client, upload = archive_client
-    monkeypatch.setattr("core.content.archive_browser.MAX_SCAN_BYTES", 32 * 1024)
+    monkeypatch.setattr('core.files.content.archive_browser.MAX_SCAN_BYTES', 32 * 1024)
     data = io.BytesIO()
     with tarfile.open(fileobj=data, mode="w:gz") as archive:
         info = tarfile.TarInfo("file.txt")

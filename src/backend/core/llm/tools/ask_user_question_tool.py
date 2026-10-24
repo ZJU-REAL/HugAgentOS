@@ -1,11 +1,12 @@
 """Model-facing ``ask_user_question`` tool over the suspended question registry."""
+from core.llm.factory.tools.definitions import function_tool
 
 import logging
 from typing import Annotated, List, Optional
 
 from agentscope.message import TextBlock
 from agentscope.tool import Toolkit
-from agentscope.tool._response import ToolChunk as ToolResponse
+from agentscope.tool._response import ToolChunk
 from agentscope.tool._response import ToolResultState
 from core.llm.tools import user_questions
 from core.llm.tools._common import resp_json
@@ -78,7 +79,7 @@ class AskUserQuestionItem(TypedDict):
     ]
 
 
-def _error_response(status: str) -> ToolResponse:
+def _error_response(status: str) -> ToolChunk:
     """Return DSH-style tool errors while retaining local timeout semantics."""
 
     errors = {
@@ -97,7 +98,7 @@ def _error_response(status: str) -> ToolResponse:
         status,
         ("ASK_ABORTED", "ask_user_question was aborted before the user answered"),
     )
-    return ToolResponse(
+    return ToolChunk(
         content=[TextBlock(type="text", text=f"Error: {message}")],
         state=ToolResultState.ERROR,
         metadata={
@@ -132,7 +133,7 @@ def register_ask_user_question(
             List[AskUserQuestionItem],
             Field(description="Questions to ask the user before continuing."),
         ],
-    ) -> ToolResponse:
+    ) -> ToolChunk:
         """Ask the user one or more questions and wait for the human answer."""
 
         result = await user_questions.ask(
@@ -160,7 +161,7 @@ def register_ask_user_question(
     # to DSH's exact two-sentence contract instead of leaking local policy or
     # transport details into the fixed tool-schema prefix.
     ask_user_question.__doc__ = _TOOL_DESCRIPTION
-    toolkit.register_tool_function(ask_user_question, namesake_strategy="override")
+    toolkit.append(function_tool(ask_user_question))
     logger.info("[factory] Registered ask_user_question tool (interactive top-level chat)")
 
 

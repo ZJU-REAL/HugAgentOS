@@ -8,23 +8,14 @@ pruning old tool outputs before cutting whole steps from the oldest end.
 
 import pytest
 from agentscope.message import Msg, TextBlock, ThinkingBlock, ToolCallBlock, ToolResultBlock
-from core.llm.chat_models import ReasoningEchoChatFormatter
-from core.llm.context_adapter import (
-    AgentScopeContextAdapter,
-    next_request_sequence,
-    render_context_item,
-)
-from core.llm.context_ir import (
-    KIND_THINKING,
-    KIND_TOOL_CALL,
-    KIND_TOOL_RESULT,
-    KIND_USER_INPUT,
-    POLICY_NEVER,
-    ContextAssembler,
-    ContextItem,
-)
-from core.llm.message_compat import session_to_msgs
-from core.llm.model_steps import record_assistant_step, record_tool_result_step, replay_rows
+from core.models.chat_models import ReasoningEchoChatFormatter
+from core.llm.context.adapter import AgentScopeContextAdapter
+from core.llm.context.rendering import next_request_sequence, render_context_item
+from core.llm.context.ir_constants import KIND_THINKING, KIND_TOOL_CALL, KIND_TOOL_RESULT, KIND_USER_INPUT, POLICY_NEVER
+from core.llm.context.ir import ContextAssembler
+from core.llm.context.items import ContextItem
+from core.llm.runtime.message_compat import session_to_msgs
+from core.llm.runtime.model_steps import record_assistant_step, record_tool_result_step, replay_rows
 
 LONG_THINKING = "深入推理一下这个问题，" * 4_000  # far beyond the old 20k per-block cap
 

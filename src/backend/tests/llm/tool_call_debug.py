@@ -9,6 +9,10 @@ os.environ["AGENTSCOPE_DISABLE_CONSOLE_OUTPUT"] = "true"
 
 
 async def main():
+    from features import register_model_credentials, register_product_tools, register_run_capabilities
+    register_product_tools()
+    register_run_capabilities()
+    register_model_credentials()
     from core.llm.factory import create_agent_executor
 
     print("Creating agent...", flush=True)

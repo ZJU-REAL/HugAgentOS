@@ -13,11 +13,13 @@ rather than merely sparse:
 * every cycle minted a fresh near-duplicate of the same proposal, because the
   hashed payload carried the evidence count.
 """
+from core.evolution.profiles import agent_profile as agent_profile_module
+from core.evolution.profiles import agent_profile_constants as agent_profile_state_module
 
 import pytest
 
-from core.evolution import credit as C
-from core.evolution.console_view import candidate_to_dict
+from core.evolution.evidence import credit as C
+from core.evolution.profiles.console_view import candidate_to_dict
 
 
 class _Row:
@@ -163,7 +165,7 @@ def test_the_catch_all_task_type_is_never_narrowed():
     dev corpus: a proposal to remove database access, report export, site
     publishing and scheduled tasks from every conversation.
     """
-    from core.evolution.orchestration_gen import converge_tools
+    from core.evolution.generators.orchestration_gen import converge_tools
 
     offered = [f"tool{i}" for i in range(12)]
     proposals = converge_tools(
@@ -173,7 +175,7 @@ def test_the_catch_all_task_type_is_never_narrowed():
 
 
 def test_a_thin_corpus_cannot_remove_a_capability():
-    from core.evolution.orchestration_gen import converge_tools
+    from core.evolution.generators.orchestration_gen import converge_tools
 
     offered = [f"tool{i}" for i in range(12)]
     assert (
@@ -185,7 +187,7 @@ def test_a_thin_corpus_cannot_remove_a_capability():
 
 def test_a_cut_this_large_is_reported_but_not_proposed():
     """Removing most of the toolbox is a different product, not a tuning step."""
-    from core.evolution.orchestration_gen import converge_tools
+    from core.evolution.generators.orchestration_gen import converge_tools
 
     offered = [f"tool{i}" for i in range(12)]
     # 400 episodes, only 3 tools ever used → 9 of 12 unused, far past the cap.
@@ -197,7 +199,7 @@ def test_a_cut_this_large_is_reported_but_not_proposed():
 
 
 def test_a_modest_well_evidenced_narrowing_is_proposed():
-    from core.evolution.orchestration_gen import converge_tools
+    from core.evolution.generators.orchestration_gen import converge_tools
 
     offered = [f"tool{i}" for i in range(12)]
     used = [f"tool{i}" for i in range(9)]  # 3 of 12 unused — within the cap
@@ -223,23 +225,23 @@ def test_the_attribution_target_names_the_assembly_not_a_dag():
 def test_react_observable_signals_are_declared_separately():
     """A rule that can never fire looks the same, in the console, as one that
     simply has not fired yet."""
-    from core.evolution import agent_profile as AP
+    from core.evolution.profiles import agent_profile as AP
 
-    assert AP.SIGNAL_REPEATED_ACTIONS in AP.REACT_OBSERVABLE_SIGNALS
-    assert AP.SIGNAL_TOOL_ERROR_STREAK in AP.REACT_OBSERVABLE_SIGNALS
+    assert agent_profile_state_module.SIGNAL_REPEATED_ACTIONS in agent_profile_state_module.REACT_OBSERVABLE_SIGNALS
+    assert agent_profile_state_module.SIGNAL_TOOL_ERROR_STREAK in agent_profile_state_module.REACT_OBSERVABLE_SIGNALS
     # Needs a file tree / a reviewer verdict: a single answer has neither.
-    assert AP.SIGNAL_NO_DIFF in AP.LOOP_ONLY_SIGNALS
-    assert AP.SIGNAL_REVIEWER_FLAT in AP.LOOP_ONLY_SIGNALS
-    assert not (AP.REACT_OBSERVABLE_SIGNALS & AP.LOOP_ONLY_SIGNALS)
+    assert agent_profile_state_module.SIGNAL_NO_DIFF in agent_profile_state_module.LOOP_ONLY_SIGNALS
+    assert agent_profile_state_module.SIGNAL_REVIEWER_FLAT in agent_profile_state_module.LOOP_ONLY_SIGNALS
+    assert not (agent_profile_state_module.REACT_OBSERVABLE_SIGNALS & agent_profile_state_module.LOOP_ONLY_SIGNALS)
 
 
 def test_the_builtin_profile_only_carries_rules_the_react_loop_can_act_on():
     """Shipping a default rule the main axis cannot observe would mean the
     built-in profile advertises an intervention that never happens."""
-    from core.evolution import agent_profile as AP
+    from core.evolution.profiles import agent_profile as AP
 
-    builtin = AP.builtin_profile()
+    builtin = agent_profile_module.builtin_profile()
     react_rules = [
-        r for r in builtin.intervention_rules if r.signal in AP.REACT_OBSERVABLE_SIGNALS
+        r for r in builtin.intervention_rules if r.signal in agent_profile_state_module.REACT_OBSERVABLE_SIGNALS
     ]
     assert react_rules, "the default profile must be able to intervene on the main axis"

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Dict
 
-from core.config.edition_display_names import edition_mcp_user_intros
+from core.config.edition import edition_mcp_user_intros
 
 # ── Skills ────────────────────────────────────────────────────────────
 

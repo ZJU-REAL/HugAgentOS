@@ -2,6 +2,38 @@ import { usePluginUiStore } from './pluginUiStore';
 import { resourceBinding, type ResourceBinding } from '../plugin-ui/module/resource';
 import { create } from 'zustand';
 import { artifactOrigin, type ArtifactLocation } from '../utils/artifactAccess';
+import { loadJsonPref, removeLocal, saveJsonPref } from '../storage';
+
+const PANEL_WIDTH_KEY = 'jx_canvas_panel_width';
+const PANEL_MIN_WIDTH = 400;
+/** Room the chat column keeps beside the panel. */
+const PANEL_CHAT_RESERVE = 420;
+
+/** Keep a dragged or restored panel width within what the layout can show. */
+export function clampPanelWidth(width: number, available: number): number {
+  return Math.round(Math.max(PANEL_MIN_WIDTH, Math.min(width, available - PANEL_CHAT_RESERVE)));
+}
+
+// Drag-resize calls setPanelWidth every frame; write once it settles.
+let persistTimer: ReturnType<typeof setTimeout> | undefined;
+let pendingWrite: (() => void) | undefined;
+function persistPanelWidth(width: number | null) {
+  clearTimeout(persistTimer);
+  pendingWrite = () => {
+    pendingWrite = undefined;
+    if (width === null) removeLocal(PANEL_WIDTH_KEY);
+    else saveJsonPref(PANEL_WIDTH_KEY, { width });
+  };
+  persistTimer = setTimeout(pendingWrite, 200);
+}
+// A reload right after a drag must not lose the debounced write.
+if (typeof window !== 'undefined') window.addEventListener('pagehide', () => pendingWrite?.());
+
+function loadPanelWidth(): number | null {
+  const { width } = loadJsonPref<{ width?: unknown }>(PANEL_WIDTH_KEY, {});
+  if (typeof width !== 'number' || !Number.isFinite(width)) return null;
+  return clampPanelWidth(width, typeof window === 'undefined' ? Infinity : window.innerWidth);
+}
 
 
 
@@ -198,7 +230,7 @@ export const useCanvasStore = create<CanvasState>((set) => ({
   tabPanes: {},
   tabs: [],
   activeTabId: null,
-  panelWidth: null,
+  panelWidth: loadPanelWidth(),
   ...derive([], null),
   openCanvas: (artifact) => set((state) => {
     artifact = { ...artifact, origin: artifactOrigin(artifact) };
@@ -348,7 +380,10 @@ export const useCanvasStore = create<CanvasState>((set) => ({
     if (!tab || tab.kind !== 'file' || tab.dirty === dirty) return {};
     return { tabs: replaceAt(state.tabs, index, { ...tab, dirty }) };
   }),
-  setPanelWidth: (panelWidth) => set({ panelWidth }),
+  setPanelWidth: (panelWidth) => {
+    persistPanelWidth(panelWidth);
+    set({ panelWidth });
+  },
   openSidebar: () => set({ isOpen: true }),
   // Keep the selected content while collapsed so the top-right toggle can
   // restore the same view. Chat/panel changes call resetSidebar explicitly.

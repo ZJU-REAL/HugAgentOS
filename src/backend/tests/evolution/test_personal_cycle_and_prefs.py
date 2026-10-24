@@ -1,4 +1,6 @@
 """Personal evolution scope, edition gating, and fine-grained preferences."""
+from core.evolution.cycle import candidate_records as candidate_records_module
+from core.evolution.cycle import loop as loop_module
 
 import pytest
 from sqlalchemy import create_engine
@@ -6,8 +8,8 @@ from sqlalchemy.orm import sessionmaker
 
 from core.db.engine import Base
 from core.db.models.evolution import EvolutionEpisode, EvolutionTraceEvent
-from core.evolution import personal as PE
-from core.evolution import prefs as PF
+from core.evolution.profiles import personal as PE
+from core.evolution.profiles import prefs as PF
 
 
 @pytest.fixture
@@ -72,7 +74,7 @@ def test_an_unknown_user_gets_nothing(db):
 
 
 def test_personal_support_threshold_is_lower_than_fleet_wide():
-    from core.evolution.promotion import MIN_SUPPORT
+    from core.evolution.cycle.promotion_constants import MIN_SUPPORT
 
     # One person's blast radius is one person; demanding fleet-scale evidence
     # would mean personal evolution never fires.
@@ -84,7 +86,7 @@ def test_a_disabled_user_produces_no_candidates(db, monkeypatch):
         _episode(db, f"e{i}", "alice", ["a", "b"])
     db.commit()
     monkeypatch.setattr(PE, "resolve_prefs", lambda uid: {"enabled": False}, raising=False)
-    import core.evolution.prefs as prefs_mod
+    import core.evolution.profiles.prefs as prefs_mod
 
     monkeypatch.setattr(prefs_mod, "resolve_prefs", lambda uid: {"enabled": False})
     report = PE.run_personal_cycle("alice")
@@ -95,10 +97,10 @@ def test_a_disabled_user_produces_no_candidates(db, monkeypatch):
 
 
 def test_cross_user_mining_is_skipped_without_the_entitlement(monkeypatch):
-    import core.evolution.loop as L
+    import core.evolution.cycle.loop as L
 
-    monkeypatch.setattr(L, "cross_user_mining_available", lambda: False)
-    report = L.run_evolution_cycle(limit=10)
+    monkeypatch.setattr(candidate_records_module, 'cross_user_mining_available', lambda: False)
+    report = loop_module.run_evolution_cycle(limit=10)
     assert report["skipped"] == "cross_user_mining_requires_enterprise"
     assert report["candidates"] == []
 
@@ -109,7 +111,7 @@ def test_a_missing_licensing_module_reads_as_community(monkeypatch):
     import builtins
     import sys
 
-    import core.evolution.loop as L
+    import core.evolution.cycle.loop as L
 
     real_import = builtins.__import__
 
@@ -129,7 +131,7 @@ def test_a_missing_licensing_module_reads_as_community(monkeypatch):
         monkeypatch.delitem(sys.modules, name, raising=False)
 
     monkeypatch.setattr(builtins, "__import__", blocked)
-    assert L.cross_user_mining_available() is False
+    assert candidate_records_module.cross_user_mining_available() is False
 
 
 # ── Preferences ──────────────────────────────────────────────────────────────

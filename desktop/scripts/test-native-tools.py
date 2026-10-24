@@ -174,7 +174,7 @@ class NativeToolsTests(unittest.TestCase):
         import importlib.util
         from unittest.mock import patch
         spec = importlib.util.spec_from_file_location(
-            "office_helpers", SCRIPT.parents[2] / "src/backend/core/content/office.py")
+            "office_helpers", SCRIPT.parents[2] / "src/backend/core/files/content/office.py")
         office = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(office)
         with tempfile.TemporaryDirectory() as folder:

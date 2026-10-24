@@ -6,9 +6,10 @@ import os
 import tempfile
 from pathlib import Path
 
-from core.agent_skills.backends import CompositeBackend, FilesystemBackend
-from core.agent_skills.config import get_default_skill_sources, get_enabled_skill_sources
-from core.agent_skills.loader import MultiSourceSkillLoader, get_skill_loader
+from core.capabilities.skills.backends import CompositeBackend, FilesystemBackend
+from core.capabilities.skills.config import get_default_skill_sources, get_enabled_skill_sources
+from core.capabilities.skills.loader import MultiSourceSkillLoader
+from core.capabilities.skills.loader_factory import get_skill_loader
 
 
 def test_config_default_sources():

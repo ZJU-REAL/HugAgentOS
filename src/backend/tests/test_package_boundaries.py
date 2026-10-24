@@ -25,10 +25,10 @@ def imported_modules(path):
 
 @pytest.mark.parametrize("layer", ["management", "packaging"])
 def test_plugin_lifecycle_does_not_depend_on_agent_assembly(layer):
-    forbidden = ("core.llm.factory", "core.plugins.runtime")
+    forbidden = ("core.llm.factory", "core.capabilities.plugins.runtime")
     violations = [
         f"{path.relative_to(BACKEND)}: {name}"
-        for path in (BACKEND / "core/plugins" / layer).rglob("*.py")
+        for path in (BACKEND / "core/capabilities/plugins" / layer).rglob("*.py")
         for name in imported_modules(path)
         if any(name == prefix or name.startswith(prefix + ".") for prefix in forbidden)
     ]
@@ -36,24 +36,24 @@ def test_plugin_lifecycle_does_not_depend_on_agent_assembly(layer):
 
 
 def test_archive_and_manifest_parsing_do_not_depend_on_database_lifecycle():
-    forbidden = ("core.db", "core.plugins.management", "sqlalchemy")
+    forbidden = ("core.db", "core.capabilities.plugins.management", "sqlalchemy")
     names = ("archive.py", "importer.py", "models.py")
     violations = [
         f"{filename}: {name}"
         for filename in names
-        for name in imported_modules(BACKEND / "core/plugins/packaging" / filename)
+        for name in imported_modules(BACKEND / "core/capabilities/plugins/packaging" / filename)
         if any(name == prefix or name.startswith(prefix + ".") for prefix in forbidden)
     ]
     assert violations == []
 
 
 def test_packaged_plugin_discovery_keeps_bundled_resources():
-    from core.plugins.packaging.definitions import PLUGIN_BUNDLES_DIR
-    from core.plugins.packaging.importer import normalize_plugin_dir
-    from core.plugins.packaging.sources import _resolve_plugin_dir
+    from core.capabilities.plugins.packaging.definitions import PLUGIN_BUNDLES_DIR
+    from core.capabilities.plugins.packaging.importer import normalize_plugin_dir
+    from core.capabilities.plugins.packaging.sources import resolve_plugin_dir
 
     assert PLUGIN_BUNDLES_DIR == BACKEND / "extensions/plugins"
-    plugin_dir = _resolve_plugin_dir("skill-manager")
+    plugin_dir = resolve_plugin_dir("skill-manager")
     assert plugin_dir is not None
     normalized = normalize_plugin_dir(plugin_dir)
     assert normalized.slug == "skill-manager"

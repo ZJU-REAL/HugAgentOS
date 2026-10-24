@@ -109,7 +109,7 @@ useChatStore.setState({currentChatId:'queue-owner',sending:true,planMode:false,l
 const retained = new File(['later'],'later.txt');
 readComposer().setInput('Next turn');
 readComposer().setUploadedFiles([retained]);
-readComposer().setQuotedFollowUp({text:'Quoted question',ts:1});
+readComposer().setQuotedFollowUp({text:'Quoted question',source:{kind:'message',ts:1}});
 readComposer().setActivePlugin({id:'p',name:'Plugin'});
 await actions.send();
 assert.equal(useChatStore.getState().queuedMessages['queue-owner'].content,'Next turn');
@@ -124,7 +124,7 @@ const { sendLoopMode } = await import('../src/hooks/useLoopMode');
 useChatStore.setState({currentChatId:'loop-owner',sending:false,loopMode:true});
 readComposer().setInput('Loop objective');
 readComposer().setUploadedFiles([retained]);
-readComposer().setQuotedFollowUp({text:'Keep quote',ts:2});
+readComposer().setQuotedFollowUp({text:'Keep quote',source:{kind:'message',ts:2}});
 readComposer().setActivePlugin({id:'keep-plugin',name:'Keep plugin'});
 globalThis.fetch=async (input) => String(input).endsWith('/start')
   ? new Response('data: [DONE]\n\n',{headers:{'Content-Type':'text/event-stream'}})

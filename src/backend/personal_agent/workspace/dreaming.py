@@ -191,13 +191,15 @@ def failed(sessions, ident, run_id, owner, exc, now):
         except (OSError, RuntimeError, ValueError):
             pass  # Durable status remains visible even when the report volume is unavailable.
 
+def ready_agents(sessions):
+    with sessions() as db:
+        return list(db.scalars(select(PersonalAgent.id).where(PersonalAgent.status == "ready")))
+
 async def tick(sessions=None, now=None, complete=None):
     sessions = sessions or SessionLocal
     fixed_now = now
     complete = complete or dream_plan.complete
-    with sessions() as db:
-        ids = list(db.scalars(select(PersonalAgent.id).where(PersonalAgent.status == "ready")))
-    for ident in ids:
+    for ident in await asyncio.to_thread(ready_agents, sessions):
         now = time.time() if fixed_now is None else fixed_now
         claimed = await asyncio.to_thread(claim, sessions, ident, now)
         if not claimed: continue

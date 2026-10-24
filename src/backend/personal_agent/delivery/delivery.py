@@ -29,7 +29,7 @@ def discard_unpublished(key):
         with SessionLocal() as db:
             if db.scalar(select(Artifact.artifact_id).where(Artifact.storage_key == key)):
                 return
-        from core.storage import get_storage
+        from core.files.storage import get_storage
         get_storage().delete(key)
     except Exception as exc:  # noqa: BLE001 - cleanup must preserve the original failure
         log.warning("Personal delivery upload cleanup failed (%s)", type(exc).__name__)
@@ -84,7 +84,7 @@ def _previous(ident, uid, state, message_id, request_hash):
         return _receipt(db, row, uid, request_hash) if row else None
 
 def _publish(ident, uid, state, message_id, artifact_id, request_hash, content, filename, mime, caption):
-    from core.services.artifact_service import store_bytes_as_artifact, artifact_upload_key
+    from core.files.artifacts.service import store_bytes_as_artifact, artifact_upload_key
     from personal_agent.context import AgentContext
     from personal_agent.channels.channel_bridge import mark_for_delivery
     from personal_agent.scheduling.schedules import is_unattended_run

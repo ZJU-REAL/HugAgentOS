@@ -10,6 +10,8 @@ no longer coexists with this ``tools/`` package.
 """
 
 from __future__ import annotations
+from core.llm.factory.tools.definitions import function_tool
+from core.harness import log_writer
 
 import json
 import logging
@@ -20,16 +22,16 @@ from typing import Any
 from agentscope.message import TextBlock
 from agentscope.tool import Toolkit
 
-# AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolResponse).
-from agentscope.tool._response import ToolChunk as ToolResponse
+# AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolChunk).
+from agentscope.tool._response import ToolChunk
 
-from core.agent_skills.loader import get_skill_loader
+from core.capabilities.skills.loader_factory import get_skill_loader
 
 logger = logging.getLogger(__name__)
 
 
 def _resolve_skill_path(file_path: str, loader: Any = None) -> str | None:
-    from ._paths import path_rules
+    from core.sandbox.workspace.resolution import path_rules
     return path_rules().resolve_skill_file(file_path, loader)
 
 
@@ -59,11 +61,11 @@ def _build_skill_bash_hint(
         return None
 
     name = getattr(spec, "name", skill_id) or skill_id
-    from core.agent_skills.config import model_facing_skill_dir
+    from core.capabilities.skills.config import model_facing_skill_dir
 
     sandbox_dir = model_facing_skill_dir(skill_id, skill_dir)
 
-    from ._paths import path_rules
+    from core.sandbox.workspace.resolution import path_rules
 
     quote = path_rules().quote_shell_path
     scripts = list(getattr(spec, "executable_scripts", None) or [])
@@ -113,13 +115,13 @@ def register_sandboxed_view_text_file(
     async def view_text_file(
         file_path: str,
         ranges: list[int] | None = None,
-    ) -> ToolResponse:
+    ) -> ToolChunk:
         """View file content within allowed skill directories."""
         prepared = getattr(loader, "capability_run", None)
         if prepared is not None:
-            from core.capabilities.runtime import validate
+            from core.harness.registry.capability_runtime import validate
             import asyncio
-            from core.capabilities.errors import CapabilityError
+            from core.harness.capability_errors import CapabilityError
 
             try:
                 # Check only the file's skill. An unrelated skill cannot block this read.
@@ -140,7 +142,7 @@ def register_sandboxed_view_text_file(
                 if requested_name is not None:
                     await asyncio.to_thread(validate, prepared, only_skill=requested_name)
             except (CapabilityError, OSError):
-                return ToolResponse(
+                return ToolChunk(
                     content=[
                         TextBlock(
                             type="text",
@@ -160,7 +162,7 @@ def register_sandboxed_view_text_file(
                 real = _os.path.realpath(resolved)
 
         if not any(real.startswith(d + _os.sep) or real == d for d in resolved_dirs):
-            return ToolResponse(content=[TextBlock(
+            return ToolChunk(content=[TextBlock(
                 type="text",
                 text=f"Error: Access denied. Only files inside skill directories can be read.\nRequested: {file_path}",
             )])
@@ -177,22 +179,13 @@ def register_sandboxed_view_text_file(
             else:
                 _selected = _lines
             _text = "".join(_selected)
-            from core.config.local_mode import local_mode_enabled
-            if local_mode_enabled() and "/home/ubuntu/yida-workspace" in _text and user_id:
-                from core.sandbox.workspace.identity import safe_user_id
-                from core.services.yida_execution import workspace_dir
-                import shlex
-
-                if safe_user_id(user_id):
-                    _text = _text.replace(
-                        "/home/ubuntu/yida-workspace",
-                        shlex.quote(workspace_dir(user_id).as_posix()),
-                    )
+            from core.harness.registry.skill_content import adapt_skill_content
+            _text = adapt_skill_content(_text, user_id)
         except Exception as _e:  # noqa: BLE001
-            return ToolResponse(content=[TextBlock(
+            return ToolChunk(content=[TextBlock(
                 type="text", text=f"Error reading file: {_e}",
             )])
-        resp = ToolResponse(content=[TextBlock(type="text", text=_text)])
+        resp = ToolChunk(content=[TextBlock(type="text", text=_text)])
 
         if _os.path.basename(real) == "SKILL.md":
             from core.config.local_mode import local_mode_enabled
@@ -214,7 +207,7 @@ def register_sandboxed_view_text_file(
             for i, block in enumerate(resp.content):
                 text = block.get("text", "") if isinstance(block, dict) else getattr(block, "text", "")
                 if "{baseDir}" in text:
-                    from core.agent_skills.config import model_facing_skill_dir
+                    from core.capabilities.skills.config import model_facing_skill_dir
                     directory = model_facing_skill_dir(skill_id or "", skill_dir).replace(chr(92), "/")
                     resp.content[i] = TextBlock(type="text", text=text.replace("{baseDir}", directory))
             if skill_id:
@@ -224,13 +217,13 @@ def register_sandboxed_view_text_file(
 
                 # ── Observability: record skill auto-load via view_text_file ──
                 try:
-                    from core.services import log_service as _lw
+                    from core.harness import log_writer as _lw
                     spec = loader.load_skill_full(skill_id)
                     source = loader.get_skill_source(skill_id)
                     if prepared is not None and skill_id in prepared.bindings:
-                        from core.capabilities.ref import LOCAL_PROFILE, BUILTIN_PROFILE
+                        from core.capabilities.identity_rules import LOCAL_PROFILE, BUILTIN_PROFILE
                         source = "local" if prepared.bindings[skill_id]["profile"] in (LOCAL_PROFILE, BUILTIN_PROFILE) else "cloud"
-                    _lw.schedule_skill_call_write({
+                    log_writer.schedule_skill_call_write({
                         "skill_id": skill_id,
                         "skill_name": getattr(spec, "name", skill_id) if spec else skill_id,
                         "skill_version": getattr(spec, "version", None) if spec else None,
@@ -244,4 +237,4 @@ def register_sandboxed_view_text_file(
 
         return resp
 
-    toolkit.register_tool_function(view_text_file, namesake_strategy="override")
+    toolkit.append(function_tool(view_text_file))

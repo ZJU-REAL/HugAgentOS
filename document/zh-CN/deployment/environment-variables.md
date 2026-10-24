@@ -23,7 +23,7 @@
 | `HOST_REPO_PATH` | 仓库绝对路径 | 宿主机仓库根路径；backend 经 docker.sock 调宿主 daemon 重建沙盒镜像时解析 compose 相对路径用 | CE |
 | `DOCKER_GID` | `999` | 宿主 docker 组 GID，授予 backend 容器读写 `/var/run/docker.sock`（`stat -c '%g' /var/run/docker.sock` 查询） | CE |
 | `COMPOSE_PROFILES` | CE Docker: `opensandbox` | compose profile 选择（`script_runner` / `opensandbox`，可叠加 `,mem0`），须与 `SANDBOX_PROVIDER` 一致 | CE |
-| `COMPOSE_FILE` | （未设） | 叠加 compose 文件；CubeSandbox 时设 `docker-compose.yml:docker-compose.cube.yml` | CE |
+| `COMPOSE_FILE` | （未设） | 叠加 compose 文件；CubeSandbox 时设 `docker-compose.yml:docker/sandbox/compose.cube.yml` | CE |
 | `MAX_REQUEST_SIZE` | `52428800`（代码默认 50 MB） | 后端单请求体上限（字节） | CE |
 | `DB_MIGRATION_RETRIES` / `DB_MIGRATION_RETRY_INTERVAL` | `20` / `2`（入口脚本默认） | 启动迁移重试次数 / 间隔秒 | CE |
 
@@ -57,7 +57,7 @@
 | `ENABLE_SUMMARY` | `true` | 关闭则标题回退为消息截断 | CE |
 | `SUMMARY_MAX_ROUNDS` | `3` | 超过该轮数后标题不再更新 | CE |
 | `OPENAI_API_KEY` / `OPENAI_API_BASE` | （空）/ `https://api.openai.com/v1` | 备用 OpenAI 直连配置（compose 透传） | CE |
-| `ROUTER_STRATEGY` | `main_only`（代码默认） | 路由策略（`orchestration/strategy.py`） | CE |
+| `ROUTER_STRATEGY` | `main_only`（代码默认） | 路由策略（`core/agent_runtime/strategy.py`） | CE |
 | `FOLLOWUP_ENABLED` | `true`（代码默认） | 追问建议生成开关 | CE |
 
 ## 鉴权与登录
@@ -182,10 +182,11 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 | `MCP_HOST` | `mcp`（compose 默认） | MCP 容器主机名；本地调试可设 `127.0.0.1` | CE |
 | `MCP_MARKET_REVALIDATE_INTERVAL` | `21600` | MCP 市场远程工具快照复检周期（秒，最小 `300`） | CE |
 | `MCP_SELF_SERVICE_ALLOW_PRIVATE_NETWORK` | `false` | 是否允许用户自助添加回环、RFC1918 或 IPv6 ULA 地址上的 MCP；仅应在用户可信的私有化环境开启，云元数据/链路本地等高风险地址仍会拦截，私有地址也不能由用户申请上架市场 | CE |
-| `INTERNET_SEARCH_ENGINE` | `tavily`（compose 默认） | 联网搜索引擎：`tavily` / `baidu` / `langsearch` | CE |
+| `INTERNET_SEARCH_ENGINE` | `tavily`（compose 默认） | 联网搜索引擎：`tavily` / `baidu` / `langsearch` / `deepseek` | CE |
 | `TAVILY_API_KEY` | （空） | Tavily Search API Key；选择 Tavily 时必填 | CE |
 | `BAIDU_API_KEY` | （空） | 百度搜索 API Key；选择百度时必填 | CE |
 | `LANGSEARCH_API_KEY` | （空） | LangSearch Web Search API Key；选择 LangSearch 时必填 | CE |
+| `DEEPSEEK_SEARCH_API_KEY` | （空） | 调用 Search API 的 DeepSeek 开放平台 API Key；选择 DeepSeek 时必填 | CE |
 | `INTERNET_SEARCH_COUNTRY` / `INTERNET_SEARCH_AUTO_PARAMETERS` | （空） | Tavily 国家排名偏好（仅 general，未配置则不传）/ 自动参数 | CE |
 | `QUERY_DATABASE_URL` | `http://your-database-api-host:6200` | 数仓查询工具的 HTTP 后端 | EE（行业工具） |
 | `QUERY_DATABASE_TIMEOUT_SECONDS` / `QUERY_DATABASE_RETRY_TIMES` / `QUERY_DATABASE_MAX_OUTPUT_TOKENS` | （空） | 数仓查询调用参数 | EE |
@@ -217,13 +218,13 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 |---|---|---|
 | `OPENSANDBOX_DOMAIN` | `http://opensandbox:8080` | OpenSandbox server 地址 |
 | `OPENSANDBOX_API_KEY` | CE 初始化生成 | 控制器与后端使用相同密钥；不在日志中输出 |
-| `OPENSANDBOX_IMAGE` | `hugagent-opensandbox-custom:latest`（compose 默认；代码兜底 `opensandbox/code-interpreter:v1.0.2`） | 沙盒运行时镜像；自建镜像预装项目全部依赖（`docker/Dockerfile.opensandbox`） |
+| `OPENSANDBOX_IMAGE` | `hugagent-opensandbox-custom:latest`（compose 默认；代码兜底 `opensandbox/code-interpreter:v1.0.2`） | 沙盒运行时镜像；自建镜像预装项目全部依赖（`docker/sandbox/Dockerfile.opensandbox`） |
 | `OPENSANDBOX_READY_TIMEOUT_S` | `90` | 等沙盒就绪上限（秒） |
 | `OPENSANDBOX_REQUEST_TIMEOUT_S` | `120` | 单次 HTTP 调用超时（秒） |
 | `OPENSANDBOX_PORT` | 全量仓库 `8910`；CE 不映射 | 控制器容器内固定 8080 |
 | `OPENSANDBOX_POOL_JUPYTER_MIN_IDLE` / `MAX_IDLE` | `.env.example` 1/3；compose 默认 2/3 | 用户会话池（历史配置名）；CE 最小预热数为 0 |
 | `OPENSANDBOX_POOL_LIGHT_MIN_IDLE` / `MAX_IDLE` | `2` / `5` | 轻量桶（一次性执行） |
-| `OPENSANDBOX_POOL_MAX_TOTAL` | CE: `4`; full: `20` | 全池上限（含使用中） |
+| `OPENSANDBOX_POOL_MAX_TOTAL` | CE: `4`; full: `20` | 控制器全局上限（所有 worker、预热与使用中实例）；backend 和控制器使用同一值 |
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | `true` | 快照持久化总开关（idle 时 snapshot+kill，重连恢复） |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | `7` | 快照保留天数（GC 周期清理） |
 | `OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S` | `120` | 等快照 Ready 的轮询上限（秒） |
@@ -317,16 +318,10 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 
 License 细节见 [License 机制](../editions/license.md)。
 
-## 其他（限流、熔断、安全、告警）
+## 其他（安全、告警）
 
 | 变量 | 默认值 | 说明 | 版本 |
 |---|---|---|---|
-| `RATE_LIMIT_ENABLED` | `true` | 接口限流开关 | CE |
-| `RATE_LIMIT_STORAGE` | `memory://` | 限流计数存储（可 `redis://...`） | CE |
-| `RATE_LIMIT_GLOBAL` / `RATE_LIMIT_PER_USER` | `500/minute` / `50/minute` | 全局 / 单用户限流 | CE |
-| `CB_USER_CENTER_THRESHOLD` / `CB_USER_CENTER_TIMEOUT` | `5` / `60` | 用户中心熔断器 | EE |
-| `CB_MODEL_API_THRESHOLD` / `CB_MODEL_API_TIMEOUT` | `10` / `30` | 模型 API 熔断器 | CE |
-| `CB_STORAGE_THRESHOLD` / `CB_STORAGE_TIMEOUT` | `5` / `60` | 存储熔断器 | CE |
 | `CORS_ORIGINS` | compose 默认 `http://localhost:3000,http://localhost:5173` | 允许跨域来源 | CE |
 | `ENABLE_SECURITY_HEADERS` | （注释，建议生产 `true`） | 安全响应头 | CE |
 | `AUDIT_LOG_RETENTION_DAYS` / `AUDIT_LOG_EXPORT_ENABLED` | `90` / `true`（注释示例） | 审计日志保留 / 导出 | EE |
@@ -340,7 +335,7 @@ License 细节见 [License 机制](../editions/license.md)。
 |---|---|
 | 变量样例（部署起点） | `.env.example` |
 | 集中式设置读取（唯一入口） | `src/backend/core/config/settings.py` |
-| compose 层注入与默认值 | `docker-compose.yml`、`docker-compose.cube.yml` |
+| compose 层注入与默认值 | `docker-compose.yml`、`docker/sandbox/compose.cube.yml` |
 | 沙箱 provider 选择 | `src/backend/core/sandbox/`、`settings.py::SandboxSettings` |
 | 记忆设置 | `settings.py::MemorySettings`、`src/backend/core/memory/`（service.py / pipeline.py） |
 | 问题反馈 GitHub 配置 | `src/backend/edition_ee/services/system_config.py`、`feedback_service.py` |
@@ -389,7 +384,7 @@ License 细节见 [License 机制](../editions/license.md)。
 
 模块开启后，社区版已存在的登录用户即可使用。企业版额外检查 Config 后台的用户、角色或团队 **Personal Agent** 权限（默认关闭）；收回权限会隐藏入口，并停止排队、定时触发和渠道转交任务。不需要 persistent_sandbox License。两个版本都保留对象归属检查和操作批准。
 
-请阅读 [Personal Agent](../modules/personal-agent.md)。部署时使用根 Compose 文件、docker/compose.personal-agent.yml 和 personal-agent profile。
+请阅读 [Personal Agent](../modules/personal-agent.md)。部署时使用根 Compose 文件、docker/personal-agent/compose.personal-agent.yml 和 personal-agent profile。
 
 <!-- End Personal Agent settings -->
 

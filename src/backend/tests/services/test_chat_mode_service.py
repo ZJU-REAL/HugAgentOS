@@ -13,7 +13,8 @@ import pytest
 from core.db.engine import Base
 from core.db.models.chat_mode import ChatMode
 from core.infra.exceptions import BadRequestError, ResourceNotFoundError
-from core.services.chat_mode_service import SLUG_STANDARD, ChatModeService
+from core.chat.mode_types import SLUG_STANDARD
+from core.chat.modes import ChatModeService
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 

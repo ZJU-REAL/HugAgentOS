@@ -1,3 +1,4 @@
+from features.marketplace import plugin_market
 """Plugin system tests: import Claude Code / Codex / native plugin packages → persist to DB → uninstall.
 
 Covers the three-tier portability matrix: direct skill import (including
@@ -5,6 +6,7 @@ references + path-variable rewriting), direct remote MCP import, stdio MCP
 disabled on install, and drop warnings for hooks/commands/agents.
 See internal design docs §10.
 """
+from integrations.lark import service as lark_service
 
 import json
 
@@ -15,13 +17,14 @@ from core.db.models import AdminMcpServer, AdminSkill, InstalledPlugin
 
 from core.infra.exceptions import BadRequestError
 
-from core.plugins.packaging.archive import _extract_plugin_zip
-from core.plugins.packaging import importer as pi
+from core.capabilities.plugins.packaging.archive import extract_plugin_zip
+from core.capabilities.plugins.packaging import importer as pi
 
-from core.plugins import management as ps
+from core.capabilities.plugins import management as ps
 
-from core.plugins.management import packages as plugin_packages
-from core.plugins.packaging import sources as plugin_sources
+from core.capabilities.plugins.management import packages as plugin_packages
+from core.capabilities.plugins.packaging import sources as plugin_sources
+from tests.db_support import share_session
 
 
 OWNER = "test_user_123"
@@ -41,7 +44,7 @@ def test_import_zip_rejects_backslash_path_traversal():
         zf.writestr("..\\outside.txt", "blocked")
 
     with pytest.raises(BadRequestError, match="非法压缩包条目"):
-        with _extract_plugin_zip(buf.getvalue()):
+        with extract_plugin_zip(buf.getvalue()):
             pass
 
 
@@ -49,7 +52,7 @@ def test_long_namespaced_component_ids_remain_unique():
     """Long skill/MCP names with the same prefix must not overwrite one another."""
     slug = "petrochemical-product-skills-v1-0"
     skill_ids = {
-        plugin_sources._make_skill_id(slug, name, OWNER)
+        plugin_sources.make_skill_id(slug, name, OWNER)
         for name in (
             "petrochemical-prosperity-analysis",
             "petrochemical-price-trend",
@@ -57,7 +60,7 @@ def test_long_namespaced_component_ids_remain_unique():
         )
     }
     server_ids = {
-        plugin_sources._make_server_id(slug, name, OWNER)
+        plugin_sources.make_server_id(slug, name, OWNER)
         for name in (
             "petrochemical-product-market-data-provider-primary",
             "petrochemical-product-market-data-provider-secondary",
@@ -94,7 +97,7 @@ def test_user_toggle_global_plugin_per_user(tmp_path, db_session):
     rather than the test db_session, which is unavailable in unit tests;
     per-user effectiveness is verified inside the container.)
     """
-    from core.services.catalog_service import CatalogService
+    from core.capabilities.catalog.overrides import CatalogService
 
     zip_bytes = _zip_cc_plugin(tmp_path)
     res = ps.import_plugin_from_zip(
@@ -126,7 +129,7 @@ def test_publish_zip_to_market_then_install(tmp_path, db_session):
     assert db_session.query(InstalledPlugin).count() == 0
 
     # 2. The market list shows it, marked source=uploaded, not installed
-    market = ps.list_plugins(db_session, owner_user_id=None)
+    market = plugin_market.list_plugins(db_session, owner_user_id=None)
     m = next((p for p in market if p["slug"] == "hello-toolkit"), None)
     assert m is not None and m["source"] == "uploaded" and m["installed"] is False
 
@@ -140,14 +143,14 @@ def test_publish_zip_to_market_then_install(tmp_path, db_session):
     )
     assert inst["action"] == "installed"
     assert db_session.query(InstalledPlugin).count() == 1
-    market2 = ps.list_plugins(db_session, owner_user_id=None)
+    market2 = plugin_market.list_plugins(db_session, owner_user_id=None)
     assert next(p for p in market2 if p["slug"] == "hello-toolkit")["installed"] is True
 
     # 5. Publishing again = update; deleting the market package does not affect installed instances
     res2 = ps.publish_plugin_zip_to_market(db_session, zip_bytes)
     assert res2["action"] == "updated"
     ps.delete_market_package(db_session, "hello-toolkit")
-    from core.db.models import PluginMarketPackage
+    from features.marketplace.models import PluginMarketPackage
 
     assert db_session.query(PluginMarketPackage).count() == 0
     assert db_session.query(InstalledPlugin).count() == 1  # the installed instance is still there
@@ -168,14 +171,11 @@ def test_app_registers_plugin_router():
 @pytest.mark.asyncio
 async def test_feishu_plugin_app_routes_delegate_to_lark_service(monkeypatch):
     from api.routes.v1 import plugins as plugin_routes
-    from core.services import lark_service
+    from integrations.lark import service as lark_service
 
     calls = []
 
     class FakeLarkService:
-        def __init__(self, db):
-            assert db is None
-
         def app_status(self):
             calls.append("status")
             return {"configured": True, "status": "configured"}
@@ -188,7 +188,7 @@ async def test_feishu_plugin_app_routes_delegate_to_lark_service(monkeypatch):
             calls.append("reset")
             return {"configured": False, "status": "idle"}
 
-    monkeypatch.setattr(lark_service, "LarkService", FakeLarkService)
+    monkeypatch.setattr(lark_service, 'LarkService', FakeLarkService)
 
     status = await plugin_routes.get_feishu_app_status(_="admin")
     started = await plugin_routes.init_feishu_app(_="admin")
@@ -200,7 +200,7 @@ async def test_feishu_plugin_app_routes_delegate_to_lark_service(monkeypatch):
     assert calls == ["status", "init", "reset"]
 
 
-def test_route_import_and_uninstall_e2e(tmp_path, db_session):
+def test_route_import_and_uninstall_e2e(tmp_path, db_session, monkeypatch):
     """Import a plugin zip through the real FastAPI route stack, then list and uninstall."""
     from api.app import app
     from core.auth.backend import UserContext, get_current_user
@@ -228,6 +228,7 @@ def test_route_import_and_uninstall_e2e(tmp_path, db_session):
         email="t@e.com",
     )
     app.dependency_overrides[get_db] = _override_db
+    share_session(monkeypatch, db_session)
 
     client = TestClient(app)
     try:
@@ -344,15 +345,15 @@ def test_legacy_topfield_manifest_still_imports(tmp_path):
 
 def test_market_meta_seed_override_and_install(db_session):
     # Seed applies without any override
-    meta = ps.resolve_market_meta(db_session, "automation")
+    meta = plugin_market.resolve_market_meta(db_session, "automation")
     assert meta["display_name"] == "定时任务管理"
     # Admin override wins over the seed and flows into the market list
-    ps.set_market_meta(db_session, "automation", display_name="自动化任务", category="效率")
-    meta = ps.resolve_market_meta(db_session, "automation")
+    plugin_market.set_market_meta(db_session, "automation", display_name="自动化任务", category="效率")
+    meta = plugin_market.resolve_market_meta(db_session, "automation")
     assert meta["display_name"] == "自动化任务" and meta["category"] == "效率"
     items = {
         it["slug"]: it
-        for it in ps.list_plugins(db_session, owner_user_id=None, include_disabled=True)
+        for it in plugin_market.list_plugins(db_session, owner_user_id=None, include_disabled=True)
     }
     assert items["automation"]["name"] == "自动化任务"
     # Install picks up the effective metadata for the installed record
@@ -364,13 +365,13 @@ def test_market_meta_seed_override_and_install(db_session):
     )
     assert row.name == "自动化任务"
     # Clearing the override falls back to the seed
-    ps.set_market_meta(db_session, "automation", display_name="", category="")
-    assert ps.resolve_market_meta(db_session, "automation")["display_name"] == "定时任务管理"
+    plugin_market.set_market_meta(db_session, "automation", display_name="", category="")
+    assert plugin_market.resolve_market_meta(db_session, "automation")["display_name"] == "定时任务管理"
 
 
 def test_market_meta_rejects_unknown_slug(db_session):
     with pytest.raises(Exception):
-        ps.set_market_meta(db_session, "no-such-plugin", display_name="x")
+        plugin_market.set_market_meta(db_session, "no-such-plugin", display_name="x")
 
 
 def test_installed_meta_owner_guard(tmp_path, db_session):
@@ -389,26 +390,26 @@ def test_installed_meta_owner_guard(tmp_path, db_session):
 
 def test_market_meta_icon_validation(db_session):
     # Library path and uploaded data-URI are accepted
-    ps.set_market_meta(db_session, "automation", icon="/home/mcp/internet.svg")
-    assert ps.resolve_market_meta(db_session, "automation")["icon"] == "/home/mcp/internet.svg"
-    ps.set_market_meta(db_session, "automation", icon="data:image/svg+xml;base64,PHN2Zy8+")
-    assert ps.resolve_market_meta(db_session, "automation")["icon"].startswith("data:image/")
+    plugin_market.set_market_meta(db_session, "automation", icon="/home/mcp/internet.svg")
+    assert plugin_market.resolve_market_meta(db_session, "automation")["icon"] == "/home/mcp/internet.svg"
+    plugin_market.set_market_meta(db_session, "automation", icon="data:image/svg+xml;base64,PHN2Zy8+")
+    assert plugin_market.resolve_market_meta(db_session, "automation")["icon"].startswith("data:image/")
     # Non-image data URIs and arbitrary text are rejected
     with pytest.raises(BadRequestError):
-        ps.set_market_meta(db_session, "automation", icon="data:text/html;base64,eA==")
+        plugin_market.set_market_meta(db_session, "automation", icon="data:text/html;base64,eA==")
     with pytest.raises(BadRequestError):
-        ps.set_market_meta(db_session, "automation", icon="not-an-icon")
+        plugin_market.set_market_meta(db_session, "automation", icon="not-an-icon")
     # Oversized data URIs are rejected
     with pytest.raises(BadRequestError):
-        ps.set_market_meta(db_session, "automation", icon="data:image/png;base64," + "A" * 300_000)
+        plugin_market.set_market_meta(db_session, "automation", icon="data:image/png;base64," + "A" * 300_000)
     # Empty clears the override
-    ps.set_market_meta(db_session, "automation", icon="")
-    assert "icon" not in ps.resolve_market_meta(db_session, "automation")
+    plugin_market.set_market_meta(db_session, "automation", icon="")
+    assert "icon" not in plugin_market.resolve_market_meta(db_session, "automation")
 
 
 def test_capability_logo_tool_ownership(tmp_path, db_session):
     """Public/private connectors and installed plugins expose only tool names."""
-    from core.config.catalog_runtime import _public_db_mcp_items
+    from core.capabilities.catalog.runtime import _public_db_mcp_items
     from api.routes.v1.catalog import _load_owned_capability_items
 
     ps.import_plugin_from_zip(
@@ -443,7 +444,7 @@ def test_capability_logo_tool_ownership(tmp_path, db_session):
 
 
 def test_database_connector_inherits_child_tool_names(db_session, monkeypatch):
-    from core.config import catalog_runtime as runtime
+    from core.capabilities.catalog import runtime as runtime
 
     monkeypatch.setattr(runtime, "_database_query_capability_available", lambda: True)
     row = AdminMcpServer(

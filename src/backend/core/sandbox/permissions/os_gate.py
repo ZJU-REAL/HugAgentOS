@@ -109,7 +109,7 @@ def protected_read_paths() -> tuple[str, ...]:
     resolves the *narrowest* matching entry, and the writable workspace root is
     deeper than the data root denied here.
     """
-    from core.capabilities.paths import CAPS_ROOT_ENV
+    from core.config.runtime_env import CAPS_ROOT_ENV
 
     candidates = [local_state_dir()]
     for name in (CAPS_ROOT_ENV, _INSTALL_ROOT_ENV):
@@ -117,6 +117,39 @@ def protected_read_paths() -> tuple[str, ...]:
         if raw:
             candidates.append(str(Path(raw).expanduser()))
     return tuple(dict.fromkeys(candidates))
+
+
+def capability_skill_roots() -> tuple[str, ...]:
+    """Skill content inside the capability store, which commands may read but not write.
+
+    The store as a whole stays in :func:`protected_read_paths`: beside the skills
+    it holds ``mcp.json`` and plugin manifests, which can carry credentials. A
+    skill's own files are instructions and scripts the agent is told to run, so
+    exactly those directories are reopened read-only — installed skills, every
+    plugin package's ``skills`` folder, and the per-run views that link to them.
+    A directory that resolves outside the store is never opened.
+    """
+    from core.config.runtime_env import CAPS_ROOT_ENV
+
+    raw = (os.getenv(CAPS_ROOT_ENV) or "").strip()
+    if not raw:
+        return ()
+    root = Path(raw).expanduser()
+    try:
+        resolved_root = root.resolve()
+    except OSError:
+        return ()
+    candidates = [root / "skills"]
+    candidates.extend(sorted(root.glob("plugins/*/*/*/package/skills")))
+    candidates.extend(sorted(root.glob(".capabilities/views/*/skills")))
+    roots = []
+    for candidate in candidates:
+        try:
+            if candidate.is_dir() and candidate.resolve().is_relative_to(resolved_root):
+                roots.append(str(candidate))
+        except OSError:
+            continue
+    return tuple(roots)
 
 
 def build_context(*, workspace_root: str, cwd: Optional[str] = None) -> PolicyContext:

@@ -1,0 +1,267 @@
+"""External-service connectivity probes and config utilities (shared by CE/EE).
+
+Underlying implementation shared by `api/routes/v1/service_configs.py` (EE system console)
+and `api/routes/v1/me_system.py` (CE personal system settings): connectivity testing, secret
+masking, and MCP connection-pool rebuild after config changes. service_configs.py physically
+does not exist in the CE derived tree, so these functions must live in core/services/
+(CE-safe) and cannot remain in the EE route file.
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from typing import Optional
+
+import httpx
+
+logger = logging.getLogger(__name__)
+
+
+# ── Secret masking ───────────────────────────────────────────────────────────
+
+
+def mask_secret(value: Optional[str]) -> Optional[str]:
+    if not value or len(value) <= 8:
+        return "****" if value else None
+    return value[:4] + "****" + value[-4:]
+
+
+def config_row_to_dict(cfg: dict, mask: bool = True) -> dict:
+    """SystemConfigService row → API response dict (is_secret entries masked as needed)."""
+    result = dict(cfg)
+    if mask and cfg.get("is_secret") and cfg.get("config_value"):
+        result["config_value"] = mask_secret(cfg["config_value"])
+    return result
+
+
+# ── After config changes: rebuild the MCP connection pool ────────────────────
+
+
+
+
+# ── Connectivity probes ──────────────────────────────────────────────────────
+
+
+async def test_http_health(base_url: str) -> dict:
+    """Simple HTTP GET connectivity check."""
+    url = base_url.rstrip("/")
+    start = time.monotonic()
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(url)
+        latency = int((time.monotonic() - start) * 1000)
+        if resp.status_code < 500:
+            return {"success": True, "latency_ms": latency, "error": None}
+        return {"success": False, "latency_ms": latency, "error": f"HTTP {resp.status_code}"}
+    except Exception as exc:
+        latency = int((time.monotonic() - start) * 1000)
+        return {"success": False, "latency_ms": latency, "error": str(exc)}
+
+
+TAVILY_SEARCH_API_URL = "https://api.tavily.com/search"
+
+
+async def test_tavily(api_key: str) -> dict:
+    """Test Tavily API key by making a minimal search request."""
+    start = time.monotonic()
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                TAVILY_SEARCH_API_URL,
+                json={
+                    "api_key": api_key,
+                    "query": "test",
+                    "max_results": 1,
+                },
+            )
+        latency = int((time.monotonic() - start) * 1000)
+        if resp.status_code == 200:
+            return {"success": True, "latency_ms": latency, "error": None}
+        return {
+            "success": False,
+            "latency_ms": latency,
+            "error": f"HTTP {resp.status_code}: {resp.text[:200]}",
+        }
+    except Exception as exc:
+        latency = int((time.monotonic() - start) * 1000)
+        return {"success": False, "latency_ms": latency, "error": str(exc)}
+
+
+BAIDU_SEARCH_API_URL = "https://qianfan.baidubce.com/v2/ai_search/web_search"
+
+
+async def test_baidu(api_key: str) -> dict:
+    """Test Baidu AI Search API key by making a minimal search request."""
+    start = time.monotonic()
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                BAIDU_SEARCH_API_URL,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Appbuilder-Authorization": f"Bearer {api_key}",
+                },
+                json={
+                    "messages": [{"content": "test", "role": "user"}],
+                    "search_source": "baidu_search_v2",
+                    "resource_type_filter": [{"type": "web", "top_k": 1}],
+                },
+            )
+        latency = int((time.monotonic() - start) * 1000)
+        if resp.status_code == 200:
+            return {"success": True, "latency_ms": latency, "error": None}
+        return {
+            "success": False,
+            "latency_ms": latency,
+            "error": f"HTTP {resp.status_code}: {resp.text[:200]}",
+        }
+    except Exception as exc:
+        latency = int((time.monotonic() - start) * 1000)
+        return {"success": False, "latency_ms": latency, "error": str(exc)}
+
+
+LANGSEARCH_SEARCH_API_URL = "https://api.langsearch.com/v1/web-search"
+
+
+async def test_langsearch(api_key: str) -> dict:
+    """Test a LangSearch API key with a minimal Web Search request."""
+    start = time.monotonic()
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                LANGSEARCH_SEARCH_API_URL,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "query": "test",
+                    "freshness": "noLimit",
+                    "summary": False,
+                    "count": 1,
+                },
+            )
+        latency = int((time.monotonic() - start) * 1000)
+        if resp.status_code != 200:
+            return {
+                "success": False,
+                "latency_ms": latency,
+                "error": f"HTTP {resp.status_code}: {resp.text[:200]}",
+            }
+        data = resp.json()
+        if data.get("code") in (200, "200"):
+            return {"success": True, "latency_ms": latency, "error": None}
+        message = data.get("msg") or "unknown API error"
+        return {
+            "success": False,
+            "latency_ms": latency,
+            "error": f"LangSearch API {data.get('code')}: {message}",
+        }
+    except Exception as exc:
+        latency = int((time.monotonic() - start) * 1000)
+        return {"success": False, "latency_ms": latency, "error": str(exc)}
+
+
+DEEPSEEK_SEARCH_API_URL = "https://api.deepseek.com/v1/tools/search"
+
+
+async def test_deepseek_search(api_key: str) -> dict:
+    """Test a DeepSeek API key with a minimal Search request."""
+    start = time.monotonic()
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                DEEPSEEK_SEARCH_API_URL,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={"query": "test", "count": 1},
+            )
+        latency = int((time.monotonic() - start) * 1000)
+        if resp.status_code != 200:
+            return {
+                "success": False,
+                "latency_ms": latency,
+                "error": f"HTTP {resp.status_code}: {resp.text[:200]}",
+            }
+        if isinstance(resp.json().get("results"), list):
+            return {"success": True, "latency_ms": latency, "error": None}
+        return {
+            "success": False,
+            "latency_ms": latency,
+            "error": "DeepSeek Search 响应缺少 results 数组",
+        }
+    except Exception as exc:
+        latency = int((time.monotonic() - start) * 1000)
+        return {"success": False, "latency_ms": latency, "error": str(exc)}
+
+
+async def test_service_group(group_key: str) -> dict:
+    """Run one connectivity test for a group (reading the current SystemConfigService config).
+
+    Supports knowledge_base / file_parser / internet_search; other groups return
+    "unsupported". Shared by service_configs (EE) and me_system (CE).
+    """
+    from core.config.store.system_config import SystemConfigService
+
+    svc = SystemConfigService.get_instance()
+
+    if group_key == "knowledge_base":
+        from core.infra.probes.edition import test_external_knowledge
+
+        provider = (svc.get("knowledge_base.provider") or "").strip().lower()
+        if provider in {"custom", "local"}:
+            return {
+                "success": True,
+                "latency_ms": 0,
+                "error": None,
+                "skipped": True,
+                "message": "平台自建知识库模式无需测试外部连接",
+            }
+        selected = provider if provider in {"dify", "fastgpt", "weknora"} else "dify"
+        url = svc.get(f"knowledge_base.{selected}.url")
+        api_key = svc.get(f"knowledge_base.{selected}.api_key")
+        if selected == "dify":
+            url = url or svc.get("knowledge_base.url")
+            api_key = api_key or svc.get("knowledge_base.api_key")
+        if not url:
+            return {"success": False, "error": "URL 未配置", "latency_ms": 0}
+        return await test_external_knowledge(url, api_key or "")
+
+    if group_key == "file_parser":
+        url = svc.get("file_parser.api_url")
+        if not url:
+            return {"success": False, "error": "URL 未配置", "latency_ms": 0}
+        return await test_http_health(url)
+
+    if group_key == "internet_search":
+        engine = (svc.get("internet_search.engine") or "tavily").strip().lower()
+        if engine == "baidu":
+            api_key = svc.get("internet_search.baidu_api_key")
+            if not api_key:
+                return {"success": False, "error": "百度搜索 API Key 未配置", "latency_ms": 0}
+            return await test_baidu(api_key)
+        if engine == "langsearch":
+            api_key = svc.get("internet_search.langsearch_api_key")
+            if not api_key:
+                return {"success": False, "error": "LangSearch API Key 未配置", "latency_ms": 0}
+            return await test_langsearch(api_key)
+        if engine == "deepseek":
+            api_key = svc.get("internet_search.deepseek_api_key")
+            if not api_key:
+                return {"success": False, "error": "DeepSeek Search API Key 未配置", "latency_ms": 0}
+            return await test_deepseek_search(api_key)
+        if engine == "tavily":
+            api_key = svc.get("internet_search.tavily_api_key")
+            if not api_key:
+                return {"success": False, "error": "Tavily API Key 未配置", "latency_ms": 0}
+            return await test_tavily(api_key)
+        return {
+            "success": False,
+            "error": f"不支持的搜索引擎: {engine}",
+            "latency_ms": 0,
+        }
+
+    return {"success": False, "error": "不支持的分组", "latency_ms": 0}

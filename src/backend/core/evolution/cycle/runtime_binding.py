@@ -1,0 +1,415 @@
+"""Runtime Binder — freeze the asset versions one run uses (GCE ticket 03).
+
+Today an admin can publish a new skill or activate a new prompt while a long
+answer is still streaming, and nobody can say afterwards whether that run used
+the old or the new one.  The binder removes the ambiguity: at run start we
+resolve every governed asset to a concrete version, hash the set into a bundle
+id, and pin it for the rest of the run.
+
+Two properties matter more than completeness:
+
+* **No drift.**  Once bound, the run keeps its versions even if the underlying
+  asset is republished mid-flight.
+* **Never fail the turn.**  Binding is bookkeeping.  If a resolver raises, the
+  bundle degrades to partial and the user still gets their answer — an
+  observability feature must not become an availability risk.
+"""
+
+from __future__ import annotations
+
+import logging
+import threading
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+from core.evolution.contract import (
+    ASSET_KB,
+    ASSET_MEMORY,
+    ASSET_MODEL,
+    ASSET_ONTOLOGY,
+    ASSET_PROMPT,
+    ASSET_SKILL,
+    ASSET_WORKFLOW,
+    AssetBundle,
+    AssetRef,
+    build_bundle,
+)
+
+logger = logging.getLogger(__name__)
+
+# Bundles are small and short-lived; a bounded in-process cache keeps the hot
+# path free of database reads. The Episode assembler persists what it needs.
+_MAX_CACHED_BUNDLES = 512
+
+
+def _remember(bundle: AssetBundle, run_id: Optional[str], capability_scope: str = "") -> None:
+    with process_state().lock:
+        process_state().bundles[bundle.bundle_id] = bundle
+        if run_id:
+            process_state().run_to_bundle[(str(run_id), str(capability_scope))] = bundle.bundle_id
+        if len(process_state().bundles) > _MAX_CACHED_BUNDLES:
+            # Cheap eviction: drop the oldest insertion. Losing a cached bundle
+            # is harmless — it is re-resolvable from the persisted Episode.
+            for stale_key in list(process_state().bundles.keys())[: len(process_state().bundles) - _MAX_CACHED_BUNDLES]:
+                process_state().bundles.pop(stale_key, None)
+
+
+def get_bundle(bundle_id: str) -> Optional[AssetBundle]:
+    with process_state().lock:
+        return process_state().bundles.get(bundle_id)
+
+
+def resolve_bundle_for_run(run_id: str, *, capability_scope: str = "") -> Optional[AssetBundle]:
+    with process_state().lock:
+        bundle_id = process_state().run_to_bundle.get((str(run_id), str(capability_scope)))
+        return process_state().bundles.get(bundle_id) if bundle_id else None
+
+
+def clear_run_binding(run_id: Optional[str], *, capability_scope: str = "") -> None:
+    """Fail closed when final request evidence could not be rebound.
+
+    The content-addressed bundle may still be referenced by another run, so we
+    only clear this run's index.  A resolver must never fall back to the stale
+    pre-context bundle and describe it as complete request evidence.
+    """
+    if not run_id:
+        return
+    with process_state().lock:
+        process_state().run_to_bundle.pop((str(run_id), str(capability_scope)), None)
+
+
+def _safe(resolver, label: str, degraded: List[str]) -> List[AssetRef]:
+    """Run one resolver, converting any failure into a partial-bundle marker."""
+    try:
+        return list(resolver() or [])
+    except Exception as exc:
+        logger.debug("[binder] %s resolution failed: %s", label, exc)
+        degraded.append(label)
+        return []
+
+
+def _prompt_refs() -> List[AssetRef]:
+    from core.harness.registry.model_services import active_prompt_versions
+
+    return [
+        AssetRef(
+            kind=ASSET_PROMPT,
+            asset_id=kind,
+            version=str(active.get("id") or "default"),
+            detail={"label": active.get("label") or ""},
+        )
+        for kind, active in active_prompt_versions()
+    ]
+
+
+def _prompt_refs_from_manifest(manifest: Dict[str, Any]) -> List[AssetRef]:
+    """Use the exact prompt sections already rendered for this request.
+
+    Reading the active prompt pointer again after rendering has a publish race:
+    the manifest may describe A while a concurrent activation makes the binder
+    observe B. Section records carry the resolved version/content hash and are
+    therefore the authoritative request snapshot.
+    """
+    prompt_manifest = manifest.get("prompt_manifest") or {}
+    sections = prompt_manifest.get("sections") or []
+    refs: List[AssetRef] = []
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+        section_id = str(section.get("id") or "")
+        content_hash = str(section.get("content_hash") or "")
+        if not section_id or not content_hash:
+            continue
+        refs.append(
+            AssetRef(
+                kind=ASSET_PROMPT,
+                asset_id=section_id,
+                version=str(section.get("version") or content_hash),
+                detail={
+                    "origin": str(section.get("origin") or "unknown"),
+                    "content_hash": content_hash,
+                    "trust": str(section.get("trust") or "runtime"),
+                },
+            )
+        )
+    return refs
+
+
+def _skill_refs(
+    skill_ids: Optional[List[str]], run_id: Optional[str] = None, *, capability_scope: str = ""
+) -> List[AssetRef]:
+    if not skill_ids:
+        return []
+    from core.capabilities.skills.loader_factory import get_skill_loader
+
+    metadata: Dict[str, Any] = {}
+    try:
+        metadata = get_skill_loader().load_all_metadata() or {}
+    except Exception:
+        metadata = {}
+
+    # Desktop store: pin the exact store identity the resolver bound each
+    # runtime name to (profile + immutable revision), so a replay can rebuild
+    # the same view and a later re-resolution cannot silently swap versions.
+    bindings: Dict[str, Dict[str, Any]] = {}
+    try:
+        from core.harness.registry.run_capabilities import has_run_capabilities
+        from core.harness.registry.capability_runtime import get as get_prepared_run
+
+        if has_run_capabilities() and run_id:
+            prepared = get_prepared_run(run_id, scope_id=capability_scope)
+            if prepared is not None:
+                bindings = {
+                    name: {
+                        **entry,
+                        "execution_plane": prepared.execution_plane,
+                        "capability_scope": capability_scope,
+                    }
+                    for name, entry in prepared.bindings.items()
+                }
+    except Exception:
+        bindings = {}
+
+    refs: List[AssetRef] = []
+    for skill_id in skill_ids:
+        item = metadata.get(skill_id) or {}
+        version = ""
+        source = ""
+        if isinstance(item, dict):
+            version = str(item.get("version") or "")
+            source = str(item.get("source") or "")
+        else:  # loader may hand back an object
+            version = str(getattr(item, "version", "") or "")
+            source = str(getattr(item, "source", "") or "")
+        detail: Dict[str, Any] = {"source": source} if source else {}
+        binding = bindings.get(skill_id)
+        if binding:
+            detail["binding"] = {k: v for k, v in binding.items() if v is not None}
+            if binding.get("revision"):
+                version = str(binding["revision"])
+        refs.append(
+            AssetRef(
+                kind=ASSET_SKILL,
+                asset_id=skill_id,
+                # Filesystem skills have no version string; "fs" keeps the ref
+                # meaningful instead of pretending we know a version.
+                version=version or ("fs" if source == "filesystem" else "unversioned"),
+                detail=detail,
+            )
+        )
+    return refs
+
+
+def _ontology_refs() -> List[AssetRef]:
+    from core.db.engine import SessionLocal
+    from core.db.models import OntologyPack
+
+    refs: List[AssetRef] = []
+    with SessionLocal() as db:
+        packs = db.query(OntologyPack).all()
+        for pack in packs:
+            active = getattr(pack, "active_version_id", None)
+            if not active:
+                continue
+            refs.append(
+                AssetRef(
+                    kind=ASSET_ONTOLOGY,
+                    asset_id=str(pack.pack_id),
+                    version=str(active),
+                )
+            )
+    return refs
+
+
+def _memory_refs(memory_enabled: bool, workspace_id: str) -> List[AssetRef]:
+    from core.config.settings import settings
+
+    # The memory *policy* is what evolves; the memory contents are evidence, not
+    # a pinned version. Recording the policy knobs is what lets a later replay
+    # reproduce the same retrieval behaviour. Per-layer, because attribution
+    # needs to distinguish "L3 offered nothing" from "L3 was switched off" —
+    # a single opaque flag cannot answer which policy a given Episode ran under.
+    effective = bool(memory_enabled and settings.memory.enabled)
+    return [
+        AssetRef(
+            kind=ASSET_MEMORY,
+            asset_id=f"policy:{workspace_id or 'default'}",
+            version="v2",
+            detail={
+                "enabled": effective,
+                "retrieval_budget_ms": settings.memory.retrieval_budget_ms,
+                "layers": {
+                    "profile": {"enabled": effective},
+                    "fact": {
+                        "enabled": effective,
+                        "layered": bool(settings.memory.layered_enabled),
+                        "dedup_min_score": settings.memory.procedure_dedup_min_score,
+                    },
+                    "graph": {
+                        "enabled": bool(effective and settings.memory.graph_enabled),
+                    },
+                },
+            },
+        )
+    ]
+
+
+def _model_refs(model_name: Optional[str], provider_id: Optional[str]) -> List[AssetRef]:
+    if not model_name and not provider_id:
+        return []
+    return [
+        AssetRef(
+            kind=ASSET_MODEL,
+            asset_id=str(provider_id or "default"),
+            version=str(model_name or ""),
+        )
+    ]
+
+
+def _kb_refs(kb_ids: Optional[List[str]]) -> List[AssetRef]:
+    return [AssetRef(kind=ASSET_KB, asset_id=str(kb_id), version="") for kb_id in (kb_ids or [])]
+
+
+def _workflow_refs(
+    chat_mode: Optional[str],
+    policy_version: Optional[str],
+    profile_id: Optional[str] = None,
+) -> List[AssetRef]:
+    """Pin the orchestration profile this run was assembled from.
+
+    The profile decides which tools were visible, which skills were offered and
+    what the budgets were, so a bundle that does not name it cannot reproduce
+    the run — and counterfactual replay, which holds everything fixed while
+    substituting one asset, would be substituting against an unknown baseline.
+    """
+    return [
+        AssetRef(
+            kind=ASSET_WORKFLOW,
+            asset_id=f"profile:{profile_id or 'builtin'}",
+            version=policy_version or "builtin",
+            detail={"chat_mode": chat_mode or "default"},
+        )
+    ]
+
+
+def bind_runtime_assets(
+    *,
+    run_id: Optional[str] = None,
+    capability_scope: str = "",
+    skill_ids: Optional[List[str]] = None,
+    kb_ids: Optional[List[str]] = None,
+    model_name: Optional[str] = None,
+    model_provider_id: Optional[str] = None,
+    chat_mode: Optional[str] = None,
+    memory_enabled: bool = False,
+    workspace_id: str = "default",
+    workflow_policy_version: Optional[str] = None,
+    orchestration_profile_id: Optional[str] = None,
+    execution_manifest: Optional[Any] = None,
+    manifest_required: bool = False,
+) -> AssetBundle:
+    """Resolve and pin everything this run depends on.
+
+    Always returns a bundle.  A resolver that fails marks the bundle partial
+    rather than raising: the caller is on the user's critical path.
+    """
+    degraded: List[str] = []
+    refs: List[AssetRef] = []
+
+    try:
+        if execution_manifest is None:
+            manifest_payload: Dict[str, Any] = {}
+        elif hasattr(execution_manifest, "to_dict"):
+            manifest_payload = dict(execution_manifest.to_dict())
+        elif isinstance(execution_manifest, dict):
+            manifest_payload = dict(execution_manifest)
+        else:
+            manifest_payload = {}
+    except Exception as exc:  # evidence conversion must not fail the turn
+        logger.debug("[binder] execution manifest conversion failed: %s", exc)
+        manifest_payload = {}
+        degraded.append("execution_manifest")
+
+    exact_prompt_refs = _prompt_refs_from_manifest(manifest_payload)
+    if exact_prompt_refs:
+        refs += exact_prompt_refs
+    else:
+        refs += _safe(lambda: _prompt_refs(), "prompt", degraded)
+        if manifest_required and "execution_manifest" not in degraded:
+            degraded.append("execution_manifest")
+    refs += _safe(
+        lambda: _skill_refs(skill_ids, run_id, capability_scope=capability_scope), "skill", degraded
+    )
+    refs += _safe(lambda: _ontology_refs(), "ontology", degraded)
+    refs += _safe(lambda: _memory_refs(memory_enabled, workspace_id), "memory", degraded)
+    refs += _safe(lambda: _model_refs(model_name, model_provider_id), "model", degraded)
+    refs += _safe(lambda: _kb_refs(kb_ids), "kb", degraded)
+    refs += _safe(
+        lambda: _workflow_refs(chat_mode, workflow_policy_version, orchestration_profile_id),
+        "workflow",
+        degraded,
+    )
+
+    bundle = build_bundle(
+        refs,
+        partial=bool(degraded),
+        captured_at=datetime.now(timezone.utc).isoformat(),
+        execution_manifest=manifest_payload,
+    )
+    if degraded:
+        logger.info("[binder] partial bundle %s (degraded: %s)", bundle.bundle_id, degraded)
+    _remember(bundle, run_id, capability_scope)
+    return bundle
+
+
+def rebind_execution_manifest(
+    *,
+    run_id: Optional[str],
+    capability_scope: str = "",
+    base_bundle: AssetBundle,
+    execution_manifest: Any,
+) -> AssetBundle:
+    """Replace request evidence without re-resolving the run's frozen assets.
+
+    Context manifests change per model request, while governed asset versions
+    must remain pinned for the run. Calling ``bind_runtime_assets`` again here
+    would reopen a publish race and could attach newly activated versions that
+    the running Agent never consumed.
+    """
+    if base_bundle is None:
+        raise ValueError("base bundle is required for manifest-only rebind")
+    if hasattr(execution_manifest, "to_dict"):
+        manifest_payload = dict(execution_manifest.to_dict())
+    elif isinstance(execution_manifest, dict):
+        manifest_payload = dict(execution_manifest)
+    else:
+        raise TypeError("execution manifest must be serializable")
+    bundle = build_bundle(
+        list(base_bundle.refs),
+        partial=base_bundle.partial,
+        captured_at=base_bundle.captured_at,
+        execution_manifest=manifest_payload,
+    )
+    _remember(bundle, run_id, capability_scope)
+    return bundle
+
+
+def reset_for_tests() -> None:
+    with process_state().lock:
+        process_state().bundles.clear()
+        process_state().run_to_bundle.clear()
+
+
+@dataclass
+class RuntimeBindingState:
+    bundles: Dict[str, AssetBundle] = field(default_factory=lambda: {})
+    run_to_bundle: Dict[tuple[str, str], str] = field(default_factory=lambda: {})
+    lock: object = field(default_factory=lambda: threading.Lock())
+
+
+_STATE = RuntimeBindingState()
+
+
+def process_state() -> RuntimeBindingState:
+    return _STATE

@@ -719,6 +719,10 @@ export const SETTINGS_DICT: Record<string, string> = {
   '百度搜索 API Key': 'Baidu Search API Key',
   '百度千帆 AppBuilder 搜索服务密钥': 'Baidu Qianfan AppBuilder search service key',
   'LangSearch Web Search API 服务密钥': 'LangSearch Web Search API service key',
+  '互联网搜索引擎 (tavily / baidu / langsearch / deepseek)':
+    'Internet search engine (Tavily / Baidu / LangSearch / DeepSeek)',
+  'DeepSeek Search API 服务密钥（DeepSeek 开放平台 API Key）':
+    'DeepSeek Search API service key (DeepSeek platform API key)',
   '主智能体代码执行能力': 'Main Agent Code Execution',
   '开启后主/计划/批量/智能体默认具备文件工具+沙箱+我的空间访问；关闭则仅 Lab 入口可用。本开关为唯一控制源，保存后 ≤30s 生效、无需重启。':
     'When enabled, main, plan, workflow, and agents can use file tools, the sandbox, and My Space by default. When disabled, only Lab can use them. Changes take effect within 30 seconds without a restart.',

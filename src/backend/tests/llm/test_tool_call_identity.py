@@ -8,7 +8,7 @@ import asyncio
 
 from agentscope.message import ToolCallBlock
 from agentscope.model import ChatResponse
-from core.llm.tool_call_identity import ToolCallIdentity, ToolCallIdentityMixin
+from core.models.tool_call_identity import ToolCallIdentity, ToolCallIdentityMixin
 
 
 def _response(*calls, is_last=True):

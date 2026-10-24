@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 
 import pytest
-from core.llm.tools import user_questions, _tool_confirmation as confirms
+from core.llm.tools import user_questions, confirmation as confirms
 
 
 @pytest.fixture(autouse=True, params=["local", "redis", "delayed"])
@@ -29,8 +29,8 @@ def shared_store(request, monkeypatch):
         monkeypatch.setattr(ephemeral, "get_redis", lambda: client)
         store = ephemeral.RedisEphemeralState()
     monkeypatch.setattr(ephemeral, "get_ephemeral_state", lambda: store)
-    monkeypatch.setattr("core.llm.interaction_store.get_ephemeral_state", lambda: store)
-    monkeypatch.setattr("core.services.yida_service.get_ephemeral_state", lambda: store)
+    monkeypatch.setattr('core.llm.runtime.interaction_store.get_ephemeral_state', lambda: store)
+    monkeypatch.setattr('integrations.yida.service.get_ephemeral_state', lambda: store)
     return store
 
 
@@ -287,7 +287,7 @@ async def test_same_path_different_permission_domains_are_not_deduplicated(monke
 @pytest.mark.asyncio
 async def test_yida_qr_and_organization_selection_cross_workers(tmp_path, monkeypatch):
     import json
-    from core.services import yida_service as original
+    from integrations.yida import service as original
 
     second = worker_copy(original)
     for module in [original, second]:

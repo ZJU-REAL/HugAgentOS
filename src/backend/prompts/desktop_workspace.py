@@ -9,11 +9,11 @@ def build_environment_context(ctx: dict, *, current_date: str) -> str:
     """Describe the project execution cwd and separate session scratch location."""
     from core.sandbox.workspace.paths import WORKSPACE
     from core.sandbox.workspace.desktop import workspace_directory
-    from core.llm.tool_permissions import normalize_approval_mode
-    from core.services.local_grant_service import grants_for_gate, policy_for_gate
+    from core.sandbox.permissions.approval import normalize_approval_mode
+    from features.desktop.local.grants import grants_for_gate, policy_for_gate
 
     session = str(ctx.get("sandbox_session_id") or ctx.get("chat_id") or "").strip()
-    from core.services.project_scope import project_scope_from_context
+    from core.projects.edition import project_scope_from_context
     scope = project_scope_from_context(ctx)
     cwd = workspace_directory(WORKSPACE, session, scope=scope, validate=False)
     root = Element("environment_context")

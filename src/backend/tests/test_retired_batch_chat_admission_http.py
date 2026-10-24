@@ -11,12 +11,12 @@ import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
+import api.transports.run_sse as run_sse
+import core.chat.runtime.admission as admission
+import core.runs.runtime as runtime
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy.orm import object_session
-
-from core.chat.schemas import ChatRequest
 from core.auth import session
+from core.chat.schemas import ChatRequest
 from core.config.settings import settings
 from core.db.engine import Base, SessionLocal, engine
 from core.db.models import (
@@ -28,18 +28,20 @@ from core.db.models import (
     Project,
     UserShadow,
 )
-from core.services.model_config import ModelConfigService
+from core.models.config import ModelConfigService
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import object_session
 
 
 @pytest.fixture()
 def boundary(monkeypatch):
     from api.app import app
-    from orchestration import chat_run_executor
+    pass
 
     assert settings.auth.mode == "session"
     assert session._use_memory_store()
     Base.metadata.create_all(engine)
-    session._MEMORY_SESSIONS.clear()
+    session.process_state().MEMORY_SESSIONS.clear()
     with SessionLocal() as db:
         db.add(UserShadow(user_id="retirement-user", username="Reader", extra_data={}))
         db.add(
@@ -86,9 +88,9 @@ def boundary(monkeypatch):
         yield "event: run_started\ndata: " + json.dumps({"run_id": run_id}) + "\n\n"
         yield "data: [DONE]\n\n"
 
-    monkeypatch.setattr(chat_run_executor, "start_run", model_worker)
-    monkeypatch.setattr(chat_run_executor, "wait_run", wait)
-    monkeypatch.setattr(chat_run_executor, "follow_run_as_sse", follow)
+    monkeypatch.setattr(admission, "start_run", model_worker)
+    monkeypatch.setattr(runtime, "wait_run", wait)
+    monkeypatch.setattr(run_sse, "follow_run_as_sse", follow)
     client = TestClient(app)
     token = asyncio.run(
         session.create_session({"user_id": "retirement-user", "username": "Reader"})
@@ -96,7 +98,7 @@ def boundary(monkeypatch):
     client.cookies.set(settings.session.cookie_name, token)
     yield client, captured
     client.close()
-    session._MEMORY_SESSIONS.clear()
+    session.process_state().MEMORY_SESSIONS.clear()
     ModelConfigService.get_instance().invalidate_cache()
     Base.metadata.drop_all(engine)
 
@@ -147,10 +149,10 @@ def test_ordinary_public_chat_and_project_init_survive_retirement(boundary, kind
 
 
 def test_scoped_runtime_wrappers_do_not_reintroduce_retired_fields():
-    from core.services.session_operations.session_context import _ensure_chat_session
-    from core.llm.agent_api_runtime import apply_api_scope
-    from core.llm.evaluation_runtime import apply_evaluation_scope
-    from core.services.agent_api_service import _FORBIDDEN_INPUTS
+    from core.llm.api_runtime.agent import apply_api_scope
+    from features.evaluation.runtime.runtime import apply_evaluation_scope
+    from core.auth.agent_api import _FORBIDDEN_INPUTS
+    from core.chat.operations.session_context import _ensure_chat_session
 
     assert "batch_chat" not in ChatRequest.model_fields
     assert "batch_chat" not in inspect.signature(_ensure_chat_session).parameters

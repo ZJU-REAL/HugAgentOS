@@ -11,7 +11,7 @@ preference, because none of them degrades gracefully:
 * ``SESSION_STORE=memory`` — a login handled by worker A is invisible to worker
   B, so a browser is randomly signed out on roughly ``1 - 1/N`` of its requests.
 * No Redis — the per-run SSE event log falls back to an in-process buffer
-  (:mod:`orchestration.run_event_stream`), and so does the mutex behind
+  (:mod:`core.runs.events.store`), and so does the mutex behind
   :mod:`core.infra.leader`, so neither the stream nor the leader lease would
   actually cross a process boundary.
 * ``DEPLOY_PROFILE=local`` — the no-Docker desktop profile hosts MCP and sandbox
@@ -33,6 +33,13 @@ read. The entrypoint sizes ``--workers`` from it, but it is deliberately not the
 only launch path: ``cli.py`` and ``api.app.main`` call ``uvicorn.run`` in
 process, where nothing exported the resolved value. Deriving the answer instead
 of trusting the environment keeps those paths from believing they are a cluster.
+
+Each worker also brings its own database pool, and that pool is not a separate
+knob: a process can only use as many connections as it has threads doing
+database work, so :func:`core.db.engine.thread_budget` derives the pool from
+``WORKER_THREADS`` (anyio's limiter) and the event loop's executor, and every
+worker applies those limits at startup. Postgres therefore needs
+``max_connections >= resolve() * (pool_size + overflow)`` for the backend alone.
 """
 
 from __future__ import annotations

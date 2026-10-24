@@ -3,10 +3,10 @@
 import pytest
 from agentscope.message import UserMsg
 from agentscope.model import ChatResponse
-from core.llm import failover
-from core.llm.context_safety import ContextBudgetExceeded
-from core.llm.manifest_agent import ManifestBoundAgent
-from core.ontology.toolkit import OntologyFilteredToolkit
+from core.models import failover
+from core.llm.context.safety import ContextBudgetExceeded
+from core.llm.runtime.manifest_agent import ManifestBoundAgent
+from core.llm.tools.ontology_toolkit import OntologyFilteredToolkit
 from tests.llm.test_model_failover import _build, _Candidate, _status
 
 

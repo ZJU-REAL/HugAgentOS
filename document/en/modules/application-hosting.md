@@ -6,11 +6,11 @@ Static sites do not create databases. Persistent forms create typed application 
 
 Set `APPLICATION_DATABASE_URL` to a separate database and run `python -m core.services.application_hosting_setup` once. Cloud installations without this setting show hosting as unavailable; local mode may use SQLite. Production uses PostgreSQL.
 
-The optional `docker-compose.application-hosting.yml` adds PostgreSQL, a persistent volume and an initialization job. Set different URL-safe `APPLICATION_DB_PASSWORD` (bootstrap) and `APPLICATION_OWNER_DB_PASSWORD` (runtime), or encode connection strings correctly. The initialization job uses the same Dockerfile build target as the backend and mounts current backend sources read-only. Build the backend from these sources and rebuild the frontend for the nginx `/applications-mcp/` route. Follow repository approval rules before deployment. End-to-end tests use separate databases and platform mock authentication for local testing only.
+The optional `docker/application-hosting/compose.application-hosting.yml` adds PostgreSQL, a persistent volume and an initialization job. Set different URL-safe `APPLICATION_DB_PASSWORD` (bootstrap) and `APPLICATION_OWNER_DB_PASSWORD` (runtime), or encode connection strings correctly. The initialization job uses the same Dockerfile build target as the backend and mounts current backend sources read-only. Build the backend from these sources and rebuild the frontend for the nginx `/applications-mcp/` route. Follow repository approval rules before deployment. End-to-end tests use separate databases and platform mock authentication for local testing only.
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.application-hosting.yml config --quiet
-docker compose -f docker-compose.yml -f docker-compose.application-hosting.yml up -d
+docker compose -f docker-compose.yml -f docker/application-hosting/compose.application-hosting.yml config --quiet
+docker compose -f docker-compose.yml -f docker/application-hosting/compose.application-hosting.yml up -d
 ```
 
 ## Access and data
@@ -43,27 +43,7 @@ Schema validation, relational table construction, registry transactions, data op
 
 ## Limits
 
-Implemented: typed SQL, bounded reads/writes, atomic batches, idempotency, optimistic updates, application isolation, anonymous insert-only forms and declarative MCP hosting. Not implemented: arbitrary-code MCP containers, OAuth authorization server, foreign-key relationship designer, backup/restore console and comprehensive usage billing. The real chat driver is `src/backend/tests/application_hosting_e2e.py`; `application_hosting_e2e_setup.py` prepares its isolated environment. It exercises the production chat API, model, tools, sandbox and publishing. Acceptance status comes from the actual run report.
-
-## Reproduce local end-to-end acceptance
-
-Use a local Docker environment with a real model, industry source and OpenSandbox configured. Build the current frontend first. These drivers use production APIs and actual tools, with no file or publication adapters. Test services bind loopback ports and use separate platform_e2e_verified / applications_e2e_verified databases and storage.
-
-```bash
-npm --prefix src/frontend run build
-PYTHONPATH=src/backend .venv/bin/python src/backend/tests/application_hosting_e2e_setup.py
-PYTHONPATH=src/backend .venv/bin/python src/backend/tests/application_hosting_e2e.py
-```
-
-Submit test data at `http://127.0.0.1:18533/site/e2e-form-1007/` using email `browser-e2e@example.test`. Then run:
-
-```bash
-PYTHONPATH=src/backend .venv/bin/python src/backend/tests/application_hosting_lifecycle_e2e.py
-```
-
-The lifecycle driver restarts only the isolated test services and rotates, rolls back, revokes and republishes the test MCP credential. Credentials stay in `/tmp/application-hosting-full-e2e-credentials.json` (0600), outside pages and acceptance reports. Existing batches are not automatically reset; use a clean isolated database batch for a full chat rerun. This workflow does not upgrade the primary installation or deploy remotely.
-
-For a fresh chat rerun, stop and remove only `hugagent-application-e2e-backend` and `hugagent-application-e2e-mcp`, then run setup with `APPLICATION_E2E_BATCH=run2`. Previous batch databases remain intact and drivers keep the same loopback URLs. Do not remove primary containers or databases.
+Implemented: typed SQL, bounded reads/writes, atomic batches, idempotency, optimistic updates, application isolation, anonymous insert-only forms and declarative MCP hosting. Not implemented: arbitrary-code MCP containers, OAuth authorization server, foreign-key relationship designer, backup/restore console and comprehensive usage billing.
 
 ## Desktop integration
 
@@ -135,9 +115,9 @@ and project files so subsequent upgrades reuse bindings; do not delete applicati
 
 Management and rollback publication reject an existing unpublished project draft instead of overwriting it. Project publication waits for file-tool registration and refreshes the mounted source to its new version before reporting synchronization complete.
 
-## External review fixes and upgrades
+## Deployment requirements and data safety
 
-Application hosting remains optional. Set different APPLICATION_DB_PASSWORD and APPLICATION_OWNER_DB_PASSWORD values. Use both docker-compose.yml and docker-compose.application-hosting.yml.
+Application hosting remains optional. Set different APPLICATION_DB_PASSWORD and APPLICATION_OWNER_DB_PASSWORD values. Use both docker-compose.yml and docker/application-hosting/compose.application-hosting.yml.
 
 Run application-database-init for new deployments and existing volumes. It creates recovery history and transfers application schema and table ownership to application_owner. It also grants access to existing application roles. Initialization failures must block backend startup.
 

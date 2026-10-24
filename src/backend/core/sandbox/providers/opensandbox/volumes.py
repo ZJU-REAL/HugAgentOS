@@ -2,55 +2,11 @@
 
 from __future__ import annotations
 
-import logging
-import os
-import re
-from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from core.config.settings import settings
 from core.sandbox.sessions.metadata import USER_ID_METADATA_KEY
 from core.sandbox.workspace.identity import safe_user_id
-from extensions.paths import SKILLS_DIR
-
-logger = logging.getLogger(__name__)
-
-# Built-in skills enter the sandbox at /workspace/skills/ via a host bind mount, read-only.
-#
-# Note: an absolute host path is required — the OpenSandbox server creates sandbox
-# containers through the host docker daemon, and docker.sock sees the host's view.
-# HOST_REPO_PATH is injected by docker-compose (the .env variable of the same name);
-# when missing we fall back to the in-container path derived from Path(__file__) —
-# in dev the backend already bind-mounts `${HOST_REPO_PATH}:${HOST_REPO_PATH}`, so
-# paths inside and outside the container are identical and the derived result is
-# also a valid host path.
-_BUILTIN_SKILLS_HOST_PATH: Optional[str] = None
-
-
-def _resolve_builtin_skills_host_path() -> Optional[str]:
-    """Compute the absolute host path of the built-in skills dir, for sandbox volumes."""
-    global _BUILTIN_SKILLS_HOST_PATH
-    if _BUILTIN_SKILLS_HOST_PATH is not None:
-        return _BUILTIN_SKILLS_HOST_PATH or None  # "" → None
-    host_repo = os.environ.get("HOST_REPO_PATH", "").strip()
-    if host_repo:
-        candidate = f"{host_repo.rstrip('/')}/src/backend/extensions/skills"
-    else:
-        # In-container derived path: this file lives in src/backend/core/sandbox/providers/opensandbox/,
-        # walk back up to src/backend then down into extensions/skills. In dev the backend
-        # bind-mounts the whole repo via HOST_REPO_PATH, so the absolute path inside
-        # the container equals the host path.
-        candidate = str(SKILLS_DIR)
-    if not Path(candidate).is_dir():
-        logger.warning(
-            "[opensandbox] built-in skills dir not found at %s; skill bind-mount disabled",
-            candidate,
-        )
-        _BUILTIN_SKILLS_HOST_PATH = ""
-        return None
-    _BUILTIN_SKILLS_HOST_PATH = candidate
-    return candidate
-
 
 # Metadata tags used for adoption / cross-process pool reuse. Every sandbox created by
 # this app carries them; after a backend restart _adopt_existing_sandboxes uses this tag
@@ -68,7 +24,7 @@ def _resolve_builtin_skills_host_path() -> Optional[str]:
 _METADATA_OWNER_KEY = "hugagent-owner"
 _METADATA_OWNER_VALUE = "backend"
 _METADATA_POOL_KIND_KEY = "hugagent-pool-kind"
-# Plan F: jupyter sandboxes are bucketed by user_id. Every jupyter sandbox created by this
+# Persistent sandboxes are bucketed by user_id. Every jupyter sandbox created by this
 # service carries this tag; after a backend restart _adopt_existing_sandboxes uses it to
 # reclaim orphan sandboxes into the correct user's pool — cross-user reuse would let one
 # user see another's myspace bind contents, a security hole that must be prevented.
@@ -110,46 +66,23 @@ def _make_skills_volumes(user_id: Optional[str] = None) -> list:
     whoever asks next and must never carry someone's private files.
 
     Read-only, and the bind is live, so newly imported skills appear at once.
-    Without ``HOST_STORAGE_PATH`` fall back to the built-in source tree alone and
-    warn; on failure return an empty list — the sandbox is created as usual, just
-    without /workspace/skills/, and skill references hit a plain not-found.
+    HOST_STORAGE_PATH must identify the same storage root on the Docker host.
     """
-    try:
-        from opensandbox.models.sandboxes import Host, Volume
-    except ImportError:  # older SDKs lack these two — can only continue without mounting
-        return []
+    from opensandbox.models.sandboxes import Host, Volume
+    from core.sandbox.errors import SandboxError
 
-    host_storage = (settings.sandbox.opensandbox_host_storage_path or "").strip().rstrip("/")
+    host_storage = settings.sandbox.opensandbox_host_storage_path.strip().rstrip("/")
     if not host_storage:
-        # No host storage → no unified dir to bind; mount the built-in source tree alone.
-        legacy = _resolve_builtin_skills_host_path()
-        logger.warning(
-            "[opensandbox] HOST_STORAGE_PATH 未配置；/workspace/skills 仅挂内置源码树，"
-            "DB 导入技能在沙盒内不可见"
-        )
-        if not legacy:
-            return []
-        return [
-            Volume(
-                name="skills",
-                host=Host(path=legacy),
-                mount_path="/workspace/skills",
-                read_only=True,
-            )
-        ]
+        raise SandboxError("OpenSandbox skill mounts require HOST_STORAGE_PATH")
 
     # get_sandbox_skills_dir() / get_user_skills_root() return the container-side
     # dirs (the same storage volume as the host bind source) and guarantee they
     # exist — OpenSandbox fails to bind a nonexistent source. Only their basenames
     # are used to compose host paths, so the names are not written twice.
-    from core.agent_skills.config import (
-        SHARED_LINK_NAME,
-        get_sandbox_skills_dir,
-        get_user_skills_root,
-    )
+    from core.capabilities.skills.config import SHARED_LINK_NAME, get_sandbox_skills_dir, get_user_skills_root
 
     shared_host = f"{host_storage}/{get_sandbox_skills_dir().name}"
-    from core.agent_skills.publication import prepare_skill_view
+    from core.capabilities.skills.publication import prepare_skill_view
 
     view = prepare_skill_view(safe_user_id(user_id) or None)
     if view is None:

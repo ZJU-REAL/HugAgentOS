@@ -8,8 +8,10 @@ import re
 import time
 from typing import Any
 
-from core.auth.kb_permissions import get_accessible_local_kb_ids, is_shared_visibility
-from core.config.runtime_env import get_runtime_value
+from features.knowledge.edition import get_accessible_local_kb_ids, is_shared_visibility
+from orchestration.configuration import register_configuration
+register_configuration()
+from core.config.store.runtime_env import get_runtime_value
 
 
 def _read_int_env(name: str, default: int) -> int:
@@ -60,7 +62,7 @@ def _fetch_parent_contents(parent_ids: list[str]) -> dict[str, str]:
         return {}
     try:
         from core.db.engine import SessionLocal
-        from core.db.models import KBChunk
+        from features.knowledge.models import KBChunk
 
         db = SessionLocal()
         try:
@@ -91,7 +93,7 @@ def _build_runtime_local_kb_section() -> str:
     kb_names: dict[str, str] = {}
     try:
         from core.db.engine import SessionLocal
-        from core.db.models import KBSpace
+        from features.knowledge.models import KBSpace
 
         db = SessionLocal()
         try:
@@ -156,7 +158,7 @@ def retrieve_local_kb(
     if not allowed:
         try:
             from core.db.engine import SessionLocal
-            from core.db.models import KBSpace
+            from features.knowledge.models import KBSpace
 
             with SessionLocal() as _db:
                 if user_id:
@@ -197,7 +199,7 @@ def retrieve_local_kb(
     private_ids: list[str] = list(search_kb_ids)
     try:
         from core.db.engine import SessionLocal
-        from core.db.models import KBSpace
+        from features.knowledge.models import KBSpace
 
         with SessionLocal() as _db:
             rows = (
@@ -223,7 +225,8 @@ def retrieve_local_kb(
 
     # ── Embed query ──────────────────────────────────────────────────────────
     try:
-        from core.kb.kb_vector import embed_text, hybrid_search
+        from core.models.embedding import embed_text
+        from features.knowledge.kb_vector import hybrid_search
 
         query_vec = embed_text(query, timeout=_remaining_stage_timeout())
     except LocalKnowledgeBaseTimeoutError:
@@ -253,7 +256,7 @@ def retrieve_local_kb(
     kb_meta: list[dict[str, str]] = []
     try:
         from core.db.engine import SessionLocal
-        from core.db.models import KBSpace
+        from features.knowledge.models import KBSpace
 
         with SessionLocal() as _db:
             spaces = (
@@ -289,7 +292,7 @@ def retrieve_local_kb(
     )
     if (_reranker_flag or "").lower() in ("true", "1"):
         try:
-            from core.kb.kb_vector import is_reranker_configured, rerank
+            from core.models.reranking import is_reranker_configured, rerank
 
             if is_reranker_configured() and top_hits:
                 contents = [hit.get("content", "") for hit in top_hits]
@@ -390,7 +393,7 @@ def _attach_assets(results: list) -> None:
     if not results:
         return
     try:
-        from core.kb.kb_assets import fetch_assets_for_chunks
+        from features.knowledge.kb_assets import fetch_assets_for_chunks
 
         grouped = fetch_assets_for_chunks([r.get("id", "") for r in results])
     except Exception as exc:
@@ -413,7 +416,7 @@ def retrieve_public_local_kb(
 ) -> dict:
     """Search only accessible shared local spaces through the public tool."""
     from core.db.engine import SessionLocal
-    from core.db.models import KBSpace
+    from features.knowledge.models import KBSpace
 
     user_id = (current_user_id or _get_current_user_id()).strip()
     if not user_id:

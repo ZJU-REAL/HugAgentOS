@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from core.services.chat_service import ChatService
+from core.chat.service import ChatService
 
 
 class _MessageRepository:
@@ -29,7 +29,7 @@ def test_accept_ontology_revision_replaces_content_and_marks_metadata():
             "ontology_governance": {"review": {"candidate_answer": "基于新增证据的优化答案"}}
         },
     )
-    service = ChatService.__new__(ChatService)
+    service = object.__new__(ChatService)
     service.message_repo = _MessageRepository(message)
 
     updated = service.accept_ontology_revision("msg_1")
@@ -47,7 +47,7 @@ def test_accept_ontology_revision_rejects_message_without_candidate():
         content="原始答案",
         extra_data={"ontology_governance": {"review": {}}},
     )
-    service = ChatService.__new__(ChatService)
+    service = object.__new__(ChatService)
     service.message_repo = _MessageRepository(message)
 
     assert service.accept_ontology_revision("msg_2") is None
@@ -60,7 +60,7 @@ def test_accept_ontology_revision_rejects_placeholder_candidate():
         content="必须保留的原始答案",
         extra_data={"ontology_governance": {"review": {"candidate_answer": "..."}}},
     )
-    service = ChatService.__new__(ChatService)
+    service = object.__new__(ChatService)
     service.message_repo = _MessageRepository(message)
 
     assert service.accept_ontology_revision("msg_3") is None
@@ -83,7 +83,7 @@ def test_accept_ontology_revision_removes_transport_wrapper():
             }
         },
     )
-    service = ChatService.__new__(ChatService)
+    service = object.__new__(ChatService)
     service.message_repo = _MessageRepository(message)
 
     updated = service.accept_ontology_revision("msg_4")

@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from sqlalchemy.orm import sessionmaker
 
 from core.db.models import ChatMessage, ChatSession
-from core.evolution import settlement as evolution_settlement
+from core.evolution.settlement import settlement as evolution_settlement
 from core.memory.extractors import writers as W
 from core.memory import outbox as O
 from core.memory.outbox import common as outbox_common
@@ -24,6 +24,7 @@ def _configure_db(db_session, monkeypatch):
     monkeypatch.setattr(outbox_common, "SessionLocal", factory)
     monkeypatch.setattr(E, "SessionLocal", factory)
     monkeypatch.setattr(PS, "SessionLocal", factory)
+    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
     return factory
 
 

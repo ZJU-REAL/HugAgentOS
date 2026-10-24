@@ -1,0 +1,50 @@
+# Local S3 storage for CE and full Docker distributions.
+services:
+  object-storage:
+    image: ${COMPOSE_PROJECT_NAME:-hugagent}-object-storage:RELEASE.2023-03-13T19-46-17Z
+    build:
+      context: ..
+      dockerfile: docker/object-storage/Dockerfile.object-storage
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:?Set a random S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?Set a random S3_SECRET_KEY}
+    volumes:
+      - object_storage_data:/data
+    # Personal Agent object mounts run s3fs in a helper on the compute network.
+    networks: [hugagent-network, personal-agent-compute]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/minio/health/live', timeout=5).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: {max-size: "50m", max-file: "5"}
+  object-storage-init:
+    image: ${COMPOSE_PROJECT_NAME:?Set COMPOSE_PROJECT_NAME}-backend
+    entrypoint: ["python", "/init-object-storage.py"]
+    environment:
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://object-storage:9000}
+      S3_BUCKET: ${S3_BUCKET:-hugagent-files}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?Set S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?Set S3_SECRET_KEY}
+    volumes:
+      - ./docker/object-storage/init-object-storage.py:/init-object-storage.py:ro
+    depends_on:
+      object-storage: {condition: service_healthy}
+    networks: [hugagent-network]
+    restart: "no"
+  backend:
+    depends_on:
+      object-storage-init: {condition: service_completed_successfully}
+  mcp:
+    depends_on:
+      object-storage-init: {condition: service_completed_successfully}
+networks:
+  personal-agent-compute:
+    name: ${COMPOSE_PROJECT_NAME:-hugagent}_personal-agent-compute
+volumes:
+  object_storage_data:

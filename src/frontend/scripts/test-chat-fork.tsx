@@ -113,7 +113,7 @@ discovered.updateStore((store) => ({ ...store, order: [discoveredId, ...store.or
   },
 } }));
 useComposerStore.getState().activate(chatDraftKey(discoveredId));
-readComposer(chatDraftKey(discoveredId)).setQuotedFollowUp({text:'Keep branch draft',ts:1});
+readComposer(chatDraftKey(discoveredId)).setQuotedFollowUp({text:'Keep branch draft',source:{kind:'message',ts:1}});
 discovered.addBackendSessionId(discoveredId);
 discovered.addLoadedMsgId(discoveredId);
 discovered.setMessagePaging(discoveredId, { nextPage: 5, hasOlder: false, loading: true });

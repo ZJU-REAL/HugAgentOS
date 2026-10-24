@@ -6,18 +6,16 @@ import pytest
 from agentscope.message import TextBlock, UserMsg
 from agentscope.model import ChatResponse, ChatUsage
 from agentscope.skill import Skill, SkillLoaderBase
-from core.llm.compaction import build_compacted_history
-from core.llm.context_adapter import (
-    PROVIDER_CONTEXT_META_KEY,
-    AgentScopeContextAdapter,
-    next_request_sequence,
-    render_context_item,
-)
-from core.llm.context_ir import KIND_USER_INPUT, POLICY_NEVER, make_text_context_item
-from core.llm.execution_manifest import PromptManifestBuilder, stable_hash
-from core.llm.manifest_agent import ManifestBoundAgent
-from core.llm.message_compat import session_to_msgs
-from core.ontology.toolkit import OntologyFilteredToolkit
+from core.llm.context.compaction import build_compacted_history
+from core.llm.context.adapter import AgentScopeContextAdapter
+from core.llm.context.rendering import next_request_sequence, render_context_item
+from core.models.constants import PROVIDER_CONTEXT_META_KEY
+from core.llm.context.ir_constants import KIND_USER_INPUT, POLICY_NEVER
+from core.llm.context.items import make_text_context_item
+from core.harness.execution_manifest import PromptManifestBuilder, stable_hash
+from core.llm.runtime.manifest_agent import ManifestBoundAgent
+from core.llm.runtime.message_compat import session_to_msgs
+from core.llm.tools.ontology_toolkit import OntologyFilteredToolkit
 
 
 class CountingSkillLoader(SkillLoaderBase):
@@ -40,6 +38,8 @@ class CountingSkillLoader(SkillLoaderBase):
 
 
 class CaptureModel:
+    from agentscope.formatter import OpenAIChatFormatter
+    formatter = OpenAIChatFormatter()
     model = "capture-model"
     context_size = 32_768
 

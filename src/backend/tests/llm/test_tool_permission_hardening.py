@@ -12,16 +12,9 @@ from unittest.mock import patch
 import pytest
 from agentscope.message import ToolCallBlock
 from core.llm.factory.runtime.evidence import _default_allow_builtin_tools
-from core.llm.tool_permissions import (
-    DOMAIN_LOCAL_COMMAND,
-    DOMAIN_LOCAL_PATH,
-    DOMAIN_MYSPACE,
-    PermissionEnforcementError,
-    PermissionRuntime,
-    ToolPermissionRegistry,
-    ToolPermissionService,
-    builtin_tool_permission,
-)
+from core.sandbox.permissions.dispatch_models import DOMAIN_LOCAL_COMMAND, DOMAIN_LOCAL_PATH, DOMAIN_MYSPACE, PermissionEnforcementError, PermissionRuntime
+from core.sandbox.permissions.tool_specs import ToolPermissionRegistry, builtin_tool_permission
+from core.llm.tool_permissions import ToolPermissionService
 
 
 def _runtime(**overrides) -> PermissionRuntime:
@@ -187,9 +180,9 @@ async def test_trusted_unattended_run_still_obeys_a_policy_denial():
 
     with (
         patch("core.config.local_mode.local_mode_enabled", return_value=True),
-        patch("core.services.local_grant_service.grants_for_gate", return_value=[]),
+        patch('features.desktop.local.grants.grants_for_gate', return_value=[]),
         patch(
-            "core.services.local_grant_service.policy_for_gate",
+            'features.desktop.local.grants.policy_for_gate',
             return_value=Policy(out_of_scope="block"),
         ),
     ):

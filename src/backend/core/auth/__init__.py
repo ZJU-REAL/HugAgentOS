@@ -8,7 +8,7 @@ without recreating that cycle.
 
 from importlib import import_module
 
-_BACKEND_EXPORTS = {"AuthService", "UserContext", "get_current_user", "require_auth"}
+_BACKEND_EXPORTS = {"UserContext", "get_current_user", "require_auth"}
 
 
 def __getattr__(name: str):

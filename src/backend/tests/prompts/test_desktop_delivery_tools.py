@@ -12,7 +12,7 @@ import asyncio
 from core.db.engine import Base, engine
 import core.db.models
 from core.llm import agent_factory
-import core.agent_skills.loader as skill_loader
+import core.capabilities.skills.loader as skill_loader
 from core.config import local_mode
 Base.metadata.create_all(engine)
 class EmptyLoader:

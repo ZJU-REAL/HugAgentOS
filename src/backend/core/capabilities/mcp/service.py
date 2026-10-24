@@ -1,0 +1,473 @@
+"""MCP server configuration service (DB-driven, cached).
+
+Reads MCP server configs from the admin_mcp_servers table and provides
+them in the same dict format that run-owned MCP discovery and agent_factory
+expect (compatible with the old MCP_SERVERS dict from mcp_config.py).
+
+Thread-safe singleton with a 30s TTL cache.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import threading
+import time
+from typing import Any, Dict, List, Optional, Set
+
+from core.db.engine import SessionLocal
+from core.db.models import AdminMcpServer
+from core.capabilities.mcp.edition import edition_retired_builtin_mcp_server_ids
+
+logger = logging.getLogger(__name__)
+
+_CACHE_TTL = 30.0
+
+
+def rewrite_builtin_mcp_host(url: str) -> str:
+    """Point built-in MCP URLs at the configured host.
+
+    Plugin-provided MCP servers (automation_task / skill_manager / site_publish)
+    hardcode the Docker service name in their manifests
+    (``http://mcp:<port>/mcp``). That host only resolves inside the compose
+    network, so in the no-Docker local profile (``MCP_HOST=127.0.0.1``) the
+    plugin's tool calls would be unreachable. Rewrite **only** the literal ``mcp``
+    host to ``settings.server.mcp_host``: a no-op on compose (mcp_host == "mcp"),
+    loopback in local. External/user-added remote MCPs have real hostnames and are
+    left untouched.
+    """
+    if not url or "//mcp:" not in url and "//mcp/" not in url:
+        return url
+    from urllib.parse import urlparse, urlunparse
+
+    from core.config.settings import settings
+
+    try:
+        parts = urlparse(url)
+        if parts.hostname != "mcp":
+            return url
+        host = settings.server.mcp_host
+        port = parts.port
+        if port:
+            # 插件清单只知道内置服务器的基准端口；本机执行面按品牌端口命名空间
+            # （HUGAGENT_LOCAL_MCP_PORT_OFFSET）监听，地址要按同一登记表换算。
+            from extensions.mcp_servers._ports import _BASE_PORTS, PORTS
+
+            port = {base: PORTS[sid] for sid, base in _BASE_PORTS.items()}.get(port, port)
+        netloc = f"{host}:{port}" if port else host
+        path = "/mcp" if parts.path == "/mcp/" else parts.path
+        return urlunparse(parts._replace(netloc=netloc, path=path))
+    except Exception:
+        return url
+
+
+class McpServerConfigService:
+    """Reads MCP server configs from DB with in-memory caching."""
+
+    _instance: Optional[McpServerConfigService] = None
+    _instance_lock = threading.Lock()
+
+    def __init__(self) -> None:
+        self._cache: Optional[Dict[str, dict]] = None
+        self._cache_all: Optional[Dict[str, dict]] = None  # includes disabled
+        self._cache_ts: float = 0.0
+        self._lock = threading.Lock()
+
+    @classmethod
+    def get_instance(cls) -> McpServerConfigService:
+        if cls._instance is None:
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = cls()
+        return cls._instance
+
+    def get_all_servers(
+        self, enabled_only: bool = True, *, use_cache: bool = True
+    ) -> Dict[str, dict]:
+        """Return {server_id: config_dict} from DB, cached for 30s.
+
+        The config_dict format is compatible with the old MCP_SERVERS dict:
+        {
+            "transport": "stdio",
+            "command": "python",
+            "args": [...],
+            "env": {...},       # merged: env_inherit from OS + env_vars
+            "url": "...",       # for HTTP/SSE
+            "headers": {...},
+        }
+        """
+        if not use_cache:
+            with self._lock:
+                return self._load_from_db(enabled_only, strict=True)
+        now = time.monotonic()
+        if self._cache is not None and (now - self._cache_ts) < _CACHE_TTL:
+            return dict(self._cache) if enabled_only else dict(self._cache_all or self._cache)
+
+        with self._lock:
+            # Double-check after acquiring lock
+            if self._cache is not None and (time.monotonic() - self._cache_ts) < _CACHE_TTL:
+                return dict(self._cache) if enabled_only else dict(self._cache_all or self._cache)
+
+            return self._load_from_db(enabled_only)
+
+    def _load_from_db(self, enabled_only: bool, *, strict: bool = False) -> Dict[str, dict]:
+        """Load all servers from DB and rebuild cache."""
+        enabled_map: Dict[str, dict] = {}
+        all_map: Dict[str, dict] = {}
+
+        try:
+            with SessionLocal() as session:
+                # The global cache holds only public MCPs (owner_user_id is null). Private MCPs users add themselves
+                # do not enter the global pool/connection pool, to avoid leaking to other users; at runtime get_owned_servers
+                # loads and injects them per user_id separately.
+                # Secondary sort key server_id: when sort_order ties (all 0 by default) Postgres row order
+                # is not guaranteed stable, and any change in tool order busts the LLM prefix cache → the order must be deterministic.
+                rows = (
+                    session.query(AdminMcpServer)
+                    .filter(AdminMcpServer.owner_user_id.is_(None))
+                    .order_by(AdminMcpServer.sort_order, AdminMcpServer.server_id)
+                    .all()
+                )
+                from core.config.mcp_config import (
+                    builtin_launcher_serves_this_plane, launcher_backed,
+                    builtin_available_on_this_plane,
+                )
+
+                launcher_here = builtin_launcher_serves_this_plane()
+                for row in rows:
+                    if not builtin_available_on_this_plane(row.server_id):
+                        continue
+                    if is_removed_builtin_mcp_server(
+                        row.server_id,
+                        source_plugin=row.source_plugin,
+                    ):
+                        continue
+                    cfg = self._row_to_config(row)
+                    # 桌面双模式下本机不运行内置 launcher：内置服务器与本地引导的
+                    # 原生插件 MCP 都指向 launcher 端口段，此时既不可用也不该被列出，
+                    # 否则每轮都要对着没人监听的端口等超时。
+                    if not launcher_here and launcher_backed(cfg.get("url") or ""):
+                        continue
+                    all_map[row.server_id] = cfg
+                    if row.is_enabled:
+                        enabled_map[row.server_id] = cfg
+        except Exception as exc:
+            logger.warning("[mcp_service] Failed to load from DB: %s", exc)
+            if strict:
+                raise
+            # Return stale cache if available
+            if self._cache is not None:
+                return dict(self._cache) if enabled_only else dict(self._cache_all or self._cache)
+            return {}
+
+        self._cache = enabled_map
+        self._cache_all = all_map
+        self._cache_ts = time.monotonic()
+
+        return dict(enabled_map) if enabled_only else dict(all_map)
+
+    def _row_to_config(self, row: AdminMcpServer) -> dict:
+        """Convert a DB row to the config dict format."""
+        cfg: Dict[str, Any] = {
+            "transport": row.transport,
+            # 来源元数据（桌面双端桥按组件基名做 logical 去重时消费；
+            # 连接层不读这两个键）。
+            "source_plugin": row.source_plugin,
+            "owner_user_id": row.owner_user_id,
+        }
+
+        # stdio fields
+        if row.transport == "stdio":
+            cfg["command"] = row.command or "python"
+            cfg["args"] = list(row.args or [])
+
+        plaintext_headers: Dict[str, str] = {}
+        if row.headers:
+            from core.capabilities.mcp.management import decrypt_mcp_headers
+
+            plaintext_headers = decrypt_mcp_headers(row.headers)
+
+        # HTTP/SSE fields. Marketplace credentials that belong in the URL are
+        # decrypted and materialized only here, immediately before connecting.
+        if row.transport in ("streamable_http", "sse"):
+            from core.capabilities.mcp.management import materialize_mcp_http_connection, mcp_oauth_bundle_storage_key
+
+            runtime_url, runtime_headers = materialize_mcp_http_connection(
+                row.url or "", plaintext_headers
+            )
+            cfg["url"] = rewrite_builtin_mcp_host(runtime_url)
+            if runtime_headers:
+                cfg["headers"] = runtime_headers
+            oauth_raw = plaintext_headers.get(mcp_oauth_bundle_storage_key())
+            if oauth_raw:
+                try:
+                    import json
+
+                    from core.capabilities.mcp.oauth_storage import OAuthBundleStorage, build_oauth_provider
+
+                    oauth_bundle = json.loads(oauth_raw)
+                    storage = OAuthBundleStorage(oauth_bundle, server_id=row.server_id)
+                    cfg["oauth_provider"] = build_oauth_provider(
+                        cfg["url"], oauth_bundle, storage=storage
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Invalid OAuth bundle for MCP '%s': %s", row.server_id, exc)
+
+        # Build env: inherit from OS + explicit env_vars
+        env = self._build_env(row)
+        if env:
+            cfg["env"] = env
+
+        # Optional per-server timeouts live in the existing free-form JSON
+        # field, avoiding a schema migration while still allowing long-running
+        # tools to override the safe global defaults.
+        extra_config: Dict[str, Any] = (
+            row.extra_config if isinstance(row.extra_config, dict) else {}
+        )
+        for timeout_key in ("execution_timeout", "transport_timeout"):
+            timeout_value = extra_config.get(timeout_key)
+            if timeout_value is not None:
+                cfg[timeout_key] = timeout_value
+
+        # Declarative permission policy is developer/admin-owned connection
+        # metadata. It is deliberately not accepted from MCP tool annotations:
+        # a remote server must not be able to label its own mutation as safe.
+        permission_default = extra_config.get("permission_default")
+        if permission_default is not None:
+            cfg["permission_default"] = permission_default
+        tool_permissions = extra_config.get("tool_permissions")
+        if isinstance(tool_permissions, dict):
+            cfg["tool_permissions"] = dict(tool_permissions)
+
+        return cfg
+
+    def _build_env(self, row: AdminMcpServer) -> Dict[str, str]:
+        """Merge env_inherit (from OS) + env_vars (from DB)."""
+        env: Dict[str, str] = {}
+
+        # Phase 1: inherit from OS environment
+        for key in row.env_inherit or []:
+            val = os.getenv(key)
+            if val is not None:
+                env[key] = val
+
+        # Phase 2: overlay admin-set explicit values
+        for key, val in (row.env_vars or {}).items():
+            if isinstance(val, str):
+                env[key] = val
+
+        # Phase 3: apply DB-driven overlays (model config, system config)
+        try:
+            from core.models.config import ModelConfigService
+
+            overlay = ModelConfigService.get_instance().get_mcp_env_overlay()
+            if overlay:
+                env.update(overlay)
+        except Exception as fallback_error:
+            from core.infra.failures import record_best_effort_failure
+            record_best_effort_failure('core.capabilities.mcp.service:_build_env', fallback_error)
+
+        try:
+            from core.config.store.system_config import SystemConfigService
+
+            svc_overlay = SystemConfigService.get_instance().get_service_env_overlay()
+            if svc_overlay:
+                env.update(svc_overlay)
+        except Exception as fallback_error:
+            from core.infra.failures import record_best_effort_failure
+            record_best_effort_failure('core.capabilities.mcp.service:_build_env', fallback_error)
+
+        return env
+
+    def get_owned_servers(
+        self, user_id: str, enabled_only: bool = True, *, strict: bool = False
+    ) -> Dict[str, dict]:
+        """Return the private MCPs a given user added themselves (owner_user_id == user_id).
+
+        Queried from the DB on each call (the count is small), never cached globally, to avoid cross-user leakage. Only remote HTTP/SSE
+        transports (the user entry point does not allow stdio).
+        """
+        if not user_id:
+            return {}
+        owned: Dict[str, dict] = {}
+        try:
+            with SessionLocal() as session:
+                q = session.query(AdminMcpServer).filter(AdminMcpServer.owner_user_id == user_id)
+                if enabled_only:
+                    q = q.filter(AdminMcpServer.is_enabled.is_(True))
+                for row in q.order_by(AdminMcpServer.sort_order, AdminMcpServer.server_id).all():
+                    owned[row.server_id] = self._row_to_config(row)
+        except Exception as exc:
+            if strict:
+                raise
+            logger.warning("[mcp_service] Failed to load owned servers for %s: %s", user_id, exc)
+        from core.harness.registry.execution_catalog import local_plugin_configs as configs
+        owned.update(configs(user_id, enabled_only=enabled_only))
+        return owned
+
+    def get_server(self, server_id: str) -> Optional[dict]:
+        """Get a single server config by ID."""
+        servers = self.get_all_servers(enabled_only=False)
+        return servers.get(server_id)
+
+    def invalidate_cache(self) -> None:
+        """Clear cache so next call re-reads from DB."""
+        with self._lock:
+            self._cache = None
+            self._cache_all = None
+            self._cache_ts = 0.0
+
+    def get_all_rows(self) -> List[AdminMcpServer]:
+        """Return all DB rows (for admin API). Not cached."""
+        with SessionLocal() as session:
+            return (
+                session.query(AdminMcpServer)
+                .order_by(AdminMcpServer.sort_order, AdminMcpServer.server_id)
+                .all()
+            )
+
+
+# ── Built-in MCP catalog seed (single source of truth for fresh installs) ──────
+#
+# On a Docker/compose deployment these rows are inserted by alembic seed
+# migrations. On the no-Docker local/quick-install profile the DB is created via
+# ``Base.metadata.create_all()`` (alembic never runs — its seed SQL is Postgres
+# only), so the built-in catalog would be empty. ``seed_builtin_mcp_servers_if_empty``
+# closes that gap: it seeds this canonical set **only when no global built-in row
+# exists yet**, so it is a one-time bootstrap that never resurrects rows an admin
+# has since deleted, and it is a no-op on any DB that already has the catalog.
+#
+# The URL is templated per-server from ``extensions.mcp_servers._ports`` + ``settings.server.
+# mcp_host`` at seed time, so compose gets ``http://mcp:<port>/mcp`` and local
+# gets ``http://127.0.0.1:<port>/mcp`` from the same definition. Only the
+# built-in servers the ``mcp`` container / ``_launcher`` actually serves are
+# included; plugin-provided servers (automation_task / skill_manager /
+# site_publish) arrive via plugin install, and external-service ones (db_query /
+# es_query) need their own containers, so neither belongs in the base seed.
+from core.capabilities.mcp.builtin_specs import BUILTIN_MCP_SERVERS
+
+# Built-ins retired from the packaged runtime.  Keep this explicit tombstone
+# set separate from ``BUILTIN_MCP_SERVERS`` so upgraded create_all/SQLite
+# deployments can remove legacy rows even though the server is no longer a
+# seed candidate.
+RETIRED_BUILTIN_MCP_SERVER_IDS: Set[str] = {
+    "report_export_mcp",
+    "generate_chart_tool",
+    *edition_retired_builtin_mcp_server_ids(),
+}
+
+
+def is_removed_builtin_mcp_server(
+    server_id: str,
+    *,
+    source_plugin: Optional[str] = None,
+) -> bool:
+    """Return whether a legacy built-in row is unavailable in this edition.
+
+    CE removes commercial MCP packages and their port registrations at build
+    time, while an upgraded deployment may still retain the old global rows in
+    ``admin_mcp_servers``.  Those stale rows must not be connected or exposed as
+    working runtime tools.  Plugin-provided rows remain valid because their
+    lifecycle and process registration are managed by the plugin itself.
+    """
+    if source_plugin is not None:
+        return False
+
+    if server_id in RETIRED_BUILTIN_MCP_SERVER_IDS:
+        return True
+
+    from extensions.mcp_servers._ports import PORTS
+
+    builtin_ids = {str(spec["server_id"]) for spec in BUILTIN_MCP_SERVERS}
+    return server_id in builtin_ids and server_id not in PORTS
+
+
+def prune_removed_builtin_mcp_servers(db) -> List[str]:
+    """Delete stale global built-ins whose runtime is absent in this edition.
+
+    CE physically removes commercial MCP packages and port registrations. An
+    upgraded database can still carry rows seeded by an older/full build; keep
+    the persisted catalog aligned with the packaged runtime instead of merely
+    hiding those rows at read time. Plugin-owned and user-owned MCP rows are
+    never touched.
+    """
+    from extensions.mcp_servers._ports import PORTS
+    from core.db.retire_chart_mcp import retire_chart_mcp
+
+    if retire_chart_mcp(db.connection()):
+        db.commit()
+        McpServerConfigService.get_instance().invalidate_cache()
+
+    removed_ids = RETIRED_BUILTIN_MCP_SERVER_IDS | {
+        str(spec["server_id"])
+        for spec in BUILTIN_MCP_SERVERS
+        if str(spec["server_id"]) not in PORTS
+    }
+    if not removed_ids:
+        return []
+
+    rows = (
+        db.query(AdminMcpServer)
+        .filter(
+            AdminMcpServer.server_id.in_(removed_ids),
+            AdminMcpServer.owner_user_id.is_(None),
+            AdminMcpServer.source_plugin.is_(None),
+        )
+        .all()
+    )
+    pruned = sorted(row.server_id for row in rows)
+    if not pruned:
+        return []
+    for row in rows:
+        db.delete(row)
+    db.commit()
+    McpServerConfigService.get_instance().invalidate_cache()
+    return pruned
+
+
+def seed_builtin_mcp_servers_if_empty(db) -> List[str]:
+    """Seed the built-in global MCP catalog when it is entirely absent.
+
+    Returns the list of seeded server_ids (empty if the catalog already existed).
+    Idempotent and safe on every deployment: it only fires when **no** global
+    built-in row (``owner_user_id IS NULL AND source_plugin IS NULL``) exists, so
+    it bootstraps a fresh ``create_all`` DB (local profile) without touching a DB
+    that alembic already seeded and without resurrecting admin-deleted rows.
+    """
+    from core.config.mcp_config import mcp_http_url
+    from extensions.mcp_servers._ports import PORTS
+
+    existing = (
+        db.query(AdminMcpServer.server_id)
+        .filter(
+            AdminMcpServer.owner_user_id.is_(None),
+            AdminMcpServer.source_plugin.is_(None),
+        )
+        .first()
+    )
+    if existing is not None:
+        return []
+
+    seeded: List[str] = []
+    for spec in BUILTIN_MCP_SERVERS:
+        sid = spec["server_id"]
+        port = PORTS.get(sid)
+        if port is None:
+            continue
+        db.add(
+            AdminMcpServer(
+                server_id=sid,
+                display_name=spec["display_name"],
+                description=spec.get("description", ""),
+                user_intro=spec.get("user_intro"),
+                transport="streamable_http",
+                url=mcp_http_url(sid),
+                is_enabled=spec.get("is_enabled", True),
+                sort_order=spec.get("sort_order", 0),
+                icon=spec.get("icon"),
+            )
+        )
+        seeded.append(sid)
+    if seeded:
+        db.commit()
+    return seeded

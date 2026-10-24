@@ -3,7 +3,7 @@
   "mcpServers": {
     "skill_manager": {
       "type": "streamable-http",
-      "url": "http://mcp:9112/mcp/"
+      "url": "http://mcp:9112/mcp"
     }
   }
 }

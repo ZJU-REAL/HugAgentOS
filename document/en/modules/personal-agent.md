@@ -217,23 +217,17 @@ When a Linux desktop runtime has no input driver, the connection offers session 
 
 Prepare Enterprise Edition, PostgreSQL, Redis, and the OpenSandbox images using the existing deployment guide.
 
-1. Build the computer image: `docker build -f docker/Dockerfile.personal-agent -t hugagent-personal-agent:v5 .`. Do not overwrite a tag that a running computer uses.
+1. Build the computer image: `docker build -f docker/personal-agent/Dockerfile.personal-agent -t hugagent-personal-agent:v5 .`. Do not overwrite a tag that a running computer uses.
 2. Set HOST_STORAGE_PATH to an absolute host path.
 3. Set PERSONAL_AGENT_OPENSANDBOX_API_KEY to a separate random secret of at least 32 characters.
 4. Set PERSONAL_AGENT_OPENSANDBOX_DOMAIN to personal-agent-opensandbox:8080.
 5. Set PERSONAL_AGENT_IMAGE to hugagent-personal-agent:v5. Existing computers use the new image when they are recreated.
-6. Run the root Compose file with docker/compose.personal-agent.yml and the personal-agent profile.
+6. Run the root Compose file with docker/personal-agent/compose.personal-agent.yml and the personal-agent profile.
 7. Apply the existing database migration procedure. Apply personalagent01 through personalagent05. These migrations create module tables, backfill message links, create task sessions, and add device session operations.
 
 The extra Compose file creates a separate controller, compute network, and private configuration volume. The controller needs Docker socket access. Do not commit credentials. The existing database encryption key protects sandbox and email credentials.
 
 Missing Personal Agent controller settings cause a failure. The service does not fall back to the ordinary controller. The worker checks permanent computers once a minute. Pausing the task queue preserves the computer.
-
-## Verification
-
-Tests cover identity, concurrency, leases, approvals, revocation, history pagination, and ordinary chat restrictions. Isolated service tests also cover real models, cloud screenshots and input, persistent files, SMTP/IMAP attachments, and the frontend flow.
-
-Ethereal captures test email. It does not prove delivery to normal Internet inboxes. Mac and Windows native desktop tests require their respective systems. See the internal acceptance record for passed and pending checks.
 
 Wait until the agent has replied to every message before you downgrade personalagent02. The downgrade archives task links and scoped instructions in message metadata. Upgrading again restores them.
 
@@ -261,6 +255,8 @@ Personal Agent manages the user's HugAgentOS projects, chats and runs with one t
 
 The cloud computer includes the lightweight `hugagent` CLI. It manages existing backends.
 Web clients and desktop cloud mode share `cloud`. Desktop local mode uses `device:<id>`.
+
+Inside the cloud computer this client is called `hugagent`. Installed anywhere else (a `pip install` of the backend source, or the wheel built by `scripts/build-hugagent-cli.py`), the same client is the `hugagent-session` command with the same options. On a workstation, `hugagent` is the terminal client (`packages/cli`). The local server's `onboard`, `serve`, `doctor` and `engine` commands belong to `hugagent-server`; the session client only points you there when it receives one.
 
 ```bash
 hugagent device list

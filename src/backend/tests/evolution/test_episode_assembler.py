@@ -4,19 +4,23 @@ Load-bearing properties: one run yields exactly one Episode however often
 assembly retries, evidence collection can never fail the turn, and an Episode
 without a full asset snapshot is barred from replay.
 """
+from core.agent_runtime.integrations import memory as memory_module
+from core.evolution.profiles import user_settings as user_settings_module
 
-import pytest
 from types import SimpleNamespace
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
+import core.agent_runtime.integrations.evolution as evolution
+import core.agent_runtime.integrations.memory as memory
+import pytest
 from core.db.engine import Base
 from core.db.models.evolution import EvolutionEpisode, EvolutionTraceEvent
-from core.evolution import events as EV
-from core.evolution import trace_assembler as TA
-from core.evolution import trace_store as TS
+from core.evolution.evidence import events as EV
+from core.evolution.evidence import trace_assembler as TA
+from core.evolution.evidence import trace_store as TS
 from core.evolution.contract import ASSET_SKILL, AssetRef, build_bundle
-from core.llm.execution_manifest import PromptManifestBuilder
+from core.harness.execution_manifest import PromptManifestBuilder
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 
 @pytest.fixture
@@ -124,8 +128,10 @@ def test_assembly_creates_one_episode(db_factory):
 
 
 def test_streaming_wrapper_persists_sanitized_execution_manifest(db_factory, monkeypatch):
-    from core.evolution import settlement_runner, trigger, user_settings
-    from orchestration import memory_integration, workflow
+    import core.agent_runtime.integrations.memory as memory_integration
+    from core.evolution.settlement import settlement_runner
+    from core.evolution.cycle import trigger
+    from core.evolution.profiles import user_settings
 
     builder = PromptManifestBuilder(
         context={
@@ -152,17 +158,17 @@ def test_streaming_wrapper_persists_sanitized_execution_manifest(db_factory, mon
     streaming_wrapper = SimpleNamespace(agent=raw_agent)
 
     monkeypatch.setattr(TA, "emit_tool_events", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(memory_integration, "get_last_retrieval", lambda _task: None)
+    monkeypatch.setattr(memory_module, 'get_last_retrieval', lambda _task: None)
     monkeypatch.setattr(
-        user_settings,
-        "resolve_for_user",
+        user_settings_module,
+        'resolve_for_user',
         lambda _user_id: {"privacy_class": "private"},
     )
     monkeypatch.setattr(settlement_runner, "register_turn", lambda **_kwargs: None)
     monkeypatch.setattr(trigger, "schedule_personal", lambda _user_id: None)
     monkeypatch.setattr(trigger, "schedule_if_due", lambda: None)
 
-    workflow._assemble_episode_background(
+    evolution._assemble_episode_background(
         message_id="manifest-message-70",
         run_id="manifest-run-70",
         chat_id="manifest-chat-70",

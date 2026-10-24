@@ -6,8 +6,7 @@ import time
 from types import SimpleNamespace
 
 import api.routes.v1.chats.questions as chat_questions
-import core.services.session_operations.session_context as chat_session_context
-import core.services as chat_services
+import core.chat.service as chat_services_ChatService_module
 import pytest
 from core.llm.tools import user_questions
 
@@ -27,15 +26,14 @@ async def test_pending_query_does_not_block_event_loop(monkeypatch):
             time.sleep(0.15)
             return object()
 
-    monkeypatch.setattr(chat_services, "ChatService", Service)
-    monkeypatch.setattr(chat_session_context, "_release_request_session", lambda db: None)
+    monkeypatch.setattr(chat_services_ChatService_module, "ChatService", Service)
 
     async def pending(chat_id):
         return []
 
     monkeypatch.setattr(user_questions, "get_all_pending_shared", pending)
     request = asyncio.create_task(
-        chat_questions.get_pending_user_questions("chat", SimpleNamespace(user_id="u"), object())
+        chat_questions.get_pending_user_questions("chat", SimpleNamespace(user_id="u"))
     )
     for _ in range(100):
         if entered.is_set():

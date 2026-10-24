@@ -3,16 +3,20 @@
 from copy import deepcopy
 from types import SimpleNamespace
 
+import core.chat.runtime.recovery as runtime_recovery
+import core.chat.runtime.recovery_snapshot as recovery_snapshot
+import core.chat.runtime.worker as worker
+import core.db.engine as db_engine
+import core.runs.ownership as ownership
+import core.runs.runtime as runtime
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
 from core.auth.backend import UserContext
 from core.db.engine import Base
 from core.db.models import ChatRun, ChatSession
-from core.services.agent_api_service import make_agent_api_scope
-from orchestration.agent_api_recovery import validate_recovery_context
-from orchestration import chat_run_executor as executor
+from core.runs.api_recovery import validate_recovery_context
+from core.auth.agent_api import make_agent_api_scope
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 
 @pytest.fixture
@@ -20,7 +24,7 @@ def recovery(tmp_path, monkeypatch):
     engine = create_engine(f"sqlite:///{tmp_path / 'scope-recovery.db'}")
     Base.metadata.create_all(engine, tables=[ChatSession.__table__, ChatRun.__table__])
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
-    monkeypatch.setattr(executor, "SessionLocal", sessions)
+    monkeypatch.setattr(db_engine, "SessionLocal", sessions)
     scope = make_agent_api_scope(
         UserContext(
             user_id="owner",
@@ -168,9 +172,9 @@ def test_worker_restore_passes_only_validated_context(recovery, monkeypatch):
         observed.update(kwargs)
         return object()
 
-    monkeypatch.setattr(executor, "_run_workflow", workflow)
-    monkeypatch.setattr(executor, "_register_run_task", lambda *a, **k: None)
-    assert executor._register_recovered_chat(_decision(context)) is True
+    monkeypatch.setattr(worker, "_run_workflow", workflow)
+    monkeypatch.setattr(runtime, 'register_run_task', lambda *a, **k: None)
+    assert runtime_recovery._register_recovered_chat(_decision(context)) is True
     assert observed["context"]["memory_enabled"] is False
     assert observed["context"]["agent_api_scope"] == context["agent_api_scope"]
 
@@ -179,11 +183,11 @@ def test_worker_restore_refuses_lost_scope_before_start(recovery, monkeypatch):
     _, _, context = recovery
     context.pop("agent_api_scope")
     monkeypatch.setattr(
-        executor,
-        "_register_run_task",
+        runtime,
+        'register_run_task',
         lambda *a, **k: pytest.fail("damaged scope must not create a worker"),
     )
-    assert executor._register_recovered_chat(_decision(context)) is False
+    assert runtime_recovery._register_recovered_chat(_decision(context)) is False
 
 
 @pytest.mark.asyncio
@@ -194,10 +198,10 @@ async def test_completed_snapshot_lost_scope_parks_without_writing(recovery, mon
         needs_attention=lambda run_id, **kwargs: decisions.append((run_id, kwargs)) or True,
         claim=lambda *a, **k: pytest.fail("must reject before claiming or committing"),
     )
-    monkeypatch.setattr(executor, "_journal", lambda: journal)
+    monkeypatch.setattr(ownership, 'journal', lambda: journal)
     decision = _decision(context)
     decision.snapshot.update(assistant_content="answer", context={})
-    assert await executor._commit_recovered_chat_snapshot(decision) is False
+    assert await recovery_snapshot._commit_recovered_chat_snapshot(decision) is False
     assert decisions[0][0] == "run-api"
 
 
@@ -206,8 +210,8 @@ async def test_completed_snapshot_checks_worker_context_too(recovery, monkeypatc
     _, _, context = recovery
     decisions = []
     monkeypatch.setattr(
-        executor,
-        "_journal",
+        ownership,
+        'journal',
         lambda: SimpleNamespace(
             needs_attention=lambda *a, **k: decisions.append(k) or True,
             claim=lambda *a, **k: pytest.fail("must reject a mismatched worker snapshot"),
@@ -215,7 +219,7 @@ async def test_completed_snapshot_checks_worker_context_too(recovery, monkeypatc
     )
     decision = _decision({})
     decision.snapshot.update(assistant_content="answer", context=context)
-    assert await executor._commit_recovered_chat_snapshot(decision) is False
+    assert await recovery_snapshot._commit_recovered_chat_snapshot(decision) is False
     assert decisions
 
 

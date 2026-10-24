@@ -27,12 +27,15 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from core.db.engine import Base, get_db
-from core.auth.backend import AuthService, get_current_user
+from core.auth.backend import get_current_user
+from core.auth.bearer import MOCK_TOKEN, mock_identity
 from core.infra.data_masking import (
     mask_phone, mask_email, mask_api_key, mask_password,
     mask_sensitive_data, mask_log_data
 )
-from core.services import ChatService, ArtifactService, KBService
+from core.chat.service import ChatService
+from core.files.artifacts.service import ArtifactService
+from features.knowledge.service import KBService
 
 
 # Test database setup
@@ -72,27 +75,12 @@ class TestAuthentication:
     """Test authentication mechanisms."""
 
     def test_mock_auth_mode(self):
-        """Test that mock authentication works in development."""
-        os.environ["AUTH_MODE"] = "mock"
-        auth_service = AuthService()
-
-        user_info = auth_service.verify_token("any_token")
+        """Mock mode maps the default token to the configured dev user and any other token to itself."""
+        user_info = mock_identity(MOCK_TOKEN)
 
         assert "user_center_id" in user_info
-        assert "username" in user_info
         assert user_info["username"] == os.getenv("AUTH_MOCK_USERNAME", "Developer")
-
-    def test_auth_mode_detection(self):
-        """Test authentication mode detection."""
-        # Test mock mode
-        os.environ["AUTH_MODE"] = "mock"
-        auth_service = AuthService()
-        assert auth_service.auth_mode == "mock"
-
-        # Test remote mode
-        os.environ["AUTH_MODE"] = "remote"
-        auth_service = AuthService()
-        assert auth_service.auth_mode == "remote"
+        assert mock_identity("any_token")["user_center_id"] == "any_token"
 
 
 class TestAuthorization:

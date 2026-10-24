@@ -6,7 +6,6 @@ import XxxRepository`` keeps working unchanged.
 """
 from core.infra.time import utc_now
 
-import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -120,10 +119,9 @@ class ArtifactRepository:
         )
 
         if personal_only:
-            # Import lazily: ``core.services`` re-exports repositories, so importing
-            # this edition seam while the repository package is initializing would
-            # create a package-level cycle.
-            from core.services.artifact_edition import personal_artifact_predicates
+            # Import lazily: this edition seam must not load while the repository
+            # package is still initializing.
+            from core.db.artifact_scope import personal_artifact_predicates
 
             query = query.filter(*personal_artifact_predicates(Artifact))
             if folder_id == ROOT_FOLDER_SENTINEL:

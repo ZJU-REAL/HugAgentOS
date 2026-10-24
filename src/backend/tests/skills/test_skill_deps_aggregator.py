@@ -1,4 +1,4 @@
-"""Tests for core.services.skill_deps_aggregator."""
+"""Tests for core.capabilities.skills.deps.aggregator."""
 from __future__ import annotations
 
 import json
@@ -11,13 +11,7 @@ from sqlalchemy.orm import sessionmaker
 
 from core.db.engine import Base
 from core.db.models import AdminSkill
-from core.services.skill_deps_aggregator import (
-    aggregate_all,
-    render_apt_packages,
-    render_npm_package_json,
-    render_pip_requirements,
-    write_manifests,
-)
+from core.capabilities.skills.deps.aggregator import aggregate_all, render_apt_packages, render_npm_package_json, render_pip_requirements, write_manifests
 
 
 @pytest.fixture
@@ -138,12 +132,12 @@ def test_write_manifests_creates_and_tracks_changes(db, tmp_path):
     db.add(_mk("a", {"pip": [{"name": "pandas", "source": "manual"}]}))
     db.commit()
     info = write_manifests(db, repo_root=str(tmp_path))
-    # Manifests belong to the Docker build context (``docker/``), which the
+    # Manifests belong to the Docker build context (``docker/sandbox/``), which the
     # writer creates when a fresh checkout does not have it yet.
-    assert (tmp_path / "docker" / "requirements-skills.txt").exists()
-    assert (tmp_path / "docker" / "package-skills.json").exists()
-    assert (tmp_path / "docker" / "apt-skills.txt").exists()
-    assert "docker/requirements-skills.txt" in info["changed"]
+    assert (tmp_path / "docker" / "sandbox" / "requirements-skills.txt").exists()
+    assert (tmp_path / "docker" / "sandbox" / "package-skills.json").exists()
+    assert (tmp_path / "docker" / "sandbox" / "apt-skills.txt").exists()
+    assert "docker/sandbox/requirements-skills.txt" in info["changed"]
 
     # Second write with no DB change → no files changed
     info2 = write_manifests(db, repo_root=str(tmp_path))

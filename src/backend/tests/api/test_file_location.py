@@ -1,7 +1,7 @@
 from types import SimpleNamespace as NS
 import pytest
 from fastapi import HTTPException
-from core.services.artifact_location import artifact_location
+from core.files.artifacts.location import artifact_location
 from api.routes.file_location import file_location
 
 

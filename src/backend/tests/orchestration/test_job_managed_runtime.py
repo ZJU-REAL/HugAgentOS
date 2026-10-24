@@ -4,11 +4,19 @@ import asyncio
 import json
 from pathlib import PurePosixPath
 
+import core.jobs.files as files
+import core.jobs.notifications as notifications
+import core.jobs.owner as jobs_owner
+import core.jobs.owner as owner
+import core.jobs.process as process
+import core.jobs.runtime as jobs_runtime
+import core.jobs.runtime as runtime
+import core.jobs.state as state
+import core.jobs.supervisor as jobs_supervisor
+import core.jobs.supervisor as supervisor
 import pytest
 from core.db.engine import Base
-from core.services.job_service import JobService
-from orchestration import job_runtime as runtime
-from orchestration.jobs import files, notifications, owner, process, state, supervisor
+from core.jobs.store import JobService
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -70,10 +78,10 @@ def sandbox(monkeypatch):
     )
     Base.metadata.create_all(engine)
     session = sessionmaker(bind=engine)
-    for module in (runtime, state):
-        monkeypatch.setattr(module, "SessionLocal", session)
-    monkeypatch.setattr(owner, "_loop", None)
-    monkeypatch.setattr(supervisor, "_entries", {})
+    monkeypatch.setattr(state, "SessionLocal", session)
+    monkeypatch.setattr("core.db.engine.SessionLocal", session)
+    monkeypatch.setattr(jobs_owner.process_state(), 'loop', None)
+    monkeypatch.setattr(jobs_supervisor.process_state(), 'entries', {})
     box = Sandbox()
     monkeypatch.setattr(process, "get_sandbox_provider", lambda: box)
     monkeypatch.setenv("JOB_CALLBACK_URL", "http://test.invalid")
@@ -85,7 +93,7 @@ def sandbox(monkeypatch):
         return 0, "python: startup failed", ""
 
     monkeypatch.setattr(files, "_sbx_bash", logs)
-    monkeypatch.setattr(supervisor, "_maybe_wake", no_wake)
+    monkeypatch.setattr(jobs_supervisor, "_maybe_wake", no_wake)
     monkeypatch.setattr(notifications, "_maybe_wake", no_wake)
     yield box
     engine.dispose()
@@ -120,7 +128,7 @@ async def test_worker_loop_exit_does_not_cancel_monitor(sandbox):
 
     jid = await asyncio.to_thread(lambda: asyncio.run(worker()))
     assert state.snapshot(jid)["status"] == "running"
-    assert not supervisor._entries[jid].task.done()
+    assert not supervisor.process_state().entries[jid].task.done()
     sandbox.complete(jid)
     assert (await runtime.run_and_wait(jid))["status"] == "completed"
 
@@ -139,7 +147,7 @@ async def test_start_failure_is_reported_and_process_exit_confirmed(sandbox):
 @pytest.mark.asyncio
 async def test_missing_handshake_stops_exact_command(sandbox, monkeypatch):
     sandbox.handshake = False
-    monkeypatch.setattr(supervisor, "STARTUP_SECONDS", 0.01)
+    monkeypatch.setattr(jobs_supervisor, "STARTUP_SECONDS", 0.01)
     with pytest.raises(RuntimeError, match="启动超时"):
         await start()
     row = state.snapshot(next(iter(sandbox.commands)))
@@ -179,10 +187,10 @@ async def test_cancel_during_upload_never_launches(sandbox):
     sandbox.upload_gate = asyncio.Event()
     launching = asyncio.create_task(start())
     for _ in range(50):
-        if runtime._launches:
+        if runtime.process_state().launches:
             break
         await asyncio.sleep(0.01)
-    jid = next(iter(runtime._launches))
+    jid = next(iter(runtime.process_state().launches))
     cancel = asyncio.create_task(runtime.cancel_job(jid, user_id="user"))
     await asyncio.sleep(0.05)
     sandbox.upload_gate.set()
@@ -200,10 +208,10 @@ async def test_caller_cancellation_keeps_launch_owned(sandbox):
     sandbox.upload_gate = asyncio.Event()
     caller = asyncio.create_task(start())
     for _ in range(50):
-        if runtime._launches:
+        if runtime.process_state().launches:
             break
         await asyncio.sleep(0.01)
-    jid = next(iter(runtime._launches))
+    jid = next(iter(runtime.process_state().launches))
     caller.cancel()
     await asyncio.gather(caller, return_exceptions=True)
     sandbox.upload_gate.set()
@@ -229,7 +237,7 @@ async def test_old_monitor_cancellation_cannot_kill_new_owner(sandbox):
     jid = await start()
     row = state.snapshot(jid)
     attempt = row["meta"]["execution"]["attempt_id"]
-    task = supervisor._entries[jid].task
+    task = supervisor.process_state().entries[jid].task
     state.save_execution(jid, attempt, owner="another-worker")
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
@@ -242,7 +250,7 @@ async def test_expired_lease_is_reattached_without_relaunch(sandbox, monkeypatch
     from datetime import timedelta
 
     jid = await start()
-    entry = supervisor._entries[jid]
+    entry = supervisor.process_state().entries[jid]
     state.save_execution(
         jid,
         entry.execution.attempt_id,
@@ -277,7 +285,7 @@ async def test_slow_progress_notification_does_not_block_budget(sandbox, monkeyp
         entered.set()
         await asyncio.sleep(60)
 
-    monkeypatch.setattr(supervisor, "_maybe_wake_progress", slow)
+    monkeypatch.setattr(jobs_supervisor, "_maybe_wake_progress", slow)
     jid = await start(budget={"max_seconds": 2}, start_params={"progress_wake_sec": 0.001})
     result = await asyncio.wait_for(runtime.run_and_wait(jid), 5)
     assert entered.is_set()
@@ -295,7 +303,7 @@ async def test_cancel_route_reports_uncertain_stop_as_conflict(monkeypatch):
     async def uncertain(*args, **kwargs):
         raise RuntimeError("已撤销回调权限，但无法确认停止")
 
-    monkeypatch.setattr(runtime, "cancel_job", uncertain)
+    monkeypatch.setattr(jobs_runtime, "cancel_job", uncertain)
     with pytest.raises(HTTPException) as err:
         await jobs.cancel_job("job", user=SimpleNamespace(user_id="user"))
     assert err.value.status_code == 409
@@ -305,8 +313,8 @@ async def test_cancel_route_reports_uncertain_stop_as_conflict(monkeypatch):
 @pytest.mark.asyncio
 async def test_cancel_lost_ownership_never_confirms_exit(sandbox, monkeypatch):
     jid = await start()
-    entry = supervisor._entries[jid]
-    supervisor._entries.pop(jid)
+    entry = supervisor.process_state().entries[jid]
+    supervisor.process_state().entries.pop(jid)
 
     async def recover(row):
         state.save_execution(jid, entry.execution.attempt_id, owner="other-canceller")
@@ -334,7 +342,7 @@ async def test_local_cancel_timeout_has_structured_conflict(sandbox, monkeypatch
     async def timeout():
         raise asyncio.TimeoutError()
 
-    monkeypatch.setattr(supervisor._entries[jid].execution, "stop", timeout)
+    monkeypatch.setattr(supervisor.process_state().entries[jid].execution, "stop", timeout)
     with pytest.raises(HTTPException) as err:
         await jobs.cancel_job(jid, user=SimpleNamespace(user_id="user"))
     assert err.value.status_code == 409

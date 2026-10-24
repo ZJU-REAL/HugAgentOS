@@ -25,17 +25,22 @@ dev = [
     "black>=23.0.0",
     "isort>=5.12.0",
     "mypy>=1.0.0",
+    "import-linter>=2.15,<3",
 ]
 
-# Console entry for the no-Docker local profile: `hugagent` (onboard / serve /
-# doctor). CE and EE share this technical identifier.
+# Console entries. `hugagent-server` runs the no-Docker local profile (onboard /
+# serve / doctor / engine); `hugagent-session` is the lightweight cloud/device
+# session client. The `hugagent` name belongs to the npm terminal client
+# (packages/cli), which forwards server commands to `hugagent-server`. CE and EE
+# share these technical identifiers.
 [project.scripts]
-hugagent = "hugagent_cli.main:main"
+hugagent-server = "cli:main"
+hugagent-session = "hugagent_cli.main:main"
 
 # ── Packaging: src/backend is the import root ────────────────────────────────
 # The project has always run with PYTHONPATH=src/backend (top-level `api`,
 # `core`, `orchestration`, … packages). Declare that so an editable/source
-# install exposes them and the `hugagent` console script resolves `cli:main`.
+# install exposes them and the `hugagent-server` console script resolves `cli:main`.
 [tool.setuptools]
 package-dir = {"" = "src/backend"}
 py-modules = ["cli"]
@@ -47,7 +52,7 @@ dependencies = {file = ["requirements.txt"]}
 where = ["src/backend"]
 include = [
     "api*", "core*", "orchestration*", "prompts*", "extensions*",
-    "hugagent_cli*", "edition_ee*", "personal_agent*",
+    "hugagent_cli*", "edition_ee*", "personal_agent*", "features*", "integrations*",
 ]
 # alembic migrations / tests / uploads / scripts are not import-time runtime deps.
 exclude = ["tests*", "alembic*", "uploads*", "scripts*"]
@@ -55,7 +60,7 @@ exclude = ["tests*", "alembic*", "uploads*", "scripts*"]
 # Bundle manifests, prompts, scripts and binary assets are runtime resources.
 [tool.setuptools.package-data]
 extensions = ["README.md", "skills/**/*", "agents/**/*", "plugins/**/*", "mcp_servers/**/*.md"]
-"core.applications" = ["schemas/*.json"]
+"features.workbench" = ["schemas/*.json"]
 "core.config" = ["*.json"]
 prompts = ["config/*.json", "prompt_text/**/*.md"]
 "personal_agent.workspace" = ["prompts/*.md"]
@@ -111,3 +116,12 @@ markers = [
     # GCE 门禁类测试：跑得起但不属于快速内环，CI 全量跑。
     "slow: gate / benchmark tests excluded from the fast inner loop",
 ]
+
+# Core boundary checks use the migration manifest to classify legacy locations.
+[tool.importlinter]
+root_packages = ["core", "api", "orchestration", "personal_agent", "edition_ee", "features", "integrations"]
+contract_types = ["core-boundary: scripts.refactor.import_contract.CoreBoundaryContract"]
+
+[[tool.importlinter.contracts]]
+name = "Core boundaries and layer ratchet"
+type = "core-boundary"

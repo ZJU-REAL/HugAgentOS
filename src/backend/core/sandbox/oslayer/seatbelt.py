@@ -42,7 +42,6 @@ from core.sandbox.oslayer.models import (
 )
 from core.sandbox.oslayer.paths import (
     filesystem_root,
-    is_within,
     normalize_trusted_top_level_alias,
     resolve_symlinks,
 )
@@ -205,30 +204,15 @@ class SeatbeltBackend(BasePlatformBackend):
         return SandboxLaunch(backend=self.name, argv_prefix=argv)
 
     def _read_section(self, resolved: ResolvedFileSystem, params: _ParamTable) -> str:
-        denied = resolved.roots_for(AccessMode.DENY)
-        if resolved.has_full_disk_read_access:
-            if not denied:
-                return "; allow read-only file operations\n(allow file-read*)"
-            root = AccessRoot(
-                root=filesystem_root(),
-                denied_subpaths=tuple(entry.root for entry in denied),
-            )
-            section = _access_section("file-read*", "READABLE_ROOT", [root], params, writable=False)
-            return f"; allow read-only file operations\n{section}"
-
-        readable = resolved.roots_for(AccessMode.READ)
-        scoped = [
-            AccessRoot(
-                root=entry.root,
-                denied_subpaths=tuple(
-                    denied_entry.root
-                    for denied_entry in denied
-                    if is_within(denied_entry.root, entry.root)
-                ),
-            )
-            for entry in readable
-        ]
-        section = _access_section("file-read*", "READABLE_ROOT", scoped, params, writable=False)
+        if resolved.has_full_disk_read_access and not resolved.roots_for(AccessMode.DENY):
+            return "; allow read-only file operations\n(allow file-read*)"
+        # Every readable root with its own carve-outs, already resolved
+        # narrowest-wins: a root granted inside a denied one (the workspace in
+        # the install's data directory) reopens reads there, since Seatbelt's
+        # file-write* alone would not let a command read its own script.
+        section = _access_section(
+            "file-read*", "READABLE_ROOT", resolved.roots_for(AccessMode.READ), params, writable=False
+        )
         return f"; allow read-only file operations\n{section}" if section else ""
 
     def _write_section(self, resolved: ResolvedFileSystem, params: _ParamTable) -> str:

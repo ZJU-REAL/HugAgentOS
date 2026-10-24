@@ -12,9 +12,9 @@ enterprise console so that a chat client can never promote anything.
 from typing import Optional
 
 from core.auth.backend import UserContext, get_current_user
-from core.evolution.settlement import SETTLE_PENDING
+from core.evolution.settlement.settlement import SETTLE_PENDING
 from core.infra.exceptions import BadRequestError
-from core.evolution.settlement_store import load_summary
+from core.evolution.settlement.settlement_store import load_summary
 from core.infra.responses import success_response
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -53,7 +53,7 @@ async def get_evolution_settings(user: UserContext = Depends(get_current_user)):
     simply follows ``evolution_prefs.enabled``. This endpoint stays because
     already-shipped desktop bundles still read it.
     """
-    from core.evolution.user_settings import resolve_for_user
+    from core.evolution.profiles.user_settings import resolve_for_user
 
     return success_response(data=resolve_for_user(user.user_id))
 
@@ -64,7 +64,7 @@ async def update_evolution_settings(
     user: UserContext = Depends(get_current_user),
 ):
     """Legacy alias: writes the same switch as PATCH /evolution/prefs."""
-    from core.evolution.user_settings import update_for_user
+    from core.evolution.profiles.user_settings import update_for_user
 
     try:
         return success_response(data=update_for_user(user.user_id, body.enabled))
@@ -80,7 +80,7 @@ async def get_contributions(user: UserContext = Depends(get_current_user)):
     it actually do?" — and reports each candidate's true governance state rather
     than an optimistic one.
     """
-    from core.evolution.user_settings import summarise_contributions
+    from core.evolution.profiles.personal_review import summarise_contributions
 
     return success_response(data=summarise_contributions(user.user_id))
 
@@ -93,7 +93,8 @@ async def list_my_candidates(user: UserContext = Depends(get_current_user)):
     from other people's conversations activates for the whole fleet, and that is
     not one person's call to make.
     """
-    from core.evolution.user_settings import OWN_EVIDENCE_THRESHOLD, pending_for_user
+    from core.evolution.profiles.user_settings_constants import OWN_EVIDENCE_THRESHOLD
+    from core.evolution.profiles.personal_review import pending_for_user
 
     return success_response(
         data={
@@ -109,8 +110,8 @@ async def approve_my_candidate(
     user: UserContext = Depends(get_current_user),
 ):
     """Accept a candidate as a private skill for this user."""
-    from core.evolution.activation import ActivationError
-    from core.evolution.user_settings import approve_for_user
+    from core.evolution.cycle.activation_types import ActivationError
+    from core.evolution.profiles.personal_review import approve_for_user
 
     try:
         return success_response(data=approve_for_user(candidate_id, user.user_id))
@@ -137,11 +138,7 @@ async def get_prefs(user: UserContext = Depends(get_current_user)):
     configured" as a visible fact rather than hiding the setting — an absent
     control looks like a missing feature, which is a different message.
     """
-    from core.evolution.prefs import (
-        ONTOLOGY_MODES,
-        available_ontology_packs,
-        resolve_prefs,
-    )
+    from core.evolution.profiles.prefs import ONTOLOGY_MODES, available_ontology_packs, resolve_prefs
 
     return success_response(
         data={
@@ -159,7 +156,7 @@ async def update_prefs_api(
 ):
     import asyncio
 
-    from core.evolution.prefs import update_prefs
+    from core.evolution.profiles.prefs import update_prefs
 
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
 
@@ -169,7 +166,7 @@ async def update_prefs_api(
     # to tell that apart from "my conversations just aren't producing patterns".
     # Turning it off is never blocked.
     if patch.get("enabled") is True:
-        from core.evolution.readiness import check_readiness
+        from core.evolution.cycle.readiness import check_readiness
 
         readiness = await asyncio.to_thread(check_readiness)
         if not readiness.ready:
@@ -194,6 +191,6 @@ async def run_my_cycle(user: UserContext = Depends(get_current_user)):
     Personal scope, so it needs no administrator: it can only ever mine this
     user's evidence and produce candidates only they can accept.
     """
-    from core.evolution.personal import run_personal_cycle
+    from core.evolution.profiles.personal import run_personal_cycle
 
     return success_response(data=run_personal_cycle(user.user_id))

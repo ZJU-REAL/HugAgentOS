@@ -14,7 +14,7 @@ from core.auth.capabilities import resolve_user_capabilities
 from core.db.engine import get_db
 from core.infra.exceptions import AccessDeniedError, BadRequestError, ResourceNotFoundError
 from core.infra.responses import created_response, success_response
-from core.services import ApiKeyService
+from core.auth.api_keys import ApiKeyService
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -59,7 +59,7 @@ def _key_to_dict(row, *, plaintext: Optional[str] = None) -> dict:
 
 
 @router.get("", summary="API-Key 列表")
-async def list_api_keys(
+def list_api_keys(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -69,7 +69,7 @@ async def list_api_keys(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, summary="新建 API-Key")
-async def create_api_key(
+def create_api_key(
     body: CreateApiKeyRequest,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -90,7 +90,7 @@ async def create_api_key(
 
 
 @router.get("/{key_id}/reveal", summary="再次取回 API-Key 明文")
-async def reveal_api_key(
+def reveal_api_key(
     key_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -117,7 +117,7 @@ async def reveal_api_key(
 
 
 @router.patch("/{key_id}", summary="启用/禁用 API-Key")
-async def toggle_api_key(
+def toggle_api_key(
     key_id: str,
     body: ToggleApiKeyRequest,
     user: UserContext = Depends(get_current_user),
@@ -131,7 +131,7 @@ async def toggle_api_key(
 
 
 @router.delete("/{key_id}", summary="撤销 API-Key")
-async def revoke_api_key(
+def revoke_api_key(
     key_id: str,
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),

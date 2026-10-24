@@ -100,7 +100,7 @@ def _worker(name: str):
     async def create_session_for(session_id, user_id=None):
         sandbox_id = f"{name}-sbx-{len(worker.created) + 1}"
         worker.created.append(sandbox_id)
-        return session_mod_models._Session(
+        return session_mod_models.SandboxSessionRecord(
             sandbox=_FakeSandbox(sandbox_id),
                 user_id=user_id,
             pool_source="user",

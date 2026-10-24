@@ -10,12 +10,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 
 async def verify():
-    from core.db.engine import Base, engine, SessionLocal
+    from core.db.engine import Base, SessionLocal, engine
     from core.db.models import ChatSession, UserShadow
-    from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
+    from core.sandbox.commands.runtime import CommandRuntime
     from core.sandbox.protocol import ProcessRequest
-    from core.services.commands import store
-    from orchestration.commands.runtime import CommandRuntime
+    from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
+    from core.sandbox.commands import store
     Base.metadata.create_all(engine)
     session = "command-e2e-" + uuid.uuid4().hex
     user = "api_ak_command_e2e"
@@ -70,11 +70,11 @@ def main():
     domain = os.environ["COMMAND_E2E_OPENSANDBOX_DOMAIN"]
     with tempfile.TemporaryDirectory(prefix="command-cloud-e2e-") as folder:
         env = {"DATABASE_URL":"sqlite:///" + str(Path(folder)/"test.db"),
-            "HUGAGENT_HOME":folder,"STORAGE_PATH":str(Path(folder)/"storage"),
+            "HUGAGENT_HOME":folder,"STORAGE_PATH":os.environ["COMMAND_E2E_STORAGE_PATH"],
             "DEPLOY_PROFILE":"team","AUTH_MODE":"mock","SANDBOX_PROVIDER":"opensandbox",
             "OPENSANDBOX_DOMAIN":domain,"OPENSANDBOX_IMAGE":image,
             "OPENSANDBOX_DIRECT_EXECD":"false","OPENSANDBOX_MYSPACE_BIND_MOUNT_ENABLED":"false",
-            "OPENSANDBOX_SNAPSHOT_ENABLED":"false","HOST_STORAGE_PATH":"",
+            "OPENSANDBOX_SNAPSHOT_ENABLED":"false","HOST_STORAGE_PATH":os.environ["COMMAND_E2E_HOST_STORAGE_PATH"],
             "SCRIPT_RUNNER_WORKSPACE":"/workspace","REDIS_URL":"",
             "NO_PROXY":"127.0.0.1,localhost","no_proxy":"127.0.0.1,localhost"}
         for name in ("DWS","LARK","EMAIL","YIDA"):

@@ -5,10 +5,10 @@ import httpx
 import pytest
 from agentscope.message import Msg, TextBlock
 from core.db.models import ModelProvider
-from core.llm.chat_models import build_model_for_mode
-from core.llm.providers.registry import validate_payload
-from core.services.model_config import ResolvedModelConfig
-from core.services.user_model_selection import list_user_selectable_models
+from core.models.chat_models import build_model_for_mode
+from core.models.providers.registry import validate_payload
+from core.models.config import ResolvedModelConfig
+from core.models.selection import list_user_selectable_models
 
 CONFIG = {
     "supports_reasoning_effort": True,
@@ -51,7 +51,7 @@ def test_selectable_model_exposes_configured_levels_without_credentials(db_sessi
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode,wire", [("medium", "high"), ("max", 100), ("xhigh", "xhigh")])
 async def test_responses_sends_configured_mapping_and_valid_default(monkeypatch, mode, wire):
-    monkeypatch.setattr("core.llm.context_manager.resolve_model_context_window", lambda name: 65536)
+    monkeypatch.setattr('core.models.context_window.resolve_model_context_window', lambda name: 65536)
     cfg = ResolvedModelConfig(
         base_url="http://model.test/v1",
         api_key="test-key",

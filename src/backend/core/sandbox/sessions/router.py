@@ -11,22 +11,17 @@ class SessionSandboxRouter:
         return getattr(self._ordinary, name)
 
     def _for(self, session_id):
-        from core.extensions import sandbox_route
+        from core.harness.registry import sandbox_route
 
         module_provider = sandbox_route(str(session_id or ""))
         if module_provider is not None:
             return module_provider()
         if str(session_id or "").startswith("eval_"):
-            from core.config.settings import settings
-            from core.sandbox.providers.evaluation.provider import get_evaluation_provider
-
-            if settings.sandbox.provider != "opensandbox":
-                raise SandboxError("Evaluation requires OpenSandbox; fallback is forbidden")
-            return get_evaluation_provider()
+            raise SandboxError("Evaluation extension is not registered; fallback is forbidden")
         return self._ordinary
 
     async def _authorized_for(self, session_id, user_id):
-        from core.extensions import sandbox_route
+        from core.harness.registry import sandbox_route
 
         provider = self._for(session_id)
         if (
@@ -45,7 +40,7 @@ class SessionSandboxRouter:
         if str(session_id or "").startswith("eval_"):
             return
         if provider.name != "opensandbox" and user_id and session_id:
-            from core.plugins.resources.prewarm import schedule
+            from core.capabilities.plugins.resources.prewarm import schedule
 
             sandbox_id = await provider.current_sandbox_id(session_id)
             schedule(provider, session_id, user_id, sandbox_id)
@@ -110,7 +105,7 @@ class SessionSandboxRouter:
         provider = self._for(session_id)
         if not session_id or str(session_id).startswith("eval_") or provider.name == "opensandbox":
             return await provider.close_session(session_id)
-        from core.plugins.resources.prewarm import closing, stop
+        from core.capabilities.plugins.resources.prewarm import closing, stop
 
         async with closing(session_id):
             await stop(session_id)

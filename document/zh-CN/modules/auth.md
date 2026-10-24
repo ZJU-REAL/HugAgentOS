@@ -56,7 +56,7 @@ HugAgentOS 的认证与权限体系覆盖三条互相独立的链路：**终端�
 - 完成状态存放在当前管理员的 `users_shadow.metadata` 中，并带版本号。刷新或重新登录
   后不会重复进入已完成的向导。
 
-一键安装器的终端 `hugagent onboard` 已经完成账号和模型配置，因此成功结束时会写入
+一键安装器的终端 `hugagent-server onboard` 已经完成账号和模型配置，因此成功结束时会写入
 同一个完成标记，不会再重复显示网页向导。
 
 ### Mock SSO（开发联调）
@@ -111,7 +111,7 @@ SSO 提供方响应必须是 JSON 对象，且成功码必须为有限数值 0�
 
 ### 接口层（CE/EE 拆分接缝）
 
-`core/auth/permissions_iface.py` 是权限符号的**唯一导入入口**：主干代码（deps / files / chats / projects / kb 等）一律从这里导入，不直接引用具体实现。EE 主仓中它纯转发三个真实现；CE 派生树用单租户 stub 整体替换本文件，三个真实现物理不存在：
+`core/auth/personal_permissions_iface.py` 是权限符号的**唯一导入入口**：主干代码（deps / files / chats / projects / kb 等）一律从这里导入，不直接引用具体实现。EE 主仓中它纯转发三个真实现；CE 派生树用单租户 stub 整体替换本文件，三个真实现物理不存在：
 
 | 实现文件 | 职责 |
 |---|---|
@@ -176,7 +176,7 @@ SSO 提供方响应必须是 JSON 对象，且成功码必须为有限数值 0�
 | `PATCH /v1/me/api-keys/{key_id}` | 启用 / 禁用 |
 | `DELETE /v1/me/api-keys/{key_id}` | 撤销 |
 
-Key 形如 `sk-jx-...`，在**所有 AUTH_MODE 下**都可作为 Bearer 调用业务 API（外部程序化调用通常没有 Cookie）。校验逻辑（启用 / 未撤销 / 未过期 / 用户权限位仍开启）集中在 `core/services/api_key_service.py::resolve_api_key`。
+Key 形如 `sk-jx-...`，在**所有 AUTH_MODE 下**都可作为 Bearer 调用业务 API（外部程序化调用通常没有 Cookie）。校验逻辑（启用 / 未撤销 / 未过期 / 用户权限位仍开启）集中在 `core/auth/api_keys.py::resolve_api_key`。
 
 禁用或撤销 API Key 会拒绝新请求，并取消该 Key 已接收且仍在等待、运行或暂停待处理的对话任务。取消会停止后台执行并结束 SSE 流；已完成的外部工具操作不会撤回。重新启用 Key 不会恢复已取消任务。调用记录进入“需要处理”等停止状态后，耗时固定在停止时间。
 
@@ -201,13 +201,13 @@ Key 形如 `sk-jx-...`，在**所有 AUTH_MODE 下**都可作为 Bearer 调用�
 | SSO 票据交换 | `src/backend/edition_ee/auth/sso.py`、`src/backend/edition_ee/routes/auth.py` |
 | Mock SSO / 本地登录注册页 | `src/backend/api/routes/v1/mock_sso.py`、`src/backend/core/auth/mock_ticket_store.py` |
 | 密码哈希 | `src/backend/core/auth/password.py` |
-| 权限接口层（CE/EE 接缝） | `src/backend/core/auth/permissions_iface.py` |
+| 权限接口层（CE/EE 接缝） | `src/backend/core/auth/personal_permissions_iface.py` |
 | 团队角色 / 文件权限（EE） | `src/backend/edition_ee/auth/roles.py`、`src/backend/edition_ee/auth/team_permissions.py` |
 | 项目 / 会话分享权限（EE） | `src/backend/edition_ee/auth/project_permissions.py`、`src/backend/edition_ee/auth/chat_share_permissions.py` |
 | 管理凭证依赖 | `src/backend/api/deps.py` |
 | 用户资料 / 偏好 | `src/backend/api/routes/v1/users.py` |
 | 用户权限位管理 | `src/backend/edition_ee/routes/config_users.py` |
-| 个人 API-Key | `src/backend/api/routes/v1/api_keys.py`、`src/backend/core/services/api_key_service.py` |
+| 个人 API-Key | `src/backend/api/routes/v1/api_keys.py`、`src/backend/core/auth/api_keys.py` |
 | 能力中心自助（owner 隔离） | `src/backend/api/routes/v1/me_capabilities.py` |
 | 邀请码 | `src/backend/edition_ee/auth/invite.py`、`src/backend/edition_ee/routes/config_invites.py` |
 | 团队管理 | `src/backend/edition_ee/routes/config_teams.py`、`src/backend/edition_ee/routes/me_teams.py` |

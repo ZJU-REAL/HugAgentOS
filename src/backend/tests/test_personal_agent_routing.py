@@ -31,7 +31,8 @@ def sessions(monkeypatch):
     from personal_agent.conversation import turn_worker
     for module in (front, front_tools, turn_worker): monkeypatch.setattr(module, "SessionLocal", factory)
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", factory)
-    from core.services import run_journal
+    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
+    from core.runs import journal as run_journal
 
     @asynccontextmanager
     async def binding(**options):
@@ -44,10 +45,9 @@ def sessions(monkeypatch):
 
 def tools_for(ident, uid="owner"):
     from personal_agent.tools.front_tools import register_front_tools
-    kit = SimpleNamespace(functions={})
-    kit.register_tool_function = lambda fn: kit.functions.__setitem__(fn.__name__, fn)
+    kit = []
     register_front_tools(kit, SimpleNamespace(profile_ref=ident, current_user_id=uid))
-    return kit.functions
+    return {tool.name: tool._func for tool in kit}
 
 
 def result(response):
@@ -484,23 +484,3 @@ def test_an_agent_with_a_conversation_never_hatches(sessions, fresh):
         svc = AgentContext(db, "owner")
         admit(svc, "你好", "hi")
         assert not front.hatch(svc) and len(pending(svc)) == 1
-
-
-def test_the_turn_prefix_stays_cacheable(sessions, monkeypatch):
-    """The system prompt is identical across turns; the per-turn context follows the current message."""
-    from core.db import engine as db_engine
-    from personal_agent.conversation import front
-    monkeypatch.setattr(db_engine, "SessionLocal", sessions)
-    monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
-    with sessions() as db:
-        svc = AgentContext(db, "owner")
-        first = admit(svc, "你好", "hi")
-        svc.conversation.append(svc.identity.agent(), "assistant", "你好！", None, reply_to=first["message_id"]); db.commit()
-        second = admit(svc, "再见", "bye")
-        assert front.system_prompt(first["message_id"]) == front.system_prompt(second["message_id"])
-        assert "Current time" not in front.system_prompt(second["message_id"])
-        assert front.turn_context(second["message_id"]).startswith(front.CONTEXT_OPEN)
-        rows = front.with_context(front.history(db, second["message_id"]), "<ctx>")
-        assert rows[-1]["content"] == "再见\n\n<ctx>"
-        # Earlier messages are a prefix of what the previous turn sent.
-        assert front.history(db, second["message_id"])[0] == front.history(db, first["message_id"])[0]

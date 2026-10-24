@@ -5,9 +5,9 @@ from typing import Optional
 
 from core.auth.backend import UserContext, require_auth
 from core.config.settings import settings
-from core.db.engine import get_db
 from core.db.models import UserShadow
 from core.db.repository import AuditLogRepository
+from core.db.threads import run_in_session
 from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
@@ -30,14 +30,15 @@ def _require_token_or_flag(
     ``action_base`` (e.g. ``"admin"`` / ``"config"``) derives the paired audit
     actions ``{base}.access_granted`` / ``{base}.access_denied``, so the two
     action names are not string-derived from each other (fragile coupling).
+
+    Like every dependency here, it resolves the session (Redis) on the event
+    loop and does all of its database work in one ``run_in_session`` call.
     """
     granted_action = f"{action_base}.access_granted"
     denied_action = f"{action_base}.access_denied"
 
-    async def dependency(
-        request: Request,
-        authorization: Optional[str] = Header(None),
-        db: Session = Depends(get_db),
+    def authorize(
+        db: Session, request: Request, authorization: Optional[str], user_id: Optional[str]
     ) -> None:
         token = os.getenv(env_var) or getattr(settings.auth, settings_attr, "")
         # ① Static token match
@@ -45,19 +46,19 @@ def _require_token_or_flag(
             _audit_grant(db, request, granted_action, user_id=None, via="token")
             return
         # ② Session user carries the corresponding capability flag (or super_admin)
-        user_id = await _resolve_session_user_id(request)
         if user_id and _user_has_meta_flag(db, user_id, meta_flag):
             _audit_grant(db, request, granted_action, user_id=user_id, via="session")
             return
-        # ②b 桌面桥接（混合架构）：桌面壳孵化的本机后端上，壳注入的云端身份携带
-        # 对应管理能力标志时放行——config 控制台在桌面双模式下可读本机数据。
-        # 云端部署不设桥接 env，此分支恒短路（零行为变化）。
-        from core.auth.desktop_bridge import resolve_bridge_user
+        # ②b Host identity (desktop bridge): the shell-injected cloud identity is
+        # accepted when it carries the same flag. Deployments without a host
+        # resolver, or requests it does not claim, skip this without any I/O.
+        from core.harness.registry.authentication import host_user_resolver
 
-        bridge_user = resolve_bridge_user(request, db)
-        if bridge_user is not None and _user_has_meta_flag(db, bridge_user.user_id, meta_flag):
+        resolver = host_user_resolver(request)
+        host_user = resolver(request, db) if resolver is not None else None
+        if host_user is not None and _user_has_meta_flag(db, host_user.user_id, meta_flag):
             _audit_grant(
-                db, request, granted_action, user_id=bridge_user.user_id, via="desktop_bridge"
+                db, request, granted_action, user_id=host_user.user_id, via="desktop_bridge"
             )
             return
         # ③ Token not configured at all and no session grant → report explicitly that it is not configured
@@ -78,6 +79,16 @@ def _require_token_or_flag(
                 request=request,
             )
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+    async def dependency(
+        request: Request,
+        authorization: Optional[str] = Header(None),
+    ) -> None:
+        token = os.getenv(env_var) or getattr(settings.auth, settings_attr, "")
+        user_id = None
+        if not (token and authorization == f"Bearer {token}"):
+            user_id = await _resolve_session_user_id(request)
+        await run_in_session(authorize, request, authorization, user_id)
 
     return dependency
 
@@ -131,7 +142,6 @@ require_config = _require_token_or_flag(
 async def require_admin_or_config(
     request: Request,
     authorization: Optional[str] = Header(None),
-    db: Session = Depends(get_db),
 ) -> None:
     """Accept either ADMIN_TOKEN or CONFIG_TOKEN.
 
@@ -151,14 +161,16 @@ async def require_admin_or_config(
             return
         if config_token and authorization == f"Bearer {config_token}":
             return
-        AuditLogRepository(db).log_denial(
-            user_id=None,
-            action="prompt_snapshot.access_denied",
-            reason="invalid_token",
-            required="admin_or_config_token",
-            actual="mismatch",
-            resource_type="token",
-            request=request,
+        await run_in_session(
+            lambda db: AuditLogRepository(db).log_denial(
+                user_id=None,
+                action="prompt_snapshot.access_denied",
+                reason="invalid_token",
+                required="admin_or_config_token",
+                actual="mismatch",
+                resource_type="token",
+                request=request,
+            )
         )
     raise HTTPException(status_code=401, detail="Unauthorized")
 
@@ -192,6 +204,15 @@ async def _resolve_session_user_id(request: Request) -> Optional[str]:
     except Exception:  # noqa: BLE001 — auth failure degrades safely to anonymous
         return None
     return None
+
+
+async def console_actor(request: Request) -> str:
+    """Who is acting on a console endpoint: the session user, else the static token.
+
+    A dependency, so the console routes that record it can stay plain ``def``
+    routes and do their database work in FastAPI's worker threads.
+    """
+    return await _resolve_session_user_id(request) or "config_token"
 
 
 def _is_super_admin(db: Session, user_id: str) -> bool:
@@ -248,9 +269,48 @@ def user_can_manage_ontology_governance(db: Session, user_id: Optional[str]) -> 
     ) or user_can_manage_system_settings(db, user_id)
 
 
+def _authorize_delegated(
+    db: Session,
+    request: Request,
+    user: Optional[UserContext],
+    *,
+    token: str,
+    token_grant: str,
+    allowed,
+    action: str,
+    required: str,
+    forbidden: str,
+) -> str:
+    """Shared body of the delegated console gates (runs in a worker thread).
+
+    A matching static token wins; otherwise the resolved user must pass
+    ``allowed(db, user_id)``. Grants are audited for writes, denials whenever a
+    credential or user was presented.
+    """
+    authorization = request.headers.get("authorization")
+    if token and authorization == f"Bearer {token}":
+        _audit_grant(db, request, f"{action}.access_granted", user_id=None, via="token")
+        return token_grant
+    if user is not None and allowed(db, user.user_id):
+        _audit_grant(db, request, f"{action}.access_granted", user_id=user.user_id, via="session")
+        return user.user_id
+    if authorization or user is not None:
+        AuditLogRepository(db).log_denial(
+            user_id=user.user_id if user else None,
+            action=f"{action}.access_denied",
+            reason="insufficient_permission",
+            required=required,
+            actual="regular_user" if user else "anonymous",
+            resource_type="backend_console",
+            request=request,
+        )
+    if user is None:
+        raise HTTPException(status_code=401, detail="未登录")
+    raise HTTPException(status_code=403, detail=forbidden)
+
+
 async def require_system_settings(
     request: Request,
-    db: Session = Depends(get_db),
     user: Optional[UserContext] = Depends(require_auth(False)),
 ) -> str:
     """System-settings seam (the CE delegated version of ``require_config``): any of three paths grants access.
@@ -265,34 +325,21 @@ async def require_system_settings(
     always fails on CE; this gate can resolve a user in mock / local-session /
     API-Key modes alike.
     """
-    token = os.getenv("CONFIG_TOKEN") or getattr(settings.auth, "config_token", "")
-    authorization = request.headers.get("authorization")
-    if token and authorization == f"Bearer {token}":
-        _audit_grant(db, request, "system_settings.access_granted", user_id=None, via="token")
-        return "config_token"
-    if user is not None and user_can_manage_system_settings(db, user.user_id):
-        _audit_grant(
-            db, request, "system_settings.access_granted", user_id=user.user_id, via="session"
-        )
-        return user.user_id
-    if authorization or user is not None:
-        AuditLogRepository(db).log_denial(
-            user_id=user.user_id if user else None,
-            action="system_settings.access_denied",
-            reason="insufficient_permission",
-            required="can_system_config",
-            actual="regular_user" if user else "anonymous",
-            resource_type="backend_console",
-            request=request,
-        )
-    if user is None:
-        raise HTTPException(status_code=401, detail="未登录")
-    raise HTTPException(status_code=403, detail="需要系统配置权限")
+    return await run_in_session(
+        _authorize_delegated,
+        request,
+        user,
+        token=os.getenv("CONFIG_TOKEN") or getattr(settings.auth, "config_token", ""),
+        token_grant="config_token",
+        allowed=user_can_manage_system_settings,
+        action="system_settings",
+        required="can_system_config",
+        forbidden="需要系统配置权限",
+    )
 
 
 async def require_ontology_governance(
     request: Request,
-    db: Session = Depends(get_db),
     user: Optional[UserContext] = Depends(require_auth(False)),
 ) -> str:
     """Authorize the CE settings-page ontology governance surface.
@@ -300,45 +347,20 @@ async def require_ontology_governance(
     ``ADMIN_TOKEN`` remains an operational fallback. Browser access is limited
     to users accepted by :func:`user_can_manage_ontology_governance`.
     """
-    token = os.getenv("ADMIN_TOKEN") or getattr(settings.auth, "admin_token", "")
-    authorization = request.headers.get("authorization")
-    if token and authorization == f"Bearer {token}":
-        _audit_grant(db, request, "ontology_governance.access_granted", user_id=None, via="token")
-        return "admin_token"
-    if user is not None and user_can_manage_ontology_governance(db, user.user_id):
-        _audit_grant(
-            db,
-            request,
-            "ontology_governance.access_granted",
-            user_id=user.user_id,
-            via="session",
-        )
-        return user.user_id
-    if authorization or user is not None:
-        AuditLogRepository(db).log_denial(
-            user_id=user.user_id if user else None,
-            action="ontology_governance.access_denied",
-            reason="insufficient_permission",
-            required="ce_ontology_governance",
-            actual="regular_user" if user else "anonymous",
-            resource_type="backend_console",
-            request=request,
-        )
-    if user is None:
-        raise HTTPException(status_code=401, detail="未登录")
-    raise HTTPException(status_code=403, detail="需要 CE 本体治理权限")
+    return await run_in_session(
+        _authorize_delegated,
+        request,
+        user,
+        token=os.getenv("ADMIN_TOKEN") or getattr(settings.auth, "admin_token", ""),
+        token_grant="admin_token",
+        allowed=user_can_manage_ontology_governance,
+        action="ontology_governance",
+        required="ce_ontology_governance",
+        forbidden="需要 CE 本体治理权限",
+    )
 
 
-async def require_super_admin(
-    request: Request,
-    db: Session = Depends(get_db),
-) -> str:
-    """Require the current session user to be super_admin; a valid ADMIN_TOKEN serves as fallback."""
-    admin_token = os.getenv("ADMIN_TOKEN") or settings.auth.admin_token
-    authorization = request.headers.get("authorization")
-    if admin_token and authorization == f"Bearer {admin_token}":
-        return "admin_token"
-
+def _authorize_super_admin(db: Session, request: Request) -> str:
     user_id = _resolve_current_user_id(request)
     if not user_id:
         AuditLogRepository(db).log_denial(
@@ -361,3 +383,12 @@ async def require_super_admin(
         )
         raise HTTPException(status_code=403, detail="需要 super_admin 权限")
     return user_id
+
+
+async def require_super_admin(request: Request) -> str:
+    """Require the current session user to be super_admin; a valid ADMIN_TOKEN serves as fallback."""
+    admin_token = os.getenv("ADMIN_TOKEN") or settings.auth.admin_token
+    authorization = request.headers.get("authorization")
+    if admin_token and authorization == f"Bearer {admin_token}":
+        return "admin_token"
+    return await run_in_session(_authorize_super_admin, request)

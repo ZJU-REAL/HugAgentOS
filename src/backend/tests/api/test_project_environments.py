@@ -1,20 +1,22 @@
+from core.capabilities.skills import loader_factory as loader_factory_module
 from api.routes.v1.project_environments import router
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
 from core.db.models import Project, UserShadow
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tests.db_support import share_session
 
 
 def test_environment_endpoint_enforces_project_permissions_and_empty_custom(
     db_session, monkeypatch
 ):
-    from core.agent_skills import loader
+    from core.capabilities.skills import loader
     from core.db import engine
     from sqlalchemy.orm import sessionmaker
 
     monkeypatch.setattr(engine, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
-    monkeypatch.setattr(loader, "_global_loader", None)
+    monkeypatch.setattr(loader_factory_module, 'global_loader', None)
     db_session.add_all(
         [
             UserShadow(user_id="owner", username="Owner"),
@@ -29,6 +31,7 @@ def test_environment_endpoint_enforces_project_permissions_and_empty_custom(
     app.include_router(router)
     actor = {"id": "outsider"}
     app.dependency_overrides[get_db] = lambda: db_session
+    share_session(monkeypatch, db_session)
     app.dependency_overrides[get_current_user] = lambda: UserContext(
         user_id=actor["id"], user_center_id=actor["id"], username=actor["id"]
     )

@@ -1,11 +1,12 @@
 """Isolated project-instruction fixtures."""
 
 from __future__ import annotations
+from core.files.storage.factory import process_state as state_core_files_storage_factory
 
 import pytest
 from core.db.engine import Base
 from core.db.models import UserShadow
-from core.services.project_service import ProjectService
+from core.projects.edition import ProjectService
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -21,7 +22,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr("core.db.engine.SessionLocal", factory)
     monkeypatch.setenv("STORAGE_TYPE", "local")
     monkeypatch.setenv("STORAGE_PATH", str(tmp_path / "storage"))
-    monkeypatch.setattr("core.storage.factory._storage_instance", None)
+    monkeypatch.setattr(state_core_files_storage_factory(), 'storage_instance', None)
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: True)
     with factory() as db:
         db.add_all(

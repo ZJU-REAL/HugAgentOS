@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import asyncio
 
-import core.config.catalog as catalog
-from core.capabilities.paths import capabilities_enabled
+import core.capabilities.catalog.api as catalog
+from core.harness.registry.run_capabilities import has_run_capabilities
 from core.llm.factory.request import AgentRequest
 from core.llm.factory.selection import capabilities as factory_capabilities
 
 
 async def progressive_bindings(request: AgentRequest, *, _eval_scope, _log):
-    if capabilities_enabled() and not request.disable_tools and request.enabled_skill_ids:
-        from core.capabilities.preparation import ensure_cloud_ready
+    if has_run_capabilities() and not request.disable_tools and request.enabled_skill_ids:
+        from core.harness.registry.run_capabilities import ensure_cloud_ready
 
         await asyncio.to_thread(
             ensure_cloud_ready, request.current_user_id, skill_keys=request.enabled_skill_ids
@@ -20,7 +20,7 @@ async def progressive_bindings(request: AgentRequest, *, _eval_scope, _log):
 
     # Security: strip out other users' private skills, preventing unauthorized skill_ids passed in from the frontend
     if request.enabled_skill_ids:
-        request.enabled_skill_ids = factory_capabilities._filter_skill_ids_for_user(
+        request.enabled_skill_ids = factory_capabilities.filter_skill_ids_for_user(
             request.enabled_skill_ids, request.current_user_id
         )
 
@@ -31,7 +31,7 @@ async def progressive_bindings(request: AgentRequest, *, _eval_scope, _log):
     # its explicit lists are its whole surface and its tool filter would hide
     # `load_plugin`, leaving deferred plugins unreachable. Here, installed plugins' components are
     # removed from this run's enabled sets and replaced by a one-line directory
-    # entry + a `load_plugin` activation tool (see core/plugins/runtime/__init__.py).
+    # entry + a `load_plugin` activation tool (see core/capabilities/plugins/runtime/__init__.py).
     # Deferral happens BEFORE the skill-bound-MCP merge below so a deferred
     # skill doesn't pull its bound MCP servers into the assembly either.
     _progressive = None
@@ -43,16 +43,16 @@ async def progressive_bindings(request: AgentRequest, *, _eval_scope, _log):
         and request.current_user_id
         and _eval_scope is None
     ):
-        from core.plugins import runtime as _plug
+        from core.capabilities.plugins import runtime as _plug
 
-        if not capabilities_enabled() and _plug.progressive_plugin_loading_enabled():
+        if not has_run_capabilities() and _plug.progressive_plugin_loading_enabled():
             try:
                 # Normalize the None fallbacks to their concrete resolutions
                 # (identical sources to the later phases) so the subtraction
                 # below has explicit lists to operate on.
                 if request.enabled_skill_ids is None:
-                    request.enabled_skill_ids = factory_capabilities._filter_skill_ids_for_user(
-                        factory_capabilities._effective_main_available_skills(),
+                    request.enabled_skill_ids = factory_capabilities.filter_skill_ids_for_user(
+                        factory_capabilities.effective_main_available_skills(),
                         request.current_user_id,
                     )
                 if not isinstance(request.enabled_mcp_ids, list):
@@ -95,7 +95,7 @@ async def progressive_bindings(request: AgentRequest, *, _eval_scope, _log):
     skill_ids_for_bindings = (
         request.enabled_skill_ids
         if request.enabled_skill_ids is not None
-        else factory_capabilities._effective_main_available_skills()
+        else factory_capabilities.effective_main_available_skills()
     )
     skill_bound_mcp_ids = (
         factory_capabilities._mcp_ids_bound_to_skills(skill_ids_for_bindings)
@@ -103,7 +103,7 @@ async def progressive_bindings(request: AgentRequest, *, _eval_scope, _log):
         else []
     )
     if request.profile:
-        from core.extensions import agent_profile
+        from core.harness.registry import agent_profile
         if not agent_profile(request.profile).inherit_default_mcps:
             skill_bound_mcp_ids = [m for m in skill_bound_mcp_ids if m in (request.enabled_mcp_ids or [])]
     if skill_bound_mcp_ids:

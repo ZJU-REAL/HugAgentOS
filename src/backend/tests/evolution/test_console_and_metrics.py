@@ -18,7 +18,7 @@ from core.db.models.evolution import (
     EvolutionRelease,
     EvolutionTraceEvent,
 )
-from core.evolution import metrics as M
+from core.evolution.assessment import metrics as M
 
 
 @pytest.fixture
@@ -140,7 +140,7 @@ def test_metrics_are_none_not_zero_when_a_dimension_has_no_data(db):
 
 
 def test_replay_eligibility_is_surfaced_for_the_console(db):
-    from core.evolution.console_view import episode_to_dict as _episode_to_dict
+    from core.evolution.profiles.console_view import episode_to_dict as _episode_to_dict
 
     good = _episode(db, index=1, days_ago=1)
     good.asset_bundle_id = "bundle_x"
@@ -156,7 +156,7 @@ def test_replay_eligibility_is_surfaced_for_the_console(db):
 
 
 def test_candidate_summary_leads_with_why_not_with_the_ir(db):
-    from core.evolution.console_view import candidate_to_dict as _candidate_to_dict
+    from core.evolution.profiles.console_view import candidate_to_dict as _candidate_to_dict
 
     row = EvolutionCandidate(
         candidate_id="c1",
@@ -183,7 +183,7 @@ def test_candidate_summary_leads_with_why_not_with_the_ir(db):
 
 
 def test_release_row_exposes_its_rollback_target(db):
-    from core.evolution.console_view import release_to_dict as _release_to_dict
+    from core.evolution.profiles.console_view import release_to_dict as _release_to_dict
 
     row = EvolutionRelease(
         release_id="r1",

@@ -12,8 +12,8 @@ from sqlalchemy.orm import sessionmaker
 
 from core.db.engine import Base
 from core.db.models.chat import ChatMessage, ChatSession
-from core.evolution import settlement_store as SS
-from core.evolution.settlement import LAYER_PROCEDURE, settle_turn
+from core.evolution.settlement import settlement_store as SS
+from core.evolution.settlement.settlement import LAYER_PROCEDURE, settle_turn
 
 
 @pytest.fixture

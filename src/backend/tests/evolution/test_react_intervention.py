@@ -14,13 +14,14 @@ import types
 import pytest
 
 from agentscope.message import ToolResultState
-from core.evolution.agent_profile import (
-    ACTION_CHANGE_STRATEGY,
-    SIGNAL_REPEATED_ACTIONS,
-    SIGNAL_TOOL_ERROR_STREAK,
-    InterventionRule,
-)
-from core.llm.middlewares import StallInterventionMiddleware
+from core.evolution.profiles.agent_profile_constants import ACTION_CHANGE_STRATEGY, SIGNAL_REPEATED_ACTIONS, SIGNAL_TOOL_ERROR_STREAK
+from core.evolution.profiles.agent_profile import InterventionRule
+from core.evolution.profiles.stall_hook import stall_hooks
+from tests.orchestration.hook_support import make_adapter
+from agentscope.tool._response import ToolResponse
+
+def intervention_adapter(rules):
+    return make_adapter(*stall_hooks(rules))
 
 
 class _Ctx(list):
@@ -45,7 +46,7 @@ class _Chunk:
 
 def _run(mw, agent, call, state):
     async def handler(**_kw):
-        yield _Chunk(state)
+        yield ToolResponse(content=[], state=state)
 
     async def drive():
         async for _ in mw.on_acting(agent, {"tool_call": call}, handler):
@@ -65,7 +66,7 @@ def _reminders(agent):
 
 
 def test_repeating_the_same_call_triggers_the_configured_action():
-    mw = StallInterventionMiddleware(
+    mw = intervention_adapter(
         [InterventionRule(SIGNAL_REPEATED_ACTIONS, 2, ACTION_CHANGE_STRATEGY)]
     )
     agent = _Agent()
@@ -82,7 +83,7 @@ def test_repeating_the_same_call_triggers_the_configured_action():
 
 def test_a_different_call_breaks_the_streak():
     """A streak is consecutive by definition."""
-    mw = StallInterventionMiddleware(
+    mw = intervention_adapter(
         [InterventionRule(SIGNAL_REPEATED_ACTIONS, 2, ACTION_CHANGE_STRATEGY)]
     )
     agent = _Agent()
@@ -92,7 +93,7 @@ def test_a_different_call_breaks_the_streak():
 
 
 def test_consecutive_tool_failures_trigger_an_intervention():
-    mw = StallInterventionMiddleware(
+    mw = intervention_adapter(
         [InterventionRule(SIGNAL_TOOL_ERROR_STREAK, 3, ACTION_CHANGE_STRATEGY)]
     )
     agent = _Agent()
@@ -102,7 +103,7 @@ def test_consecutive_tool_failures_trigger_an_intervention():
 
 
 def test_a_success_resets_the_failure_streak():
-    mw = StallInterventionMiddleware(
+    mw = intervention_adapter(
         [InterventionRule(SIGNAL_TOOL_ERROR_STREAK, 3, ACTION_CHANGE_STRATEGY)]
     )
     agent = _Agent()
@@ -115,7 +116,7 @@ def test_a_success_resets_the_failure_streak():
 
 def test_the_same_intervention_is_not_repeated_every_iteration():
     """Repeating one reminder each turn makes it noise the model learns to skip."""
-    mw = StallInterventionMiddleware(
+    mw = intervention_adapter(
         [InterventionRule(SIGNAL_REPEATED_ACTIONS, 2, ACTION_CHANGE_STRATEGY)]
     )
     agent = _Agent()
@@ -127,7 +128,7 @@ def test_the_same_intervention_is_not_repeated_every_iteration():
 
 def test_no_rules_means_no_behaviour_change():
     """The built-in profile must be a no-op until something is published."""
-    mw = StallInterventionMiddleware([])
+    mw = intervention_adapter([])
     agent = _Agent()
     call = _Call("search_web", {"q": "x"})
     for _ in range(5):

@@ -11,6 +11,8 @@ import asyncio
 import json
 
 import core.db.engine as db_engine
+import core.jobs.files as files
+import core.jobs.runtime as runtime
 import pytest
 from core.db.engine import Base
 from core.db.models import Job
@@ -39,7 +41,8 @@ class _Toolkit:
     def __init__(self):
         self.fn = None
 
-    def register_tool_function(self, fn):
+    def append(self, tool):
+        fn = tool._func
         self.fn = fn
 
 
@@ -64,13 +67,13 @@ def _make_tool(monkeypatch, db_session, cancelled: list):
     async def fake_start(**kw):
         return "job_new"
 
-    from orchestration import job_runtime
+    import core.jobs.runtime as job_runtime
 
-    monkeypatch.setattr(job_runtime, "cancel_job", fake_cancel)
-    from orchestration.jobs import files
+    monkeypatch.setattr(runtime, "cancel_job", fake_cancel)
+    import core.jobs.files as files
 
     monkeypatch.setattr(files, "_sbx_bash", fake_sbx_bash)
-    monkeypatch.setattr(job_runtime, "start_job", fake_start)
+    monkeypatch.setattr(runtime, "start_job", fake_start)
 
     tk = _Toolkit()
     job_tool.register_run_job(

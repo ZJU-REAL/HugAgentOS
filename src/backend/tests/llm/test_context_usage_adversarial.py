@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from api.routes.v1.chats.history import get_context_usage
-from core.llm.context_usage import build_compaction_context_usage, build_context_usage_snapshot
-from core.services.chat_service import ChatService
+from core.llm.context.usage import build_compaction_context_usage, build_context_usage_snapshot
+from core.chat.service import ChatService
 from core.db.models import ChatSession
 
 
@@ -80,9 +80,9 @@ def test_midturn_checkpoint_counts_the_active_system_and_tool_surface(db_session
     from agentscope.message import Msg, TextBlock
     from sqlalchemy.orm import sessionmaker
     import core.db.engine as engine
-    from core.llm.compacting_agent import CompactingAgent
+    from core.llm.context.compacting_agent import CompactingAgent
     from core.config import settings as config_settings
-    from core.services import compaction_service as service
+    from core.chat.compaction import service as service
 
     svc, row, ckpt, usage = _setup(db_session)
     svc.message_repo.create(
@@ -101,7 +101,7 @@ def test_midturn_checkpoint_counts_the_active_system_and_tool_surface(db_session
     async def summarize(history, **kwargs):
         return "short summary"
 
-    monkeypatch.setattr("core.services.compaction_summary._summarize", summarize)
+    monkeypatch.setattr('core.chat.compaction.summary._summarize', summarize)
     agent = object.__new__(CompactingAgent)
     agent._jx_observation = None
     agent._jx_compacted_cursor = None

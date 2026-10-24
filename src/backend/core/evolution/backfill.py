@@ -22,7 +22,7 @@ from typing import Dict, List, Optional
 
 from core.db.engine import SessionLocal
 from core.db.usage_filters import model_usage_message_filter
-from core.evolution.trace_assembler import assemble_episode
+from core.evolution.evidence.trace_assembler import assemble_episode
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +108,7 @@ def _outcome_from_logs(db, message_id: str, chat_id: str) -> Optional[Dict[str, 
     apart from an explicit user judgement and weight it accordingly.
     """
     from core.db.models import ChatMessage
-    from core.evolution.trace_assembler import _tool_rows_for
+    from core.evolution.evidence.trace_assembler import _tool_rows_for
 
     rows = _tool_rows_for(db, message_id, chat_id)
     if not rows:
@@ -154,7 +154,6 @@ def backfill_episodes(
     start = end - timedelta(days=days)
 
     stats = {"scanned": 0, "created": 0, "skipped": 0, "batches": 0}
-    offset = 0
 
     while True:
         if max_batches is not None and stats["batches"] >= max_batches:
@@ -174,8 +173,8 @@ def backfill_episodes(
 
                     # Historical runs have tool logs but no trace events;
                     # bridge them so the backfill is actually usable for mining.
-                    from core.evolution.events import TraceSink
-                    from core.evolution.trace_assembler import emit_tool_events
+                    from core.evolution.evidence.events import TraceSink
+                    from core.evolution.evidence.trace_assembler import emit_tool_events
 
                     sink = TraceSink(message_id=message_id, chat_id=chat_id or "", user_id=user_id)
                     if emit_tool_events(sink, message_id, chat_id or ""):

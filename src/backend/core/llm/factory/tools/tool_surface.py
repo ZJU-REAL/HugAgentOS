@@ -6,11 +6,11 @@ import asyncio
 from typing import Any, Dict, Optional
 
 from agentscope.tool import Toolkit
-from core.capabilities import runtime as capability_runtime
+from core.capabilities.skills.runtime_loader import ParallelRuntimeSkillLoader
 from core.llm.factory.models import RequiredCapabilities
 from core.llm.factory.request import AgentRequest
-from core.ontology.toolkit import OntologyFilteredToolkit
-from core.ontology.validator import register_runtime_asset_tags
+from core.llm.tools.ontology_toolkit import OntologyFilteredToolkit
+from core.ontology.runtime_pack import register_runtime_asset_tags
 
 
 async def tool_surface(
@@ -24,9 +24,8 @@ async def tool_surface(
     required: RequiredCapabilities,
     _required_connector_tool_names,
     _required_plugin_mcp_tool_names,
-    http_clients,
+    mcp_resources,
     loader,
-    mcp_clients,
     skill_ids_to_register,
     toolkit,
 ):
@@ -72,7 +71,7 @@ async def tool_surface(
     }
 
     def _build_toolkit(*, include_skills: bool = True) -> Toolkit:
-        # ``toolkit`` here is still the ToolCollector; construct the real Toolkit from the current collection state.
+        # Construct the native Toolkit from the assembled native tool values.
         #
         # "Skill" (AgentScope's builtin SkillViewer) is hidden unconditionally —
         # distinct from the ontology forbidden_tools above. The Toolkit injects
@@ -82,20 +81,10 @@ async def tool_surface(
         # observability). A model that called Skill instead would bypass all of
         # that and receive backend-path content unusable in the sandbox — so the
         # schema is pure per-round prefill waste plus a wrong door.
-        _visible_mcps = [*mcp_clients, *http_clients]
-        if _prepared_capabilities is not None:
-            from core.llm.capability_tools import AvailableMCPClient
-
-            _live_run = (
-                capability_runtime.get(
-                    _prepared_capabilities.run_id, scope_id=request.capability_scope
-                )
-                or _prepared_capabilities
-            )
-            _visible_mcps = [AvailableMCPClient(client, _live_run) for client in _visible_mcps]
-        selected_tools = toolkit.function_tools
+        mcp_tools = [tool for resource in mcp_resources for tool in resource.tools]
+        selected_tools = list(toolkit)
         if request.profile:
-            from core.extensions import agent_profile
+            from core.harness.registry import agent_profile
 
             _profile = agent_profile(request.profile)
             if _profile.tool_filter is not None:
@@ -103,16 +92,21 @@ async def tool_surface(
             # The existing MCP resolver already intersects the explicit per-agent list.
             # A profile that does not inherit defaults gets none when the list is empty.
             if not _profile.inherit_default_mcps and not request.enabled_mcp_ids:
-                _visible_mcps = []
+                mcp_tools = []
             if not _profile.native_skill_prompt:
                 include_skills = False
-        return OntologyFilteredToolkit(
-            tools=selected_tools,
-            mcps=_visible_mcps,
-            skills_or_loaders=(toolkit.skill_loaders or None) if include_skills else None,
+        names = [tool.name for tool in [*selected_tools, *mcp_tools]]
+        if len(names) != len(set(names)):
+            raise ValueError("Duplicate model-facing tool names")
+        built = OntologyFilteredToolkit(
+            tools=[*selected_tools, *mcp_tools],
+            skills_or_loaders=[ParallelRuntimeSkillLoader(toolkit.skill_loaders)] if include_skills and toolkit.skill_loaders else None,
             skill_instruction_template=_SKILL_INSTRUCTION_TEMPLATE,
             hidden_tools={*_ontology_hidden_tools, "Skill"},
         )
+        if _prepared_capabilities is not None:
+            built.capability_guard = _prepared_capabilities.tool_guard(scope_id=request.capability_scope)
+        return built
 
     # Compute schemas first in the "subagent tools not yet registered" state
     # (consistent with 1.x: subagent tools are registered after
@@ -162,7 +156,7 @@ async def tool_surface(
         # Progressive loading normally persists this during its resolution.
         # Persist here as well so explicit activation is sticky in restricted
         # modes, dedicated-agent chats and when progressive loading is disabled.
-        from core.plugins import runtime as _plugin_activation
+        from core.capabilities.plugins import runtime as _plugin_activation
 
         await asyncio.to_thread(
             _plugin_activation.record_plugin_activation,
@@ -171,7 +165,7 @@ async def tool_surface(
             user_id=str(request.current_user_id or ""),
         )
     if request.chat_id and (_required_skill_registered or _required_connector_tool_names):
-        from core.llm.session_capabilities import record_session_capability_activation
+        from core.llm.runtime.session_capabilities import record_session_capability_activation
 
         await asyncio.to_thread(
             record_session_capability_activation,

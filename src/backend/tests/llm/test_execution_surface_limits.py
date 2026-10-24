@@ -5,16 +5,13 @@ from __future__ import annotations
 import pytest
 from agentscope.message import UserMsg
 from agentscope.tool import FunctionTool, ToolChunk
-from core.llm.context_adapter import next_request_sequence, render_context_item
-from core.llm.context_ir import (
-    IMAGE_TOKEN_RESERVE,
-    KIND_USER_INPUT,
-    POLICY_NEVER,
-    make_text_context_item,
-)
-from core.llm.manifest_agent import ManifestBoundAgent
-from core.llm.message_compat import session_to_msgs
-from core.ontology.toolkit import OntologyFilteredToolkit
+from core.llm.context.rendering import next_request_sequence, render_context_item
+from core.llm.context.ir_constants import KIND_USER_INPUT, POLICY_NEVER
+from core.llm.context.items import make_text_context_item
+from core.models.constants import IMAGE_TOKEN_RESERVE
+from core.llm.runtime.manifest_agent import ManifestBoundAgent
+from core.llm.runtime.message_compat import session_to_msgs
+from core.llm.tools.ontology_toolkit import OntologyFilteredToolkit
 from tests.llm.test_execution_surface_snapshot import CaptureModel
 
 
@@ -37,7 +34,7 @@ async def test_public_reply_does_not_invent_message_budget_when_window_is_consum
         toolkit=toolkit,
     )
 
-    from core.llm.context_safety import ContextBudgetExceeded
+    from core.llm.context.safety import ContextBudgetExceeded
 
     with pytest.raises(ContextBudgetExceeded):
         await agent.reply(UserMsg(name="user", content="current"))
@@ -49,17 +46,19 @@ async def test_public_reply_does_not_invent_message_budget_when_window_is_consum
 
 @pytest.mark.asyncio
 async def test_public_multimodal_request_keeps_or_drops_each_image_whole(monkeypatch):
-    from core.llm import middlewares as mw
+    from core.llm.context import attachment_hook as mw
+    from core.llm.runtime.state import AgentRuntimeState
+    from tests.orchestration.hook_support import make_adapter
 
     monkeypatch.setattr(
-        mw,
-        "_build_file_context",
+        mw.file_context,
+        "build_file_context",
         lambda files, user_id=None: "TEXT-FILE-EVIDENCE",
     )
-    monkeypatch.setattr(mw, "_effective_model_supports_vision", lambda state: True)
+    monkeypatch.setattr(mw, "supports_native_images", lambda state: True)
     monkeypatch.setattr(
-        mw,
-        "_fetch_image_base64",
+        mw.file_context,
+        "fetch_image_base64",
         lambda file, user_id=None: ("A" * 4_000, "image/png"),
     )
     model = CaptureModel()
@@ -70,8 +69,8 @@ async def test_public_multimodal_request_keeps_or_drops_each_image_whole(monkeyp
         system_prompt="rules",
         model=model,
         toolkit=OntologyFilteredToolkit(),
-        middlewares=[mw.FileContextMiddleware()],
-        state=mw.AgentRuntimeState(
+        middlewares=[make_adapter(mw.attachment_context_hook())],
+        state=AgentRuntimeState(
             uploaded_files=[
                 {"file_id": "doc", "name": "notes.txt", "mime_type": "text/plain"},
                 {"file_id": "one", "name": "one.png", "mime_type": "image/png"},

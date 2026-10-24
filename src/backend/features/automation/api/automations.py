@@ -1,0 +1,368 @@
+"""Automation API routes — CRUD for scheduled tasks + notifications."""
+
+from typing import Any, Dict, List, Optional
+
+from croniter import croniter
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from core.auth.backend import get_current_user, UserContext
+from core.db.engine import get_db
+from core.infra.responses import success_response, created_response
+from features.automation import notifications as notifications
+from features.automation.service import AutomationService, SUMMARY_LIMIT_LIST
+from core.infra.logging import get_logger, quiet_access_log
+
+logger = get_logger(__name__)
+
+router = APIRouter(prefix="/v1/automations", tags=["Automations"])
+
+
+# ── Request Schemas ────────────────────────────────────────────
+
+class CreateAutomationRequest(BaseModel):
+    task_type: str = Field(..., pattern=r"^(prompt|plan|loop)$")
+    prompt: Optional[str] = Field(None, max_length=5000)
+    plan_id: Optional[str] = None
+    loop_id: Optional[str] = None  # task_type=loop: the autonomous loop advanced on schedule
+    cron_expression: str = Field(..., min_length=9, max_length=100)
+    schedule_type: Optional[str] = Field(None, pattern=r"^(recurring|once|manual)$")
+    name: Optional[str] = Field(None, max_length=200)
+    description: Optional[str] = None
+    timezone: str = "Asia/Shanghai"
+    execution_location: Optional[str] = Field(None, pattern=r"^(local|cloud)$")
+    project_id: Optional[str] = Field(None, max_length=64)
+    enabled_mcp_ids: Optional[List[str]] = None
+    enabled_skill_ids: Optional[List[str]] = None
+    enabled_kb_ids: Optional[List[str]] = None
+    enabled_agent_ids: Optional[List[str]] = None
+    max_runs: Optional[int] = None
+    # Optional: deliver the result on schedule to an external IM channel conversation (Lark, etc.)
+    channel_id: Optional[str] = None
+    conversation_id: Optional[str] = None
+
+
+class UpdateAutomationRequest(BaseModel):
+    name: Optional[str] = Field(None, max_length=200)
+    description: Optional[str] = None
+    cron_expression: Optional[str] = Field(None, min_length=9, max_length=100)
+    schedule_type: Optional[str] = Field(None, pattern=r"^(recurring|once|manual)$")
+    prompt: Optional[str] = Field(None, max_length=5000)
+    enabled_mcp_ids: Optional[List[str]] = None
+    enabled_skill_ids: Optional[List[str]] = None
+    enabled_kb_ids: Optional[List[str]] = None
+    enabled_agent_ids: Optional[List[str]] = None
+    # Change delivery target: passing channel_id+conversation_id rebinds the channel conversation;
+    # explicitly passing null switches back to in-site only.
+    # Use model_fields_set to distinguish "not passed (untouched)" from "passed null (cleared)".
+    channel_id: Optional[str] = None
+    conversation_id: Optional[str] = None
+
+
+class NotificationIdsRequest(BaseModel):
+    ids: List[str]
+
+
+# ── Endpoints ──────────────────────────────────────────────────
+
+@router.post("", summary="创建自动化任务")
+def create_automation(
+    req: CreateAutomationRequest,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """创建一个定时自动化任务。支持 prompt / plan 两种任务类型，需提供合法的 cron 表达式；plan 类型还需校验 plan_id 归属。"""
+    # Validate cron expression
+    if not croniter.is_valid(req.cron_expression):
+        raise HTTPException(status_code=400, detail="无效的 cron 表达式")
+
+    # Validate task content
+    if req.task_type == "prompt" and not req.prompt:
+        raise HTTPException(status_code=400, detail="提示词类型任务必须提供 prompt")
+    if req.task_type == "plan":
+        if not req.plan_id:
+            raise HTTPException(status_code=400, detail="计划类型任务必须提供 plan_id")
+        from core.chat.plans import PlanService
+        plan_svc = PlanService(db)
+        plan = plan_svc.get_plan(req.plan_id, user.user_id)
+        if not plan:
+            raise HTTPException(status_code=404, detail="计划不存在或无权访问")
+
+    if req.task_type == "loop":
+        if not req.loop_id:
+            raise HTTPException(status_code=400, detail="循环类型任务必须提供 loop_id")
+        from features.automation.loops import LoopService
+        if not LoopService(db).get_loop(req.loop_id, user_id=user.user_id):
+            raise HTTPException(status_code=404, detail="循环不存在或无权访问")
+
+    schedule_type = req.schedule_type or "recurring"
+
+    # Channel delivery destination (optional): must be a bot owned by the user, to prevent delivering to someone else's bot
+    task_metadata: Optional[dict] = None
+    if req.task_type == "loop":
+        task_metadata = {"loop_id": req.loop_id}
+    if req.channel_id and req.conversation_id:
+        from integrations.channels.repository import ChannelConnectionRepository
+        conn = ChannelConnectionRepository(db).get_by_id(req.channel_id)
+        if conn is None or conn.owner_user_id != str(user.user_id):
+            raise HTTPException(status_code=403, detail="无权投递到该渠道机器人")
+        task_metadata = {**(task_metadata or {}),
+                         "delivery_targets": [{"type": "inapp"}, {"type": "channel",
+                         "channel_id": req.channel_id, "conversation_id": req.conversation_id}]}
+
+    from features.automation.execution import execution_metadata
+    import pytz
+    try:
+        pytz.timezone(req.timezone)
+        execution_metadata(db, user.user_id, location=req.execution_location,
+                           project_id=req.project_id, prompt=req.prompt)
+    except (ValueError, pytz.UnknownTimeZoneError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    svc = AutomationService(db)
+    task = svc.create_task(
+        user_id=user.user_id,
+        task_type=req.task_type,
+        prompt=req.prompt,
+        plan_id=req.plan_id,
+        cron_expression=req.cron_expression,
+        schedule_type=schedule_type,
+        name=req.name,
+        description=req.description or "",
+        timezone=req.timezone,
+        execution_location=req.execution_location,
+        project_id=req.project_id,
+        enabled_mcp_ids=req.enabled_mcp_ids,
+        enabled_skill_ids=req.enabled_skill_ids,
+        enabled_kb_ids=req.enabled_kb_ids,
+        enabled_agent_ids=req.enabled_agent_ids,
+        max_runs=req.max_runs,
+        metadata=task_metadata,
+    )
+    return created_response(data=AutomationService.task_to_dict(task))
+
+
+@router.get("", summary="自动化任务列表")
+def list_automations(
+    status: Optional[str] = None,
+    sidebar_activated: Optional[bool] = None,
+    limit: int = 50,
+    offset: int = 0,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """列出当前用户的全部自动化任务，可按状态、侧边栏激活状态过滤并分页。"""
+    svc = AutomationService(db)
+    tasks = svc.list_tasks(
+        user.user_id,
+        status_filter=status,
+        sidebar_activated=sidebar_activated,
+        limit=limit,
+        offset=offset,
+    )
+    return success_response(data=[AutomationService.task_to_dict(t) for t in tasks])
+
+
+@router.get("/{task_id}", summary="自动化任务详情")
+def get_automation(
+    task_id: str,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """获取指定自动化任务的详细信息，任务不存在返回 404。"""
+    svc = AutomationService(db)
+    task = svc.get_task(task_id, user.user_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return success_response(data=AutomationService.task_to_dict(task))
+
+
+@router.patch("/{task_id}", summary="更新自动化任务")
+def update_automation(
+    task_id: str,
+    req: UpdateAutomationRequest,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """更新自动化任务的名称、描述、cron 表达式、任务内容等字段；若改 cron 会校验合法性，无更新字段返回 400。"""
+    if req.cron_expression and not croniter.is_valid(req.cron_expression):
+        raise HTTPException(status_code=400, detail="无效的 cron 表达式")
+
+    updates = req.model_dump(exclude_none=True)
+    # The delivery target lives in extra_data (not a task column), handled separately: covers "rebind channel" and "switch back to in-site".
+    deliver_touched = bool({"channel_id", "conversation_id"} & req.model_fields_set)
+    updates.pop("channel_id", None)
+    updates.pop("conversation_id", None)
+    if not updates and not deliver_touched:
+        raise HTTPException(status_code=400, detail="无更新字段")
+
+    svc = AutomationService(db)
+    if deliver_touched:
+        task0 = svc.get_task(task_id, user.user_id)
+        if not task0:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        new_ed = dict(task0.extra_data or {})
+        # Replace channel targets while retaining the other delivery destinations.
+        if isinstance(new_ed.get("delivery_targets"), list):
+            new_ed["delivery_targets"] = [
+                t for t in new_ed["delivery_targets"]
+                if not (isinstance(t, dict) and t.get("type") == "channel")
+            ]
+            if not new_ed["delivery_targets"]:
+                new_ed.pop("delivery_targets")
+        # If a channel conversation is given -> verify bot ownership then write; otherwise keep it cleared (= in-site only)
+        if req.channel_id and req.conversation_id:
+            from integrations.channels.repository import ChannelConnectionRepository
+            conn = ChannelConnectionRepository(db).get_by_id(req.channel_id)
+            if conn is None or conn.owner_user_id != str(user.user_id):
+                raise HTTPException(status_code=403, detail="无权投递到该渠道机器人")
+            new_ed.setdefault("delivery_targets", [{"type": "inapp"}]).append({
+                "type": "channel", "channel_id": req.channel_id,
+                "conversation_id": req.conversation_id,
+            })
+        updates["extra_data"] = new_ed
+
+    try:
+        task = svc.update_task(task_id, user.user_id, **updates)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return success_response(data=AutomationService.task_to_dict(task))
+
+
+@router.delete("/{task_id}", summary="删除自动化任务")
+def delete_automation(
+    task_id: str,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """删除指定自动化任务及其运行历史记录。"""
+    svc = AutomationService(db)
+    deleted = svc.delete_task(task_id, user.user_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return success_response(message="已删除")
+
+
+@router.post("/{task_id}/pause", summary="暂停自动化任务")
+def pause_automation(
+    task_id: str,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """暂停一个处于活跃状态的自动化任务，任务不存在或不可暂停时返回 400。"""
+    svc = AutomationService(db)
+    task = svc.pause_task(task_id, user.user_id)
+    if not task:
+        raise HTTPException(status_code=400, detail="任务不存在或不可暂停")
+    return success_response(data=AutomationService.task_to_dict(task))
+
+
+@router.post("/{task_id}/resume", summary="恢复自动化任务")
+def resume_automation(
+    task_id: str,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """恢复一个已暂停的自动化任务，任务不存在或不可恢复时返回 400。"""
+    svc = AutomationService(db)
+    task = svc.resume_task(task_id, user.user_id)
+    if not task:
+        raise HTTPException(status_code=400, detail="任务不存在或不可恢复")
+    return success_response(data=AutomationService.task_to_dict(task))
+
+
+@router.post("/{task_id}/trigger", summary="手动触发自动化任务")
+def trigger_automation(
+    task_id: str,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """立即手动触发一次自动化任务执行（异步），仅 active / paused 状态可触发。
+
+    只登记请求，执行由调度器接手——原因见 ``request_manual_trigger``。
+    """
+    svc = AutomationService(db)
+    task = svc.get_task(task_id, user.user_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if task.status not in ("active", "paused"):
+        raise HTTPException(status_code=400, detail=f"任务状态为 '{task.status}'，无法手动触发")
+
+    svc.request_manual_trigger(task)
+    return success_response(message="已触发执行")
+
+
+@router.post("/{task_id}/activate-sidebar", summary="侧边栏激活任务")
+def activate_sidebar(
+    task_id: str,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """将自动化任务标记为侧边栏已激活（幂等操作），任务不存在返回 404。"""
+    svc = AutomationService(db)
+    task = svc.activate_sidebar(task_id, user.user_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return success_response(data=AutomationService.task_to_dict(task))
+
+
+@router.get("/{task_id}/runs", summary="自动化任务运行历史")
+def get_automation_runs(
+    task_id: str,
+    # 上界防护：result_summary 现在是全文，无上限的 limit 会把成百上千份完整报告拉进内存
+    limit: int = Query(10, ge=1, le=100),
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """获取指定自动化任务的运行历史记录，可通过 limit 限制返回条数。"""
+    svc = AutomationService(db)
+    runs = svc.get_task_runs(task_id, user.user_id, limit=limit)
+    # result_summary 存全文（渠道投递要用），列表只做两行摘要展示 → 截断防止响应体膨胀
+    return success_response(
+        data=[AutomationService.run_to_dict(r, summary_limit=SUMMARY_LIMIT_LIST) for r in runs]
+    )
+
+
+# ── Notifications ─────────────────────────────────────────────
+
+
+@router.get("/notifications/list", summary="获取自动化通知列表")
+@quiet_access_log
+async def get_notifications(
+    user: UserContext = Depends(get_current_user),
+):
+    """获取当前用户的自动化任务通知列表（最多返回最近 50 条）。"""
+    return success_response(data=await notifications.list_recent(user.user_id))
+
+
+@router.post("/notifications/read", summary="标记通知为已读")
+async def mark_notifications_read(
+    req: NotificationIdsRequest,
+    user: UserContext = Depends(get_current_user),
+):
+    """按 ID 列表将指定的自动化通知标记为已读。"""
+    try:
+        def _mark_read(item):
+            item["read"] = True
+            return item
+        await notifications.modify(user.user_id, set(req.ids), _mark_read)
+        return success_response(message="ok")
+    except Exception as exc:
+        logger.warning("Failed to mark notifications read: %s", exc)
+        return success_response(message="ok")
+
+
+@router.post("/notifications/delete", summary="删除通知")
+async def delete_notifications(
+    req: NotificationIdsRequest,
+    user: UserContext = Depends(get_current_user),
+):
+    """按 ID 列表删除指定的自动化通知。"""
+    try:
+        await notifications.modify(user.user_id, set(req.ids), lambda _: None)
+        return success_response(message="ok")
+    except Exception as exc:
+        logger.warning("Failed to delete notifications: %s", exc)
+        return success_response(message="ok")

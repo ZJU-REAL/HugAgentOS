@@ -5,10 +5,8 @@ import { useEffect, useState } from 'react';
  *
  * `signature` should change whenever the stream emits new content (text token,
  * tool call, segment, etc). When it stops changing for `stallMs` we flip to
- * `waiting = true` and report the timestamp the stall started. This is the
- * frontend safety net for the case where the LLM buffers a long tool-call
- * payload server-side (e.g. MiniMax) and the backend's `tool_pending` event
- * either hasn't fired or fires late.
+ * `waiting = true` and report the timestamp the stall started, e.g. while the
+ * LLM buffers a long tool-call payload server-side (MiniMax) before emitting it.
  *
  * `active` says whether there is a stream to watch at all, and it is not an
  * optimisation: hooks cannot be called conditionally, so every caller that

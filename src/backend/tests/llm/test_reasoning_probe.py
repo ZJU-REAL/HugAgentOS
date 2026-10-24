@@ -2,7 +2,7 @@
 
 import httpx
 import pytest
-from core.llm.providers.reasoning_probe import discover_reasoning_efforts
+from core.models.providers.reasoning_probe import discover_reasoning_efforts
 
 
 @pytest.mark.asyncio

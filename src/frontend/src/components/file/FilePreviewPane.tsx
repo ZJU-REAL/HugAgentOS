@@ -1,88 +1,26 @@
 import type { ReactNode } from 'react';
 import type { ResourceItem } from '../../types';
 import { ArchiveBrowser } from './ArchiveBrowser';
-import { isArchiveFile } from '../../utils/archiveBrowser';
-import { isArchiveMember } from '../../utils/artifactAccess';
 import { ArtifactFileAction } from './ArtifactFileAction';
 import { getFileIconSrc } from '../../utils/fileIcon';
 import { exceedsPreviewLimit, getPreviewLimitBytes } from '../../utils/filePreviewSafety';
-import { extOf, buildRawUrl, buildOfficePreviewUrl, withPdfViewerParams } from './filePreviewUrls';
+import { getFilePreviewKind } from '../../utils/filePreviewKind';
+import { buildRawUrl, buildOfficePreviewUrl, withPdfViewerParams } from './filePreviewUrls';
 import {
-  ImageViewer, FrameViewer, VideoViewer, AudioViewer, TextViewer, JsonViewer,
+  ImageViewer, FrameViewer, TextViewer, JsonViewer,
   MarkdownViewer, CsvViewer, XlsxViewer, UnsupportedView, LargeFileView, EmptyState,
 } from './FilePreviewViewers';
+import { MediaPlayer } from './MediaPlayer';
 
 interface FilePreviewPaneProps {
   item: ResourceItem | null;
-}
-
-type ViewKind =
-  | 'image'
-  | 'pdf'
-  | 'video'
-  | 'audio'
-  | 'markdown'
-  | 'json'
-  | 'csv'
-  | 'text'
-  | 'pptx'
-  | 'docx'
-  | 'xlsx'
-  | 'archive'
-  | 'unknown';
-
-const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'ico']);
-const PDF_EXTS = new Set(['pdf']);
-const VIDEO_EXTS = new Set(['mp4', 'webm', 'mov', 'm4v', 'ogv']);
-const AUDIO_EXTS = new Set(['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac']);
-const MD_EXTS = new Set(['md', 'markdown', 'mdx']);
-const JSON_EXTS = new Set(['json', 'json5', 'jsonl', 'ndjson']);
-const CSV_EXTS = new Set(['csv', 'tsv']);
-const PPTX_EXTS = new Set(['ppt', 'pptx']);
-const DOCX_EXTS = new Set(['doc', 'docx']);
-const XLSX_EXTS = new Set(['xls', 'xlsx', 'xlsm']);
-const TEXT_EXTS = new Set([
-  'txt', 'log', 'py', 'js', 'ts', 'tsx', 'jsx', 'mjs', 'cjs',
-  'html', 'htm', 'css', 'scss', 'sass', 'less',
-  'xml', 'yaml', 'yml', 'ini', 'conf', 'env', 'toml', 'lock',
-  'sh', 'bash', 'zsh', 'fish', 'ps1',
-  'go', 'rs', 'java', 'kt', 'swift', 'c', 'cpp', 'cc', 'h', 'hpp',
-  'rb', 'php', 'r', 'sql', 'graphql', 'gql', 'proto',
-  'vue', 'svelte', 'astro',
-]);
-
-function detectKind(item: ResourceItem): ViewKind {
-  if (isArchiveFile(item)) return isArchiveMember(item) ? 'unknown' : 'archive';
-  if (isArchiveMember(item) && item.mime_type === 'text/plain') return 'text';
-  const mime = (item.mime_type || '').toLowerCase();
-  const ext = extOf(item.name || '');
-  if (mime.startsWith('image/')) return 'image';
-  if (mime === 'application/pdf') return 'pdf';
-  if (mime.startsWith('video/')) return 'video';
-  if (mime.startsWith('audio/')) return 'audio';
-  if (mime === 'text/markdown') return 'markdown';
-  if (mime === 'application/json') return 'json';
-  if (mime === 'text/csv') return 'csv';
-  if (IMAGE_EXTS.has(ext)) return 'image';
-  if (PDF_EXTS.has(ext)) return 'pdf';
-  if (VIDEO_EXTS.has(ext)) return 'video';
-  if (AUDIO_EXTS.has(ext)) return 'audio';
-  if (MD_EXTS.has(ext)) return 'markdown';
-  if (JSON_EXTS.has(ext)) return 'json';
-  if (CSV_EXTS.has(ext)) return 'csv';
-  if (PPTX_EXTS.has(ext)) return 'pptx';
-  if (DOCX_EXTS.has(ext)) return 'docx';
-  if (XLSX_EXTS.has(ext)) return 'xlsx';
-  if (TEXT_EXTS.has(ext)) return 'text';
-  if (mime.startsWith('text/')) return 'text';
-  return 'unknown';
 }
 
 // ─── main entry ────────────────────────────────────────────────────
 
 export function FilePreviewPane({ item }: FilePreviewPaneProps) {
   if (!item) return <EmptyState />;
-  const kind = detectKind(item);
+  const kind = getFilePreviewKind(item);
   const rawUrl = buildRawUrl(item, true);
   const dlUrl = buildRawUrl(item);
   const previewLimitBytes = getPreviewLimitBytes(kind);
@@ -103,10 +41,8 @@ export function FilePreviewPane({ item }: FilePreviewPaneProps) {
       body = <FrameViewer src={withPdfViewerParams(rawUrl)} />;
       break;
     case 'video':
-      body = <VideoViewer src={rawUrl} />;
-      break;
     case 'audio':
-      body = <AudioViewer src={rawUrl} name={item.name} />;
+      body = <MediaPlayer kind={kind} src={rawUrl} name={item.name} />;
       break;
     case 'markdown':
       body = <MarkdownViewer item={item} maxBytes={maxPreviewBytes} />;
@@ -117,10 +53,12 @@ export function FilePreviewPane({ item }: FilePreviewPaneProps) {
     case 'csv':
       body = <CsvViewer item={item} maxBytes={maxPreviewBytes} />;
       break;
+    // HTML is shown as source here: this pane never executes previewed markup.
+    case 'html':
     case 'text':
       body = <TextViewer item={item} maxBytes={maxPreviewBytes} />;
       break;
-    case 'pptx':
+    case 'office':
     case 'docx':
       body = <FrameViewer src={withPdfViewerParams(buildOfficePreviewUrl(item))} />;
       break;

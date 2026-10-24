@@ -7,7 +7,7 @@ parameter lists from sprawling across the project.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal, Optional
 
 Confidentiality = Literal["public", "internal", "sensitive"]

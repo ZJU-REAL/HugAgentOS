@@ -12,6 +12,8 @@ import type { PersonalFolderNode } from '../../types';
 
 interface Props {
   onCreated?: (projectId: string) => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 interface FolderTreeNode {
@@ -28,9 +30,11 @@ function foldersToTree(folders: PersonalFolderNode[]): FolderTreeNode[] {
   }));
 }
 
-export default function CreateProjectModal({ onCreated }: Props) {
-  const open = useProjectStore((state) => state.createModalOpen);
-  const setOpen = useProjectStore((state) => state.setCreateModalOpen);
+export default function CreateProjectModal({ onCreated, open: openProp, onOpenChange }: Props) {
+  const storeOpen = useProjectStore((state) => state.createModalOpen);
+  const setStoreOpen = useProjectStore((state) => state.setCreateModalOpen);
+  const open = openProp ?? storeOpen;
+  const setOpen = onOpenChange ?? setStoreOpen;
   const createPersonal = useProjectStore((state) => state.createPersonal);
   const isDesktop = useDeploymentModeStore((state) => state.isDesktop);
   const provisionMode = useDeploymentModeStore((state) => state.provisionMode);

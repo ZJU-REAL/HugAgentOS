@@ -409,11 +409,6 @@
   transition: none;
 }
 
-/* docx: A4 page width + comfortable margin */
-.jx-canvas--docx {
-  width: 900px;
-}
-
 /* ── 内容加载完成淡入（docx / text 等渲染器就绪时） ── */
 .jx-canvas-fadeIn {
   --fadeInUp-distance: 6px;
@@ -537,9 +532,14 @@ button.jx-canvas-actionBtn { width: 30px; }
 
 /* ── Body ── */
 .jx-canvas-body {
+  /* Zoom for renderers scaled purely by CSS (text / markdown); CanvasPanel sets it per tab. */
+  --canvas-zoom: 1;
   flex: 1;
   min-height: 0;
   overflow: auto;
+  /* Fit-width renderers measure this viewport; a scrollbar that comes and goes
+     would flip their fit scale back and forth. */
+  scrollbar-gutter: stable;
   background: var(--color-bg-container);
 }
 
@@ -633,14 +633,27 @@ button.jx-canvas-actionBtn { width: 30px; }
 
 /* ══ DOCX Renderer ══ */
 
-/* dark-ok-begin: Word 预览是一张**纸**，不是界面的一部分——docx-preview 会把文档自带的
-   行内颜色（绝大多数是黑字）直接写在元素上，纸面因此必须恒为浅色，否则深色档下黑字压深底、
-   整份文档不可读。
-   做法是把纸张根做成「主题孤岛」：在这里把主题令牌就地钉回浅色值，纸内所有引用令牌的规则
-   （正文、表头、标题、链接……）随之自动解析成浅色。
-   这比逐条 background 上标 dark-ok 深一层——纸内新增样式不必再记得豁免，后续批量令牌化
-   改动也不会把纸内的某一条文字色悄悄翻成深色档的浅字（曾因此让表头白字压白底）。 */
+/* Pages keep docx-preview's real geometry (page width, margins, height, page
+   breaks) and the document's own styles; DocxRenderer scales `.docx-wrapper`
+   with CSS zoom ('fit' = widest page to pane width). The wrapper is the grey
+   desk, follows the theme; `safe center` keeps an over-wide page scrollable
+   from its left edge instead of clipping it. */
 .jx-canvas-docx {
+  min-height: 100%;
+  background: var(--color-bg-layout);
+}
+.jx-canvas-docx .docx-wrapper {
+  padding: 24px; /* = PAGE_GUTTER in DocxRenderer.tsx */
+  background: transparent;
+  align-items: safe center;
+  gap: 24px;
+}
+/* dark-ok-begin: Word 预览是一张**纸**，不是界面的一部分——docx-preview 把文档自带的
+   行内颜色（绝大多数是黑字）直接写在元素上，纸面因此恒为浅色，否则深色档下黑字压深底、
+   整份文档不可读。
+   纸张是「主题孤岛」：在这里把主题令牌就地钉回浅色值，纸内任何引用令牌的规则（含全局的
+   表格 / 链接样式）都解析成浅色；没写颜色的文字继承纸面的黑色。 */
+.jx-canvas-docx .docx-wrapper > section.docx {
   --color-text:#101828;
   --color-text-secondary:#475467;
   --color-text-tertiary:#667085;
@@ -654,213 +667,20 @@ button.jx-canvas-actionBtn { width: 30px; }
   --color-fill:#DDE3EC;
   --color-fill-hover:#EEF1F5;
 
-  padding: 0;
-  background: var(--color-bg-container);
-  min-height: 100%;
+  flex: none;
+  margin: 0;
+  overflow: visible; /* wide tables / images stay reachable by scrolling */
+  background: #fff;
+  color: #000;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, .12), 0 0 0 .5px rgba(16, 24, 40, .06);
 }
 /* dark-ok-end */
-.jx-canvas-docx .docx-wrapper,
-.jx-canvas-docx .jx-canvas-docx-wrapper,
-.jx-canvas-docx .jx-canvas-docx-wrapper-wrapper {
-  padding: 0 !important;
-  margin: 0 !important;
-  background: var(--color-bg-container) !important;
-}
-/* section: library uses our className as the section class, so match both */
-.jx-canvas-docx section.docx,
-.jx-canvas-docx section.jx-canvas-docx-wrapper {
-  margin: 0 !important;
-  min-height: auto !important;
-  max-width: none;
-  width: 100%;
-  padding: 28px 36px 44px !important;
-  background: var(--color-bg-container) !important;
-  border: none !important;
-  border-radius: 0;
-  box-shadow: none !important;
-  margin-bottom: 0 !important;
-  color: color-mix(in srgb, var(--color-text) 88%, transparent);
-  font-family: var(--font-family) !important;
-  line-height: 1.84;
-  overflow: hidden;
-}
-
-.jx-canvas-docx section.docx > *,
-.jx-canvas-docx section.jx-canvas-docx-wrapper > * {
-  font-family: inherit !important;
-}
-
-.jx-canvas-docx section.docx p,
-.jx-canvas-docx section.docx li,
-.jx-canvas-docx section.docx td,
-.jx-canvas-docx section.jx-canvas-docx-wrapper p,
-.jx-canvas-docx section.jx-canvas-docx-wrapper li,
-.jx-canvas-docx section.jx-canvas-docx-wrapper td {
-  color: color-mix(in srgb, var(--color-text-secondary) 86%, transparent);
-  font-size: 15.5px !important;
-  font-weight: 400 !important;
-  line-height: 1.84 !important;
-  letter-spacing: .004em;
-}
-
-.jx-canvas-docx section.docx p,
-.jx-canvas-docx section.jx-canvas-docx-wrapper p {
-  margin: 0 0 12px !important;
-}
-
-.jx-canvas-docx section.docx h1,
-.jx-canvas-docx section.docx h2,
-.jx-canvas-docx section.docx h3,
-.jx-canvas-docx section.docx h4,
-.jx-canvas-docx section.docx h5,
-.jx-canvas-docx section.docx h6,
-.jx-canvas-docx section.jx-canvas-docx-wrapper h1,
-.jx-canvas-docx section.jx-canvas-docx-wrapper h2,
-.jx-canvas-docx section.jx-canvas-docx-wrapper h3,
-.jx-canvas-docx section.jx-canvas-docx-wrapper h4,
-.jx-canvas-docx section.jx-canvas-docx-wrapper h5,
-.jx-canvas-docx section.jx-canvas-docx-wrapper h6,
-.jx-canvas-docx section.docx p[style*="font-size: 24"],
-.jx-canvas-docx section.docx p[style*="font-size:24"],
-.jx-canvas-docx section.docx p[style*="font-size: 22"],
-.jx-canvas-docx section.docx p[style*="font-size:22"] {
-  color: color-mix(in srgb, var(--color-text) 96%, transparent) !important;
-  font-weight: 600 !important;
-  line-height: 1.5 !important;
-  letter-spacing: 0 !important;
-}
-
-.jx-canvas-docx section.docx h1,
-.jx-canvas-docx section.jx-canvas-docx-wrapper h1,
-.jx-canvas-docx section.docx p.jx-docx-title,
-.jx-canvas-docx section.jx-canvas-docx-wrapper p.jx-docx-title,
-.jx-canvas-docx section.docx p[style*="font-size: 24"],
-.jx-canvas-docx section.docx p[style*="font-size:24"] {
-  margin: 0 0 18px !important;
-  font-size: 28px !important;
-  font-weight: 600 !important;
-  line-height: 1.42 !important;
-}
-
-.jx-canvas-docx section.docx h2,
-.jx-canvas-docx section.jx-canvas-docx-wrapper h2,
-.jx-canvas-docx section.docx p[style*="font-size: 22"],
-.jx-canvas-docx section.docx p[style*="font-size:22"] {
-  margin: 28px 0 10px !important;
-  font-size: 20px !important;
-}
-
-.jx-canvas-docx section.docx h3,
-.jx-canvas-docx section.jx-canvas-docx-wrapper h3,
-.jx-canvas-docx section.docx p.jx-docx-subtitle,
-.jx-canvas-docx section.jx-canvas-docx-wrapper p.jx-docx-subtitle {
-  margin: 26px 0 10px !important;
-  font-size: 18px !important;
-  color: color-mix(in srgb, var(--color-text) 92%, transparent) !important;
-  font-weight: 600 !important;
-  line-height: 1.5 !important;
-}
-
-.jx-canvas-docx section.docx h4,
-.jx-canvas-docx section.docx h5,
-.jx-canvas-docx section.docx h6,
-.jx-canvas-docx section.jx-canvas-docx-wrapper h4,
-.jx-canvas-docx section.jx-canvas-docx-wrapper h5,
-.jx-canvas-docx section.jx-canvas-docx-wrapper h6 {
-  margin: 20px 0 8px !important;
-  font-size: 16px !important;
-}
-
-.jx-canvas-docx section.docx ul,
-.jx-canvas-docx section.docx ol,
-.jx-canvas-docx section.jx-canvas-docx-wrapper ul,
-.jx-canvas-docx section.jx-canvas-docx-wrapper ol {
-  margin: 8px 0 14px !important;
-  padding-left: 1.6em !important;
-}
-
-.jx-canvas-docx section.docx li + li,
-.jx-canvas-docx section.jx-canvas-docx-wrapper li + li {
-  margin-top: 4px !important;
-}
-
-.jx-canvas-docx section.docx strong,
-.jx-canvas-docx section.docx b,
-.jx-canvas-docx section.jx-canvas-docx-wrapper strong,
-.jx-canvas-docx section.jx-canvas-docx-wrapper b {
-  font-weight: 600 !important;
-  color: color-mix(in srgb, var(--color-text) 94%, transparent) !important;
-}
-
-.jx-canvas-docx section.docx p.jx-docx-meta,
-.jx-canvas-docx section.docx p.jx-docx-meta span,
-.jx-canvas-docx section.docx p.jx-docx-meta strong,
-.jx-canvas-docx section.jx-canvas-docx-wrapper p.jx-docx-meta,
-.jx-canvas-docx section.jx-canvas-docx-wrapper p.jx-docx-meta span,
-.jx-canvas-docx section.jx-canvas-docx-wrapper p.jx-docx-meta strong {
-  font-size: 15px !important;
-  line-height: 1.72 !important;
-  color: color-mix(in srgb, var(--color-text-secondary) 82%, transparent) !important;
-}
-
-.jx-canvas-docx section.docx p.jx-docx-meta,
-.jx-canvas-docx section.jx-canvas-docx-wrapper p.jx-docx-meta {
-  margin: 0 0 6px !important;
-}
-
-.jx-canvas-docx section.docx a,
-.jx-canvas-docx section.jx-canvas-docx-wrapper a {
-  color: rgba(30, 64, 175, .88) !important;
-  text-decoration: none !important;
-  border-bottom: 1px solid rgba(30, 64, 175, .18);
-  overflow-wrap: anywhere;
-}
-
-.jx-canvas-docx section.docx table,
-.jx-canvas-docx section.jx-canvas-docx-wrapper table {
-  width: 100% !important;
-  border-collapse: collapse !important;
-  margin: 14px 0 18px !important;
-  font-size: 14.5px !important;
-}
-
-.jx-canvas-docx section.docx th,
-.jx-canvas-docx section.docx td,
-.jx-canvas-docx section.jx-canvas-docx-wrapper th,
-.jx-canvas-docx section.jx-canvas-docx-wrapper td {
-  border: 1px solid rgba(226, 232, 240, .95) !important;
-  padding: 10px 12px !important;
-  text-align: left;
-  vertical-align: top;
-}
-
-.jx-canvas-docx section.docx th,
-.jx-canvas-docx section.jx-canvas-docx-wrapper th {
-  background: var(--color-bg-layout) !important;
-  color: var(--color-text) !important; /* 纸内令牌已被上面的主题孤岛钉成浅色值 */
-  font-weight: 600 !important;
-}
-
-.jx-canvas-docx section.docx blockquote,
-.jx-canvas-docx section.jx-canvas-docx-wrapper blockquote {
-  margin: 16px 0 !important;
-  padding: 8px 0 8px 14px !important;
-  border-left: 2px solid color-mix(in srgb, var(--color-text-placeholder) 45%, transparent) !important;
-  color: color-mix(in srgb, var(--color-text-secondary) 92%, transparent) !important;
-}
-
-.jx-canvas-docx section.docx p:last-child,
-.jx-canvas-docx section.docx ul:last-child,
-.jx-canvas-docx section.docx ol:last-child,
-.jx-canvas-docx section.docx table:last-child,
-.jx-canvas-docx section.docx blockquote:last-child,
-.jx-canvas-docx section.jx-canvas-docx-wrapper p:last-child,
-.jx-canvas-docx section.jx-canvas-docx-wrapper ul:last-child,
-.jx-canvas-docx section.jx-canvas-docx-wrapper ol:last-child,
-.jx-canvas-docx section.jx-canvas-docx-wrapper table:last-child,
-.jx-canvas-docx section.jx-canvas-docx-wrapper blockquote:last-child {
-  margin-bottom: 0 !important;
-}
+/* Documents without section properties (pandoc and other generators omit
+   them) get no inline page geometry from docx-preview; give them Word's
+   default A4 page, or the page shrink-wraps its text and 'fit' blows it up. */
+.jx-canvas-docx .docx-wrapper > section.docx:not([style*="width"]) { width: 21cm; }
+.jx-canvas-docx .docx-wrapper > section.docx:not([style*="padding"]) { padding: 2.54cm 3.18cm; }
+.jx-canvas-docx .docx-wrapper > section.docx:not([style*="height"]) { min-height: 29.7cm; }
 
 /* ══ XLSX Renderer ══ */
 .jx-canvas-xlsx {
@@ -939,45 +759,29 @@ button.jx-canvas-actionBtn { width: 30px; }
 }
 
 /* ══ PDF Renderer ══ */
-.jx-canvas-pdf { height: 100%; }
-.jx-canvas-pdf-frame {
-  width: 100%;
-  height: 100%;
-  border: none;
-}
 
 /* ══ Image Renderer ══ */
 .jx-canvas-image {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: safe center;
+  justify-content: safe center;
+  box-sizing: border-box;
   height: 100%;
   padding: 24px;
+  overflow: auto;
 }
 .jx-canvas-image-img {
+  flex: none;
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
   border-radius: var(--radius-sm);
   box-shadow: 0 2px 12px rgba(0, 0, 0, .08);
 }
-
-/* ══ Text / Code Renderer ══ */
-.jx-canvas-text {
-  padding: 16px;
-  min-height: 100%;
-  background: var(--color-bg-container);
-}
-.jx-canvas-text-pre {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.7;
-  font-family:var(--font-family-mono);
-  color: var(--color-text);
-  white-space: pre-wrap;
-  word-break: break-word;
-  tab-size: 4;
-}
+/* Numeric zoom: natural size × zoom (inline width/height), pannable by drag. */
+.jx-canvas-image--zoomed { cursor: grab; }
+.jx-canvas-image--zoomed.is-dragging { cursor: grabbing; user-select: none; }
+.jx-canvas-image--zoomed .jx-canvas-image-img { max-width: none; max-height: none; }
 
 /* ══ Markdown Renderer ══ */
 .jx-canvas-markdown {
@@ -985,6 +789,8 @@ button.jx-canvas-actionBtn { width: 30px; }
   padding: 28px clamp(24px, 5vw, 56px) 48px;
   background: var(--color-bg-container);
   overflow-wrap: anywhere;
+  /* jx-md sizes every element in px; zoom scales them together. */
+  zoom: var(--canvas-zoom);
 }
 
 /* ══ HTML Renderer ══ */

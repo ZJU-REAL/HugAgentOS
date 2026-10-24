@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """快速校验一个技能目录的 SKILL.md 是否合法（落库前自检）。
 
-规则对齐后端技能引擎 core/agent_skills/registry.py（**不是** Anthropic 原版规则）：
+规则对齐后端技能引擎 core/capabilities/skills/registry.py（**不是** Anthropic 原版规则）：
 - 必须有 `---` 包裹的 YAML frontmatter；
 - frontmatter 必须有 `name` 与 `description`；
 - name 必须匹配 ^[a-z0-9_-]{1,63}$（小写字母/数字/下划线/连字符，1–63 字符）；

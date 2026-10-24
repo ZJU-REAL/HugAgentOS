@@ -238,6 +238,8 @@ export const MYSPACE_DICT: Record<string, string> = {
   '工作簿为空': 'Empty workbook',
   '正在加载预览…': 'Loading preview…',
   '预览加载失败': 'Preview failed to load',
+  '浏览器无法播放此文件': 'The browser can\'t play this file',
+  '文件可能已损坏，或编码格式不受浏览器支持。请下载后用本机播放器打开': 'The file may be damaged, or its encoding isn\'t supported by the browser. Download it and open it in a local player.',
   '请先登录后重试预览': 'Please sign in, then retry the preview',
   '没有权限预览此文件': 'You do not have permission to preview this file',
   '文件已移动或删除': 'The file was moved or deleted',

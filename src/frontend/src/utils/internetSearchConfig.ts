@@ -1,4 +1,4 @@
-export type InternetSearchEngine = 'tavily' | 'baidu' | 'langsearch';
+export type InternetSearchEngine = 'tavily' | 'baidu' | 'langsearch' | 'deepseek';
 
 export interface InternetSearchEngineMeta {
   value: InternetSearchEngine;
@@ -25,6 +25,12 @@ export const INTERNET_SEARCH_ENGINES: InternetSearchEngineMeta[] = [
     label: 'LangSearch',
     apiKeyConfigKey: 'internet_search.langsearch_api_key',
     apiKeyLabel: 'LangSearch API Key',
+  },
+  {
+    value: 'deepseek',
+    label: 'DeepSeek',
+    apiKeyConfigKey: 'internet_search.deepseek_api_key',
+    apiKeyLabel: 'DeepSeek Search API Key',
   },
 ];
 

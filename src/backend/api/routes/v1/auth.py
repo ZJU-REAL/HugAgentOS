@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from core.auth import desktop_ticket_store
+from features.desktop.auth import ticket_store as desktop_ticket_store
 from core.auth.capabilities import page_admin_flags, resolve_capabilities
 from core.auth.mock_ticket_store import consume_ticket
 from core.auth.session import (
@@ -20,11 +20,11 @@ from core.auth.session import (
     validate_session,
 )
 from core.config.settings import settings
-from core.db.engine import get_db
+from core.db.threads import run_in_session
 from core.infra.logging import get_logger
 from core.infra.responses import success_response
-from core.services import UserService
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from core.auth.users import UserService
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -54,7 +54,7 @@ def _clear_session_cookie(response: Response) -> None:
 
 def _serialize_user(db: Session, user_data: dict, ttl_seconds: Optional[int] = None) -> dict:
     from core.db.models import LocalUser, UserShadow
-    from core.services.local_user_service import ce_onboarding_required
+    from core.auth.local_user_policy import ce_onboarding_required
 
     user_id = user_data["user_id"]
     shadow = db.query(UserShadow).filter(UserShadow.user_id == user_id).first()
@@ -80,12 +80,26 @@ def _serialize_user(db: Session, user_data: dict, ttl_seconds: Optional[int] = N
     }
 
 
+def _bind_shadow(db: Session, user_info: dict) -> dict:
+    shadow = UserService(db).get_or_create_user_shadow(
+        user_center_id=user_info["user_center_id"],
+        username=user_info["username"],
+        email=user_info.get("email"),
+        avatar_url=user_info.get("avatar_url"),
+    )
+    return {
+        "user_id": shadow.user_id,
+        "user_center_id": shadow.user_center_id,
+        "username": shadow.username,
+        "email": shadow.email,
+        "avatar_url": shadow.avatar_url,
+        "nickname": user_info.get("nickname"),
+        "real_name": user_info.get("real_name"),
+    }
+
+
 @router.post("/ticket/exchange", summary="本地登录票据换取会话")
-async def ticket_exchange(
-    body: TicketExchangeRequest,
-    response: Response,
-    db: Session = Depends(get_db),
-):
+async def ticket_exchange(body: TicketExchangeRequest, response: Response):
     credential = (body.code or "").strip()
     user_info = await consume_ticket(credential) if credential else None
     if user_info is None:
@@ -98,26 +112,12 @@ async def ticket_exchange(
             },
         )
 
-    shadow = UserService(db).get_or_create_user_shadow(
-        user_center_id=user_info["user_center_id"],
-        username=user_info["username"],
-        email=user_info.get("email"),
-        avatar_url=user_info.get("avatar_url"),
-    )
+    session_data = await run_in_session(_bind_shadow, user_info)
     ttl_seconds = remember_ttl_seconds() if user_info.get("remember") else None
-    session_data = {
-        "user_id": shadow.user_id,
-        "user_center_id": shadow.user_center_id,
-        "username": shadow.username,
-        "email": shadow.email,
-        "avatar_url": shadow.avatar_url,
-        "nickname": user_info.get("nickname"),
-        "real_name": user_info.get("real_name"),
-    }
     token = await create_session(session_data, ttl_seconds=ttl_seconds)
     _set_session_cookie(response, token, ttl_seconds)
     return success_response(
-        data=_serialize_user(db, session_data, ttl_seconds),
+        data=await run_in_session(_serialize_user, session_data, ttl_seconds),
         message="Login successful",
     )
 
@@ -128,7 +128,7 @@ async def sso_authorize_url():
 
 
 @router.get("/session/check", summary="检查当前会话状态")
-async def session_check(request: Request, db: Session = Depends(get_db)):
+async def session_check(request: Request):
     token = request.cookies.get(settings.session.cookie_name)
     user_data = await validate_session(token) if token else None
     if user_data is None:
@@ -140,7 +140,9 @@ async def session_check(request: Request, db: Session = Depends(get_db)):
                 "data": {"login_url": _login_url()},
             },
         )
-    return success_response(data=_serialize_user(db, user_data), message="Session valid")
+    return success_response(
+        data=await run_in_session(_serialize_user, user_data), message="Session valid"
+    )
 
 
 @router.post("/desktop/handoff", summary="桌面端签发一次性会话交接票据")
