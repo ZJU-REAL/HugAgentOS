@@ -1940,6 +1940,19 @@ export async function createMyMcpServer(input: CreateMcpServerInput): Promise<{ 
   return unwrapData<{ server_id: string }>(wrapped);
 }
 
+/** Start browser consent for an OAuth-protected private MCP; poll it with getMcpMarketOAuthStatus. */
+export async function startMyMcpOAuth(input: CreateMcpServerInput & {
+  scopes?: string[];
+  client_id?: string;
+  client_secret?: string;
+}): Promise<{ flow_id: string; authorization_url: string; status: string }> {
+  const wrapped = await apiRequest<unknown>('/v1/me/mcp-servers/oauth/start', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return unwrapData<{ flow_id: string; authorization_url: string; status: string }>(wrapped);
+}
+
 export async function deleteMyMcpServer(serverId: string): Promise<void> {
   await apiRequest(`/v1/me/mcp-servers/${encodeURIComponent(serverId)}`, { method: 'DELETE' });
 }

@@ -293,6 +293,18 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         fn(service)
         service._cleanup_egress_sidecar.assert_called_once_with("orphan")
 
+    def test_controller_enforces_no_capacity_and_creates_like_upstream(self):
+        # Capacity belongs to the backend admission ledger; a controller-side
+        # lock around creation would serialize every session's sandbox start.
+        controller = patch.patched_sources(SOURCE)["services/docker/docker_service.py"]
+        upstream = (SOURCE / "services/docker/docker_service.py").read_text()
+        self.assertNotIn("sandbox_capacity", controller)
+        self.assertNotIn("flock", controller)
+        call = "            created_container = self._create_and_start_container(\n"
+        self.assertIn(call, upstream)
+        self.assertIn(call, controller)
+        self.assertIn("install_inventory()", controller)
+
     def test_patch_rejects_upstream_drift_before_writing(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -306,6 +318,59 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
                 patch.apply(root)
             self.assertEqual((root / "api/lifecycle.py").read_bytes(), before)
 
+
+
+def _inventory_module():
+    candidates = (PATCH_PATH.parent / "opensandbox_inventory.py",
+                  SOURCE / "services/docker/inventory.py")
+    path = next(candidate for candidate in candidates if candidate.is_file())
+    spec = importlib.util.spec_from_file_location("controller_inventory", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@unittest.skipUnless(importlib.util.find_spec("docker"), "docker SDK is a controller dependency")
+class InventoryTests(unittest.TestCase):
+    def setUp(self):
+        from docker.models.containers import ContainerCollection
+        self.original = ContainerCollection.list
+        self.addCleanup(setattr, ContainerCollection, "list", self.original)
+
+    def _collection(self, removed):
+        from docker.errors import NotFound
+        from docker.models.containers import ContainerCollection
+
+        class Api:
+            def containers(self, **kwargs):
+                return [{"Id": "gone"}, {"Id": "live"}]
+
+            def inspect_container(self, container_id):
+                if container_id in removed:
+                    raise NotFound("No such container: " + container_id)
+                return {"Id": container_id}
+
+        return ContainerCollection(client=SimpleNamespace(api=Api()))
+
+    def test_listing_skips_containers_removed_while_enumerating(self):
+        from docker.errors import NotFound
+        collection = self._collection({"gone"})
+        with self.assertRaises(NotFound):
+            collection.list(all=True)  # docker-py default: one deletion fails the listing
+        _inventory_module().install()
+        self.assertEqual([c.id for c in collection.list(all=True, filters={"label": ["x"]})],
+                         ["live"])
+
+    def test_install_is_idempotent_and_explicit_flags_win(self):
+        from docker.errors import NotFound
+        from docker.models.containers import ContainerCollection
+        module = _inventory_module()
+        module.install()
+        installed = ContainerCollection.list
+        module.install()
+        self.assertIs(ContainerCollection.list, installed)
+        with self.assertRaises(NotFound):
+            self._collection({"gone"}).list(all=True, ignore_removed=False)
 
 
 if __name__ == "__main__":

@@ -15,12 +15,32 @@ export interface McpMarketAuthField {
   methods?: string[];
 }
 
+/** auto: CIMD when available, else DCR · dcr: DCR only · manual: installer's own OAuth App ·
+ *  admin_app: one administrator-registered OAuth App for everyone. */
+export type McpOAuthRegistration = 'auto' | 'dcr' | 'manual' | 'admin_app';
+
+export interface McpOAuthInspection {
+  resource_metadata_found: boolean;
+  authorization_server: string;
+  issuer: string;
+  pkce_s256: boolean;
+  dcr: boolean;
+  cimd: boolean;
+  scopes_supported: string[];
+  cimd_usable: boolean;
+  cimd_unavailable_reason: string;
+  callback_url: string;
+  recommended_registration: McpOAuthRegistration;
+  error: string;
+}
+
 export interface McpMarketAuthMethod {
   id: string;
   type: 'none' | 'token' | 'oauth2';
   label: string;
   scopes?: string[];
-  client_registration?: 'dynamic' | 'manual' | 'dynamic_or_manual';
+  client_registration?: McpOAuthRegistration;
+  admin_client_configured?: boolean;
   client_id_required?: boolean;
   client_secret_required?: boolean;
   help_text?: string;
@@ -58,6 +78,7 @@ export interface McpMarketItem extends EditionMarketplaceItemFields {
   requires_auth: boolean;
   credentials_managed_by_admin: boolean;
   supports_admin_credentials: boolean;
+  curated?: boolean;
   requires_user_credentials: boolean;
   tools: McpMarketTool[];
   tool_count: number;

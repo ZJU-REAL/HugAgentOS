@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { InteractiveApp } from '../dist/tui/app.js';
-import { FakeEngine } from '../dist/tui/dev/fake-engine.js';
+import { FakeEngine } from './fixtures/tui-engine.mjs';
 
 const strip = (s) => s.replace(/\x1b\[[0-9;]*m/g, '').replace(/\x1b\][^\x07]*\x07/g, '').replace(/\x1b_pi:c\x07/g, '');
 const tick = (ms = 15) => new Promise((resolve) => setTimeout(resolve, ms));

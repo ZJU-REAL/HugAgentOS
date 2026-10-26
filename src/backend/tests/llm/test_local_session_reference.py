@@ -100,7 +100,6 @@ def test_session_access_revalidates_source(local_project, db_session, tmp_path, 
 
 def test_write_and_pin_use_same_session_reference(local_project, tmp_path, monkeypatch):
     from core.llm.tools.write_tool import register_write
-    from core.llm.tools._state import ReadStateTracker
     from core.llm.factory.tools.definitions import ToolAssembly
     from core.sandbox.permissions.dispatch_models import CURRENT_PERMISSION_TICKET, PermissionTicket, PermissionIntent
 
@@ -108,7 +107,7 @@ def test_write_and_pin_use_same_session_reference(local_project, tmp_path, monke
     source.unlink()
     collector = ToolAssembly()
     monkeypatch.setattr("core.sandbox.get_sandbox_provider", lambda: SimpleNamespace(name="script_runner"))
-    register_write(collector, chat_id="pin-chat", user_id="pin-user", state=ReadStateTracker())
+    register_write(collector, chat_id="pin-chat", user_id="pin-user")
     token = CURRENT_PERMISSION_TICKET.set(PermissionTicket(
         "Write", "write", "", "test", (PermissionIntent("local_path", "write", str(source), "create"),),
     ))

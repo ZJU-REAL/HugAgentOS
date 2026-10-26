@@ -124,3 +124,10 @@ test/                  node --test against a fake HugAgentOS (node:http + SSE)
 ```
 
 `npm test` builds and runs the tests.
+
+## Native ACP v1
+
+Launch `hugagent --mode local --output acp` from an ACP client. Permissions default to ask;
+`--permission-mode ask|auto|full` sets the initial session policy. Full mode disables OS confinement.
+See [ACP integration](../../document/en/development/cli-acp.md) and
+[中文说明](../../document/zh-CN/development/cli-acp.md) for capabilities, lifecycle and tests.

@@ -1,6 +1,7 @@
 """Capability center — self-service addition of MCP tools / skills by users.
 
 POST   /v1/me/mcp-servers          add a private remote MCP (HTTP/SSE only)
+POST   /v1/me/mcp-servers/oauth/start   add an OAuth-protected private MCP via browser consent
 DELETE /v1/me/mcp-servers/{id}     delete one's own private MCP
 POST   /v1/me/skills/upload        upload a private skill zip package
 DELETE /v1/me/skills/{skill_id}    delete one's own private skill
@@ -16,7 +17,6 @@ from __future__ import annotations
 from core.infra.time import utc_now
 
 import logging
-import uuid
 from typing import Dict, List, Optional
 
 from core.harness.registry.run_capabilities import has_run_capabilities
@@ -29,9 +29,11 @@ from core.db.threads import run_in_session
 from core.db.models import AdminMcpServer, AdminSkill
 from core.infra.exceptions import AccessDeniedError, BadRequestError, ResourceNotFoundError
 from core.infra.responses import created_response, success_response
-from core.capabilities.mcp.management import encrypt_mcp_headers, probe_mcp_connectivity, refresh_mcp_caches, validate_remote_mcp_url
+from core.capabilities.mcp import oauth as mcp_oauth
+from core.capabilities.mcp import oauth_client, private_servers
+from core.capabilities.mcp.management import probe_mcp_connectivity, refresh_mcp_caches, validate_remote_mcp_url
 from core.capabilities.skills.management import build_skill_content, extract_instructions, extract_mcp_server_ids, parse_and_upsert_skill_zip, refresh_skill_caches, resolve_mcp_bindings, resolve_ontology_workflows
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
@@ -91,47 +93,69 @@ async def create_my_mcp_server(
         require_https=False,
     )
 
-    # Auto-generate a globally unique server_id to avoid collisions with public MCPs / other users
-    server_id = f"umcp_{uuid.uuid4().hex[:16]}"
-    now = utc_now()
-    row = AdminMcpServer(
-        server_id=server_id,
-        display_name=body.display_name.strip(),
-        description=body.description or "",
+    row = private_servers.build_private_server(
+        owner_user_id=str(user.user_id),
+        display_name=body.display_name,
+        description=body.description,
         user_intro=body.user_intro,
         transport=body.transport,
-        url=body.url.strip(),
+        url=body.url,
         headers=body.headers or {},
-        is_enabled=True,
-        owner_user_id=str(user.user_id),
         icon=body.icon,
-        created_at=now,
-        updated_at=now,
-        created_by=str(user.user_id),
     )
 
     ok, err = await probe_mcp_connectivity(row, validate=True)
     if not ok:
         raise BadRequestError(message=f"MCP 连接失败，无法添加：{err}")
 
-    row.headers = encrypt_mcp_headers(body.headers)
+    return created_response(data=await private_servers.save_private_server(row, body.headers or {}))
 
-    def save(db: Session) -> None:
-        db.add(row)
-        db.commit()
-        db.refresh(row)
 
-    await run_in_session(save)
-    refresh_mcp_caches()
+class StartUserMcpOAuthRequest(CreateUserMcpRequest):
+    scopes: List[str] = Field(default_factory=list, max_length=50)
+    client_id: str = Field("", max_length=512)
+    client_secret: str = Field("", max_length=2000)
 
-    return created_response(
-        data={
-            "server_id": row.server_id,
-            "display_name": row.display_name,
-            "transport": row.transport,
-            "url": row.url,
-            "owner": "self",
-        }
+
+@router.post("/mcp-servers/oauth/start", summary="通过浏览器 OAuth 授权添加私有 MCP")
+async def start_my_mcp_oauth(
+    body: StartUserMcpOAuthRequest,
+    request: Request,
+    user: UserContext = Depends(get_current_user),
+):
+    """Start consent for an OAuth-protected private MCP; the row is saved once it connects.
+
+    Poll ``/v1/mcp-market/oauth/status/{flow_id}`` like a marketplace install.
+    The client registers automatically (CIMD or DCR) unless the user supplies
+    their own OAuth App.
+    """
+    await run_in_session(
+        lambda db: _require_flag(str(user.user_id), db, "can_add_mcp", "自助添加 MCP")
+    )
+    if not body.url.strip():
+        raise BadRequestError(message="url 不能为空")
+    await validate_remote_mcp_url(
+        body.url,
+        allow_private_network=settings.server.mcp_self_service_allow_private_network,
+        require_https=False,
+    )
+    return success_response(
+        data=await mcp_oauth.start_private_oauth(
+            owner_user_id=str(user.user_id),
+            target={
+                "display_name": body.display_name,
+                "description": body.description,
+                "user_intro": body.user_intro,
+                "transport": body.transport,
+                "url": body.url,
+                "headers": dict(body.headers or {}),
+                "icon": body.icon,
+                "scopes": [scope.strip() for scope in body.scopes if scope.strip()],
+            },
+            api_base=oauth_client.public_api_base(request),
+            client_id=body.client_id,
+            client_secret=body.client_secret,
+        )
     )
 
 

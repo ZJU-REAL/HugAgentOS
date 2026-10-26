@@ -85,8 +85,8 @@ class _JupyterUserPool:
         self._owner = owner_fn
         self._max_idle_per_user = max_idle_per_user
         # Per-user concurrency cap, preventing a single user from pulling unlimited
-        # sandboxes with N open tabs / a retry storm (SandboxPool has max_total; this
-        # class previously had no cap at all).
+        # sandboxes with N open tabs / a retry storm. Deployment capacity is the
+        # shared admission ledger's job; this only bounds one user in this process.
         self._max_in_flight_per_user = max_in_flight_per_user
         self._lock = asyncio.Lock()
         self._closed = False

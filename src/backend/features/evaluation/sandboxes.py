@@ -75,17 +75,21 @@ def _safe_attempt_id(attempt_id: str) -> str:
 async def create(owner, *, image, attempt_id="", ttl_seconds=7200, cpu_count=2, memory_mb=4096):
     import features.evaluation.sandbox_provider.binding as bindings
     from features.evaluation.sandbox_provider.process_guard import capture_baseline
+    from core.sandbox.providers.opensandbox.admission import opensandbox_admission
     from opensandbox import Sandbox
     from opensandbox.models.execd import RunCommandOpts
     if settings.sandbox.provider != "opensandbox":
         raise SandboxError("opensandbox_required")
-    sandbox = await Sandbox.create(
-        image, connection_config=connection_config(),
-        timeout=timedelta(seconds=ttl_seconds),
-        resource={"cpu": str(cpu_count), "memory": f"{memory_mb}Mi"},
-        entrypoint=["bash", "-lc", "exec sleep infinity"],
+    admission = opensandbox_admission()
+    sandbox = await admission.create(
+        lambda metadata: Sandbox.create(
+            image, connection_config=connection_config(),
+            timeout=timedelta(seconds=ttl_seconds),
+            resource={"cpu": str(cpu_count), "memory": f"{memory_mb}Mi"},
+            entrypoint=["bash", "-lc", "exec sleep infinity"],
+            metadata=metadata, volumes=None, env=None, skip_health_check=False,
+        ),
         metadata={"hugagent-evaluation": "true", "attempt-id": _safe_attempt_id(attempt_id)},
-        volumes=None, env=None, skip_health_check=False,
     )
     try:
         # All native tools use /workspace; Ageval uses /attempt/workspace.
@@ -111,6 +115,7 @@ async def create(owner, *, image, attempt_id="", ttl_seconds=7200, cpu_count=2, 
         }
     except BaseException:
         await sandbox.kill()
+        await admission.release(str(sandbox.id))
         raise
     finally:
         await sandbox.close()
@@ -189,6 +194,7 @@ async def freeze(lease_id, owner):
 
 async def destroy(lease_id, owner):
     import features.evaluation.sandbox_provider.binding as bindings
+    from core.sandbox.providers.opensandbox.admission import opensandbox_admission
     from features.evaluation.sandbox_provider.provider import get_evaluation_provider
     from opensandbox.exceptions import SandboxApiException
     binding = await _owned(lease_id, owner, allow_expired=True)
@@ -204,6 +210,7 @@ async def destroy(lease_id, owner):
             try:
                 async with _connection(lease_id, owner, allow_expired=True, allow_closed=True) as sandbox:
                     await sandbox.kill()
+                    await opensandbox_admission().release(str(sandbox.id))
             except SandboxApiException as exc:
                 if exc.status_code != 404:
                     raise

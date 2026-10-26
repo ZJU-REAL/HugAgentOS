@@ -106,3 +106,20 @@ class MarketplaceCatalogProvider:
     async def install_market_item(self, slug, **kwargs):
         from features.marketplace import mcp_installation
         return await mcp_installation.install_market_item(slug, **kwargs)
+
+    def mcp_oauth_admin_client(self, db, slug):
+        from features.marketplace import mcp_oauth_clients
+        return mcp_oauth_clients.admin_client(db, slug)
+
+    def mcp_oauth_install_policy(self, db, slug, runtime_url):
+        from features.marketplace import mcp_oauth_clients, mcp_validation
+        item, version = self.mcp_version(db, slug)
+        # Same provenance rule as token installs: an unchanged admin-published
+        # endpoint may sit on the deployment's own network.
+        return {
+            "admin_client": mcp_oauth_clients.admin_client(db, slug),
+            "allow_private_network": (
+                mcp_validation.installs_admin_published_endpoint(item, version, runtime_url)
+                or mcp_validation.self_service_private_network_allowed()
+            ),
+        }

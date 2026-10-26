@@ -91,3 +91,20 @@ def test_custom_cloud_child_inherits_environment_without_file_context():
         "project_environment_config": context["project_environment_config"],
         "project_environment_effective": context["project_environment_effective"],
     }
+
+
+@pytest.mark.parametrize("project_available", [False, True])
+def test_revocation_still_denies_and_logs_only_removed_ids(monkeypatch, caplog, project_available):
+    from dataclasses import replace
+    from core.llm.runtime import project_environment
+
+    original = policy()
+    current = replace(original, mcp_ids=frozenset()) if project_available else None
+    monkeypatch.setattr(project_environment, "_resolve", lambda request: current)
+    request = AgentRequest(run_id="run-test", project_environment=original)
+    with pytest.raises(HTTPException) as error:
+        project_environment.validate_project_environment(request)
+    assert error.value.status_code == 403
+    assert "project_environment_revoked run_id=run-test" in caplog.text
+    assert "'mcp_ids': ['data']" in caplog.text
+    assert f"project_available={project_available}" in caplog.text

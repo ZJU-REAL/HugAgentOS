@@ -86,6 +86,8 @@ def build_oauth_provider(
     storage: Optional[OAuthBundleStorage] = None,
     redirect_handler=None,
     callback_handler=None,
+    client_metadata_url: Optional[str] = None,
+    allow_private_network: Optional[bool] = None,
 ) -> OAuthClientProvider:
     """Rehydrate an SDK provider for first login or automatic refresh."""
     actual_storage = storage or OAuthBundleStorage(bundle)
@@ -101,13 +103,23 @@ def build_oauth_provider(
         storage=actual_storage,
         redirect_handler=redirect_handler,
         callback_handler=callback_handler,
+        client_metadata_url=client_metadata_url,
+    )
+    private_ok = (
+        bool(bundle.get("allow_private_network"))
+        if allow_private_network is None
+        else allow_private_network
     )
 
     async def _validate_oauth_request(request) -> None:
         # OAuth discovery metadata is controlled by the remote resource.  Apply
         # the same DNS/IP SSRF boundary to every SDK-generated request, not only
         # to the original MCP URL.
-        await validate_remote_mcp_url(str(request.url), require_https=False)
+        # Intranet MCPs whose install was admitted to a private network keep
+        # that allowance; link-local and metadata ranges stay blocked regardless.
+        await validate_remote_mcp_url(
+            str(request.url), allow_private_network=private_ok, require_https=False
+        )
 
     provider.mcp_request_hook = _validate_oauth_request
     context = provider.context

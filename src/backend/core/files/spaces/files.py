@@ -46,22 +46,39 @@ class SpaceFiles:
             raise HTTPException(413, "File exceeds transfer limit")
         return self.storage.download_bytes(key), info
 
+    def occupied(self, space, path):
+        """A file, directory marker or implicit directory already sits at ``path``."""
+        key = self.grant(space).key(path)
+        return (self.storage.stat_object(key) is not None or self.storage.stat_object(key + "/") is not None
+                or bool(self.storage.list_directory(key + "/", limit=1).entries))
+
     @authorized_operation
     def write(self, space, path, data):
         return self._write(space, path, data)
 
     def _write(self, space, path, data):
+        key = self._file_target(space, path, len(data))
+        self.storage.upload_bytes(data, key)
+        return {"path": path}
+
+    @authorized_operation
+    def copy_from(self, space, path, source_key, size):
+        """Server-side copy of an object stored elsewhere (an upload snapshot); bytes never pass through us."""
+        key = self._file_target(space, path, size)
+        self.storage.copy_object(source_key, key)
+        return {"path": path}
+
+    def _file_target(self, space, path, size):
         grant = self.grant(space, write=True)
         key = grant.key(path)
-        if len(data) > MAX_TRANSFER_BYTES:
+        if size > MAX_TRANSFER_BYTES:
             raise HTTPException(413, "File exceeds transfer limit")
         ensure_parents(self.storage, key)
         existing = self.storage.stat_object(key)
         marker = self.storage.stat_object(key + "/")
         if (existing and existing.is_directory) or (marker and marker.is_directory) or self.storage.list_directory(key + "/", limit=2).entries:
             raise HTTPException(409, "A directory exists at that path")
-        self.storage.upload_bytes(data, key)
-        return {"path": path}
+        return key
 
     @authorized_operation
     def create(self, space, path, data, *, idempotent=False):

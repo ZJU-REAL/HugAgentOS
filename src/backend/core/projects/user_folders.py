@@ -158,7 +158,8 @@ class UserFolderService(PersonalFileOperations):
         if info is None:
             files.mkdir("personal", path)
         elif not info.is_directory:
-            return FolderResult(False, "目标位置已有同名文件")
+            from core.db.personal_file_names import conflict
+            raise conflict()
         self.db.add(folder)
         self.db.commit()
 

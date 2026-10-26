@@ -90,8 +90,23 @@ class SandboxSettings:
     opensandbox_pool_light_max_idle: int = field(
         default_factory=lambda: _int(_env("OPENSANDBOX_POOL_LIGHT_MAX_IDLE", "5"), 5)
     )
+    # Deployment-wide sandbox capacity, enforced by the backend admission ledger
+    # (core/sandbox/providers/opensandbox/admission.py) across all workers.
     opensandbox_pool_max_total: int = field(
         default_factory=lambda: _int(_env("OPENSANDBOX_POOL_MAX_TOTAL", "20"), 20)
+    )
+    # Concurrent controller creations, protecting the Docker daemon.
+    opensandbox_create_concurrency: int = field(
+        default_factory=lambda: _int(_env("OPENSANDBOX_CREATE_CONCURRENCY", "4"), 4)
+    )
+    # How long an interactive creation waits for a free slot before reporting
+    # that capacity is exhausted. Pre-warm never waits.
+    opensandbox_admission_wait_s: int = field(
+        default_factory=lambda: _int(_env("OPENSANDBOX_ADMISSION_WAIT_S", "30"), 30)
+    )
+    # Slots pre-warm may never take, so a warm pool cannot crowd out users.
+    opensandbox_user_headroom: int = field(
+        default_factory=lambda: _int(_env("OPENSANDBOX_USER_HEADROOM", "2"), 2)
     )
     # Liveness probe (GET /sandboxes/{id}) timeout (seconds) before taking an
     # idle sandbox out of the pool. Unreachable/timeout does not delete it —

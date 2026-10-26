@@ -150,6 +150,13 @@ def _admit(
     from core.auth.agent_api import bind_agent_api_run
 
     skills, agents, mcps = enabled
+    from core.harness.registry import client_sessions
+    try:
+        client_session = client_sessions.admit(user_id, request.chat_id, request.client_session_id)
+    except ValueError:
+        raise HTTPException(409, "Client session lease unavailable") from None
+    if client_session is not None and not scope and not user.public_chat_visitor and not user.api_key_project_id:
+        settings = {**settings, "tool_approval_mode": client_session.mode}
     if user.public_chat_visitor:
         from core.chat.public import visitor_approval_mode
 
@@ -225,6 +232,10 @@ def _admit(
     except ChatBusyError as exc:
         raise chat_admission.chat_busy_http_exception(exc) from exc
     try:
+        if client_session:
+            client_sessions.bind_run(
+                user_id, request.chat_id, client_session.id, accepted.run.run_id, client_session.mode
+            )
         if user.public_chat_visitor:
             from core.db.models import ChatSession
 
@@ -293,6 +304,14 @@ async def start_response_run(request: ChatRequest, user: UserContext) -> Started
         except BaseException as exc:
             await run_in_session(_abandon, accepted_run.run_id, str(exc) or type(exc).__name__)
             raise
+        if request.client_session_id:
+            from core.harness.registry.client_sessions import require
+            try:
+                require(user_id, request.chat_id, request.client_session_id)
+            except ValueError:
+                from core.runs.runtime import cancel_run
+                await cancel_run(run.run_id, user_id=user_id)
+                raise HTTPException(409, "Client session lease revoked during admission") from None
         # Title work is auxiliary: it starts after first-message admission and
         # never waits for the agent answer or blocks a successfully launched run.
         from core.chat.titles import schedule_first_title

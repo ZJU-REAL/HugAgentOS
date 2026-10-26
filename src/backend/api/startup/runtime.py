@@ -170,6 +170,13 @@ async def _shutdown_device_link():
 
     await runner.stop()
 
+async def _startup_reconcile_datasource_catalog():
+    """Finish local capability reconciliation before the readiness gate opens."""
+    from orchestration.workers.edition_startup import reconcile_datasource_catalog
+
+    reconcile_datasource_catalog()
+
+
 async def _startup_recover_datasource_sidecars():
     """Recover configured DBHub/ES MCP sidecars without blocking API startup."""
     import asyncio

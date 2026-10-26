@@ -47,6 +47,7 @@ async def test_callback_issuer_reaches_sdk_validation(monkeypatch, cross_worker,
         normalize_auth_config=lambda *args: {"methods": [{"id": "oauth", "scopes": []}]},
         installation_secrets=lambda *args, **kwargs: {},
         install_market_item=installed,
+        mcp_oauth_install_policy=lambda *args: {"admin_client": None, "allow_private_network": False},
     )
     monkeypatch.setattr(oauth, "marketplace_catalog", lambda: catalog)
     flow = oauth.OAuthInstallFlow(

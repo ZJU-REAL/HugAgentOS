@@ -37,6 +37,7 @@ import { isMcpApplication, type Application } from './applicationApi';
 import { ensureSitesPluginInstalled, startMcpEdit } from './hostedResourceEditor';
 import { SitePasswordTag } from './SitePasswordField';
 import { useIsMobileViewport } from '../../hooks/useIsMobileViewport';
+import { useDelayedFlag } from '../../hooks';
 import { useCatalogStore } from '../../stores';
 import { useChatStore } from '../../stores/chatStore';
 import { stablePublicOrigin } from '../../stores/deploymentModeStore';
@@ -223,6 +224,10 @@ export function SitesPanel() {
   const listLoading = loading || applications.loading;
   const empty = sites.length === 0 && cardApps.length === 0;
   const noMatches = filteredSites.length === 0 && filteredApps.length === 0;
+  // Fast listings skip the skeleton entirely (it used to flash for a frame right after the
+  // code-loading skeleton); a shown skeleton stays long enough not to flicker.
+  const pending = listLoading && empty;
+  const showSkeleton = useDelayedFlag(pending);
 
   // ── My sites list / management view (the build entry is in the main chat; clicking "Create" jumps to a main-chat building session) ──
   return (
@@ -249,7 +254,7 @@ export function SitesPanel() {
           action={<Button onClick={() => void reload()}>{t('重试')}</Button>} />}
         {applications.error && <Alert type="error" showIcon message={applications.error}
           action={<Button onClick={() => void applications.reload()}>{t('重试')}</Button>} />}
-        {listLoading && empty ? <Skeleton active paragraph={{ rows: 3 }} /> : !listLoading && empty ? (
+        {showSkeleton ? <Skeleton active paragraph={{ rows: 3 }} /> : pending ? <div aria-busy="true" /> : empty ? (
           <Empty
             image={<AppstoreOutlined style={{ fontSize: 44, opacity: 0.35 }} />}
             description={<div className="jx-sites-emptyTitle">{t('暂无站点或 MCP 服务')}</div>}

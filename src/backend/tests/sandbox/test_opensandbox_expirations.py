@@ -112,8 +112,6 @@ def test_failed_initial_lease_rolls_back_container_and_mounts(failed_step):
         namespace[name] = name
     if failed_step == "mount":
         namespace["initialize_mounts"].side_effect = OSError("disk full")
-    from contextlib import nullcontext
-    namespace["sandbox_capacity"] = lambda service: nullcontext()
     provision = extract(source, "_provision_sandbox", namespace)
     with pytest.raises(OSError, match="disk full"):
         provision(service, "sandbox", request, datetime.now(timezone.utc), datetime(2099,1,1,tzinfo=timezone.utc))

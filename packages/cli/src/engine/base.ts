@@ -79,6 +79,19 @@ export abstract class HttpEngine implements Engine {
     return this.client;
   }
 
+  upload(chatId: string, file: File, signal?: AbortSignal) {
+    return this.http.chat.upload(file,chatId,signal);
+  }
+  registerClientSession(chatId: string, cwd: string, servers: Record<string, unknown>, mode: PermissionMode = 'ask') {
+    return this.http.json<{lease_id: string; ttl_seconds: number}>('POST', `/v1/client-sessions/${encodeURIComponent(chatId)}`, {cwd, mode, servers});
+  }
+  renewClientSession(chatId: string, leaseId: string, mode?: PermissionMode) {
+    return this.http.json('PATCH', `/v1/client-sessions/${encodeURIComponent(chatId)}`, {lease_id: leaseId, mode});
+  }
+  releaseClientSession(chatId: string, leaseId: string) {
+    return this.http.json('DELETE', `/v1/client-sessions/${encodeURIComponent(chatId)}?lease_id=${encodeURIComponent(leaseId)}`);
+  }
+
   async history(chatId: string, limit = 50): Promise<ChatHistoryMessage[]> {
     const pageSize = pageSizeFor(limit);
     const collected: ChatHistoryMessage[] = [];
@@ -93,12 +106,42 @@ export abstract class HttpEngine implements Engine {
     return collected.sort((a, b) => seq(a) - seq(b)).slice(-limit);
   }
 
+  /** Get and verify session ownership through the server, then enforce the local workspace. */
+  async getSession(chatId: string): Promise<SessionSummary> {
+    const session = toSummary(await this.http.json<ChatSession>('GET', `/v1/chats/${encodeURIComponent(chatId)}`));
+    if (this.info.projectId && session.projectId !== this.info.projectId)
+      throw new CliError('Session does not belong to this workspace');
+    return session;
+  }
+
+  async deleteSession(chatId: string): Promise<void> {
+    await this.getSession(chatId);
+    await this.http.json('DELETE', `/v1/chats/${encodeURIComponent(chatId)}`);
+  }
+
+  async sessionPage(page: number, size: number): Promise<SessionSummary[]> {
+    const result = this.info.projectId
+      ? await this.http.listProjectChats(this.info.projectId, page, size)
+      : await this.http.listChats(page, size);
+    return result.items.map(toSummary);
+  }
+
+  async *historyAll(chatId: string): AsyncGenerator<ChatHistoryMessage> {
+    await this.getSession(chatId);
+    for (let page = 1; ; page++) {
+      const result = await this.http.messages(chatId, page, 100, 'asc');
+      yield* result.items;
+      if (result.items.length < 100) return;
+    }
+  }
+
   async fork(chatId: string, messageId?: string): Promise<SessionSummary> {
     return toSummary(await this.http.fork(chatId, messageId));
   }
 
   async *send(chatId: string, message: string, options: SendOptions = {}): AsyncIterable<ChatEvent> {
     const request: ChatRequest = { chat_id: chatId, message };
+    if (options.clientSessionId) request.client_session_id = options.clientSessionId;
     if (options.attachments?.length) request.attachments = options.attachments;
     if (options.model) {
       request.model_provider_id = options.model.providerId;
@@ -135,6 +178,10 @@ export abstract class HttpEngine implements Engine {
         source = this.http.resume(runId, offset ?? 0, signal);
       }
     }
+  }
+
+  runStatus(runId: string) {
+    return this.http.json<{status:string}>('GET',`/v1/chat-runs/${encodeURIComponent(runId)}`);
   }
 
   async activeRun(chatId: string): Promise<ActiveRun | null> {

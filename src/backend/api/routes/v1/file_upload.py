@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
-from core.db.models import Artifact, ChatSession, UserFolder
+from core.db.models import Artifact, ChatSession, UserFolder, UserShadow
 from core.files.artifacts.service import store_bytes_as_artifact
 from core.files.storage import get_storage
 from core.files.upload_retry import prepare_upload
@@ -80,6 +80,10 @@ def upload_user_file(
         chat_id=db_chat_id,
     )
 
+    # Serialize this user's uploads (before any folder lock) so the free-name pick below cannot race.
+    from core.db.repository.folder import lock_folder_owner
+    lock_folder_owner(db, UserShadow, "user_id", user_id)
+
     # Verify folder_id must be a valid personal folder belonging to the current user
     db_folder_id: Optional[str] = None
     if folder_id:
@@ -98,6 +102,31 @@ def upload_user_file(
             raise HTTPException(status_code=400, detail="目标文件夹不存在")
         db_folder_id = folder_id
 
+    # Every upload, chat attachments included, also lands in My Space (root when no folder).
+    # Callers without a personal space (API keys, public-chat visitors) keep the artifact only.
+    from core.files.spaces.files import SpaceFiles
+    from core.files.spaces.projects import folder_path
+    space: Optional[SpaceFiles] = SpaceFiles(db, user_id, get_storage())
+    try:
+        space.grant("personal", write=True)
+    except HTTPException:
+        space = None
+    if user.public_chat_visitor and not db_folder_id:
+        space = None
+    directory = folder_path(db, UserFolder, {"user_id": user_id}, db_folder_id) if space else ""
+
+    def space_path(name: str) -> str:
+        return f"{directory}/{name}" if directory else name
+
+    # A taken name is not an error: keep both files, the new one as "name (1).ext".
+    from core.db.personal_file_names import available_name
+    filename = existing.filename if existing else available_name(
+        db, user_id, db_folder_id, file.filename,
+        taken=(lambda name: space.occupied("personal", space_path(name))) if space else None,
+    )
+    if retry_meta:
+        retry_meta["upload_name"] = filename
+
     # Leave summary / parsed_text empty. The first model turn that references
     # this file parses it server-side and caches both fields for later reads.
     try:
@@ -105,7 +134,7 @@ def upload_user_file(
             db,
             user_id=user_id,
             content=file_bytes,
-            filename=file.filename,
+            filename=filename,
             mime_type=file.content_type,
             chat_id=db_chat_id,
             user_folder_id=db_folder_id,
@@ -120,13 +149,10 @@ def upload_user_file(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"文件上传失败: {e}")
 
-    if db_folder_id:
-        from core.files.spaces.files import SpaceFiles
-        from core.files.spaces.projects import folder_path
-        directory = folder_path(db, UserFolder, {"user_id": user_id}, db_folder_id)
-        SpaceFiles(db, user_id, get_storage()).write(
-            "personal", directory + "/" + file.filename, file_bytes,
-        )
+    if space:
+        # Two copies on purpose: the artifact is the chat's immutable snapshot, the space file is
+        # the editable working copy. Copy server-side instead of uploading the bytes a second time.
+        space.copy_from("personal", space_path(filename), artifact.storage_key, artifact.size_bytes)
 
     return {
         "file_id": artifact.artifact_id,

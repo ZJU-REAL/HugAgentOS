@@ -23,7 +23,6 @@ async def test_relative_write_lands_in_project_and_pin_keeps_original(local_proj
 
     monkeypatch.setattr("core.sandbox.get_sandbox_provider", ScriptRunnerProvider)
     from core.llm.tools.write_tool import register_write
-    from core.llm.tools._state import ReadStateTracker
     from core.sandbox.permissions.dispatch_models import CURRENT_PERMISSION_TICKET, PermissionTicket, PermissionIntent
 
     source, scope = local_project
@@ -34,7 +33,6 @@ async def test_relative_write_lands_in_project_and_pin_keeps_original(local_proj
         chat_id="pin-chat",
         sandbox_session_id="child-session",
         user_id="pin-user",
-        state=ReadStateTracker(),
         scope=scope,
     )
     token = CURRENT_PERMISSION_TICKET.set(
@@ -73,7 +71,6 @@ async def local_tools(local_project, command_tool_state, tmp_path, monkeypatch):
     from core.sandbox.providers.script_runner.provider import ScriptRunnerProvider
     from core.sandbox.runner import server
     from core.sandbox.workspace import resolution as _paths
-    from core.llm.tools._state import ReadStateTracker
     from core.llm.tools.write_tool import register_write
     from core.llm.tools.read_tool import register_read
     from core.llm.tools.edit_tool import register_edit
@@ -112,12 +109,11 @@ async def local_tools(local_project, command_tool_state, tmp_path, monkeypatch):
     provider = ScriptRunnerProvider()
     monkeypatch.setattr("core.sandbox.get_sandbox_provider", lambda: provider)
     collector = ToolAssembly()
-    state = ReadStateTracker()
     common = dict(
         chat_id="pin-chat", sandbox_session_id="cwd-child", user_id="pin-user", scope=scope
     )
     for register in (register_read, register_write, register_edit):
-        register(collector, state=state, **common)
+        register(collector, **common)
     for register in (register_glob, register_grep):
         register(collector, **common)
     register_bash(collector, loader=None, **common)

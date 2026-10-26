@@ -43,6 +43,10 @@
   overflow-y:auto;
   overflow-x:hidden;
 }
+/* 槽位常驻只解决了宽度抖动；入场位移期间滚动条本身仍会闪现，动画结束前先不滚动。 */
+.jx-content.jx-content--panelEntering{
+  overflow-y:hidden;
+}
 .jx-panel.jx-panel--moduleSurface{
   width:100%;
   max-width:none;

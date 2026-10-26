@@ -34,6 +34,12 @@ class _OpenSandboxExecMixin:
         Returns the number of pool sandboxes reaped this round.
         """
         reconciled = await self._reconcile_sessions()
+        # Keep the shared capacity ledger in step with the controller even when
+        # nobody is creating; admission also reconciles on demand.
+        try:
+            await self._sandbox_admission().reconcile_if_due()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[opensandbox] capacity reconciliation failed: %s", exc)
         # First maintain the general warm pool: evict idle dead handles the
         # server already reclaimed by TTL + top back up to min_idle. No renewal;
         # when one dies, refill proactively in the background — otherwise the
