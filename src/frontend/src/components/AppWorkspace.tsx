@@ -23,7 +23,7 @@ import {
   Typography
 } from 'antd';
 import 'highlight.js/styles/github.css';
-import { lazy, Suspense, useEffect, useRef, type CSSProperties } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, type AnimationEvent, type CSSProperties } from 'react';
 import { t } from '../i18n';
 
 /* styles loaded via styles/index.ts in main.tsx */
@@ -64,6 +64,18 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
   useEffect(() => {
     if (moduleSurface && moduleScrollRef.current) moduleScrollRef.current.scrollTop = 0;
   }, [location.pathname, moduleSurface]);
+  // The panel's entrance rise pushes a full-height panel 6px past the viewport; hide the
+  // scrollbar until it settles (the stable gutter keeps the width unchanged).
+  const [settledPanel, setSettledPanel] = useState<string | null>(null);
+  const panelEntering = settledPanel !== panel;
+  const settlePanel = (event: AnimationEvent<HTMLDivElement>) => {
+    if (event.target === event.currentTarget) setSettledPanel(panel);
+  };
+  useEffect(() => {
+    // Fallback when animationend never fires (e.g. the panel is hidden mid-animation).
+    const timer = setTimeout(() => setSettledPanel(panel), 400);
+    return () => clearTimeout(timer);
+  }, [panel]);
   const showProjectOverview = !generic && !!overviewProjectId;
   const { paneRef, hidden: paneHidden } = usePaneOcclusion(canvasOpen, canvasFullscreen);
   return (
@@ -191,7 +203,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
 
 
           <div className={`jx-mainRow${showProjectOverview ? ' jx-mainRow--project' : ''}`}>
-            <Content ref={moduleScrollRef} className={`jx-content${moduleSurface ? ' jx-content--moduleSurface' : ''}${chatSurface ? ' jx-content--chatSurface' : ''}${chatSurface && !!chat?.messages.length ? ' jx-content--messageSurface' : ''}`}>
+            <Content ref={moduleScrollRef} className={`jx-content${moduleSurface ? ' jx-content--moduleSurface' : ''}${chatSurface ? ' jx-content--chatSurface' : ''}${chatSurface && !!chat?.messages.length ? ' jx-content--messageSurface' : ''}${panelEntering ? ' jx-content--panelEntering' : ''}`}>
               {/* Unified panel-switch entrance (fade+rise, enter-only to stay responsive); key=panel:
               * switching chats within the chat panel does not replay it. One-way entrance
               * needs no motion — CSS primitives suffice. */}
@@ -201,6 +213,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
                 key={panel}
                 className={`jx-panel jx-anim-fadeInUp${moduleSurface ? ' jx-panel--moduleSurface' : ''}`}
                 data-panel={panel}
+                onAnimationEnd={settlePanel}
                 style={{ '--fadeInUp-distance': '6px', animationDuration: '180ms' } as React.CSSProperties}
               >
                 {overviewProjectId && (

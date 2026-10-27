@@ -10,6 +10,7 @@ import { SpaceImageGrid } from './SpaceImageGrid';
 import { MySpaceSkeleton } from './MySpaceSkeleton';
 import { SpacePermissions } from './SpacePermissions';
 import { useSpaceCanvas } from './useSpaceCanvas';
+import { useDelayedFlag } from '../../hooks';
 import { SpaceDirectoryTree } from './SpaceDirectoryTree';
 import { useSpaceDirectory } from './useSpaceDirectory';
 import { createSpaceDirectory, deleteSpaceEntry, downloadSpaceFile, renameSpaceFile, uploadSpaceFile, type SpaceEntry } from './spaceFilesApi';
@@ -20,9 +21,12 @@ const imageName = /\.(png|jpe?g|gif|webp|bmp|svg|avif|ico)$/i;
 export function SpaceFileBrowser({ kind }: { kind: 'personal' | 'team' }) {
   const [query, setQuery] = useState('');
   const s = useSpaceDirectory(kind, query);
-  const { roots, selected, path, setPath, page, loading, busy, error, root,
+  const { roots, selected, path, setPath, page, loading, initializing, busy, error, root,
     writable, reload, perform, loadMore, dialog, setDialog, name, setName, permissions, setPermissions } = s;
   const [filter, setFilter] = useState<'document' | 'image'>('document');
+  // Fast listings skip the skeleton entirely; a shown skeleton stays long enough not to flicker.
+  const pending = (loading || initializing) && !page;
+  const showSkeleton = useDelayedFlag(pending);
   const openFile = useSpaceCanvas();
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   // collapsed: docked sidebar hidden by the user; drawerOpen: sidebar shown as an overlay when the workspace is narrow
@@ -130,7 +134,8 @@ export function SpaceFileBrowser({ kind }: { kind: 'personal' | 'team' }) {
       </div>
     </div>}
     {error && <Alert type="error" showIcon message={error} />}
-    {loading && !page ? <MySpaceSkeleton tab="assets" assetFilter={filter} />
+    {showSkeleton ? <MySpaceSkeleton tab="assets" assetFilter={filter} />
+      : pending ? <div aria-busy="true" />
       : !selected || (!files.length && (filter === 'image' || !folders.length)) ? <div className="jx-mySpace-empty"><Empty description={t('当前文件夹暂无文件')} /></div>
       : filter === 'image' ? <SpaceImageGrid items={files} onPreview={openFile} onDownload={download}
           onRename={writable && !busy ? item => rename(item.id) : undefined}
