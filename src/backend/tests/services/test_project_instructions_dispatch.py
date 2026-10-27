@@ -90,7 +90,6 @@ async def test_normal_chat_can_read_canonical_rules_but_has_no_init_write_tool(e
 @pytest.mark.asyncio
 async def test_read_tool_ignores_stale_root_cache_without_changing_nested_rules(env, monkeypatch):
     from core.llm.factory.tools.definitions import ToolAssembly
-    from core.llm.tools._state import ReadStateTracker
     from core.llm.tools.read_tool import register_read
     from core.projects.edition import project_scope_from_context
 
@@ -114,7 +113,6 @@ async def test_read_tool_ignores_stale_root_cache_without_changing_nested_rules(
         collector,
         chat_id="read-init-test",
         user_id="alice",
-        state=ReadStateTracker(),
         project_folder_name=scope.folder_name,
         scope=scope,
     )

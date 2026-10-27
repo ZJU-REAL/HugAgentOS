@@ -23,7 +23,6 @@ class _OpenSandboxAdoptionMixin:
         """Adopt explicitly owned, unbound sandboxes; leave other clients alone."""
         stats = {
             "adopted_jupyter": 0,
-            "adopted_light": 0,
             "skipped_bound": 0,
             "killed_invalid": 0,
             "killed_dead": 0,
@@ -35,10 +34,9 @@ class _OpenSandboxAdoptionMixin:
 
         logger.info(
             "[opensandbox] sandbox adoption complete: "
-            "adopted jupyter=%d light=%d; left to sessions=%d; "
+            "adopted jupyter=%d; left to sessions=%d; "
             "killed invalid=%d dead=%d overflow=%d",
             stats["adopted_jupyter"],
-            stats["adopted_light"],
             stats["skipped_bound"],
             stats["killed_invalid"],
             stats["killed_dead"],
@@ -77,20 +75,21 @@ class _OpenSandboxAdoptionMixin:
                 stats["skipped_bound"] += 1
                 return
 
-            # 2. Our own sandbox → adopt
-            if kind_tag not in ("jupyter", "light"):
+            # 2. Our own sandbox → adopt. Only user-bound jupyter sandboxes have a
+            # pool to return to; "light" ones were left by the retired light pool.
+            if kind_tag != "jupyter":
                 logger.warning(
-                    "[opensandbox] adopt: own sandbox %s missing pool-kind tag, killing",
-                    info.id,
+                    "[opensandbox] adopt: own sandbox %s has pool-kind %r, killing",
+                    info.id, kind_tag,
                 )
-                if await self._kill_by_id(mgr, info.id, reason="missing pool-kind"):
+                if await self._kill_by_id(mgr, info.id, reason=f"unadoptable pool-kind {kind_tag!r}"):
                     stats["killed_invalid"] += 1
                 return
 
             # Persistent sandboxes require an explicit user owner so adoption
             # cannot assign private mounts to another account.
             user_tag = metadata.get(_METADATA_USER_ID_KEY)
-            if kind_tag == "jupyter" and not user_tag:
+            if not user_tag:
                 if await self._kill_by_id(
                     mgr,
                     info.id,
@@ -101,11 +100,7 @@ class _OpenSandboxAdoptionMixin:
             # Created before the per-user skill view: its /workspace/skills is the
             # whole shared dir, which no longer holds this user's private skills.
             # Mounts can't be changed after creation, so drop it.
-            if (
-                kind_tag == "jupyter"
-                and user_tag
-                and metadata.get(_METADATA_SKILLS_LAYOUT_KEY) != _METADATA_SKILLS_LAYOUT_VALUE
-            ):
+            if metadata.get(_METADATA_SKILLS_LAYOUT_KEY) != _METADATA_SKILLS_LAYOUT_VALUE:
                 if await self._kill_by_id(
                     mgr, info.id, reason="jupyter sandbox predates the per-user skill view"
                 ):
@@ -132,7 +127,6 @@ class _OpenSandboxAdoptionMixin:
                 sbx = await Sandbox.connect(
                     info.id,
                     connection_config=self._make_config(),
-                    skip_health_check=(kind_tag == "light"),
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
@@ -146,45 +140,17 @@ class _OpenSandboxAdoptionMixin:
             # Direct-connect to execd (bypasses the server proxy's ~3s/request overhead); falls back automatically when unreachable.
             await self._repoint_execd_direct(sbx)
 
-            # jupyter + user tag → user-bound pool
-            if kind_tag == "jupyter" and user_tag:
-                ok = await self._jupyter_user_pool.adopt(user_tag, sbx)
-                if not ok:
-                    await self._destroy_sandbox(sbx)
-                    stats["killed_overflow"] += 1
-                    return
-                stats["adopted_jupyter"] += 1
-                logger.info(
-                    "[opensandbox] adopt: claimed jupyter sandbox %s for user=%s",
-                    info.id,
-                    user_tag,
-                )
-                return
-
-            # Light sandboxes use the shared pool.
-            # pool full → kill rather than leak
-            bucket = self._pool._buckets[kind_tag]  # noqa: SLF001
-            if len(bucket.idle) >= bucket.max_idle:
-                if await self._kill_by_id(
-                    mgr,
-                    info.id,
-                    reason=f"{kind_tag} bucket already at max_idle={bucket.max_idle}",
-                ):
-                    stats["killed_overflow"] += 1
-                return
-            ok = await self._pool.adopt_idle(kind_tag, sbx)
+            ok = await self._jupyter_user_pool.adopt(user_tag, sbx)
             if not ok:
-                # adopt_idle refused (race: another entry enqueued concurrently filled the capacity) — destroy
                 await self._destroy_sandbox(sbx)
                 stats["killed_overflow"] += 1
                 return
-            stats[f"adopted_{kind_tag}"] += 1
+            stats["adopted_jupyter"] += 1
             logger.info(
-                "[opensandbox] adopt: claimed %s sandbox %s",
-                kind_tag,
+                "[opensandbox] adopt: claimed jupyter sandbox %s for user=%s",
                 info.id,
+                user_tag,
             )
-            return
 
         except Exception as exc:  # noqa: BLE001
             logger.warning(
@@ -204,6 +170,7 @@ class _OpenSandboxAdoptionMixin:
                     return False
                 logger.info("[opensandbox] kill sandbox %s: %s", sandbox_id, reason)
                 await mgr.kill_sandbox(sandbox_id)
+                await self._sandbox_admission().release(str(sandbox_id))
                 return True
         except Exception as exc:
             logger.warning("[opensandbox] kill sandbox %s failed: %s", sandbox_id, exc)

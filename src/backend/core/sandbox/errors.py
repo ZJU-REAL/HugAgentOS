@@ -29,5 +29,22 @@ class SandboxFileTooLargeError(SandboxError):
         super().__init__(f"文件过大: {self.actual_size} bytes > {self.max_size} bytes")
 
 
+class SandboxCapacityExhausted(SandboxError):
+    """No capacity slot (or no creation gate, ``queue_full``) became free in time.
+
+    Slot exhaustion is reported only after a reconciliation that completed after
+    the request began.
+    """
+
+    def __init__(self, *, limit: int, background: bool = False, queue_full: bool = False) -> None:
+        self.limit = limit
+        self.background = background
+        self.queue_full = queue_full
+        super().__init__(
+            "沙箱创建排队超时：同时创建的沙箱过多。请稍后重试" if queue_full else
+            f"沙箱资源已满（上限 {limit} 个）。请稍后重试，或关闭不再使用的会话以释放资源"
+        )
+
+
 class SandboxNotFoundError(SandboxError):
     """The controller explicitly confirmed that the sandbox no longer exists."""

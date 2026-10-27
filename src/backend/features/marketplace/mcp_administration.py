@@ -10,6 +10,7 @@ from core.capabilities.mcp.management import decrypt_mcp_headers, encrypt_mcp_he
 from sqlalchemy.orm import Session
 from features.marketplace import mcp_listing
 from features.marketplace import mcp_credentials
+from features.marketplace import mcp_oauth_clients
 from features.marketplace import mcp_validation
 from features.marketplace import mcp_versions
 
@@ -26,6 +27,28 @@ def set_market_enabled(
     return ml.set_listing_enabled(db, ml.KIND_MCP, slug, enabled, updated_by=updated_by)
 
 
+def _default_token_contract(credential_mode: Optional[str]):
+    auth_schema = [
+        {
+            "key": "Authorization",
+            "label": "Token / Authorization",
+            "target": "header",
+            "required": True,
+            "secret": True,
+            "prefix": "Bearer ",
+        }
+    ]
+    auth_config = mcp_validation.normalize_auth_config(
+        {
+            "default_method": "token",
+            "methods": [{"id": "token", "type": "token", "label": "Token"}],
+            "credential_mode": credential_mode or "installer",
+        },
+        auth_schema,
+    )
+    return auth_schema, auth_config
+
+
 def update_market_item(
     db: Session,
     slug: str,
@@ -39,6 +62,12 @@ def update_market_item(
     requires_auth: Optional[bool] = None,
     credential_mode: Optional[str] = None,
     managed_credentials: Optional[Dict[str, str]] = None,
+    oauth_registration: Optional[str] = None,
+    oauth_client_id: Optional[str] = None,
+    oauth_client_secret: Optional[str] = None,
+    oauth_scopes: Optional[List[str]] = None,
+    auth_type: Optional[str] = None,
+    updated_by: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Edit marketplace presentation metadata and its administrator-owned auth policy.
 
@@ -76,6 +105,9 @@ def update_market_item(
 
     auth_schema = list(version.auth_schema or [])
     auth_config = mcp_validation.normalize_auth_config(version.auth_config, auth_schema)
+    if auth_type == "oauth2" and credential_mode is not None:
+        # OAuth tokens are always per installer; only the OAuth App can be shared.
+        credential_mode = "installer"
     if requires_auth is False:
         auth_schema = []
         auth_config = mcp_validation.normalize_auth_config(
@@ -86,27 +118,29 @@ def update_market_item(
             },
             auth_schema,
         )
+    elif auth_type is not None and not any(
+        method["type"] == auth_type for method in auth_config["methods"]
+    ):
+        # Switching Token <-> OAuth replaces the contract; existing installs keep
+        # their old credentials until each user reinstalls.
+        if version.approved_by == "system-curated":
+            raise BadRequestError(message="精选模板的认证方式由模板定义，不能修改")
+        if auth_type == "oauth2":
+            auth_schema = []
+            auth_config = mcp_validation.normalize_auth_config(
+                {
+                    "default_method": "oauth2",
+                    "methods": [{"id": "oauth2", "type": "oauth2", "label": "OAuth 登录"}],
+                    "credential_mode": "installer",
+                },
+                auth_schema,
+            )
+        else:
+            auth_schema, auth_config = _default_token_contract(credential_mode)
     elif requires_auth is True and not any(
         method["type"] != "none" for method in auth_config["methods"]
     ):
-        auth_schema = [
-            {
-                "key": "Authorization",
-                "label": "Token / Authorization",
-                "target": "header",
-                "required": True,
-                "secret": True,
-                "prefix": "Bearer ",
-            }
-        ]
-        auth_config = mcp_validation.normalize_auth_config(
-            {
-                "default_method": "token",
-                "methods": [{"id": "token", "type": "token", "label": "Token"}],
-                "credential_mode": credential_mode or "installer",
-            },
-            auth_schema,
-        )
+        auth_schema, auth_config = _default_token_contract(credential_mode)
 
     if credential_mode is not None:
         if credential_mode not in {"installer", "admin"}:
@@ -115,6 +149,17 @@ def update_market_item(
             raise BadRequestError(message="请先勾选需要 Token/Auth")
         auth_config["credential_mode"] = credential_mode
 
+    auth_config = mcp_oauth_clients.apply_oauth_policy(
+        db,
+        slug,
+        auth_config,
+        curated=version.approved_by == "system-curated",
+        registration=oauth_registration,
+        client_id=oauth_client_id,
+        client_secret=oauth_client_secret,
+        scopes=oauth_scopes,
+        updated_by=updated_by,
+    )
     version.auth_schema = auth_schema
     version.auth_config = auth_config
 

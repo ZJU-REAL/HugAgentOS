@@ -6,7 +6,6 @@ from core.harness.registry import NativeToolContext, install_tools
 
 from core.llm.factory.request import AgentRequest
 from core.llm.tools import (
-    ReadStateTracker,
     register_bash,
     register_edit,
     register_glob,
@@ -106,9 +105,7 @@ async def native_tools(
         await install_tools("after_sandbox", toolkit, contribution_context)
 
         # ── Phase 3.6: Register file-operation tools (Read/Edit/Write/Glob/
-        # Grep). These tools share a single
-        # ReadStateTracker, keeping the Edit/Write "must Read first" invariant
-        # consistent across multiple tool calls.
+        # Grep). Edit/Write trust the model and need no prior Read.
         #
         # Gating (docs §3.2): CODE_CAPABILITY_ENABLED=true → available by
         # default in all modes. This block is already nested inside
@@ -132,13 +129,11 @@ async def native_tools(
         )
 
         if code_capability_enabled():
-            _read_state = ReadStateTracker()
             register_read(
                 toolkit,
                 chat_id=request.chat_id,
                 sandbox_session_id=_sbx_sess,
                 user_id=request.current_user_id,
-                state=_read_state,
                 project_folder_name=_proj_folder_name,
                 scope=_proj_scope,
                 vision_mode=_vision_mode,
@@ -149,8 +144,6 @@ async def native_tools(
                     chat_id=request.chat_id,
                     sandbox_session_id=_sbx_sess,
                     user_id=request.current_user_id,
-                    state=_read_state,
-                    interactive=_interactive,
                     project_folder_name=_proj_folder_name,
                     scope=_proj_scope,
                 )
@@ -159,8 +152,6 @@ async def native_tools(
                     chat_id=request.chat_id,
                     sandbox_session_id=_sbx_sess,
                     user_id=request.current_user_id,
-                    state=_read_state,
-                    interactive=_interactive,
                     project_folder_name=_proj_folder_name,
                     scope=_proj_scope,
                 )

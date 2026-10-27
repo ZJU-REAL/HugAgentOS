@@ -1,5 +1,6 @@
 """Shared sessions operations; callers supply authenticated identity."""
 
+import logging
 from typing import Any, Dict, Optional
 
 import core.chat.service as chat_services_ChatService_module
@@ -16,6 +17,7 @@ from fastapi.responses import Response
 
 from sqlalchemy.orm import Session
 
+logger = logging.getLogger(__name__)
 
 def session_to_dict(s) -> dict:
     """Convert a ChatSession ORM object to the edition-neutral API response."""
@@ -259,4 +261,13 @@ def delete_chat(chat_id, user=None, db=None):
     from core.llm.mcp.chat_sessions import invalidate_chat
     invalidate_chat(chat_id)
     chat_service.delete_session_force(chat_id, actor_user_id=user_id)
+    # The upload snapshots go with the chat; My Space keeps its own copy. Best effort: the
+    # chat is already deleted, a failed cleanup only leaves storage behind.
+    try:
+        from core.files.artifacts.chat_snapshots import release_chat_snapshots
+        from core.files.storage import get_storage
+        release_chat_snapshots(db, chat_id, get_storage())
+    except Exception:
+        db.rollback()
+        logger.warning("Failed to release upload snapshots of chat %s", chat_id, exc_info=True)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

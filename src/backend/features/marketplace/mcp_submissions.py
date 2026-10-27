@@ -1,15 +1,17 @@
 """mcp submissions responsibilities."""
 from __future__ import annotations
 from core.infra.time import utc_now
+import json
 import uuid
 from typing import Any, Dict, List, Optional
 from core.db.models import AdminMcpServer
 from features.marketplace.models import McpMarketInstallation, McpMarketItem, McpMarketSubmission
 from core.infra.exceptions import BadRequestError, ResourceNotFoundError
 from features.marketplace import edition as ml
-from core.capabilities.mcp.management import probe_mcp_connectivity, tool_snapshot_hash, validate_remote_mcp_url
+from core.capabilities.mcp.management import decrypt_mcp_headers, mcp_oauth_bundle_storage_key, probe_mcp_connectivity, tool_snapshot_hash, validate_remote_mcp_url
 from sqlalchemy.orm import Session
 from core.db.threads import run_in_session
+from features.marketplace import mcp_oauth_clients
 from features.marketplace import mcp_validation
 from features.marketplace import mcp_versions
 
@@ -69,7 +71,11 @@ async def submit_to_marketplace(
     tags: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     row = await run_in_session(_submittable, source_server_id, owner_user_id)
-    await validate_remote_mcp_url(row.url, require_https=False)
+    await validate_remote_mcp_url(
+        row.url,
+        allow_private_network=mcp_validation.self_service_private_network_allowed(),
+        require_https=False,
+    )
     ok, error = await probe_mcp_connectivity(row, validate=True)
     if not ok:
         raise BadRequestError(message=f"MCP 上架检测失败：{error}")
@@ -90,6 +96,12 @@ def _record_submission(
 ) -> Dict[str, Any]:
     _store_tools(db, row.server_id, tools)
     template_url, auth_schema = mcp_validation.credential_free_connection(row)
+    oauth_raw = decrypt_mcp_headers(row.headers).get(mcp_oauth_bundle_storage_key())
+    auth_config = (
+        mcp_oauth_clients.submission_auth_config(json.loads(oauth_raw))
+        if oauth_raw
+        else None
+    )
     now = utc_now()
     submission = McpMarketSubmission(
         submission_id=f"mcpsub_{uuid.uuid4().hex}",
@@ -107,7 +119,7 @@ def _record_submission(
         transport=row.transport,
         url=template_url,
         auth_schema=auth_schema,
-        auth_config=mcp_validation.normalize_auth_config(None, auth_schema),
+        auth_config=mcp_validation.normalize_auth_config(auth_config, auth_schema),
         tools_json=tools,
         tool_hash=tool_snapshot_hash(tools),
         note=(note or "").strip(),
@@ -263,7 +275,11 @@ async def review_submission(
     tools = None
     if approve:
         source = await run_in_session(_review_source, submission_id)
-        await validate_remote_mcp_url(source.url or "", require_https=False)
+        await validate_remote_mcp_url(
+            source.url or "",
+            allow_private_network=mcp_validation.self_service_private_network_allowed(),
+            require_https=False,
+        )
         ok, error = await probe_mcp_connectivity(source, validate=True)
         if not ok:
             raise BadRequestError(message=f"MCP 审核复检失败：{error}")

@@ -10,6 +10,8 @@ const ok = (data, code = 10000) => ({ code, message: 'Success', data, trace_id: 
 
 export async function startFakeServer({ token = TOKEN, port = 0 } = {}) {
   const state = {
+    leases: new Map(),
+    uploads: [],
     requests: [],
     confirms: [],
     answers: [],
@@ -33,7 +35,7 @@ export async function startFakeServer({ token = TOKEN, port = 0 } = {}) {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     const raw = Buffer.concat(chunks).toString();
-    const body = raw ? JSON.parse(raw) : undefined;
+    const body = raw && String(req.headers['content-type']).includes('application/json') ? JSON.parse(raw) : undefined;
     state.requests.push({ method: req.method, path: url.pathname, query: Object.fromEntries(url.searchParams), body });
     const json = (status, value) => {
       res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -43,12 +45,26 @@ export async function startFakeServer({ token = TOKEN, port = 0 } = {}) {
     if (req.headers.authorization !== 'Bearer ' + token) return json(401, { detail: 'Not authenticated' });
 
     const route = `${req.method} ${url.pathname}`;
+    if(route==='POST /v1/file/upload') {
+      const name=raw.match(/filename="([^"]+)"/)?.[1];
+      if(state.uploads.includes(name)) return json(409,{detail:'A file with this name already exists'});
+      state.uploads.push(name);
+      return json(200,{file_id:'upload'+state.uploads.length,name,mime_type:'image/png',size:8,download_url:'/file'});
+    }
     let match;
+    if ((match = url.pathname.match(/^\/v1\/client-sessions\/([^/]+)$/))) {
+      if (req.method === 'POST') { state.leases.set(match[1], body); return json(200, ok({lease_id: 'a'.repeat(32), ttl_seconds: 180})); }
+      if (req.method === 'PATCH') { state.leases.set(match[1], {...state.leases.get(match[1]), mode: body.mode}); return json(200, ok({ttl_seconds: 180})); }
+      if (req.method === 'DELETE') { state.leases.delete(match[1]); return json(200, ok({released: true})); }
+    }
     if (route === 'GET /v1/tool-approval') return json(200, ok({ mode: 'ask' }));
     if (route === 'PUT /v1/tool-approval') return json(200, ok({ mode: body.mode }));
     if (route === 'POST /v1/projects/local/resolve') {
       return json(200, ok({ project_id: 'proj1', name: 'repo', local_path: body.path, created: false }));
     }
+    if (route === 'GET /v1/chats/longhistory') return json(200,ok({chat_id:'longhistory',title:'Long history'}));
+    if (route === 'GET /v1/chats/cloud1') return json(200, ok({ chat_id: 'cloud1', title: 'cloud chat' }));
+    if (route === 'DELETE /v1/chats/cloud1') { res.writeHead(204); return res.end(); }
     if (route === 'POST /v1/chats') {
       return json(201, ok({ chat_id: 'chat' + (state.requests.length + 100), title: body.title ?? '新对话', project_id: body.project_id ?? null }, 10001));
     }
@@ -60,6 +76,7 @@ export async function startFakeServer({ token = TOKEN, port = 0 } = {}) {
     }
     if (route === 'GET /v1/chats') return json(200, ok({ items: [{ chat_id: 'cloud1', title: 'cloud chat' }] }));
     if ((match = url.pathname.match(/^\/v1\/chats\/([^/]+)\/messages$/))) {
+      if (match[1] === 'longhistory') { const start=(Number(url.searchParams.get('page'))-1)*100;return json(200,ok({items:Array.from({length:Math.max(0,Math.min(100,102-start))},(_,i)=>({message_id:'m'+(start+i),role:(start+i)%2?'assistant':'user',content:'message-'+(start+i),chat_seq:start+i}))}));}
       if (match[1] === 'busy') return json(409, { detail: { code: 'busy', message: 'chat is busy' } });
       // Like the real route: order=desc picks the latest page, but a page stays in conversation order.
       return json(200, ok({ items: [
@@ -150,9 +167,11 @@ export async function startFakeServer({ token = TOKEN, port = 0 } = {}) {
     const runId = 'run-' + body.chat_id;
     res.writeHead(200, { 'Content-Type': 'text/event-stream' });
     res.write(': heartbeat\n\n');
+    if (body.message === 'lost-admission') { await waitFor('lost'); return res.end('data: [DONE]\n\n'); }
+    if (body.message === 'delayed-admission') await waitFor('admit');
     sse(res, { type: 'run_started', run_id: runId, message_id: 'msg1' });
     const message = body.message;
-    if (message === 'hang') {
+    if (message === 'hang' || message === 'delayed-admission') {
       await waitFor('cancel');
       sse(res, { type: 'error', error: 'cancelled by user' });
       sse(res, { type: 'end' });
@@ -184,6 +203,10 @@ export async function startFakeServer({ token = TOKEN, port = 0 } = {}) {
       sse(res, { type: 'content', delta: 'answered' });
       sse(res, { type: 'end' });
       return res.end('data: [DONE]\n\n');
+    }
+    if (message === 'events') {
+      sse(res,{type:'plan_update',steps:[{title:'Verify',status:'completed'}]});
+      sse(res,{type:'context_usage',used_tokens:120,context_window:4096});
     }
     sse(res, { type: 'thinking', delta: 'hmm' });
     sse(res, { type: 'content', delta: 'Hello' });

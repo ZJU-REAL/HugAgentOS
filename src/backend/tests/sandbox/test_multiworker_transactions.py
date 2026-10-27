@@ -52,8 +52,8 @@ def test_cancelled_acquisition_returns_capacity(kind):
             acquire = lambda: pool.acquire("user")
             count = lambda: pool.stats()["user"]["in_flight"]
         else:
-            pool = SandboxPool(jupyter_factory=factory, light_factory=factory,
-                               destroy_fn=AsyncMock(), jupyter_min_idle=0, light_min_idle=0)
+            pool = SandboxPool(jupyter_factory=factory,
+                               destroy_fn=AsyncMock(), jupyter_min_idle=0)
             acquire = lambda: pool.acquire("jupyter")
             count = lambda: pool.stats()["jupyter"]["in_flight"]
         task = asyncio.create_task(acquire())

@@ -287,9 +287,11 @@ MCP Server 的配置真源是数据库表 `admin_mcp_servers`（ORM：`core/db/m
 能力中心的「MCP 市场」与技能、子智能体、插件市场使用同一套可见范围模型，支持公开、指定用户、团队与角色授权。市场条目本身只保存**无凭据的、已审核版本快照**；管理员发布的条目可以在源 `admin_mcp_servers` 上保留管理员托管凭据，用户安装时由后端加密复制到个人实例，凭据值不会进入市场表或返回前端：
 
 - 用户浏览条目详情、工具列表、输入 Schema 和风险等级，并一键安装为仅自己可见的私有 MCP；若市场认证策略选择“管理员统一配置”且已保存完整 Token，界面显示“管理员托管”并免填安装；选择“用户自行填写”时，每个用户安装时填写自己的 Token 或完成 OAuth；
+- 用户在能力中心“连接私有 MCP”时可选择鉴权方式：无需鉴权、请求头 / Token 或 OAuth。选 OAuth 时在新标签页完成授权（客户端按 CIMD、DCR 自动注册，也可在高级选项填写自己的 OAuth App 与 Scopes），令牌加密保存在该私有实例上；
 - 用户可以把自己已经试连成功的私有 MCP 提交上架，查看待审、通过、驳回状态，并在审核前撤回；从 MCP 市场安装的实例不会再次提供申请入口，后端也拒绝重复上架；
-- 管理端新建远程 HTTP/SSE MCP 时可勾选“安装时需要 Token/Auth”，并选择 Token 或 OAuth。Token 可由管理员直接填写，也可留空：填写后用户安装免填，留空后每个用户自行填写；OAuth 由每个用户安装时授权。无管理员凭据导致首次连接返回未授权时，条目仍可先上架，并在用户完成认证后按 `per_install` 模式动态发现工具。远程 MCP 不会直接全局生效；StdIO 仍直接受全局服务管理，跨环境分发必须走插件市场；
-- 管理员可以编辑市场条目的名称、简介、用户提示、分类、标签、图标与认证策略。认证策略明确分为“无需认证”“用户自行填写”“管理员统一配置”；统一 Token 也只在编辑窗口维护，市场列表不再提供“更新全局凭据”。展示信息与管理员统一 Token 的更新会同步到现有安装实例。已审核的端点、工具 Schema、风险报告和版本号仍是版本快照；
+- 管理端新建远程 HTTP/SSE MCP 时可勾选“安装时需要 Token/Auth”，并选择 Token 或 OAuth。Token 可由管理员直接填写，也可留空：填写后用户安装免填，留空后每个用户自行填写；OAuth 由每个用户安装时授权，管理员可先点“检测授权服务器”查看 PKCE、DCR、CIMD 支持情况，并选择客户端注册方式（见下方“OAuth 客户端注册”）。无管理员凭据导致首次连接返回未授权时，条目仍可先上架，并在用户完成认证后按 `per_install` 模式动态发现工具。远程 MCP 不会直接全局生效；StdIO 仍直接受全局服务管理，跨环境分发必须走插件市场；
+- OAuth 连接的私有 MCP 提交上架时，申请只记录“OAuth 登录”这一认证方式和授权范围，不含令牌、客户端信息或 Client Secret；提交者使用自动注册时，安装者同样自动注册；提交者自备 OAuth App 时，安装者也需自备，直到管理员配置统一 OAuth App。审核窗口会显示认证方式；
+- 管理员可以编辑市场条目的名称、简介、用户提示、分类、标签、图标与认证策略，并可在 Token 与 OAuth 之间切换非精选条目的认证方式（切换后已有安装保留原凭据，用户重新安装后生效）。认证策略明确分为“无需认证”“用户自行填写”“管理员统一配置”；统一 Token 也只在编辑窗口维护，市场列表不再提供“更新全局凭据”。展示信息与管理员统一 Token 的更新会同步到现有安装实例。已审核的端点、工具 Schema、风险报告和版本号仍是版本快照；
 - 管理端支持上架/下架、按用户/团队/角色控制可见范围、人工复检、软删除，以及安全封禁；人工复检确认真实工具变化时，会保留旧快照并自动生成新的补丁版本后恢复安装。若原始 MCP 连接记录已被清理，系统会改用已审核版本中的无凭据端点复检，快照一致时直接恢复安装；封禁会立即停用该条目派生出的所有安装实例，解除封禁时恢复这些实例；
 - 工具名或输入 Schema 命中删除、执行、写入等语义时会标记中高风险，高风险安装需要再次明确确认；
 - 后端默认每 6 小时重新连接远程 MCP 并比较工具快照哈希。发生漂移时条目进入 `changed`，暂停新安装，等待管理员复核；定时任务只检测变化，不会自动接受新快照。周期可用 `MCP_MARKET_REVALIDATE_INTERVAL` 调整。
@@ -300,7 +302,7 @@ MCP Server 的配置真源是数据库表 `admin_mcp_servers`（ORM：`core/db/m
 |---|---|---|
 | 高德地图 MCP | 高德 Web 服务 API Key | Key 加密保存，运行时才注入 URL 的 `key` 查询参数；市场 URL 永不包含 Key。 |
 | 秘塔搜索 MCP | 秘塔 API Key | 运行时自动组装 `Authorization: Bearer …`。 |
-| GitHub MCP | Fine-grained PAT，或 OAuth App 登录 | GitHub 官方远程 MCP 不支持 DCR；OAuth 方式需填写自行注册的 Client ID/Secret。 |
+| GitHub MCP | Fine-grained PAT，或 OAuth App 登录 | GitHub 官方远程 MCP 不支持 DCR 与 CIMD；管理员可在市场编辑中统一配置 OAuth App，配置后用户只需授权，否则用户需填写自行注册的 Client ID/Secret。 |
 | GitLab MCP | 浏览器 OAuth（推荐），或带 `mcp` scope 的 access token | GitLab 官方 MCP 仍为 Beta；浏览器方式支持 DCR、PKCE 和刷新令牌，普通 PAT 可能无法连接。 |
 | 阿里云可观测 MCP | 已配置好的个人 SSE 地址 | 按阿里云安全建议先在 ModelScope Hosted、函数计算或受保护环境配置 AK/SK；平台不直接接收云 AK/SK。 |
 
@@ -312,7 +314,19 @@ MCP Server 的配置真源是数据库表 `admin_mcp_servers`（ORM：`core/db/m
 
 管理员在新增或市场编辑窗口选择“管理员统一配置”后，后端会检查源服务是否保存全部必填凭据。满足时，列表与详情仅返回 `credentials_managed_by_admin=true`，安装接口在服务端复用这些值并重新加密到具体安装实例；任何 Token 内容都不会出现在响应中。选择“用户自行填写”后，即使源服务仍保留用于复检的 Token，市场安装也不会复用它。社区用户提交的 MCP 与平台精选模板仍坚持安装者独立认证，不复用发布者凭据。
 
-OAuth 远程 MCP 按 MCP 授权规范执行受保护资源元数据与授权服务器元数据发现、Authorization Code + PKCE、`state` 校验、RFC 8707 resource 参数，并在提供 DCR 时动态注册客户端；不支持 DCR 的服务由安装界面采集 Client ID/Secret。OAuth 的 MCP 端点、授权元数据地址与回调基址均允许公网 HTTP/HTTPS，但 HTTP 会明文传输授权码和 Token，仅建议用于受控测试环境。access token、refresh token、客户端信息与过期时间作为一个加密 bundle 只存入具体安装实例，运行时自动刷新，任何 OAuth 凭据都不会进入市场条目或工具快照。
+OAuth 远程 MCP 按 MCP 授权规范执行受保护资源元数据与授权服务器元数据发现、Authorization Code + PKCE、`state` 校验、RFC 8707 resource 参数。OAuth 的 MCP 端点、授权元数据地址与回调基址均允许公网 HTTP/HTTPS，但 HTTP 会明文传输授权码和 Token，仅建议用于受控测试环境。access token、refresh token、客户端信息与过期时间作为一个加密 bundle 只存入具体安装实例，运行时自动刷新，任何 OAuth 凭据都不会进入市场条目或工具快照。
+
+#### OAuth 客户端注册
+
+每个 OAuth 条目按以下方式获得 OAuth 客户端，用户安装时都只需在新标签页登录并同意授权：
+
+| 方式 | 适用 | 说明 |
+|---|---|---|
+| 自动（默认） | 授权服务器支持 CIMD 或 DCR | 授权服务器声明 `client_id_metadata_document_supported` 且本部署配置了 HTTPS 的 `MCP_OAUTH_PUBLIC_BASE_URL` 时使用客户端元数据文档（CIMD），`client_id` 即 `{基址}/v1/mcp-market/oauth/client-metadata.json`；否则动态注册（DCR）。 |
+| 仅动态注册 | 授权服务器声明了 CIMD 但访问不到本部署 | 跳过 CIMD，始终走 DCR。 |
+| 管理员统一 OAuth App | 两者都不支持（GitHub、多数企业 IdP） | 管理员在授权服务器上注册一次 OAuth App，回调地址填界面显示的 `/api/v1/mcp-market/oauth/callback`，再在新增或市场编辑窗口填写 Client ID/Secret。凭据加密存入 `mcp_market_oauth_clients`，只有后端发起授权时使用；每个用户的令牌仍各自独立。精选模板也可配置，重新播种不会清除。 |
+
+CIMD 要求授权服务器能从自身网络访问到本部署的 HTTPS 地址，因此只在 `MCP_OAUTH_PUBLIC_BASE_URL` 为 HTTPS 时启用，不从请求 `Host` 推导。回调地址每个部署固定，不再带 `flow_id` 参数；回调通过 SDK 生成的 `state` 找到对应登录流程。管理员上架的端点（包括内网地址）在安装、授权、令牌刷新的每次请求中都沿用安装时的内网放行；用户自助端点只有开启 `MCP_SELF_SERVICE_ALLOW_PRIVATE_NETWORK` 才放行内网；开启后，同一开关也作用于这类 MCP 的上架申请、审核复检、市场安装与定期复检，避免内网 MCP 能连接却无法上架。链路本地与云元数据地址始终拦截。
 
 同源部署会自动使用浏览器当前站点的 `/api/v1/mcp-market/oauth/callback`；前后端跨域部署必须设置 `MCP_OAUTH_PUBLIC_BASE_URL` 为浏览器可访问的 API 基址，避免从请求 `Host` 反射不可信回调地址。
 
@@ -320,7 +334,7 @@ OAuth 远程 MCP 按 MCP 授权规范执行受保护资源元数据与授权服�
 
 ### 数据边界
 
-市场使用四张独立表：`mcp_market_items` 保存条目元数据，`mcp_market_versions` 保存不可变工具快照、风险报告和无密钥认证契约，`mcp_market_submissions` 保存审核申请快照，`mcp_market_installations` 关联条目版本和实际 MCP 实例。任何 Header、Token、OAuth bundle、查询参数 Key 或个人端点都不会进入市场条目、版本或申请。社区条目与精选模板由安装者独立认证；管理员发布的 Token 条目可从源 `admin_mcp_servers` 读取加密托管凭据，并把凭据重新加密保存到具体安装实例，全程不向前端暴露。
+市场使用四张独立表（另有 `mcp_market_oauth_clients` 只保存管理员统一 OAuth App 的加密凭据）：`mcp_market_items` 保存条目元数据，`mcp_market_versions` 保存不可变工具快照、风险报告和无密钥认证契约，`mcp_market_submissions` 保存审核申请快照，`mcp_market_installations` 关联条目版本和实际 MCP 实例。任何 Header、Token、OAuth bundle、查询参数 Key 或个人端点都不会进入市场条目、版本或申请。社区条目与精选模板由安装者独立认证；管理员发布的 Token 条目可从源 `admin_mcp_servers` 读取加密托管凭据，并把凭据重新加密保存到具体安装实例，全程不向前端暴露。
 
 用户市场、认证与运行时刷新位于 `core/` 和 CE 路由，是社区版能力；`/config` 管理端路由与 `components/admin` 仍由 EE 注册表和 CE 派生清单物理剔除。主仓使用 `mcpmkt01`～`mcpmkt04retire` 迁移链，CE 通过独立的 `ce_0003` 与 `ce_0004` 迁移获得相同核心表和退役清理，不依赖任何 `edition_ee` 实现。
 
@@ -364,6 +378,8 @@ docker-compose up -d --build mcp
 | `src/backend/core/capabilities/mcp/service.py` | DB 驱动的 Server 配置服务（30s 缓存） |
 | `src/backend/features/marketplace/` | 市场发布、审核、安装、可见性与安全控制 |
 | `src/backend/core/capabilities/mcp/oauth.py` | OAuth 2.1 登录、SDK 元数据发现、加密令牌存储与刷新 |
+| `src/backend/core/capabilities/mcp/oauth_client.py` | 固定回调地址、CIMD 客户端元数据文档、授权服务器能力检测 |
+| `src/backend/features/marketplace/mcp_oauth_clients.py` | 客户端注册方式与管理员统一 OAuth App |
 | `src/backend/features/marketplace/` | 远程工具快照定期复检与漂移监控 |
 | `src/backend/core/config/mcp_config.py` | 内置 Server URL 构造（http://mcp:NNNN/mcp/） |
 | `src/backend/core/config/catalog.json` | 能力目录：MCP 启停门控种子 |

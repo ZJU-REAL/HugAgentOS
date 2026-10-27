@@ -19,7 +19,8 @@ def legacy(index_db, caps_root, monkeypatch):
     return index_db
 
 
-def test_old_local_manager_upgrades_and_remains_usable(legacy):
+@pytest.mark.parametrize("projected", [False, True])
+def test_old_local_manager_upgrades_and_remains_usable(legacy, projected):
     from core.capabilities.plugins.packaging.sources import make_skill_id as _make_skill_id, make_server_id as _make_server_id
     from core.config.settings import settings
     from extensions.mcp_servers._ports import PORTS
@@ -59,6 +60,12 @@ def test_old_local_manager_upgrades_and_remains_usable(legacy):
             )
         )
         db.commit()
+    if projected:
+        from features.desktop.capabilities.plugins import publish_local_plugin
+        publish_local_plugin({"slug": "skill-manager", "name": "Skill manager",
+                              "install_id": "skill-manager@owner",
+                              "components": {"skills": [sid], "mcp": [mid]}},
+                             owner_user_id="owner")
     assert migration.migrate() == 1
     assert migration.migrate() == 0
     from features.desktop.capabilities.local_plugin_runtime import configs
@@ -140,3 +147,46 @@ def test_invalid_legacy_package_rolls_back_rows_and_registry(legacy):
         assert db.get(InstalledPlugin, "broken@owner") is not None
         assert db.get(AdminSkill, "broken-skill") is not None
     assert not registry.list_installations(kind="plugin")
+
+
+def test_local_plugin_migration_finishes_before_catalog_snapshots():
+    from api import lifecycle
+    steps = list(lifecycle._startup_steps())
+    by_name = {step.__name__: (index, gate, roles, scope)
+               for index, (step, _, gate, roles, scope) in enumerate(steps)}
+    index, gate, roles, scope = by_name["_startup_migrate_local_capabilities"]
+    assert gate and roles == lifecycle._ALL_ROLES and scope is lifecycle._SINGLETON
+    assert by_name["_startup_seed_default_plugins"][0] < index
+    assert index < by_name["_startup_backfill_tool_schemas"][0]
+
+
+def test_global_default_projection_publishes_components_before_deleting_source(legacy):
+    from core.config.settings import settings
+    from extensions.mcp_servers._ports import PORTS
+    from features.desktop.capabilities.plugins import publish_local_plugin
+    from features.desktop.capabilities.local_plugin_runtime import configs
+
+    mid, sid = "skill-manager-skill_manager", "skill-manager-skill-creator"
+    with legacy() as db:
+        db.add(InstalledPlugin(install_id="skill-manager@global", slug="skill-manager",
+                               name="Skill manager", version="1.0.0", source="builtin",
+                               component_ids={"skills": [sid], "mcp": [mid]}))
+        db.add(AdminSkill(skill_id=sid, display_name="Creator", description="Old",
+                          skill_content=f"---\nname: {sid}\ndescription: Old\n---\nBody",
+                          source_plugin="skill-manager"))
+        db.add(AdminMcpServer(server_id=mid, display_name="Manager", transport="streamable_http",
+                              url=f"http://{settings.server.mcp_host}:{PORTS['skill_manager']}/mcp/",
+                              source_plugin="skill-manager"))
+        db.commit()
+    publish_local_plugin({"slug": "skill-manager", "install_id": "skill-manager@global",
+                          "components": {"skills": [sid], "mcp": [mid]}}, owner_user_id=None)
+    assert migration.migrate() == 1
+    inst = registry.get("plugin:local:skill-manager")
+    assert inst.payload["shared_installation"] is True
+    assert inst.payload["from_db"] is False
+    assert registry.get("skill:local:" + sid).ready
+    assert mid in configs("local-admin")
+    assert migration.migrate() == 0
+    with legacy() as db:
+        assert not db.query(InstalledPlugin).count()
+        assert not db.query(AdminMcpServer).count()

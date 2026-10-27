@@ -9,7 +9,7 @@ from typing import Any, Optional
 
 import core.sandbox.sessions.registry as session_registry
 from core.config.settings import settings
-from core.sandbox.errors import SandboxConnectError
+from core.sandbox.errors import SandboxCapacityExhausted, SandboxConnectError
 from core.sandbox.credential_dispatch import credential_mounts
 from core.sandbox.providers.opensandbox.models import SandboxSessionRecord as _Session
 
@@ -17,7 +17,7 @@ from core.sandbox.providers.opensandbox.models import SandboxSessionRecord as _S
 # deferred to runtime to avoid cross-module circular dependencies at startup
 # (models.py also imports core.db.engine).
 from core.sandbox.providers.opensandbox.runtime import (
-    _LIGHT_ENTRYPOINT,
+    _INIT_ENTRYPOINT,
     _SETUP_ENTRYPOINT,
     logger,
 )
@@ -29,7 +29,7 @@ class _OpenSandboxCreationMixin:
     workspace_mount_names = ("myspace", "skills")
 
     def _session_entrypoint(self, user_id):
-        return _SETUP_ENTRYPOINT if user_id else _LIGHT_ENTRYPOINT
+        return _SETUP_ENTRYPOINT if user_id else _INIT_ENTRYPOINT
 
     async def _additional_workspace_mounts(self, user_id):
         from core.files.spaces.mounts import provision_volumes
@@ -58,7 +58,7 @@ class _OpenSandboxCreationMixin:
         # and snapshot paths; volumes must also be passed explicitly on the snapshot
         # path — docker commit does not preserve mount configuration, otherwise the
         # /workspace/skills/ bind-mount is lost (verified, see docs §A).
-        # skip_health_check=True: same as the light sandbox — execd's own readiness suffices, no waiting for Jupyter.
+        # skip_health_check=True: execd's own readiness suffices, no waiting for Jupyter.
         # The metadata tag is for cross-process adopt (backend restart reclaiming its own sandboxes, see _adopt_existing_sandboxes).
         # 目录约定（scratch + /myspace 软链）随容器启动一起做完，首条命令不必再花一次
         # execd 往返（实测 ~1s）。uid 走环境变量，entrypoint 保持常量。
@@ -78,6 +78,8 @@ class _OpenSandboxCreationMixin:
                 sbx = await self._create_owned_sandbox(snapshot_id=from_snapshot_id, **common_kwargs)
             else:
                 sbx = await self._create_owned_sandbox(self._image, **common_kwargs)
+        except SandboxCapacityExhausted:
+            raise
         except Exception as e:
             raise SandboxConnectError(f"无法创建 OpenSandbox 持久会话沙盒: {e}") from e
 
@@ -89,35 +91,6 @@ class _OpenSandboxCreationMixin:
             except Exception as fallback_error:  # noqa: BLE001 — defensive: opaque SDK object
                 from core.infra.failures import record_best_effort_failure
                 record_best_effort_failure('core.sandbox.providers.opensandbox.creation:_create_jupyter_sandbox', fallback_error)
-        return sbx
-
-    async def _create_light_sandbox(self) -> Any:
-        """Create a light sandbox: just the init entrypoint + execd, no Jupyter.
-        Used for ephemeral one-shot execution (the frontend "re-run" button, skill calls without a chat_id).
-
-        Key point: ``skip_health_check=True`` ── the SDK's default readiness probe
-        waits for the Jupyter endpoint, which doesn't exist in the light sandbox →
-        by default it would grind until ``ready_timeout`` before returning. With
-        skip, startup drops from ~24s to ~3s, relying on execd's own readiness
-        (execd starts in ≤ 1s; the first commands.run establishes the connection
-        automatically).
-        """
-        config = self._make_config()
-        # No user id here on purpose: light sandboxes are pre-warmed and handed to
-        # whoever asks next, so they may only ever carry shared skills.
-        skills_vols = _make_skills_volumes()
-        try:
-            sbx = await self._create_owned_sandbox(
-                self._image,
-                timeout=timedelta(seconds=300),  # ephemeral is short-lived; 5min cap as a safety net
-                entrypoint=_LIGHT_ENTRYPOINT,
-                connection_config=config,
-                skip_health_check=True,
-                volumes=skills_vols or None,
-                metadata=_pool_metadata("light"),
-            )
-        except Exception as e:
-            raise SandboxConnectError(f"无法创建 OpenSandbox 轻量沙盒: {e}") from e
         return sbx
 
     async def _repoint_execd_direct(self, sbx: Any) -> bool:
@@ -233,6 +206,7 @@ class _OpenSandboxCreationMixin:
             ) as allowed:
                 if allowed:
                     await sbx.kill()
+                    await self._sandbox_admission().release(sandbox_id)
                 else:
                     logger.info("[opensandbox] retained sandbox=%s owned elsewhere", sandbox_id)
         except Exception as exc:
@@ -374,15 +348,21 @@ class _OpenSandboxCreationMixin:
             last_active_ts=time.monotonic(),
         )
 
+    def _sandbox_admission(self):
+        from core.sandbox.providers.opensandbox.admission import opensandbox_admission
+
+        return opensandbox_admission()
+
     async def _create_owned_sandbox(self, *args, **kwargs):
         """Prevent startup adoption while a new sandbox is being delivered."""
         from opensandbox import Sandbox
 
         async with session_registry.creation_guard() as token:
-            kwargs["metadata"] = {
-                **(kwargs.get("metadata") or {}), "hugagent-creation-token": token,
-            }
-            sandbox = await Sandbox.create(*args, **kwargs)
+            metadata = {**(kwargs.pop("metadata", None) or {}), "hugagent-creation-token": token}
+            sandbox = await self._sandbox_admission().create(
+                lambda admitted: Sandbox.create(*args, metadata=admitted, **kwargs),
+                metadata=metadata,
+            )
             await self._repoint_execd_direct(sandbox)
             if not await self._track_sandbox(str(sandbox.id)):
                 raise SandboxConnectError("sandbox ownership was acquired elsewhere")

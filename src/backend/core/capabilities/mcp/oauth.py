@@ -8,17 +8,17 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
-from urllib.parse import urlencode, urlparse
-from core.config.settings import settings
+from urllib.parse import parse_qs, urlparse
 from core.db.models import AdminMcpServer
 from core.harness.registry.marketplace_catalog import marketplace_catalog
 from core.infra.crypto import decrypt_secret, encrypt_secret
 from core.infra.exceptions import BadRequestError, ResourceNotFoundError
 from core.infra.ephemeral import get_ephemeral_state
-from core.capabilities.mcp.management import probe_mcp_connectivity, validate_remote_mcp_url
+from core.capabilities.mcp.management import mcp_oauth_bundle_storage_key, probe_mcp_connectivity, validate_remote_mcp_url
 from mcp.shared.auth import AuthorizationCodeResult, OAuthClientInformationFull, OAuthClientMetadata
 from sqlalchemy.orm import Session
-from core.capabilities.mcp import oauth_storage
+from core.capabilities.mcp import oauth_client, oauth_storage, private_servers
+from core.config.settings import settings
 
 
 FLOW_TTL_SECONDS = 10 * 60
@@ -38,6 +38,8 @@ class OAuthInstallFlow:
     callback_url: str
     client_id: str = ""
     client_secret: str = ""
+    # Set for a user's self-service private MCP instead of a marketplace install.
+    private_target: Optional[Dict[str, Any]] = None
     created_at: float = field(default_factory=time.time)
     status: str = "starting"
     authorization_url: str = ""
@@ -58,6 +60,12 @@ def callback_key(flow_id: str) -> str:
     return f"mcp:oauth:callback:{flow_id}"
 
 
+def state_key(state: str) -> str:
+    # The redirect URI is fixed per deployment, so the callback finds its flow
+    # through the SDK-generated ``state`` instead of a per-flow query string.
+    return f"mcp:oauth:state:{state}"
+
+
 async def store_flow_status(flow: OAuthInstallFlow) -> None:
     payload = {
         "flow_id": flow.flow_id,
@@ -73,34 +81,6 @@ async def store_flow_status(flow: OAuthInstallFlow) -> None:
         json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
         ttl=FLOW_TTL_SECONDS,
     )
-
-
-def public_oauth_callback_url(request: Any) -> str:
-    """Build a trusted browser callback without reflecting an arbitrary Host header."""
-    configured = settings.server.mcp_oauth_public_base_url
-    if configured:
-        parsed = urlparse(configured)
-        if (
-            parsed.scheme not in {"http", "https"}
-            or not parsed.netloc
-            or parsed.username
-            or parsed.password
-            or parsed.query
-            or parsed.fragment
-        ):
-            raise BadRequestError(message="MCP_OAUTH_PUBLIC_BASE_URL 配置无效")
-        return f"{configured}/v1/mcp-market/oauth/callback"
-
-    origin = str(request.headers.get("origin") or "").rstrip("/")
-    parsed_origin = urlparse(origin)
-    if not origin or parsed_origin.scheme not in {"http", "https"} or not parsed_origin.netloc:
-        raise BadRequestError(message="OAuth 登录必须从浏览器发起")
-    request_host = str(request.headers.get("host") or request.url.netloc).lower()
-    if settings.server.is_prod and parsed_origin.netloc.lower() != request_host:
-        raise BadRequestError(
-            message="跨域部署必须配置 MCP_OAUTH_PUBLIC_BASE_URL（例如 http(s)://app.example.com/api）"
-        )
-    return f"{origin}/api/v1/mcp-market/oauth/callback"
 
 
 def purge_expired_flows() -> None:
@@ -119,7 +99,8 @@ def _oauth_method(db: Session, slug: str, auth_method: str):
     auth_config = marketplace_catalog().normalize_auth_config(
         version.auth_config, list(version.auth_schema or [])
     )
-    return next((row for row in auth_config["methods"] if row["id"] == auth_method), None)
+    method = next((row for row in auth_config["methods"] if row["id"] == auth_method), None)
+    return method, marketplace_catalog().mcp_oauth_admin_client(db, slug) is not None
 
 
 async def start_oauth_install(
@@ -129,7 +110,7 @@ async def start_oauth_install(
     installed_by: Optional[str],
     auth_method: str,
     credentials: Dict[str, str],
-    callback_url_base: str,
+    api_base: str,
     client_id: str = "",
     client_secret: str = "",
 ) -> Dict[str, str]:
@@ -139,15 +120,19 @@ async def start_oauth_install(
     from core.db.threads import run_in_session
 
     purge_expired_flows()
-    method = await run_in_session(_oauth_method, slug, auth_method)
+    method, admin_app = await run_in_session(_oauth_method, slug, auth_method)
     if not method or method["type"] != "oauth2":
         raise BadRequestError(message="该 MCP 不支持所选 OAuth 认证方式")
-    if method.get("client_id_required") and not client_id.strip():
+    if admin_app:
+        # The administrator's OAuth App is authoritative; never let an
+        # installer substitute their own client for a managed listing.
+        client_id = client_secret = ""
+    if not admin_app and method.get("client_id_required") and not client_id.strip():
         raise BadRequestError(message="该 OAuth 服务需要 Client ID")
-    if method.get("client_secret_required") and not client_secret.strip():
+    if not admin_app and method.get("client_secret_required") and not client_secret.strip():
         raise BadRequestError(message="该 OAuth 服务需要 Client Secret")
     flow_id = f"mcpoauth_{uuid.uuid4().hex}"
-    callback_url = f"{callback_url_base}?{urlencode({'flow_id': flow_id})}"
+    callback_url = oauth_client.callback_url(api_base)
     flow = OAuthInstallFlow(
         flow_id=flow_id,
         slug=slug,
@@ -159,6 +144,37 @@ async def start_oauth_install(
         client_id=client_id.strip(),
         client_secret=client_secret.strip(),
     )
+    return await _launch(flow)
+
+
+async def start_private_oauth(
+    *,
+    owner_user_id: str,
+    target: Dict[str, Any],
+    api_base: str,
+    client_id: str = "",
+    client_secret: str = "",
+) -> Dict[str, str]:
+    """Start consent for a user's own OAuth-protected MCP; it is saved once it connects."""
+    purge_expired_flows()
+    flow = OAuthInstallFlow(
+        flow_id=f"mcpoauth_{uuid.uuid4().hex}",
+        slug="",
+        owner_user_id=owner_user_id,
+        installed_by=owner_user_id,
+        auth_method="oauth2",
+        credentials={},
+        callback_url=oauth_client.callback_url(api_base),
+        client_id=client_id.strip(),
+        client_secret=client_secret.strip(),
+        private_target=dict(target),
+    )
+    return await _launch(flow)
+
+
+async def _launch(flow: OAuthInstallFlow) -> Dict[str, str]:
+    """Run the flow in the background and hand back once the authorize URL is known."""
+    flow_id = flow.flow_id
     process_state().flows[flow_id] = flow
     await store_flow_status(flow)
     asyncio.create_task(run_flow(flow), name=f"mcp-oauth-{flow_id}")
@@ -200,7 +216,32 @@ def _flow_inputs(db, flow: "OAuthInstallFlow"):
         extra_config={},
     )
     runtime_url, _ = market_dependency_materialize_mcp_http_connection(version.url, headers)
-    return method, candidate, runtime_url
+    policy = marketplace_catalog().mcp_oauth_install_policy(db, flow.slug, runtime_url)
+    return method, candidate, runtime_url, policy
+
+
+def _private_inputs(flow: "OAuthInstallFlow"):
+    """Inputs for a self-service MCP: the user's own endpoint, no marketplace policy."""
+    target = flow.private_target or {}
+    headers = dict(target.get("headers") or {})
+    candidate = private_servers.build_private_server(
+        owner_user_id=str(flow.owner_user_id),
+        display_name=str(target.get("display_name") or ""),
+        description=str(target.get("description") or ""),
+        user_intro=target.get("user_intro"),
+        transport=str(target.get("transport") or "streamable_http"),
+        url=str(target.get("url") or ""),
+        headers=headers,
+        icon=target.get("icon"),
+    )
+    runtime_url, _ = market_dependency_materialize_mcp_http_connection(candidate.url, headers)
+    method = {"client_registration": "auto", "scopes": list(target.get("scopes") or [])}
+    # A user-supplied endpoint never inherits the admin-published network allowance.
+    policy = {
+        "admin_client": None,
+        "allow_private_network": settings.server.mcp_self_service_allow_private_network,
+    }
+    return method, candidate, runtime_url, policy
 
 
 async def run_flow(flow: OAuthInstallFlow) -> None:
@@ -208,8 +249,24 @@ async def run_flow(flow: OAuthInstallFlow) -> None:
     from core.db.threads import run_in_session
 
     try:
-        method, candidate, runtime_url = await run_in_session(_flow_inputs, flow)
-        await validate_remote_mcp_url(runtime_url, require_https=False)
+        if flow.private_target is not None:
+            method, candidate, runtime_url, policy = _private_inputs(flow)
+        else:
+            method, candidate, runtime_url, policy = await run_in_session(_flow_inputs, flow)
+        allow_private_network = bool(policy["allow_private_network"])
+        await validate_remote_mcp_url(
+            runtime_url, allow_private_network=allow_private_network, require_https=False
+        )
+        if policy["admin_client"] is not None:
+            flow.client_id, flow.client_secret = policy["admin_client"]
+        registration = str(method.get("client_registration") or "auto")
+        # Recorded so a later marketplace submission knows whether installers
+        # can register automatically or must bring their own OAuth App.
+        effective_registration = (
+            "admin_app" if policy["admin_client"] is not None
+            else "manual" if flow.client_id
+            else registration
+        )
 
         metadata = OAuthClientMetadata(
             application_type=("native" if urlparse(flow.callback_url).hostname in {"localhost", "127.0.0.1", "::1"} else "web"),
@@ -218,12 +275,17 @@ async def run_flow(flow: OAuthInstallFlow) -> None:
             grant_types=["authorization_code", "refresh_token"],
             response_types=["code"],
             scope=" ".join(method.get("scopes") or []) or None,
-            client_name="HugAgentOS MCP Client",
+            client_name=oauth_client.CLIENT_NAME,
         )
         storage = oauth_storage.OAuthBundleStorage(
             {
                 "server_url": runtime_url,
                 "client_metadata": metadata.model_dump(mode="json", exclude_none=True),
+                # Refreshes run later from the stored bundle; they must keep the
+                # network boundary this install was admitted under.
+                "allow_private_network": allow_private_network,
+                "client_registration": effective_registration,
+                "client_secret_supplied": bool(flow.client_secret),
             }
         )
         if flow.client_id:
@@ -236,6 +298,9 @@ async def run_flow(flow: OAuthInstallFlow) -> None:
             )
 
         async def redirect_handler(url: str) -> None:
+            state = (parse_qs(urlparse(url).query).get("state") or [""])[0]
+            if state:
+                await get_ephemeral_state().put(state_key(state), flow.flow_id, ttl=FLOW_TTL_SECONDS)
             flow.authorization_url = url
             flow.status = "waiting_for_user"
             await store_flow_status(flow)
@@ -266,6 +331,14 @@ async def run_flow(flow: OAuthInstallFlow) -> None:
             storage=storage,
             redirect_handler=redirect_handler,
             callback_handler=callback_handler,
+            # Only offered when no client is pinned; the SDK still falls back
+            # to DCR when the authorization server does not advertise CIMD.
+            client_metadata_url=(
+                oauth_client.client_metadata_url()
+                if registration == "auto" and not flow.client_id
+                else None
+            ),
+            allow_private_network=allow_private_network,
         )
         ok, error = await probe_mcp_connectivity(
             candidate,
@@ -285,6 +358,15 @@ async def run_flow(flow: OAuthInstallFlow) -> None:
         bundle = storage.capture_context(provider)
         flow.status = "installing"
         await store_flow_status(flow)
+        if flow.private_target is not None:
+            headers = dict(flow.private_target.get("headers") or {})
+            headers[mcp_oauth_bundle_storage_key()] = json.dumps(
+                bundle, ensure_ascii=False, separators=(",", ":")
+            )
+            flow.result = await private_servers.save_private_server(candidate, headers)
+            flow.status = "completed"
+            await store_flow_status(flow)
+            return
         flow.result = await marketplace_catalog().install_market_item(
             flow.slug,
             owner_user_id=flow.owner_user_id,
@@ -301,6 +383,16 @@ async def run_flow(flow: OAuthInstallFlow) -> None:
         await store_flow_status(flow)
     finally:
         flow.ready.set()
+
+
+async def resolve_callback_flow(flow_id: Optional[str], state: Optional[str]) -> str:
+    """Flow for a browser callback: legacy ``flow_id`` query, else the ``state`` mapping."""
+    if flow_id:
+        return flow_id
+    mapped = await get_ephemeral_state().get(state_key(state)) if state else None
+    if not mapped:
+        raise ResourceNotFoundError("mcp_oauth_flow", state or "")
+    return str(mapped)
 
 
 async def complete_callback(

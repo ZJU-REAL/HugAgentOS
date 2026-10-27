@@ -197,6 +197,31 @@ class McpMarketInstallation(Base):
         ),
     )
 
+class McpMarketOAuthClient(Base):
+    """Administrator-registered OAuth App used by every installer of one MCP listing.
+
+    Some authorization servers (GitHub, many enterprise IdPs) support neither
+    dynamic registration nor client metadata documents, so an administrator
+    registers one OAuth App and each user only grants consent.  The client
+    secret is encrypted here and never copied into market items or versions;
+    each user's access/refresh tokens still live on their own installation.
+    """
+
+    __tablename__ = "mcp_market_oauth_clients"
+
+    slug = Column(
+        String(128),
+        ForeignKey("mcp_market_items.slug", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    client_id = Column(String(512), nullable=False)
+    client_secret = Column(Text)
+    updated_by = Column(String(64))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(
+        UTCDateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
 class MarketplaceSubmission(Base):
     """A user's private skill "apply for listing on the skill marketplace" record (pending admin review).
 

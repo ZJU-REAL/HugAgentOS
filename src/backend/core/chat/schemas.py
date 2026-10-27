@@ -77,6 +77,7 @@ class ChatRequest(BaseModel):
     _resolved_plugin_skill_ids: List[str] = PrivateAttr(default_factory=list)
     _resolved_plugin_mcp_ids: List[str] = PrivateAttr(default_factory=list)
 
+    client_session_id: Optional[str] = Field(None, min_length=32, max_length=32, exclude=True, repr=False)
     chat_id: str = Field(..., description="会话ID，用于维持对话上下文", max_length=100)
     message: str = Field(
         ..., description="用户消息内容", min_length=1, max_length=USER_MESSAGE_MAX

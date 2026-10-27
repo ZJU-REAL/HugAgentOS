@@ -8,6 +8,7 @@ class ToolAssembly(list[ToolBase]):
     def __init__(self):
         super().__init__()
         self.skill_loaders = []
+        self.client_permission_specs = {}
 
     @property
     def permission_specs(self):
@@ -15,6 +16,10 @@ class ToolAssembly(list[ToolBase]):
         specs = {}
         for server in SERVERS.values():
             specs.update(server.permission_specs())
+        for name, spec in self.client_permission_specs.items():
+            if name in specs and specs[name].key != spec.key:
+                raise ValueError("Client tool conflicts with a registered tool")
+            specs[name] = spec
         for tool in self:
             spec = getattr(tool, "dispatch_spec", None) or builtin_tool_permission(tool.name)
             if spec is not None:

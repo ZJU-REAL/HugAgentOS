@@ -463,3 +463,12 @@ async def test_opensandbox_waits_for_execd_before_staging_without_replaying_laun
         assert calls == ["health", "health", "stage", "launch"]
     finally:
         await service.close_all()
+
+
+def test_cloud_handles_poll_fast_first_then_back_off_to_the_steady_interval():
+    from core.sandbox.processes.cloud import CloudHandle
+
+    handle = CloudHandle(SimpleNamespace(name="opensandbox"), None)
+    delays = [handle.next_poll_delay() for _ in range(8)]
+    assert delays[:5] == [0.02, 0.04, 0.08, 0.16, 0.32]
+    assert delays[5:] == [0.5, 0.5, 0.5]

@@ -1,21 +1,19 @@
 """SandboxPool — OpenSandbox sandbox pre-warm pool.
 
-Dual-bucket design:
-- ``jupyter`` bucket: for persistent sessions; each sandbox includes a Jupyter Server,
-  slow to start (~10s) but supports variable persistence across calls. After ``acquire``
-  it is bound to a chat_id and **never returned to the bucket** — governed by the session
-  lifecycle; on destruction a replacement is created asynchronously in the background.
-- ``light`` bucket: for ephemeral one-shot execution; each sandbox only runs execd
-  (no Jupyter), fast to start (~3s). After ``acquire`` it is used once and destroyed;
-  a replacement is created asynchronously in the background.
+One ``jupyter`` bucket serves persistent sessions that carry no user id. After
+``acquire`` a sandbox is bound to a chat_id and **never returned to the bucket** —
+governed by the session lifecycle; on destruction a replacement is created
+asynchronously in the background. Account sessions use ``_JupyterUserPool``
+instead, because their mounts are fixed per user at container creation.
 
 Proactive pre-warm: right after ``provider.__init__`` completes, ``warmup()`` is called
 fire-and-forget, so ``min_idle`` sandboxes are ready within N seconds of process startup.
 
 Concurrency protection:
 - Per-bucket ``deque`` + pop on ``acquire`` (O(1), lock-free, atomic);
-- ``_in_flight_count`` tracks sandboxes being created / in use, combined with
-  ``max_total`` to form an upper bound;
+- ``in_flight`` tracks sandboxes being created / in use for diagnostics;
+  deployment capacity is the shared admission ledger's job (``admission.py``),
+  not a per-process count;
 - ``_dispatch_lock`` only protects the "should we create a replacement" decision;
   it does not block the actual creation.
 
@@ -25,7 +23,9 @@ pool is empty and proactive pre-warm refills it.
 
 from __future__ import annotations
 
+from core.sandbox.errors import SandboxCapacityExhausted
 from core.sandbox.providers.opensandbox.accounting import finish_accounting
+from core.sandbox.providers.opensandbox.admission import background
 
 import asyncio
 import logging
@@ -34,7 +34,7 @@ from typing import Any, Awaitable, Callable, Literal
 
 logger = logging.getLogger(__name__)
 
-PoolKind = Literal["jupyter", "light"]
+PoolKind = Literal["jupyter"]
 
 
 class _Bucket:
@@ -59,11 +59,7 @@ class SandboxPool:
         *,
         jupyter_min_idle: int = 1,
         jupyter_max_idle: int = 3,
-        light_min_idle: int = 2,
-        light_max_idle: int = 5,
-        max_total: int = 20,
         jupyter_factory: Callable[[], Awaitable[Any]],
-        light_factory: Callable[[], Awaitable[Any]],
         destroy_fn: Callable[[Any], Awaitable[None]],
         liveness_fn: Callable[[Any], Awaitable[bool]] | None = None,
         owner_fn: Callable[[Any], Awaitable[str | None]] | None = None,
@@ -72,7 +68,6 @@ class SandboxPool:
         Args:
             *_min_idle: minimum idle count each bucket maintains; warmup fills to this number at process startup
             *_max_idle: maximum idle count per bucket; sandboxes returned beyond it are destroyed outright
-            max_total: whole-pool cap (sum of idle + in_flight), protecting the docker daemon
             *_factory: async factory creating a sandbox of the corresponding kind
             destroy_fn: async sandbox destruction (kill + close)
             liveness_fn: optional — liveness probe ``sbx -> bool`` run before handing out an
@@ -83,9 +78,7 @@ class SandboxPool:
         """
         self._buckets: dict[PoolKind, _Bucket] = {
             "jupyter": _Bucket(jupyter_min_idle, jupyter_max_idle, jupyter_factory),
-            "light": _Bucket(light_min_idle, light_max_idle, light_factory),
         }
-        self._max_total = max_total
         self._destroy = destroy_fn
         self._liveness = liveness_fn
         self._owner = owner_fn
@@ -94,7 +87,6 @@ class SandboxPool:
         # preventing concurrent _kick_refill calls from entering the deficit check simultaneously and over-creating
         self._refill_locks: dict[PoolKind, asyncio.Lock] = {
             "jupyter": asyncio.Lock(),
-            "light": asyncio.Lock(),
         }
         self._closed = False
         self._refill_tasks: set[asyncio.Task] = set()
@@ -108,8 +100,6 @@ class SandboxPool:
         while True:
             async with self._dispatch_lock:
                 sandbox = bucket.idle.popleft() if bucket.idle else None
-                if sandbox is None and self._total() >= self._max_total:
-                    raise RuntimeError(f"sandbox pool reached max_total={self._max_total}")
                 bucket.in_flight += 1
             reserved = True
             try:
@@ -142,7 +132,7 @@ class SandboxPool:
     async def release(self, kind: PoolKind, sbx: Any, *, reuse: bool, destroy: bool = True, can_destroy: Callable[[], bool] | None = None) -> None:
         """Return a sandbox.
 
-        ``reuse=False`` (light-bucket use-once-then-destroy scenario): destroy outright, refill one in the background;
+        ``reuse=False``: destroy outright, refill one in the background;
         ``reuse=True`` (currently unused): put back into the idle bucket for the next acquire; destroy if over max_idle.
         """
         bucket = self._buckets[kind]
@@ -255,8 +245,6 @@ class SandboxPool:
         async with self._dispatch_lock:
             if len(bucket.idle) >= bucket.max_idle:
                 return False
-            if self._total() >= self._max_total:
-                return False
             bucket.idle.append(sbx)
             return True
 
@@ -306,9 +294,6 @@ class SandboxPool:
 
     # ───── internals ──────────────────────────────────────────────────────
 
-    def _total(self) -> int:
-        return sum(len(b.idle) + b.in_flight for b in self._buckets.values())
-
     def _kick_refill(self, kind: PoolKind) -> None:
         """Asynchronously trigger a bucket refill: does not block the acquire/release path."""
         if self._closed:
@@ -334,15 +319,20 @@ class SandboxPool:
                 deficit = bucket.min_idle - len(bucket.idle)
                 if deficit <= 0:
                     return
-                if self._total() >= self._max_total:
-                    return
                 bucket.in_flight += 1
             try:
-                sbx = await bucket.factory()
+                # Pre-warm never waits for capacity nor takes the users' headroom.
+                with background():
+                    sbx = await bucket.factory()
             except asyncio.CancelledError:
                 async with self._dispatch_lock:
                     bucket.in_flight -= 1
                 raise
+            except SandboxCapacityExhausted:
+                # Capacity is in use by real work; the next sweep tries again.
+                async with self._dispatch_lock:
+                    bucket.in_flight -= 1
+                return
             except Exception as e:  # noqa: BLE001
                 logger.warning(
                     "[sandbox-pool] refill kind=%s factory failed: %s",

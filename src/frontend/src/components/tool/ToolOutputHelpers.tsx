@@ -137,8 +137,6 @@ export function renderFilePreview(out: unknown): React.ReactNode {
   if (typeof extra.start_line === 'number' && typeof extra.end_line === 'number') {
     chips.push(t('第 {s}-{e} 行', { s: extra.start_line, e: extra.end_line }));
   }
-  if (extra.parsed_text) chips.push(t('已解析为文本'));
-  if (extra.recovered_from_artifact) chips.push(t('从历史恢复'));
   if (extra.type === 'binary') chips.push(t('二进制文件'));
   if (extra.type === 'too_large') chips.push(t('文件过大'));
   if (typeof extra.size_bytes === 'number') chips.push(t('{n} 字节', { n: extra.size_bytes.toLocaleString('zh-CN') }));

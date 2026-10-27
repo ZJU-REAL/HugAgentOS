@@ -29,7 +29,8 @@ class PersonalFileOperations:
         storage = get_storage()
         files = SpaceFiles(self.db, actor, storage)
         data = storage.download_bytes(artifact.storage_key)
-        files.create("personal", path, data)
+        # Uploads are already mirrored into My Space, so saving one onto its own copy is a no-op.
+        files.create("personal", path, data, idempotent=True)
         if move:
             artifact.deleted_at = utc_now()
             self.db.commit()

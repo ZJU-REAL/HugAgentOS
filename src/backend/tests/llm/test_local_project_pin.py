@@ -247,7 +247,6 @@ def test_scratch_export_references_original(local_project, monkeypatch, tmp_path
 
 def test_write_delivers_original_project_file(local_project, monkeypatch):
     from core.llm.tools.write_tool import register_write
-    from core.llm.tools._state import ReadStateTracker
     from core.sandbox.permissions.dispatch_models import CURRENT_PERMISSION_TICKET, PermissionTicket, PermissionIntent
     from core.files.artifacts.store import get_artifact
 
@@ -258,7 +257,7 @@ def test_write_delivers_original_project_file(local_project, monkeypatch):
     )
     collector = ToolAssembly()
     register_write(
-        collector, chat_id="pin-chat", user_id="pin-user", state=ReadStateTracker(), scope=scope
+        collector, chat_id="pin-chat", user_id="pin-user", scope=scope
     )
     token = CURRENT_PERMISSION_TICKET.set(
         PermissionTicket(

@@ -3,8 +3,6 @@
 from __future__ import annotations
 from core.llm.factory.tools.definitions import function_tool
 
-import asyncio
-import hashlib
 import logging
 from typing import Optional
 
@@ -14,7 +12,6 @@ from core.models.vision import VisionMode
 
 from ._common import response_metadata, resolve_sandbox_session, resp_image, resp_json
 from core.sandbox.workspace.resolution import space_metadata, to_physical_path, validate_project_scope_path, validate_workspace_path
-from ._state import ReadEntry, ReadStateTracker
 
 logger = logging.getLogger(__name__)
 
@@ -102,14 +99,12 @@ def register_read(
     chat_id: Optional[str] = None,
     sandbox_session_id: Optional[str] = None,
     user_id: Optional[str] = None,
-    state: ReadStateTracker,
     project_folder_name: Optional[str] = None,
     scope: Optional[ProjectScope] = None,
     vision_mode: VisionMode = "none",
 ) -> None:
     """Register the ``Read`` tool.
 
-    ``state`` is the per-chat ReadStateTracker shared with Edit/Write.
     ``sandbox_session_id`` selects the container; it defaults to ``chat_id``.
     ``vision_mode`` (see ``core.models.vision.resolve_vision_mode``) decides what an image
     file reads back as: pixels, a vision-bridge transcription, or ``type=binary``.
@@ -229,25 +224,6 @@ def register_read(
 
         truncated = end < total_lines
 
-        if not is_partial and not truncated:
-            sha = hashlib.sha256(content_bytes).hexdigest()
-            entry = ReadEntry(
-                content=content_bytes,
-                sha256=sha,
-                offset=None,
-                limit=None,
-            )
-        else:
-            entry = ReadEntry(
-                content=b"",
-                sha256="",
-                offset=start,
-                limit=eff_limit,
-            )
-        state.record(file_path, entry)
-        if physical != file_path:
-            state.record(physical, entry)
-
         payload = {
             "type": "text",
             "file_path": file_path,
@@ -268,11 +244,10 @@ def register_read(
 
     Read.__doc__ = (
         "读取文本文件，返回带行号的内容（``cat -n`` 风格）。\n\n"
-        "- 二进制文档（docx/pdf/xlsx/pptx）自动返回**解析文本**（``parsed_text=true``）；\n"
+        "- 二进制文档（docx/pdf/xlsx/pptx）返回 ``type=binary``，用 Bash 调文档工具处理；\n"
         + _IMAGE_NOTE[vision_mode]
         + "- 默认读前 2000 行；超长文件用 ``offset``(1-indexed) + ``limit`` 分段。\n"
-        "- **Read 会被记录**：``Edit``/``Write`` 改已存在文件前必须先完整 Read 一次\n"
-        "  （不传 offset/limit），否则被拒。\n\n"
+        "- 只需读要改的片段：``Edit``/``Write`` 不要求先 Read。\n\n"
         "Args:\n"
         "    file_path (`str`): 文件绝对路径。默认沙盒 ``/workspace/...``；\n"
         "        仅当用户要看他「我的空间」的文件时用 ``/myspace/...``。\n"

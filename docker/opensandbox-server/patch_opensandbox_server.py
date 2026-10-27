@@ -1,4 +1,8 @@
-"""Pinned OpenSandbox integration: configured shared network and nonblocking APIs."""
+"""Pinned OpenSandbox integration: configured shared network and nonblocking APIs.
+
+The backend admission ledger decides whether a sandbox may be created; the
+controller only performs Docker operations.
+"""
 
 from __future__ import annotations
 
@@ -110,8 +114,9 @@ def patched_sources(root: Path) -> dict[str, str]:
         "    async def create_sandbox(self, request: CreateSandboxRequest) -> CreateSandboxResponse:\n"
         "        return await run_in_threadpool(self._create_sandbox_sync, request)\n\n"
         "    def _create_sandbox_sync(self, request: CreateSandboxRequest) -> CreateSandboxResponse:\n")
+    # Every container enumeration in this process tolerates concurrent removal.
     source = replace_once(source, "import inspect\n",
-        "import inspect\nfrom .capacity import sandbox_capacity\n")
+        "import inspect\nfrom .inventory import install as install_inventory\ninstall_inventory()\n")
     sources[name] = source
 
     name = "api/lifecycle.py"
@@ -154,14 +159,6 @@ def patched_sources(root: Path) -> dict[str, str]:
     patch_shared_lifecycle(sources)
     patch_durable_expirations(sources)
     patch_namespace_mounts(sources)
-    name = "services/docker/docker_service.py"
-    source = sources[name]
-    start = source.index("            created_container = self._create_and_start_container(")
-    end = source.index("\n            )", start) + len("\n            )")
-    block = source[start:end]
-    source = (source[:start] + "            with sandbox_capacity(self):\n"
-              + "\n".join("    " + line for line in block.splitlines()) + source[end:])
-    sources[name] = source
 
     name = "services/docker/docker_service.py"
     sources[name] = replace_once(sources[name], "import inspect\n",

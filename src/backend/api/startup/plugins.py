@@ -77,6 +77,16 @@ async def _startup_upgrade_sites_plugin():
     if count:
         logger.info("[startup] upgraded %d builtin sites installation(s)", count)
 
+async def _startup_migrate_local_capabilities():
+    """Finish capability identity migration before requests freeze allowlists."""
+    from core.config.local_mode import local_mode_enabled
+    if not local_mode_enabled():
+        return
+    from core.harness.registry.local_publication import migrate_local_plugins, migrate_local_skills
+    await run_db(migrate_local_plugins)
+    await run_db(migrate_local_skills)
+
+
 async def _startup_plugin_device_assets():
     """给这台机器上已有的插件补齐 / 刷新它们的本机资产。
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Button,
+  Collapse,
   Empty,
   Form,
   Input,
@@ -26,13 +27,12 @@ import { formatDateTime } from '../../utils/date';
 import {
   getMcpMarketItem,
   getMcpMarketItems,
-  getMcpMarketOAuthStatus,
   cancelMcpMarketOAuth,
   installMcpMarketItem,
   startMcpMarketOAuth,
 } from '../../api';
 import type { McpMarketItem } from '../../types';
-import { PENDING_USER_OAUTH_STATUSES } from '../../utils/constants';
+import { OAUTH_CANCELLED, runMcpOAuthPopup, type McpOAuthAttempt } from './mcpOAuthPopup';
 import { normalizeMcpIconUrl } from '../../utils/iconLibrary';
 
 const PAGE_SIZE = 10;
@@ -76,11 +76,14 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
   const [oauthStage, setOauthStage] = useState('');
   const [installForm] = Form.useForm();
   const selectedAuthMethod = Form.useWatch('auth_method', installForm);
-  const oauthAttemptRef = useRef<{
-    flowId: string;
-    popup: Window | null;
-    cancelled: boolean;
-  } | null>(null);
+  const selectedOAuthMethod = useMemo(() => {
+    const methodId = selectedAuthMethod || installTarget?.auth_config?.default_method;
+    const method = installTarget?.credentials_managed_by_admin
+      ? undefined
+      : installTarget?.auth_config?.methods?.find((row) => row.id === methodId);
+    return method?.type === 'oauth2' ? method : undefined;
+  }, [installTarget, selectedAuthMethod]);
+  const oauthAttemptRef = useRef<McpOAuthAttempt | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -168,7 +171,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
     }
     setInstalling(true);
     setOauthStage(method?.type === 'oauth2' ? 'starting' : '');
-    const oauthAttempt = method?.type === 'oauth2'
+    const oauthAttempt: McpOAuthAttempt | null = method?.type === 'oauth2'
       ? { flowId: '', popup, cancelled: false }
       : null;
     if (oauthAttempt) oauthAttemptRef.current = oauthAttempt;
@@ -182,42 +185,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
           client_id: values.oauth_client_id || '',
           client_secret: values.oauth_client_secret || '',
         });
-        if (!popup) throw new Error(t('浏览器阻止了 OAuth 登录窗口，请允许弹窗后重试'));
-        oauthAttempt!.flowId = started.flow_id;
-        if (oauthAttempt!.cancelled) {
-          await cancelMcpMarketOAuth(started.flow_id);
-          throw new Error(t('OAuth 登录已取消'));
-        }
-        popup.opener = null;
-        let authorizationUrl = started.authorization_url || '';
-        if (authorizationUrl) {
-          popup.location.href = authorizationUrl;
-        } else {
-          message.info(t('正在与服务方建立安全连接，请稍候…'));
-        }
-        let status = await getMcpMarketOAuthStatus(started.flow_id);
-        for (let attempt = 0; attempt < 300 && !['completed', 'failed'].includes(status.status); attempt += 1) {
-          await new Promise((resolve) => window.setTimeout(resolve, 1000));
-          if (oauthAttempt!.cancelled) throw new Error(t('OAuth 登录已取消'));
-          status = await getMcpMarketOAuthStatus(started.flow_id);
-          setOauthStage(status.status);
-          if (!authorizationUrl && status.authorization_url) {
-            authorizationUrl = status.authorization_url;
-            popup.location.href = authorizationUrl;
-          }
-          if (popup.closed && PENDING_USER_OAUTH_STATUSES.includes(status.status)) {
-            await new Promise((resolve) => window.setTimeout(resolve, 1000));
-            status = await getMcpMarketOAuthStatus(started.flow_id);
-            if (PENDING_USER_OAUTH_STATUSES.includes(status.status)) {
-              oauthAttempt!.cancelled = true;
-              await cancelMcpMarketOAuth(started.flow_id);
-              throw new Error(t('OAuth 登录已取消'));
-            }
-          }
-        }
-        popup.close();
-        if (status.status !== 'completed') throw new Error(status.error || t('OAuth 登录超时或失败'));
-        result = status.result || {};
+        result = await runMcpOAuthPopup(oauthAttempt!, started, setOauthStage);
       } else {
         result = await installMcpMarketItem(
           installTarget.slug,
@@ -241,7 +209,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
     } catch (error) {
       popup?.close();
       const errorMessage = (error as Error).message || t('安装失败');
-      if (oauthAttempt?.cancelled || errorMessage === t('OAuth 登录已取消')) {
+      if (oauthAttempt?.cancelled || errorMessage === OAUTH_CANCELLED) {
         message.info(t('OAuth 登录已取消'));
       } else {
         message.error(errorMessage);
@@ -395,13 +363,15 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
         confirmLoading={installing}
         okText={installTarget?.installed
           ? installTarget.credentials_managed_by_admin ? t('重新安装') : t('更新凭据')
-          : t('安装')}
+          : selectedOAuthMethod ? t('授权并安装') : t('安装')}
         destroyOnHidden
       >
         <Typography.Paragraph type="secondary">
           {installTarget?.credentials_managed_by_admin
             ? t('该 MCP 使用管理员托管凭据，安装时无需填写 Token；凭据仅由后端使用，不会向用户展示。')
-            : t('市场不会共享发布者凭据。请填写你自己的认证信息，凭据将加密保存到个人安装实例。')}
+            : selectedOAuthMethod
+              ? t('用你自己的账号授权；令牌加密保存到你的个人安装实例，不会共享给其他用户。')
+              : t('市场不会共享发布者凭据。请填写你自己的认证信息，凭据将加密保存到个人安装实例。')}
         </Typography.Paragraph>
         {installTarget?.listing_notice.install_notice && (
           <Alert
@@ -425,21 +395,42 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
               }))} />
             </Form.Item>
           )}
-          {!installTarget?.credentials_managed_by_admin && installTarget?.auth_config?.methods?.find((method) => method.id === selectedAuthMethod)?.type === 'oauth2' && (
+          {selectedOAuthMethod && (
             <Alert
               type="info"
               showIcon
               icon={<LoginOutlined />}
               style={{ marginBottom: 16 }}
-              message={installTarget.auth_config.methods.find((method) => method.id === selectedAuthMethod)?.help_text || t('点击安装后将在新标签页完成 OAuth 登录。')}
+              message={selectedOAuthMethod?.admin_client_configured
+                ? t('管理员已配置 OAuth App。点击授权并安装后，在新标签页登录并同意授权即可。')
+                : selectedOAuthMethod?.help_text || t('点击授权并安装后，在新标签页登录并同意授权即可。')}
             />
           )}
-          {!installTarget?.credentials_managed_by_admin && installTarget?.auth_config?.methods?.find((method) => method.id === selectedAuthMethod)?.client_id_required && (
+          {selectedOAuthMethod && !selectedOAuthMethod.admin_client_configured && !selectedOAuthMethod.client_id_required && (
+            <Collapse
+              ghost
+              size="small"
+              items={[{
+                key: 'own-app',
+                label: t('使用自己的 OAuth App（可选）'),
+                children: (
+                  <>
+                    <Typography.Paragraph type="secondary">
+                      {t('仅当服务方不支持自动注册时需要。回调地址：{url}', { url: `${window.location.origin}/api/v1/mcp-market/oauth/callback` })}
+                    </Typography.Paragraph>
+                    <Form.Item name="oauth_client_id" label="OAuth Client ID"><Input autoComplete="off" /></Form.Item>
+                    <Form.Item name="oauth_client_secret" label="OAuth Client Secret"><Input.Password autoComplete="new-password" /></Form.Item>
+                  </>
+                ),
+              }]}
+            />
+          )}
+          {selectedOAuthMethod?.client_id_required && (
             <Form.Item name="oauth_client_id" label="OAuth Client ID" rules={[{ required: true }]}>
               <Input autoComplete="off" />
             </Form.Item>
           )}
-          {!installTarget?.credentials_managed_by_admin && installTarget?.auth_config?.methods?.find((method) => method.id === selectedAuthMethod)?.client_secret_required && (
+          {selectedOAuthMethod?.client_secret_required && (
             <Form.Item name="oauth_client_secret" label="OAuth Client Secret" rules={[{ required: true }]}>
               <Input.Password autoComplete="new-password" />
             </Form.Item>

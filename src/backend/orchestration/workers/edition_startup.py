@@ -9,6 +9,10 @@ def bootstrap_edition_plugins(db) -> tuple[str, ...]:
     return ()
 
 
+def reconcile_datasource_catalog() -> None:
+    return None
+
+
 async def recover_datasource_sidecars() -> dict:
     return {}
 
@@ -25,6 +29,7 @@ __all__ = [
     "bootstrap_edition_plugins",
     "create_distillation_scheduler",
     "recover_datasource_sidecars",
+    "reconcile_datasource_catalog",
     "recover_persona_distill_jobs",
     "seed_default_roles",
 ]

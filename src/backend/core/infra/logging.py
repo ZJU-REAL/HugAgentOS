@@ -19,6 +19,7 @@ from typing import Any, Dict
 from contextvars import ContextVar
 
 from core.config.settings import settings
+from core.infra.log_redaction import protect_log_sinks
 
 try:
     import structlog
@@ -224,6 +225,7 @@ def setup_logging() -> None:
             level=log_level,
             force=True,
         )
+        protect_log_sinks(handlers)
         logging.getLogger(__name__).warning(
             "structlog_not_installed_fallback_to_stdlib_logging"
         )
@@ -274,10 +276,7 @@ def setup_logging() -> None:
         force=True,
     )
 
-    # Set log levels for noisy libraries
-    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    protect_log_sinks(handlers)
 
 
 class _FallbackLogger:

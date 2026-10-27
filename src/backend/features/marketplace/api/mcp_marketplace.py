@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from core.capabilities.mcp import oauth as oauth_module
+from core.capabilities.mcp import oauth_client
 from features.marketplace import mcp_listing
 from features.marketplace import mcp_curated
 from features.marketplace import mcp_installation
@@ -13,12 +14,12 @@ from core.auth.backend import UserContext, get_current_user
 from core.auth.capabilities import resolve_user_capabilities
 from core.db.engine import get_db
 from core.db.threads import run_in_session
-from core.infra.exceptions import AccessDeniedError
+from core.infra.exceptions import AccessDeniedError, ResourceNotFoundError
 from core.infra.responses import created_response, success_response
 
 from core.capabilities.mcp import oauth as mcp_oauth_service
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -98,7 +99,7 @@ async def start_oauth(
             installed_by=user_id,
             auth_method=body.auth_method,
             credentials=body.credentials,
-            callback_url_base=oauth_module.public_oauth_callback_url(request),
+            api_base=oauth_client.public_api_base(request),
             client_id=body.client_id,
             client_secret=body.client_secret,
         )
@@ -135,7 +136,7 @@ async def cancel_oauth(
     include_in_schema=False,
 )
 async def oauth_callback(
-    flow_id: str = Query(...),
+    flow_id: Optional[str] = Query(None),
     code: str = Query(""),
     state: Optional[str] = Query(None),
     iss: Optional[str] = Query(None),
@@ -143,7 +144,7 @@ async def oauth_callback(
     error_description: str = Query(""),
 ):
     await oauth_module.complete_callback(
-        flow_id,
+        await oauth_module.resolve_callback_flow(flow_id, state),
         code=code,
         state=state,
         iss=iss,
@@ -154,6 +155,24 @@ async def oauth_callback(
         "<p>OAuth 登录结果已返回 HugAgentOS，可以关闭此窗口。</p>"
         "<script>window.close()</script>"
     )
+
+
+@router.get(
+    "/oauth/client-metadata.json",
+    name="mcp_market_oauth_client_metadata",
+    include_in_schema=False,
+)
+def oauth_client_metadata():
+    """Public OAuth client metadata document (CIMD); its URL is our client_id.
+
+    Authorization servers fetch it without credentials.  It only exists when
+    MCP_OAUTH_PUBLIC_BASE_URL is HTTPS, because the document must name the
+    exact URL it was fetched from.
+    """
+    document = oauth_client.client_metadata_document()
+    if document is None:
+        raise ResourceNotFoundError("oauth_client_metadata", "cimd")
+    return JSONResponse(document, headers={"Cache-Control": "public, max-age=300"})
 
 
 @router.post("/install", status_code=201, summary="安装市场 MCP 为私有实例")

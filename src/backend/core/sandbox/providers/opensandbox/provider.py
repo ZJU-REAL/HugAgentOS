@@ -120,11 +120,7 @@ class OpenSandboxProvider(
         self._pool = SandboxPool(
             jupyter_min_idle=0,
             jupyter_max_idle=s.opensandbox_pool_jupyter_max_idle,
-            light_min_idle=s.opensandbox_pool_light_min_idle,
-            light_max_idle=s.opensandbox_pool_light_max_idle,
-            max_total=s.opensandbox_pool_max_total,
             jupyter_factory=self._create_jupyter_sandbox,
-            light_factory=self._create_light_sandbox,
             destroy_fn=self._destroy_sandbox,
             liveness_fn=self._probe_pooled_sandbox_alive,
             owner_fn=self._pooled_sandbox_owner,
@@ -136,10 +132,8 @@ class OpenSandboxProvider(
             liveness_fn=self._probe_pooled_sandbox_alive,
             owner_fn=self._pooled_sandbox_owner,
             max_idle_per_user=max(1, s.opensandbox_pool_jupyter_max_idle),
-            # Borrow max_total as the per-user in-flight cap: even a single user should
-            # not consume the entire opensandbox capacity (defense against 30 tabs /
-            # retry storms). Any value >= 1 works; by default it is tightened to
-            # max_total; if this needs separate tuning later, add a settings field.
+            # One user's concurrent creations in this process; deployment capacity
+            # is enforced by the shared admission ledger.
             max_in_flight_per_user=max(1, s.opensandbox_pool_max_total),
         )
 

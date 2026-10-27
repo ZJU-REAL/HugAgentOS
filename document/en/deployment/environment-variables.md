@@ -15,7 +15,7 @@ This reference is sourced from `.env.example` and `src/backend/core/config/setti
 | `BACKEND_PORT` | `3001` | Backend listen port + Docker port mapping; also becomes `PORT` inside the container | CE |
 | `FRONTEND_PORT` | `3002` | Frontend nginx host port (80 inside the container) | CE |
 | `VITE_API_BASE_URL` | (empty) | API base URL baked into the frontend JS bundle at build time; **leave empty to use the nginx `/api` proxy (recommended)** | CE |
-| `MCP_OAUTH_PUBLIC_BASE_URL` | (empty) | Browser-visible API base for MCP OAuth callbacks; leave empty for the same-origin nginx/Vite `/api` proxy, or set a cross-origin base such as `https://app.example.com/api` | CE |
+| `MCP_OAUTH_PUBLIC_BASE_URL` | (empty) | Browser-visible API base for MCP OAuth callbacks; leave empty for the same-origin nginx/Vite `/api` proxy, or set a cross-origin base such as `https://app.example.com/api`. An HTTPS value also enables OAuth client ID metadata documents (CIMD); authorization servers must be able to reach it | CE |
 | `ENV` / `ENVIRONMENT` | `dev` | Runtime environment (dev / staging / prod); affects log format and `.env.<ENV>` loading | CE |
 | `TZ` | `Asia/Shanghai` | Timezone for all containers | CE |
 | `SERVICE_NAME` | `hugagent` | Service name (logging / alerting identifier) | CE |
@@ -183,7 +183,7 @@ the database has no value.
 |---|---|---|---|
 | `MCP_HOST` | `mcp` (compose default) | MCP container hostname; set `127.0.0.1` for local debugging | CE |
 | `MCP_MARKET_REVALIDATE_INTERVAL` | `21600` | Remote MCP marketplace snapshot revalidation interval in seconds (minimum `300`) | CE |
-| `MCP_SELF_SERVICE_ALLOW_PRIVATE_NETWORK` | `false` | Allow users to add MCP endpoints on loopback, RFC1918, or IPv6 ULA addresses; enable only in trusted private deployments. Cloud-metadata/link-local ranges stay blocked, and users cannot submit private endpoints to the marketplace | CE |
+| `MCP_SELF_SERVICE_ALLOW_PRIVATE_NETWORK` | `false` | Allow users to add MCP endpoints on loopback, RFC1918, or IPv6 ULA addresses (including OAuth consent, marketplace submission, review re-check, and marketplace installs); enable only in trusted private deployments. Cloud-metadata/link-local ranges stay blocked, and users cannot submit private endpoints to the marketplace | CE |
 | `INTERNET_SEARCH_ENGINE` | `tavily` (compose default) | Internet search engine: `tavily` / `baidu` / `langsearch` / `deepseek` | CE |
 | `TAVILY_API_KEY` | (empty) | Tavily Search API key; required when Tavily is selected | CE |
 | `BAIDU_API_KEY` | (empty) | Baidu search API key; required when Baidu is selected | CE |
@@ -225,8 +225,10 @@ the database has no value.
 | `OPENSANDBOX_REQUEST_TIMEOUT_S` | `120` | Per-HTTP-call timeout (s) |
 | `OPENSANDBOX_PORT` | Full repository: `8910`; CE: no mapping | Controller uses 8080 inside the network |
 | `OPENSANDBOX_POOL_JUPYTER_MIN_IDLE` / `MAX_IDLE` | `.env.example` 1/3; compose defaults 2/3 | User session pool (historical setting name); CE minimum is 0 |
-| `OPENSANDBOX_POOL_LIGHT_MIN_IDLE` / `MAX_IDLE` | `2` / `5` | Light bucket (one-shot executions) |
-| `OPENSANDBOX_POOL_MAX_TOTAL` | CE: `4`; full: `20` | Controller-wide ceiling (all workers, warm and active instances); backend and controller must share this value |
+| `OPENSANDBOX_POOL_MAX_TOTAL` | CE: `4`; full: `20` | Deployment-wide sandbox capacity (all workers, warm, active and evaluation instances), enforced by the backend's shared admission ledger; read by the backend only |
+| `OPENSANDBOX_CREATE_CONCURRENCY` | `4` | Concurrent creations sent to the controller; protects the Docker daemon |
+| `OPENSANDBOX_ADMISSION_WAIT_S` | `30` | How long an interactive creation waits for a free slot (s); "capacity exhausted" is reported only after a fresh reconciliation |
+| `OPENSANDBOX_USER_HEADROOM` | `2` | Slots pre-warm never takes (capped at capacity minus one) |
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | `true` | Snapshot persistence master switch (snapshot+kill when idle, restore on reconnect) |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | `7` | Snapshot retention (GC sweeps expired rows) |
 | `OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S` | `120` | Maximum poll for snapshot readiness (s) |
@@ -381,6 +383,7 @@ Hosting remains opt-in. See [application deployment](../modules/application-host
 | PERSONAL_AGENT_ENABLED | Loads the module (default `false`). When off it registers no routes, background worker or channel routing |
 | PERSONAL_AGENT_OPENSANDBOX_DOMAIN | Dedicated authenticated controller address |
 | PERSONAL_AGENT_OPENSANDBOX_API_KEY | Separate controller credential; at least 32 characters |
+| PERSONAL_AGENT_SANDBOX_MAX_TOTAL | Capacity of the Personal Agent computer controller (its own ledger); default 20 |
 | PERSONAL_AGENT_IMAGE | Versioned graphical computer image |
 | PERSONAL_AGENT_VOLUME_ROOT | Absolute host directory for dedicated persistent volumes |
 | PERSONAL_AGENT_LOCAL_VOLUME_ROOT | Matching directory visible inside the backend |

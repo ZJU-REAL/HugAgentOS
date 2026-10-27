@@ -2,6 +2,8 @@
   height: 100%;
   overflow: auto;
   padding: 28px 24px;
+  /* 代码分包通常几十毫秒就到：先透明等 150ms，快的加载根本看不到骨架，避免一闪而过 */
+  animation: jx-kf-fadeIn var(--motion-duration-fast) var(--motion-ease-standard) 150ms backwards;
 }
 .jx-panelLoading-body {
   max-width: 792px;

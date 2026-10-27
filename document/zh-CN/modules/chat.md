@@ -145,7 +145,7 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 
 - **MCP 工具**：经 catalog + 用户覆盖 + 请求上下文三层过滤后（见 [能力目录](catalog.md)），stable 服务复用进程级连接池（`core/llm/mcp/`），per-request 服务（如 `retrieve_dataset_content` 需带每请求 HTTP header）每次新建；用户自助添加的私有 MCP 按 owner 现查合入。
 - **技能**：经 `core/capabilities/skills/loader.py` 注册为 AgentScope Agent Skills，并放行 `view_text_file` 读取 SKILL.md（详见 [技能系统](agent-skills.md)）。
-- **文件/沙箱工具**：`bash`、`sandbox_put_artifact`、`sandbox_get_artifact` 无条件注册；Read/Edit/Write/Glob/Grep/Delete/Move/mkdir + MySpace 工具受 `CODE_CAPABILITY_ENABLED` 门控，共享同一个 `ReadStateTracker` 维持「先 Read 才能 Edit」不变量。
+- **文件/沙箱工具**：`bash`、`sandbox_put_artifact`、`sandbox_get_artifact` 无条件注册；Read/Edit/Write/Glob/Grep/Delete/Move/mkdir + MySpace 工具受 `CODE_CAPABILITY_ENABLED` 门控。与 pi coding-agent 一致，Edit/Write 不要求先 Read：Edit 只校验 `old_string` 唯一匹配（精确失败后忽略行尾空白与引号/破折号差异再试），同一文件的 Edit/Write 串行执行。
 - **中间件**（洋葱模型，`core/llm/runtime/`）：`DynamicModelMiddleware`（按 chat_mode 切模型，见 [模型接入](model-providers.md)）、`FileContextMiddleware`（注入上传/历史文件上下文）、`SteerMiddleware`（工具结果之后、下一轮推理之前注入追加指令）、`WorkspacePinHintMiddleware`、`FinishPinGuardMiddleware`。
 - **上下文压缩**：`CompactingAgent` 把轮前、轮内和轮末三个触发时机接入同一个持久化 checkpoint 引擎，并共用 Codex 风格交接提示词；`ContextConfig` 只保留工具结果限长。压缩只使用统一协调器，不再运行框架的第二条摘要回退。压缩失败时保留原始上下文；最终请求仍超预算时保存断点并暂停，不继续调用回复模型。
 - **权限**：所有已注册工具 seed 原生 `PermissionRule(ALLOW)`，保留 AgentScope 内置工具的危险操作检查（不使用一刀切 BYPASS）。

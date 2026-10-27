@@ -181,11 +181,16 @@ class CloudProcesses:
 
 
 class CloudHandle:
+    # Most commands finish within tens of milliseconds, so a fixed interval made
+    # every result wait for the next tick. Poll fast first and back off to the
+    # steady interval; a long run costs a handful of extra status reads.
     poll_interval = 0.5
+    first_poll_interval = 0.02
 
     def __init__(self, provider, req):
         self.provider = provider
         self.req = req
+        self._poll_delay = self.first_poll_interval
         self.last_touch = 0.0
         self.metadata = {}
         if provider.name == "cube":
@@ -194,6 +199,11 @@ class CloudHandle:
                 "still enforce a sandbox lifetime that its API cannot renew."
             )
         self.finished = False
+
+    def next_poll_delay(self):
+        delay = self._poll_delay
+        self._poll_delay = min(delay * 2, self.poll_interval)
+        return delay
 
     async def touch(self):
         now = time.monotonic()

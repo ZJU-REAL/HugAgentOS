@@ -15,7 +15,7 @@ from core.sandbox.workspace.identity import safe_user_id
 # starting the Jupyter Server.
 #
 # - hugagent-owner=backend  : distinguishes this service from other clients' sandboxes on OpenSandbox
-# - hugagent-pool-kind=...  : "jupyter" / "light", refills into the correct bucket
+# - hugagent-pool-kind=...  : "jupyter"; any other kind is a leftover and gets killed
 # Design choice: no instance-id tag (process pid or hostname) — adoption is meant to
 # share across instances; partitioning by instance would defeat the purpose. Chat-bound
 # sandboxes carry no distinguishing tag either, and cannot: a sandbox handed out from

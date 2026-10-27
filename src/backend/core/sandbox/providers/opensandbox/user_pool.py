@@ -22,7 +22,7 @@ class _JupyterUserPool:
     myspace bind mount must bucket by ``user_id`` (user B must never get user A's
     sandbox — the bind mount would expose the other user's myspace files). Rewriting a
     lightweight structure without touching ``_pool.py`` keeps the change surface small;
-    ``SandboxPool`` continues to serve light sandboxes / legacy paths.
+    ``SandboxPool`` only serves sessions without a user id.
 
     Plan F Q2 optimization: ``_destroy_session`` switched to ``reuse=True`` — the same
     user reuses sandboxes across chats. When ``acquire`` hits an idle sandbox it skips
@@ -85,8 +85,8 @@ class _JupyterUserPool:
         self._owner = owner_fn
         self._max_idle_per_user = max_idle_per_user
         # Per-user concurrency cap, preventing a single user from pulling unlimited
-        # sandboxes with N open tabs / a retry storm (SandboxPool has max_total; this
-        # class previously had no cap at all).
+        # sandboxes with N open tabs / a retry storm. Deployment capacity is the
+        # shared admission ledger's job; this only bounds one user in this process.
         self._max_in_flight_per_user = max_in_flight_per_user
         self._lock = asyncio.Lock()
         self._closed = False

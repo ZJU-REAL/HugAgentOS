@@ -47,7 +47,6 @@ def test_immediate_file_tool_edit_is_published_without_registration_delay(
 
     from core.config.settings import settings
     from core.infra.ephemeral import LocalEphemeralState
-    from core.llm.tools._state import ReadStateTracker
     from core.llm.tools.edit_tool import register_edit
     from core.llm.tools.read_tool import register_read
     from core.files.spaces.access import personal_grant
@@ -83,18 +82,16 @@ def test_immediate_file_tool_edit_is_published_without_registration_delay(
         scope = ProjectScope(
             editor["project_id"], "personal", project["linked_folder_id"], project["folder_name"]
         )
-        toolkit, tracker = Toolkit(), ReadStateTracker()
+        toolkit = Toolkit()
         register_read(
             toolkit,
             user_id="owner",
-            state=tracker,
             project_folder_name=project["folder_name"],
             scope=scope,
         )
         register_edit(
             toolkit,
             user_id="owner",
-            state=tracker,
             project_folder_name=project["folder_name"],
             scope=scope,
         )

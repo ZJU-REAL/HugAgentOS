@@ -1,4 +1,5 @@
 from __future__ import annotations
+from core.capabilities.mcp import oauth_client
 from tests.features.marketplace.mcp_marketplace_support import (
     AdminMcpServer,
     BadRequestError,
@@ -251,7 +252,7 @@ async def test_oauth_start_hands_back_before_discovery_finishes(db, monkeypatch)
             installed_by="u1",
             auth_method="oauth2",
             credentials={},
-            callback_url_base="https://app.example.test/api/v1/mcp-market/oauth/callback",
+            api_base="https://app.example.test/api",
         )
         assert started["status"] == "starting"
         assert started["authorization_url"] == ""
@@ -298,7 +299,7 @@ async def test_oauth_cancel_marks_flow_failed_and_wakes_worker(monkeypatch):
 
 def test_oauth_callback_uses_browser_origin_not_untrusted_host(monkeypatch):
     monkeypatch.setattr(
-        oauth_service,
+        oauth_client,
         "settings",
         SimpleNamespace(server=SimpleNamespace(mcp_oauth_public_base_url="", is_prod=False)),
     )
@@ -306,14 +307,14 @@ def test_oauth_callback_uses_browser_origin_not_untrusted_host(monkeypatch):
         headers={"origin": "https://app.example.test", "host": "attacker.invalid"},
         url=SimpleNamespace(netloc="attacker.invalid"),
     )
-    assert oauth_service.public_oauth_callback_url(request) == (
+    assert oauth_client.callback_url(oauth_client.public_api_base(request)) == (
         "https://app.example.test/api/v1/mcp-market/oauth/callback"
     )
 
 
 def test_oauth_callback_allows_configured_http_in_production(monkeypatch):
     monkeypatch.setattr(
-        oauth_service,
+        oauth_client,
         "settings",
         SimpleNamespace(
             server=SimpleNamespace(
@@ -324,7 +325,7 @@ def test_oauth_callback_allows_configured_http_in_production(monkeypatch):
     )
     request = SimpleNamespace(headers={}, url=SimpleNamespace(netloc="ignored.example.test"))
 
-    assert oauth_service.public_oauth_callback_url(request) == (
+    assert oauth_client.callback_url(oauth_client.public_api_base(request)) == (
         "http://app.example.test/api/v1/mcp-market/oauth/callback"
     )
 

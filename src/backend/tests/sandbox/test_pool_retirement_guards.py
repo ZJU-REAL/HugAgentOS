@@ -13,8 +13,7 @@ from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
 
 def general_pool(owner, liveness=None):
     return SandboxPool(
-        jupyter_min_idle=0, light_min_idle=0,
-        jupyter_factory=AsyncMock(), light_factory=AsyncMock(),
+        jupyter_min_idle=0, jupyter_factory=AsyncMock(),
         destroy_fn=AsyncMock(), owner_fn=owner, liveness_fn=liveness,
     )
 
@@ -31,9 +30,9 @@ def test_sweep_rechecks_ownership_after_the_probe():
         return False
 
     pool = general_pool(owner, probe)
-    pool._buckets["light"].idle.append(SimpleNamespace(id="adopted"))
+    pool._buckets["jupyter"].idle.append(SimpleNamespace(id="adopted"))
     asyncio.run(pool.sweep_and_refill())
-    assert not pool._buckets["light"].idle
+    assert not pool._buckets["jupyter"].idle
     pool._destroy.assert_not_awaited()
 
 
@@ -43,7 +42,7 @@ def test_shutdown_discards_foreign_idle_handles_without_destroying_them(kind):
     box = SimpleNamespace(id="adopted")
     if kind == "general":
         pool = general_pool(owner)
-        pool._buckets["light"].idle.append(box)
+        pool._buckets["jupyter"].idle.append(box)
     else:
         pool = _JupyterUserPool(factory=AsyncMock(), destroy_fn=AsyncMock(), owner_fn=owner)
         asyncio.run(pool.adopt("user", box))

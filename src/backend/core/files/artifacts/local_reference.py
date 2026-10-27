@@ -31,19 +31,26 @@ def project_file_path(path: str, scope, user_id: str | None, session_id: str | N
     return to_physical_path(path, user_id, session_id=session_id, scope=scope)
 
 
-def _allows_live_access(path: str, user_id: str, action: str = "read") -> bool:
+def _allows_live_access(
+    path: str, user_id: str, action: str = "read", chat_id: str | None = None
+) -> bool:
     from core.sandbox.permissions.dispatch_models import CURRENT_PERMISSION_TICKET
-    from core.sandbox.permissions.approval import resolve_approval_mode
+    from core.sandbox.permissions.account import resolve_work_approval_mode
     from core.sandbox.workspace.paths import WORKSPACE
     from core.sandbox.permissions.evaluator import evaluate_local_path
     from core.harness.registry.local_files import grants_for_gate, policy_for_gate
     import os
 
+    try:
+        # Session files belong to their chat; project files to the running tool's lease.
+        mode = resolve_work_approval_mode(user_id, chat_id)
+    except ValueError:
+        return False  # A revoked client-session lease never falls back to the account.
     verdict = evaluate_local_path(
         path,
         intent=action,
         grants=grants_for_gate(),
-        policy=policy_for_gate(resolve_approval_mode(None, user_id=user_id)),
+        policy=policy_for_gate(mode),
         workspace_root=WORKSPACE,
         platform="windows" if os.name == "nt" else "posix",
     )
@@ -162,7 +169,9 @@ def overwrite_reference(file_id: str, user_id: str, content: bytes, db) -> dict:
     if item["metadata"].get("reference_kind") != "session":
         ProjectSourceService(db).authorized_project(item["metadata"]["project_id"], user_id, write=True)
     source = Path(item["path"])
-    if not _allows_live_access(str(source), user_id, "write"):
+    if not _allows_live_access(
+        str(source), user_id, "write", item["metadata"].get("session_id")
+    ):
         raise HTTPException(403, "项目文件夹未授权写入，请在本地权限中调整")
     temporary = None
     try:
@@ -247,7 +256,7 @@ def resolve_session_reference(item: dict) -> dict | None:
         source = (root / meta["relative_path"]).resolve()
         if not source.is_relative_to(root) or not source.is_file():
             return None
-        if not _allows_live_access(str(source), meta["user_id"]):
+        if not _allows_live_access(str(source), meta["user_id"], chat_id=meta["session_id"]):
             return None
         return {**item, "path": str(source), "size": source.stat().st_size}
     except (HTTPException, KeyError, OSError, ValueError):

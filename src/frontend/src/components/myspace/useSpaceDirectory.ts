@@ -9,6 +9,7 @@ export function useSpaceDirectory(kind: 'personal' | 'team', query = '') {
   const [path, setPath] = useState('');
   const [page, setPage] = useState<SpacePage | null>(null);
   const [loading, setLoading] = useState(false);
+  const [rootsLoaded, setRootsLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
@@ -21,6 +22,8 @@ export function useSpaceDirectory(kind: 'personal' | 'team', query = '') {
   const paginationAbort = useRef<AbortController | null>(null);
   const root = roots.find(item => item.space_id === selected);
   const writable = root && root.permission !== 'view';
+  // True until the first listing of the current space arrives, so the view shows a skeleton instead of flashing empty.
+  const initializing = !error && (!rootsLoaded || (!!selected && !page));
   const reload = useCallback(() => setRevision(value => value + 1), []);
 
   useEffect(() => {
@@ -42,6 +45,8 @@ export function useSpaceDirectory(kind: 'personal' | 'team', query = '') {
         setSelected('');
         setError(String(reason));
       }
+    }).finally(() => {
+      if (!abort.signal.aborted) setRootsLoaded(true);
     });
     return () => abort.abort();
   }, [kind, revision]);
@@ -114,6 +119,6 @@ export function useSpaceDirectory(kind: 'personal' | 'team', query = '') {
       if (!abort.signal.aborted && generation.current === current) setLoading(false);
     }
   }
-  return { revision, roots, selected, setSelected, open, path, setPath, page, loading, busy, error, root,
+  return { revision, roots, selected, setSelected, open, path, setPath, page, loading, initializing, busy, error, root,
     writable, reload, perform, loadMore, dialog, setDialog, name, setName, permissions, setPermissions };
 }

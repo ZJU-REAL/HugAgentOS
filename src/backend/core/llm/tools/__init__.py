@@ -5,11 +5,10 @@ GlobTool / GrepTool but operate on the sandbox filesystem (via
 ``SandboxProvider.get_file`` / ``put_file`` / ``execute``) instead of the host.
 
 All 5 tools are registered together inside the ``code_capability_enabled()``
-block in ``agent_factory.py``. Read/Edit/Write share a per-chat
-``ReadStateTracker`` to enforce the "must Read before Edit/Write" invariant.
+block in ``agent_factory.py``. Like pi-mono's coding agent, Edit/Write do not
+require a prior Read; Edit/Write on the same file are serialized.
 """
 
-from ._state import ReadEntry, ReadStateTracker
 from .edit_tool import register_edit
 from .glob_tool import register_glob
 from .grep_tool import register_grep
@@ -32,8 +31,6 @@ from .pin_tool import register_pin_to_workspace
 from .read_artifact_tool import register_read_artifact
 
 __all__ = [
-    "ReadEntry",
-    "ReadStateTracker",
     "register_bash",
     "register_chat_history_tools",
     "register_edit",

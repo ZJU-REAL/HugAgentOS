@@ -75,7 +75,8 @@ def _plan(db: Session, slug: str) -> Dict[str, Any]:
     return {
         "kind": "probe",
         "url": version.url,
-        "allow_private_network": item.source == "admin",
+        "allow_private_network": item.source == "admin"
+        or mcp_validation.self_service_private_network_allowed(),
         "target": source or mcp_versions.version_probe_candidate(item, version),
         "from_source": source is not None,
     }

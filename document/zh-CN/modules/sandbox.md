@@ -121,7 +121,7 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 - 一个会话复用同一容器中的文件。Python/JS 每次启动独立进程，不保留内存变量。
 - 用户绑定的容器仅能交给同一用户，复用前清理上一会话的工作区。
 - 基础实现保留个人空间和技能挂载。EE 扩展额外保留团队挂载并复核权限。
-- CE Docker 默认不预热空闲容器。历史配置名中的 jupyter 表示用户会话池，不会启动 Jupyter。
+- 不预热空闲容器。用户的容器在第一次需要它的工具调用时创建，之后重置干净再给这个用户的后续会话复用。历史配置名中的 jupyter 表示用户会话池，不会启动 Jupyter。
 - SANDBOX_IDLE_TTL_S 控制空闲快照阈值，默认 3600 秒。服务端硬到期时间另加回收排队、续期限频、快照请求和等待的宽限。每轮扫描先为排队会话续期，再公平分批创建快照。
 - 带密钥的续期与快照请求统一使用 OPEN-SANDBOX-API-KEY 认证头。
 
@@ -129,7 +129,7 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 
 实现位于 core/sandbox/providers/opensandbox/snapshots.py。目标：会话空闲时不白白占着 Docker 资源，又能在用户回来时**带着文件系统**满血复活。
 
-- **park（雪藏）**：后台 worker 每 60s 扫描，对 idle 超过 `SANDBOX_IDLE_TTL_S`（默认 3600s）的会话发起 snapshot（实测 accept→Ready 约 60s，docker commit），Ready 后 upsert `chat_sandbox_snapshots` 表（chat_id 为主键）、擦净 `/workspace` 把容器还回 idle 池；单轮最多并发 park 3 个保护 docker daemon。**这是回收会话沙箱的唯一路径**——旧版另有一条 600s 的「直接擦、不快照」回收比 park 先跑，结果文件没了也没备份，现已合并成这一条；
+- **park（雪藏）**：后台 worker 每 60s 扫描，对 idle 超过 `SANDBOX_IDLE_TTL_S`（默认 3600s）的会话发起 snapshot（实测 accept→Ready 约 60s，docker commit），Ready 后 upsert `chat_sandbox_snapshots` 表（chat_id 为主键）、把容器重置干净（杀掉沙箱用户残留进程；删除 `/workspace`、`$HOME`、`/tmp`、`/var/tmp`、`/dev/shm` 中挂载点以外的全部内容，含 execd 旧命令输出；按 `/proc/self/mountinfo` 跳过网盘、团队空间、技能和 `$HOME` 下的账号凭据挂载；重置失败则直接销毁）再还回 idle 池；单轮最多并发 park 3 个保护 docker daemon。**这是回收会话沙箱的唯一路径**——旧版另有一条 600s 的「直接擦、不快照」回收比 park 先跑，结果文件没了也没备份，现已合并成这一条；
 - **restore（恢复）**：`_create_session_for` **优先查 DB snapshot**（~15–20s restore，仍快于全新创建）；本会话没有快照时才走 Q2 user idle 池（~7s 暖路径），都没有才全新建。顺序不能反——idle 池里的容器是擦干净的，端给有快照的会话等于把它的文件悄悄丢掉。从 snapshot 启动时 volumes 必须**重新声明**——docker commit 不保存 mount 配置，否则 `/workspace/skills/` 等 bind-mount 会丢；
 - **一次性消耗**：snapshot 被用作启动镜像后立即标 1 小时短保留（立刻 DELETE 会因镜像层被新容器引用而 409）；
 - **GC**：每小时清理过期快照（DB 行 + 远端，默认保留 `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS=7` 天），删除冲突自动下轮重试；
@@ -146,7 +146,7 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 
 ## 技能目录只读挂载
 
-技能文件通过只读 bind mount 暴露在沙箱 `/workspace/skills/<id>`（`_make_skills_volumes`），挂的是**该用户自己的技能视图** `$HOST_STORAGE_PATH/sandbox_skills_u/<user_id>`：里面是他的私有技能加上指向公共技能的相对软链，公共技能库 `$HOST_STORAGE_PATH/sandbox_skills` 另挂到 `/workspace/skills_shared` 供软链解析（内置技能启动时同步进来、DB 技能按需物化，见[技能系统](agent-skills.md)）。于是所有技能仍是同一个路径，但别人安装的私有技能（含其 `secrets.json`）根本不在挂载范围内。预热的临时（light）沙箱会发给任意用户，只挂公共技能库。read-only 保证沙箱内不可篡改技能；目录 bind 是实时的，新导入技能立即可见。`HOST_STORAGE_PATH` 未配置时退回只挂内置源码树并告警。
+技能文件通过只读 bind mount 暴露在沙箱 `/workspace/skills/<id>`（`_make_skills_volumes`），挂的是**该用户自己的技能视图** `$HOST_STORAGE_PATH/sandbox_skills_u/<user_id>`：里面是他的私有技能加上指向公共技能的相对软链，公共技能库 `$HOST_STORAGE_PATH/sandbox_skills` 另挂到 `/workspace/skills_shared` 供软链解析（内置技能启动时同步进来、DB 技能按需物化，见[技能系统](agent-skills.md)）。于是所有技能仍是同一个路径，但别人安装的私有技能（含其 `secrets.json`）根本不在挂载范围内。没有用户 id 的沙箱只挂公共技能库。read-only 保证沙箱内不可篡改技能；目录 bind 是实时的，新导入技能立即可见。`HOST_STORAGE_PATH` 未配置时退回只挂内置源码树并告警。
 
 ## 超长工具结果落盘
 
@@ -184,7 +184,7 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 | `SANDBOX_RUNNER_URL` | `http://hugagent-script-runner:8900` | script_runner sidecar 地址 |
 | `SANDBOX_ARTIFACT_MAX_BYTES` | `104857600` | 沙盒文件大小唯一开关（默认 100 MiB）：取件、自动收集产物、送入沙盒、`/myspace` 写回同步共用 |
 | `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY` / `OPENSANDBOX_IMAGE` | — | OpenSandbox 服务端与镜像 |
-| `OPENSANDBOX_POOL_{JUPYTER,LIGHT}_{MIN,MAX}_IDLE` / `OPENSANDBOX_POOL_MAX_TOTAL` | 2/3、2/5、20 | 预热池水位 |
+| `OPENSANDBOX_POOL_JUPYTER_{MIN,MAX}_IDLE` / `OPENSANDBOX_POOL_MAX_TOTAL` | 2/3、20 | 预热池水位 |
 | `SANDBOX_IDLE_TTL_S` | 3600 | 空闲快照阈值和保活间隔基准；服务端 TTL 另加快照与排队宽限 |
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | true | 快照体系总开关 |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | 7 | 快照保留天数 |
@@ -211,7 +211,7 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 | `src/backend/core/sandbox/providers/opensandbox/` | 会话/快照/park-restore worker（EE） |
 | `src/backend/core/sandbox/providers/opensandbox/execution.py` | 执行路径 + idle reaper（EE） |
 | `src/backend/core/sandbox/providers/opensandbox/` | volume 构造、metadata、user pool（EE） |
-| `src/backend/core/sandbox/providers/opensandbox/pool.py` | 双桶预热池 |
+| `src/backend/core/sandbox/providers/opensandbox/pool.py` | 无用户会话的预热池（用户会话走 `user_pool.py`） |
 | `src/backend/core/sandbox/providers/cube/provider.py` | Cube 远端 MicroVM provider（EE） |
 | `src/backend/core/llm/tools/sandbox_tool.py` | Bash / write_stdin / sandbox_put_artifact / sandbox_get_artifact |
 | `src/backend/core/llm/context/offloader.py` | 超长结果落盘 /workspace/.offload |
@@ -239,18 +239,32 @@ Docker OpenSandbox 每个实例独占一个 bridge；仅受信任的后端与控
 快照或续期超时、鉴权失败、普通路由 404 和服务错误都不能作为删除活容器的依据。
 成功快照后才允许擦除并复用工作区。显式关闭与空闲回收使用相同的会话锁和共享认领。
 
-OpenSandbox 的实例列表与实例计数读取控制器当前运行清单，不再累计进程内旧句柄。
+OpenSandbox 的实例列表与实例计数读取控制器当前运行清单。
 控制器查询失败时，计数不可用；不能把查询失败报告成零实例。
 连接池诊断保留 scope=worker 与 worker_pid，表示当前后端进程的本地池，
-不代表全部进程的用户配额。该修复不把本地池上限改成跨进程全局配额。
+不代表全部进程的用户配额。部署级名额由下文的 backend 名额账本统一执行。
 
 ## 共享容量与维护所有权
 
-OPENSANDBOX_POOL_MAX_TOTAL 现在由控制器依据 Docker 实例库存统一执行，
-覆盖所有 backend worker、预热实例、会话恢复和计算机实例。各进程池统计仅用于本地诊断。
-控制器在容器创建时持有共享数据卷上的文件锁，不把挂载初始化放入临界区；
-库存达到上限或另一创建正在占用准入锁时返回 429，调用方可稍后重试。
-控制器的 opensandbox_data 数据卷应在同一控制器的进程间共享。
+所有 OpenSandbox 创建都经过 `providers/opensandbox/admission.py`，守卫测试禁止其他位置直接调用
+`Sandbox.create`。准入先在共享 ephemeral 存储（配置了 Redis 时用 Redis）里占用
+OPENSANDBOX_POOL_MAX_TOTAL 个名额中的一个，再占用 OPENSANDBOX_CREATE_CONCURRENCY 个创建并发槽中的一个，
+然后才调用控制器。每个名额用原子的“不存在才写入”占用，不存在全局锁，也不可能超发。
+控制器只执行 Docker 操作。
+
+- 不会因为别的会话正在创建而失败。交互式创建在事件循环上最多等待 OPENSANDBOX_ADMISSION_WAIT_S；
+  预热从不等待，也不占用最后 OPENSANDBOX_USER_HEADROOM 个名额。
+- 账本只在刚与控制器清单对账后才被信任：首次准入前、池维护至少每分钟一次、
+  以及报告“已满”之前（须在该请求开始后完成）。对账释放已消失沙箱的名额，补登记无人持有名额的沙箱
+  （控制器已应答但创建方崩溃），并按准入 token 处理结果未知的创建（超时、取消）。
+- 任何不确定都保留名额而不是释放。删除后释放只是加速；漏掉释放的销毁路径
+  只会让名额等到下一次对账，永远不会超发。
+- `SandboxCapacityExhausted`（提示“沙箱资源已满”）表示刚完成的对账确认所有名额都在使用。
+- 个人智能体电脑运行在独立控制器上，使用独立账本，名额由 PERSONAL_AGENT_SANDBOX_MAX_TOTAL 决定。
+
+控制器进程内的 Docker 枚举统一容忍并发删除（`opensandbox_inventory.py` 把
+`containers.list` 默认设为 `ignore_removed=True`），清单、启动恢复和失败清理
+不会再因为枚举途中容器消失而 404。
 
 领导进程从共享会话登记发现空闲会话，即使会话由其他 worker 创建或经历过重启，
 也进入快照回收流程。失效登记按身份清理，不阻断其他会话。
@@ -261,6 +275,6 @@ OPENSANDBOX_POOL_MAX_TOTAL 现在由控制器依据 Docker 实例库存统一执
 只有确认缺失或断开时重建。命令观察失败先有限重试，再交给持久恢复；
 没有可恢复引用的进程须确认停止，不能仅因观察失败就丢弃控制句柄。
 
-此机制需要同时更新 backend 和 OpenSandbox 控制器镜像；只更新 backend 无法获得全局容量约束。
+backend 与控制器镜像一起发布：控制器不限制创建，只有所有 backend 都经过名额账本准入时容量约束才成立。
 
 技能挂载必须配置 HOST_STORAGE_PATH，指向与后端 STORAGE_PATH 对应的宿主存储目录。缺失配置会明确失败，不再回退到源码目录。重启接管只识别显式归属标签，不根据旧启动命令推断归属。
