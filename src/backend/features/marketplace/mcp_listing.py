@@ -6,6 +6,7 @@ from core.infra.exceptions import ResourceNotFoundError
 from features.marketplace import edition as ml
 from sqlalchemy.orm import Session
 from features.marketplace import mcp_credentials
+from features.marketplace import mcp_oauth_clients
 from features.marketplace import mcp_state
 from features.marketplace import mcp_validation
 from features.marketplace import mcp_versions
@@ -42,6 +43,7 @@ def item_dict(
     )
     if auth_config["credential_mode"] == "auto":
         auth_config["credential_mode"] = "admin" if credentials_managed_by_admin else "installer"
+    auth_config = mcp_oauth_clients.present_oauth_methods(db, item.slug, auth_config)
     supports_admin_credentials = bool(mcp_credentials.admin_credential_source(db, item, version))
     return {
         "slug": item.slug,
@@ -63,6 +65,8 @@ def item_dict(
         "requires_auth": requires_auth,
         "credentials_managed_by_admin": credentials_managed_by_admin,
         "supports_admin_credentials": supports_admin_credentials,
+        # Curated templates are re-seeded from code; only their shared OAuth App is editable.
+        "curated": version.approved_by == "system-curated",
         "requires_user_credentials": requires_auth and not credentials_managed_by_admin,
         "tools": list(version.tools_json or []),
         "tool_count": len(version.tools_json or []),

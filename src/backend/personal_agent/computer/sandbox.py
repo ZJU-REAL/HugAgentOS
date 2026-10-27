@@ -64,6 +64,14 @@ def _computer_owner(db, session_id):
 
 class PersonalSandboxProvider(OpenSandboxProvider):
 
+    def _sandbox_admission(self):
+        """Computers live on their own controller, so they have their own capacity ledger."""
+        from core.config.environment import _int
+        from core.sandbox.providers.opensandbox.admission import admission_for
+        domain, _ = controller()
+        limit = max(1, _int(os.getenv("PERSONAL_AGENT_SANDBOX_MAX_TOTAL", "20"), 20))
+        return admission_for(domain, limit=limit, config_factory=self._make_config)
+
     def _make_config(self):
         from opensandbox.config import ConnectionConfig
         domain, key = controller()
@@ -152,6 +160,7 @@ class PersonalSandboxProvider(OpenSandboxProvider):
         revision = await asyncio.to_thread(current_revision, user_id)
         if (info.metadata or {}).get(MOUNT_REVISION_TAG) != revision:
             await sandbox.kill()
+            await self._sandbox_admission().release(str(sandbox.id))
             raise SandboxError("File permissions changed; reopen the computer")
         from core.files.spaces.recovery import ensure_mounts
         import os
@@ -222,10 +231,11 @@ class PersonalSandboxProvider(OpenSandboxProvider):
             from core.files.spaces.mounts import provision_volumes
             space_volumes, space_metadata = await asyncio.to_thread(provision_volumes, user_id)
             computer_config, access_token = self._computer_config(ident)
-            sandbox = await Sandbox.create(os.getenv("PERSONAL_AGENT_IMAGE", DEFAULT_IMAGE), connection_config=computer_config, env={"EXECD_ACCESS_TOKEN": access_token},
-                timeout=None, skip_health_check=False, volumes=[volume, desktop_volume, *space_volumes],
-                metadata={"hugagent-owner": "personal-agent", "hugagent-user-id": user_id, "personal-agent-id": ident, "generation": str(generation), **space_metadata},
-                entrypoint=["/bin/bash", "/opt/personal-agent/start.sh"])
+            sandbox = await self._sandbox_admission().create(
+                lambda metadata: Sandbox.create(os.getenv("PERSONAL_AGENT_IMAGE", DEFAULT_IMAGE), connection_config=computer_config, env={"EXECD_ACCESS_TOKEN": access_token},
+                    timeout=None, skip_health_check=False, volumes=[volume, desktop_volume, *space_volumes],
+                    metadata=metadata, entrypoint=["/bin/bash", "/opt/personal-agent/start.sh"]),
+                metadata={"hugagent-owner": "personal-agent", "hugagent-user-id": user_id, "personal-agent-id": ident, "generation": str(generation), **space_metadata})
             def _mark_ready(db):
                 row = db.get(PersonalAgent, ident)
                 row.sandbox_id, row.computer_status = sandbox.id, "ready"

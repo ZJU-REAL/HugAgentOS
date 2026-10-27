@@ -3,7 +3,6 @@ import { Button,Dropdown,Form,Input,message,Modal,Pagination,Popconfirm,Select,S
 import { motion } from 'motion/react';
 import { useCallback,useEffect,useMemo,useState } from 'react';
 import {
-createMyMcpServer,
 deleteMyMcpServer,
 getMyMcpMarketSubmissions,
 submitMcpToMarketplace,
@@ -22,6 +21,7 @@ import { ABILITY_TAB_TITLE } from './abilityTabs';
 import { DeviceCapabilityBadge } from './DeviceCapabilityBadge';
 import { McpIcon } from './McpIcon';
 import { McpMarketplaceModal } from './McpMarketplaceModal';
+import { AddPrivateMcpModal } from './AddPrivateMcpModal';
 
 // Icons all come from the backend catalog API (admin DB custom value → DEFAULT_MCP_ICONS fallback,
 // see src/backend/api/routes/v1/admin_mcp_servers.py). Here we only show a first-letter placeholder
@@ -51,8 +51,6 @@ export function McpPage() {
   // Distinguish "user-clicked navigation" from "panel reset": only the former plays the list↔detail transition
   const [navDir, setNavDir] = useState<'detail' | 'list' | null>(null);
   const [addOpen, setAddOpen] = useState(false);
-  const [adding, setAdding] = useState(false);
-  const [form] = Form.useForm();
   const [marketOpen, setMarketOpen] = useState(false);
   const [submissions, setSubmissions] = useState<McpMarketSubmission[]>([]);
   const [applyServerId, setApplyServerId] = useState<string | null>(null);
@@ -117,36 +115,6 @@ export function McpPage() {
       message.error((error as Error).message || t('撤回失败'));
     }
   }, [reloadSubmissions]);
-
-  const handleAddMcp = useCallback(async () => {
-    const values = await form.validateFields();
-    setAdding(true);
-    try {
-      // Parse headers from key=value lines (auth header for protected remote MCPs)
-      const headers: Record<string, string> = {};
-      if (typeof values.headers_text === 'string') {
-        values.headers_text.split('\n').forEach((line: string) => {
-          const idx = line.indexOf('=');
-          if (idx > 0) headers[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-        });
-      }
-      await createMyMcpServer({
-        display_name: values.display_name,
-        transport: values.transport,
-        url: values.url,
-        description: values.description || '',
-        headers,
-      });
-      message.success(t('已添加'));
-      setAddOpen(false);
-      form.resetFields();
-      await fetchCatalog();
-    } catch (e) {
-      message.error((e as Error).message || t('添加失败'));
-    } finally {
-      setAdding(false);
-    }
-  }, [form, fetchCatalog]);
 
   const handleDeleteMcp = useCallback(async (id: string) => {
     try {
@@ -429,7 +397,7 @@ export function McpPage() {
         destroyOnHidden
       >
         <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-          {t('系统会重新连接服务并保存不含凭据的工具快照。管理员审核通过后，其他用户安装时必须填写自己的凭据；远程工具发生变化会暂停安装并触发复审。')}
+          {t('系统会重新连接服务并保存不含凭据的工具快照，你的令牌和 OAuth 授权不会进入市场。管理员审核通过后，其他用户安装时须填写自己的凭据或各自完成 OAuth 授权；远程工具发生变化会暂停安装并触发复审。')}
         </Typography.Paragraph>
         {applyServerId && submissionByServer.get(applyServerId)?.status === 'rejected' && (
           <Typography.Paragraph type="danger" style={{ fontSize: 12 }}>
@@ -455,47 +423,11 @@ export function McpPage() {
         </Form>
       </Modal>
 
-      {/* Add-private-MCP modal */}
-      <Modal
-        title={t('添加连接器')}
+      <AddPrivateMcpModal
         open={addOpen}
-        onCancel={() => setAddOpen(false)}
-        onOk={() => void handleAddMcp()}
-        okText={t('添加')}
-        cancelText={t('取消')}
-        confirmLoading={adding}
-        destroyOnHidden
-      >
-        <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-          {t('支持公网 HTTP/HTTPS 的远程 HTTP/SSE MCP，添加时会执行地址安全检查和工具发现。HTTP 为明文传输，生产环境建议使用 HTTPS。该连接仅你自己可见可用，之后可申请上架市场。')}
-        </Typography.Paragraph>
-        <Form form={form} layout="vertical" initialValues={{ transport: 'streamable_http' }}>
-          <Form.Item name="display_name" label={t('名称')} rules={[{ required: true, message: t('请输入名称') }]}>
-            <Input placeholder="如「我的天气服务」" maxLength={255} />
-          </Form.Item>
-          <Form.Item name="transport" label={t('类型')} rules={[{ required: true }]}>
-            <Select
-              options={[
-                { label: 'Streamable HTTP', value: 'streamable_http' },
-                { label: 'SSE', value: 'sse' },
-              ]}
-            />
-          </Form.Item>
-          <Form.Item name="url" label={t('服务地址 URL')} rules={[{ required: true, message: t('请输入 URL') }]}>
-            <Input placeholder="http://example.com:8080/mcp 或 https://example.com/mcp" />
-          </Form.Item>
-          <Form.Item name="description" label={t('描述（可选）')}>
-            <Input.TextArea rows={2} maxLength={2000} placeholder={t('简单说明这个工具的用途')} />
-          </Form.Item>
-          <Form.Item
-            name="headers_text"
-            label={t('请求头（可选）')}
-            help={t('每行一个：Key=Value。需要鉴权的服务在此填认证头，如 Authorization=Bearer xxx')}
-          >
-            <Input.TextArea rows={2} placeholder="Authorization=Bearer xxx" />
-          </Form.Item>
-        </Form>
-      </Modal>
+        onClose={() => setAddOpen(false)}
+        onAdded={() => fetchCatalog()}
+      />
     </motion.div>
   );
 }

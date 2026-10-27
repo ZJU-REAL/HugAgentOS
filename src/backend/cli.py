@@ -1181,6 +1181,14 @@ def _run_engine(args, *, home: Path, ready_file: Path, started_at: str) -> int:
             # uvicorn's own SIGINT/SIGTERM handling gives the graceful
             # shutdown path: lifespan shutdown stops the sidecars.
             server.run(sockets=[sock])
+        except SystemExit as exc:
+            # Uvicorn uses 3 for lifespan startup failure. Our wire contract
+            # reserves 3 for an uninitialized HOME, so never misreport a
+            # sidecar/port/startup failure as onboarding/authentication needed.
+            if not server.started and exc.code == 3:
+                _engine_error("startup_failed")
+                return 1
+            raise
         finally:
             stopped.set()
             _remove_ready_file(ready_file)

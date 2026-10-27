@@ -61,8 +61,6 @@ export const TOOL_DICT: Record<string, string> = {
   '已生成文件': 'File generated',
   '工具执行完成': 'Tool completed',
   '未读完': 'Partial',
-  '已解析为文本': 'Parsed as text',
-  '从历史恢复': 'Restored from history',
   '二进制文件': 'Binary file',
   '文件过大': 'File too large',
   '是': 'Yes',

@@ -112,6 +112,12 @@ async def device_bindings(
         else:
             _progressive = _desktop_progressive
 
+    # Explicit client tools are connection-owned, not persistent project capabilities.
+    if _api_scope is None and _eval_scope is None and request.top_level_chat:
+        from core.harness.registry.client_sessions import servers_for
+        enabled_servers.update(servers_for(request.current_user_id, request.chat_id, request.run_id))
+        enabled_mcp_keys = list(enabled_servers)
+
     enabled_servers = factory_mcp_config.inject_runtime_headers(
         enabled_servers,
         current_user_id=request.current_user_id,

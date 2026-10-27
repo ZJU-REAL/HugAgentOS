@@ -436,7 +436,6 @@ services:
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       OPENSANDBOX_INSECURE_SERVER: 'NO'
-      OPENSANDBOX_POOL_MAX_TOTAL: ${OPENSANDBOX_POOL_MAX_TOTAL:-20}
     volumes:
     - /var/run/docker.sock:/var/run/docker.sock
     - opensandbox_config:/etc/opensandbox:ro

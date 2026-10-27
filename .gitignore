@@ -152,10 +152,12 @@ dist/
 # 部署/打包脚本与产物（环境内部资产，不入库；详见 internal design docs）
 scripts/deploy/
 
-# Evaluation Gym 运行产物与数据集（README 入库，数据/结果不入库）
+# 评测数据：本地题集、生成包与运行产物不入库；data/ageval 下的模板与冒烟题入库
+# （其中生成内容由 data/ageval 内各级 .gitignore 排除）
 evaluation/results/
 evaluation/data/*
 !evaluation/data/README.md
+!evaluation/data/ageval/
 
 # DBHub / ES MCP 实际连接配置（含密码/密钥，由后端面板渲染；仅 .example + .gitkeep 入库）
 docker/dbhub/dbhub.toml
@@ -175,3 +177,6 @@ docker/sandbox/site-template/react-vite/node_modules/
 # macOS native release archives (desktop/scripts/workbench-macos-native.mjs)
 /release-archive/
 .ageval
+
+# Local evaluation identity and workspace binding
+/evaluation/data/ageval/hugagent-bench/bridge.json

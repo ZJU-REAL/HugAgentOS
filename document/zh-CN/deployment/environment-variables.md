@@ -15,7 +15,7 @@
 | `BACKEND_PORT` | `3001` | 后端监听端口 + Docker 端口映射；容器内同时作为 `PORT` | CE |
 | `FRONTEND_PORT` | `3002` | 前端 nginx 对外端口（容器内 80） | CE |
 | `VITE_API_BASE_URL` | （空） | 构建期烧进前端 JS 包的 API 基址；**留空走 nginx `/api` 反代（推荐）** | CE |
-| `MCP_OAUTH_PUBLIC_BASE_URL` | （空） | MCP 浏览器 OAuth 的外部 API 基址；同源 nginx/Vite `/api` 反代留空，跨域部署填写如 `https://app.example.com/api` | CE |
+| `MCP_OAUTH_PUBLIC_BASE_URL` | （空） | MCP 浏览器 OAuth 的外部 API 基址；同源 nginx/Vite `/api` 反代留空，跨域部署填写如 `https://app.example.com/api`；设为 HTTPS 时同时启用 OAuth 客户端元数据文档（CIMD），授权服务器需能访问该地址 | CE |
 | `ENV` / `ENVIRONMENT` | `dev` | 运行环境（dev / staging / prod），影响日志格式与 `.env.<ENV>` 加载 | CE |
 | `TZ` | `Asia/Shanghai` | 全部容器时区 | CE |
 | `SERVICE_NAME` | `hugagent` | 服务名（日志 / 告警标识） | CE |
@@ -181,7 +181,7 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 |---|---|---|---|
 | `MCP_HOST` | `mcp`（compose 默认） | MCP 容器主机名；本地调试可设 `127.0.0.1` | CE |
 | `MCP_MARKET_REVALIDATE_INTERVAL` | `21600` | MCP 市场远程工具快照复检周期（秒，最小 `300`） | CE |
-| `MCP_SELF_SERVICE_ALLOW_PRIVATE_NETWORK` | `false` | 是否允许用户自助添加回环、RFC1918 或 IPv6 ULA 地址上的 MCP；仅应在用户可信的私有化环境开启，云元数据/链路本地等高风险地址仍会拦截，私有地址也不能由用户申请上架市场 | CE |
+| `MCP_SELF_SERVICE_ALLOW_PRIVATE_NETWORK` | `false` | 是否允许用户自助添加回环、RFC1918 或 IPv6 ULA 地址上的 MCP（含 OAuth 授权、上架申请、审核复检与市场安装）；仅应在用户可信的私有化环境开启，云元数据/链路本地等高风险地址仍会拦截，私有地址也不能由用户申请上架市场 | CE |
 | `INTERNET_SEARCH_ENGINE` | `tavily`（compose 默认） | 联网搜索引擎：`tavily` / `baidu` / `langsearch` / `deepseek` | CE |
 | `TAVILY_API_KEY` | （空） | Tavily Search API Key；选择 Tavily 时必填 | CE |
 | `BAIDU_API_KEY` | （空） | 百度搜索 API Key；选择百度时必填 | CE |
@@ -224,7 +224,10 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 | `OPENSANDBOX_PORT` | 全量仓库 `8910`；CE 不映射 | 控制器容器内固定 8080 |
 | `OPENSANDBOX_POOL_JUPYTER_MIN_IDLE` / `MAX_IDLE` | `.env.example` 1/3；compose 默认 2/3 | 用户会话池（历史配置名）；CE 最小预热数为 0 |
 | `OPENSANDBOX_POOL_LIGHT_MIN_IDLE` / `MAX_IDLE` | `2` / `5` | 轻量桶（一次性执行） |
-| `OPENSANDBOX_POOL_MAX_TOTAL` | CE: `4`; full: `20` | 控制器全局上限（所有 worker、预热与使用中实例）；backend 和控制器使用同一值 |
+| `OPENSANDBOX_POOL_MAX_TOTAL` | CE: `4`; full: `20` | 部署级沙箱名额（所有 worker、预热、使用中与评测实例），由 backend 共享名额账本执行；仅 backend 读取 |
+| `OPENSANDBOX_CREATE_CONCURRENCY` | `4` | 同时向控制器发起的创建数，保护 Docker daemon |
+| `OPENSANDBOX_ADMISSION_WAIT_S` | `30` | 交互式创建等待空闲名额的上限（秒）；对账后仍满才报“沙箱资源已满” |
+| `OPENSANDBOX_USER_HEADROOM` | `2` | 预热永不占用的名额数（不超过名额减 1） |
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | `true` | 快照持久化总开关（idle 时 snapshot+kill，重连恢复） |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | `7` | 快照保留天数（GC 周期清理） |
 | `OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S` | `120` | 等快照 Ready 的轮询上限（秒） |
@@ -375,6 +378,7 @@ License 细节见 [License 机制](../editions/license.md)。
 | PERSONAL_AGENT_ENABLED | 是否加载该模块（默认 `false`）。关闭时不注册任何路由、后台 worker 和渠道转交 |
 | PERSONAL_AGENT_OPENSANDBOX_DOMAIN | 独立且需要认证的控制器地址 |
 | PERSONAL_AGENT_OPENSANDBOX_API_KEY | 独立控制器密钥，至少 32 个字符 |
+| PERSONAL_AGENT_SANDBOX_MAX_TOTAL | 个人智能体电脑控制器的名额，独立账本，默认 20 |
 | PERSONAL_AGENT_IMAGE | 使用固定版本标签的桌面电脑镜像 |
 | PERSONAL_AGENT_VOLUME_ROOT | 宿主机中存放专属持久卷的绝对路径 |
 | PERSONAL_AGENT_LOCAL_VOLUME_ROOT | 后端容器内可见的同一目录 |

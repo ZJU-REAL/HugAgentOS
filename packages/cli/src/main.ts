@@ -16,19 +16,21 @@ Usage
   hugagent [options] [prompt]          interactive session (prompt is sent first)
   hugagent -p [options] [prompt]       run one turn and exit; reads stdin when no prompt
   hugagent --output rpc [options]      JSON-lines embedding protocol on stdin/stdout
+  hugagent --output acp --mode local   native ACP v1 on stdin/stdout
   hugagent login [--server URL]        save a cloud server and API key
   hugagent logout                      forget the saved API key
   hugagent serve|onboard|doctor …      forwarded to hugagent-server
 
 Options
   -p, --print [prompt]                 non-interactive; "-" or no prompt reads stdin
-      --output text|json|rpc           output format (default text)
+      --output text|json|rpc|acp       output format (default text)
       --mode local|cloud|device:<id>   where the agent runs (default: config defaultMode, else local)
   -c, --continue                       continue the latest session
   -r, --resume [chat_id]               resume a session (pick one when no id is given)
       --session <chat_id>              same as --resume <chat_id>
       --model <provider_id>:<model>    model for this run
       --server <url>                   cloud server (cloud and device modes)
+      --permission-mode ask|auto|full  ACP initial session policy (default ask)
       --auto-approve                   non-interactive: allow file/command approvals (default deny)
   -h, --help                           show this help
   -v, --version                        print the version
@@ -38,7 +40,7 @@ Environment: HUGAGENT_HOME, HUGAGENT_SERVER, HUGAGENT_API_KEY, HUGAGENT_ALLOW_HT
   HUGAGENT_ENGINE_CMD (JSON array), HUGAGENT_REPO, HUGAGENT_PYTHON.
 `;
 
-type Output = 'text' | 'json' | 'rpc';
+type Output = 'text' | 'json' | 'rpc' | 'acp';
 
 interface ParsedArgs {
   command: 'run' | 'help' | 'version' | 'login' | 'logout' | 'server';
@@ -56,6 +58,7 @@ interface ParsedArgs {
   model?: { providerId: string; modelName: string };
   server?: string;
   autoApprove: boolean;
+  permissionMode?: 'ask'|'auto'|'full';
 }
 
 const SERVER_COMMANDS = new Set(['serve', 'onboard', 'doctor']);
@@ -121,9 +124,14 @@ function parseArgs(argv: string[]): ParsedArgs {
         break;
       case '--output': {
         const value = takesValue('--output');
-        if (value !== 'text' && value !== 'json' && value !== 'rpc') usage(`--output must be text, json or rpc, got "${value}"`);
+        if (value !== 'text' && value !== 'json' && value !== 'rpc' && value !== 'acp') usage(`--output must be text, json, rpc or acp, got "${value}"`);
         parsed.output = value;
         break;
+      }
+      case '--permission-mode': {
+        const value=takesValue('--permission-mode');
+        if(value!=='ask' && value!=='auto' && value!=='full') usage('--permission-mode must be ask, auto or full');
+        parsed.permissionMode=value;break;
       }
       case '--mode': {
         const value = takesValue('--mode');
@@ -256,6 +264,13 @@ async function main(argv: string[]): Promise<number> {
   const cwd = process.cwd();
   const status = (message: string) => process.stderr.write(message + '\n');
 
+  if (args.output === 'acp') {
+    if (args.print || args.prompt !== undefined || args.resume || args.continueLast || args.autoApprove)
+      usage('--output acp takes sessions and permissions from its client');
+    return (await import('./modes/acp.js')).runAcp({ mode, server: args.server, model: args.model, permissionMode:args.permissionMode });
+  }
+
+  if(args.permissionMode) usage('--permission-mode requires --output acp');
   if (args.output === 'rpc') {
     if (args.print || args.prompt !== undefined) usage('--output rpc takes commands on stdin, not a prompt');
     return (await import('./modes/rpc.js')).runRpc({ engine: buildEngine(mode, { cwd }, { server: args.server }) });

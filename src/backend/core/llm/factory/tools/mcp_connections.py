@@ -22,6 +22,22 @@ def _leaf_errors(exc):
         yield exc
 
 
+def _gate_client_tools(resource, specs):
+    """Client-provided tools pass the ordinary approval gate; server annotations are only hints."""
+    from core.sandbox.permissions.dispatch_models import DOMAIN_APPROVAL, PermissionIntent, ToolPermissionSpec
+
+    for tool in resource.tools:
+        if tool.name in specs:
+            raise ValueError("Duplicate client tool name")
+        target = f"{resource.name}:{tool.name}"
+
+        def resolve(_args, _runtime, target=target):
+            return (PermissionIntent(domain=DOMAIN_APPROVAL, action="execute", target=target,
+                                     summary="Run client-provided tool", op="execute"),)
+
+        tool.dispatch_spec = specs[tool.name] = ToolPermissionSpec(f"client-mcp:{target}", resolve)
+
+
 async def mcp_connections(
     request: AgentRequest,
     *,
@@ -87,10 +103,14 @@ async def mcp_connections(
                 scope = ((request.current_user_id, request.chat_id, request.capability_scope)
                          if request.current_user_id and request.chat_id and not request.isolated else None)
                 resource = await discover(key, cfg, interactions=interactions, scope=scope)
+                resource.client_session_lease = cfg.get("client_session_lease")
                 return own_factory_client(resource)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                if cfg.get("client_session_lease"):
+                    _log.warning("Client MCP discovery failed: %s", type(exc).__name__)
+                    raise RuntimeError("Client MCP discovery failed") from None
                 target = str(cfg.get("url") or cfg.get("command") or "").split("?", 1)[0]
                 _log.warning("MCP %s discovery failed (%s %s): %s", key, cfg.get("transport") or "stdio", target,
                              "; ".join(f"{type(e).__name__}: {e}"[:300] for e in _leaf_errors(exc)))
@@ -101,6 +121,10 @@ async def mcp_connections(
         failed = [key for key, resource in zip(enabled_servers, results) if resource is None]
         if failed:
             _note_unavailable("以下 MCP 服务连接失败，本轮无法使用其工具：" + "、".join(failed))
+
+    for resource in mcp_resources:
+        if resource.client_session_lease:
+            _gate_client_tools(resource, toolkit.client_permission_specs)
 
     connected_clients = {resource.name: resource for resource in mcp_resources}
 

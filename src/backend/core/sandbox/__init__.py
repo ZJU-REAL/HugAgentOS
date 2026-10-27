@@ -8,6 +8,7 @@ _EXPORTS = {
     "ProcessRequest": "protocol",
     "ProcessResult": "protocol",
     "SandboxProvider": "protocol",
+    "SandboxCapacityExhausted": "errors",
     "SandboxConnectError": "errors",
     "SandboxError": "errors",
     "SandboxFileTooLargeError": "errors",

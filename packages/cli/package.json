@@ -19,8 +19,10 @@
     "test": "npm run build && node --test test/*.test.mjs"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "2.0.2",
     "@hugagent/chat-sdk": "file:../chat-sdk",
     "@mariozechner/pi-tui": "0.73.1",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "chalk": "^5.5.0"
   },
   "devDependencies": {

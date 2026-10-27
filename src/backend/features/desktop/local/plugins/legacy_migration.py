@@ -145,7 +145,12 @@ def migrate():
                 )
             iid = registry.install_id("plugin", "local", prepared[1])
             current = registry.get(iid, db=db)
-            if not current:
+            if current and current.payload.get("owner_user_id") != row.owner_user_id:
+                raise ValueError("legacy plugin ownership conflict")
+            # A DB projection is only a manifest/index placeholder, not an
+            # authoritative retained package with published child components.
+            # Complete publication before removing its source rows.
+            if not current or (current.payload.get("from_db") and current.state != "removed"):
                 iid = lifecycle._publish(row.owner_user_id, prepared, db, legacy_source=row.slug)
                 registry.set_state(
                     iid,
@@ -168,8 +173,6 @@ def migrate():
                         child.is_enabled,
                         db=db,
                     )
-            elif current.payload.get("owner_user_id") != row.owner_user_id:
-                raise ValueError("legacy plugin ownership conflict")
             old_id = registry.install_id("plugin", "local", row.slug)
             if (
                 old_id != iid

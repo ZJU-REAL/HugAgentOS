@@ -142,7 +142,6 @@ def test_read_image_not_registered_without_any_vision():
 
 def _register_read(vision_mode, monkeypatch):
     from core.llm.tools import read_tool
-    from core.llm.tools._state import ReadStateTracker
 
     class _Provider:
         async def get_file(self, session, physical, user_id=None):
@@ -151,7 +150,7 @@ def _register_read(vision_mode, monkeypatch):
     monkeypatch.setattr("core.sandbox.get_sandbox_provider", lambda: _Provider())
     tk = _Toolkit()
     read_tool.register_read(
-        tk, chat_id="c1", user_id="u1", state=ReadStateTracker(), vision_mode=vision_mode
+        tk, chat_id="c1", user_id="u1", vision_mode=vision_mode
     )
     return tk.fns["Read"]
 

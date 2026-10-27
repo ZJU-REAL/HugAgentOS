@@ -15,6 +15,7 @@ class MCPResource:
     # Write calls whose outcome is unknown in this run; exact replays are refused.
     unknown_outcomes: set = field(default_factory=set)
     closed: bool = False
+    client_session_lease: tuple | None = None
     _lease: object = None
     _closing: asyncio.Task | None = None
 

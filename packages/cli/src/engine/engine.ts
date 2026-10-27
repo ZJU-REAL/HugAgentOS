@@ -48,6 +48,7 @@ export type DeliveryMode = 'steer' | 'followUp' | 'nextRun';
 export type PermissionMode = 'ask' | 'auto' | 'full';
 
 export interface SendOptions {
+  clientSessionId?: string;
   /** Per-message model override (ChatRequest.model_provider_id / model_name). */
   model?: { providerId: string; modelName: string };
   attachments?: { file_id: string; name: string; mime_type: string }[];

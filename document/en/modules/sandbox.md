@@ -268,19 +268,43 @@ requires a successful snapshot. Explicit close and idle reclaim share session
 locks and distributed claims.
 
 OpenSandbox instance lists and counts use the controller's current running
-inventory instead of cached process handles. Controller query failures mean
+inventory. Controller query failures mean
 the count is unavailable, never a successful zero. Pool diagnostics include
 scope=worker and worker_pid. They describe one backend process and are not a
-global per-user quota. Controller admission now enforces the shared ceiling described below.
+global per-user quota. The backend admission ledger enforces the shared capacity described below.
 
 ## Shared capacity and maintenance ownership
 
-The controller now enforces OPENSANDBOX_POOL_MAX_TOTAL against Docker inventory
-across backend workers, warm instances, restored sessions and computer instances.
-Worker pool counts remain local diagnostics. Container creation holds a file lock
-on the controller data volume; mount initialization stays outside that critical
-section. Capacity exhaustion or a competing admission returns 429 for later retry.
-Processes of the same controller must share its opensandbox_data volume.
+Every OpenSandbox creation goes through `providers/opensandbox/admission.py`; a
+guard test rejects any other `Sandbox.create` call. Admission takes one of
+OPENSANDBOX_POOL_MAX_TOTAL slots in the shared ephemeral store (Redis when
+configured), then one of OPENSANDBOX_CREATE_CONCURRENCY creation gates, and only
+then calls the controller. Each slot is claimed with an atomic put-if-absent, so
+over-admission cannot happen and no global lock exists. The controller performs
+Docker operations only.
+
+- A request never fails because another session is creating. Interactive
+  creations wait up to OPENSANDBOX_ADMISSION_WAIT_S on the event loop; pool
+  pre-warm never waits and never takes the last OPENSANDBOX_USER_HEADROOM slots.
+- The ledger is trusted only right after reconciling with the controller's
+  inventory: before the first admission, at least every minute from pool
+  maintenance, and — completed after the request began — before admission
+  reports exhaustion. Reconciliation
+  frees slots of vanished sandboxes, accounts sandboxes nobody holds a slot for
+  (a creator that crashed after the controller answered), and resolves creations
+  whose outcome was unknown (timeouts, cancellation) by their admission token.
+- Every uncertainty keeps a slot rather than freeing one. Releasing on delete is
+  an optimisation; a kill path that forgets it delays the slot until the next
+  reconciliation and never over-admits.
+- `SandboxCapacityExhausted` (user-facing "沙箱资源已满") means a fresh
+  reconciliation confirmed every slot is in use.
+- Personal Agent computers run on their own controller and use their own ledger
+  sized by PERSONAL_AGENT_SANDBOX_MAX_TOTAL.
+
+The controller makes Docker enumeration tolerate concurrent removal process-wide
+(`opensandbox_inventory.py` defaults `containers.list(ignore_removed=True)`), so
+listing, startup recovery and failure cleanup no longer fail with 404 when a
+container disappears mid-enumeration.
 
 The leader discovers idle sessions from shared bindings, including sessions
 created by other workers or surviving a restart. Identity-checked cleanup of a
@@ -295,7 +319,8 @@ Command observation retries are bounded before durable recovery takes over.
 Processes without a recoverable reference require confirmed termination, not loss
 of their control handle merely because observation failed.
 
-Roll out both backend and OpenSandbox controller images. Updating only the backend
-does not activate the shared capacity limit.
+Deploy the backend and the controller image together: the controller does not
+limit creation, so capacity holds only while every backend admits through the
+ledger.
 
 Skill mounts require HOST_STORAGE_PATH to identify the host directory corresponding to backend STORAGE_PATH. Missing configuration fails explicitly; source-tree fallback is removed. Restart adoption requires explicit ownership metadata and never infers ownership from old entrypoints.

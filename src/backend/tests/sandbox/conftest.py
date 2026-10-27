@@ -16,6 +16,19 @@ def sandbox_session_store(monkeypatch):
     monkeypatch.setenv("CUBE_OWNER_TAG", "")
     store = LocalEphemeralState()
     monkeypatch.setattr(session_registry, "get_ephemeral_state", lambda: store)
+    # Creation admission shares the same store. Its inventory defaults to an empty
+    # controller so tests that fake ``Sandbox.create`` never reach a real one.
+    import core.sandbox.providers.opensandbox.admission as admission
+    import core.sandbox.providers.opensandbox.ledger as ledger
+
+    monkeypatch.setattr(admission, "get_ephemeral_state", lambda: store)
+    monkeypatch.setattr(ledger, "get_ephemeral_state", lambda: store)
+    monkeypatch.setattr(admission, "_ADMISSIONS", {})
+
+    async def empty_inventory(self):
+        return {}
+
+    monkeypatch.setattr(admission.SandboxAdmission, "_inventory", empty_inventory)
     return store
 
 

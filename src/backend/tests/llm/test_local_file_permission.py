@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import pytest
 from pathlib import Path
@@ -16,7 +15,6 @@ from core.sandbox.permissions.tool_specs import ToolPermissionRegistry, builtin_
 from core.llm.tool_permissions import ToolPermissionService
 from core.llm.tools import confirmation as confirm
 from core.sandbox.workspace.resolution import to_physical_path
-from core.llm.tools._state import ReadEntry, ReadStateTracker
 from core.llm.tools.edit_tool import register_edit
 from core.llm.tools.write_tool import register_write
 from core.sandbox.permissions.models import Grant
@@ -249,7 +247,7 @@ def test_local_physical_path_is_the_canonical_identity_later_opened():
     assert physical == str(outside / "secret.txt")
 
 
-async def test_local_write_detects_existing_host_file_before_overwrite():
+async def test_local_write_overwrites_existing_host_file_without_prior_read():
     with TemporaryDirectory() as tmp:
         target = Path(tmp) / "existing.txt"
         target.write_text("original", encoding="utf-8")
@@ -258,11 +256,10 @@ async def test_local_write_detects_existing_host_file_before_overwrite():
             toolkit,
             chat_id="chat-1",
             user_id="user-1",
-            state=ReadStateTracker(),
-            interactive=False,
         )
         assert toolkit.fn is not None
         provider = MagicMock(name="unused-provider")
+        provider.name = "script_runner"  # local mode always runs on the host script runner
         with (
             patch("core.config.local_mode.local_mode_enabled", return_value=True),
             patch(
@@ -288,8 +285,10 @@ async def test_local_write_detects_existing_host_file_before_overwrite():
             finally:
                 CURRENT_PERMISSION_TICKET.reset(token)
         payload = _payload(response)
-        assert "必须先 Read" in payload["error"]
-        assert target.read_text(encoding="utf-8") == "original"
+        assert payload["ok"] is True
+        assert payload["type"] == "update"
+        assert "-original" in payload["diff"] and "+replacement" in payload["diff"]
+        assert target.read_text(encoding="utf-8") == "replacement"
         provider.get_file.assert_not_called()
 
 
@@ -302,8 +301,6 @@ async def test_remote_write_treats_missing_sandbox_file_as_a_create():
         toolkit,
         chat_id="chat-remote-write",
         user_id="user-1",
-        state=ReadStateTracker(),
-        interactive=False,
     )
     assert toolkit.fn is not None
 
@@ -335,24 +332,11 @@ async def test_remote_edit_handles_a_sandbox_read_error_without_a_scope_error():
     from core.sandbox import SandboxError
 
     path = "/workspace/scratch/existing.txt"
-    original = b"before"
-    state = ReadStateTracker()
-    state.record(
-        path,
-        ReadEntry(
-            content=original,
-            sha256=hashlib.sha256(original).hexdigest(),
-            offset=None,
-            limit=None,
-        ),
-    )
     toolkit = _Toolkit()
     register_edit(
         toolkit,
         chat_id="chat-remote-edit",
         user_id="user-1",
-        state=state,
-        interactive=False,
     )
     assert toolkit.fn is not None
 

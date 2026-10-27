@@ -98,7 +98,6 @@ async def test_write_permission_and_bash_share_the_same_file(tmp_path, monkeypat
     from core.config import local_mode
     from core.sandbox.runner import server
     from core.llm.tools.write_tool import register_write
-    from core.llm.tools._state import ReadStateTracker
     from core.sandbox.permissions.dispatch_models import CURRENT_PERMISSION_TICKET
     from core.sandbox.permissions.models import Grant
     from core.sandbox.permissions.models import Policy
@@ -112,7 +111,7 @@ async def test_write_permission_and_bash_share_the_same_file(tmp_path, monkeypat
     from core.sandbox.providers.script_runner.provider import ScriptRunnerProvider
     monkeypatch.setattr("core.sandbox.get_sandbox_provider",lambda:ScriptRunnerProvider())
     toolkit=_Toolkit()
-    register_write(toolkit,chat_id="chat-1",user_id="user-1",state=ReadStateTracker(),interactive=False)
+    register_write(toolkit,chat_id="chat-1",user_id="user-1")
     real_path=str(server._session_workspace("chat-1",create=True)/"site"/"index.html")
     outcome=await _service("Write",interactive=False).authorize(_call("Write",{"file_path":real_path,"content":"same-file"}))
     assert outcome.proceed

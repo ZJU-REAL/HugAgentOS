@@ -344,3 +344,37 @@ def test_activity_tracker_withdraws_ready_file_when_shutdown_begins():
     tracker = cli._ActivityTracker(app, on_shutdown=lambda: withdrawn.append(1))
     asyncio.run(tracker({"type": "lifespan"}, receive, None))
     assert seen == [("lifespan.startup", 0), ("lifespan.shutdown", 1)]
+
+
+def test_engine_startup_failure_does_not_use_onboarding_exit_code(tmp_path):
+    # Exercise the process exit seen by the Node client, including cmd_engine's
+    # preflight/lock and uvicorn's lifespan-failure SystemExit(3).
+    script = textwrap.dedent("""
+        import sys, cli, uvicorn
+        from types import SimpleNamespace
+        import hugagent_cli.schema
+        sys.modules["api.app"] = SimpleNamespace(app=object())
+        class FailedServer:
+            started = False
+            def __init__(self, config): pass
+            def run(self, **kwargs): raise SystemExit(3)
+        cli._is_initialized = lambda: True
+        cli.apply_local_env = lambda port: None
+        hugagent_cli.schema.ensure_schema_and_seed = lambda: None
+        cli.bootstrap_default_plugins_if_needed = lambda: None
+        cli._engine_admin_user_id = lambda: "test-admin"
+        cli.issue_engine_token = lambda user_id: "fixture-token"
+        uvicorn.Config = lambda *args, **kwargs: None
+        uvicorn.Server = FailedServer
+        cli.threading.Thread = lambda **kwargs: SimpleNamespace(start=lambda: None)
+        sys.exit(cli.main(["engine"]))
+    """)
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        env={**os.environ, "HUGAGENT_HOME": str(tmp_path), "PYTHONPATH": str(BACKEND)},
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 1, result.stderr
+    assert result.returncode != cli.EXIT_NOT_INITIALIZED
+    assert not (tmp_path / "engine.json").exists()
+    assert json.loads(result.stderr) == {"error": "startup_failed"}

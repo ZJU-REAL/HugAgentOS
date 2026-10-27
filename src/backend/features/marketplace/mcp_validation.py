@@ -8,6 +8,7 @@ from features.marketplace.models import McpMarketItem, McpMarketSubmission, McpM
 from core.infra.exceptions import BadRequestError
 from core.capabilities.mcp.management import auth_schema_from_headers
 from sqlalchemy.orm import Session
+from features.marketplace import mcp_oauth_clients
 from features.marketplace import mcp_state
 
 def validate_category(category: str) -> str:
@@ -37,8 +38,8 @@ def normalize_auth_config(
         method["type"] = method_type
         method["label"] = str(method.get("label") or method_type)
         if method_type == "oauth2":
-            method["client_registration"] = str(
-                method.get("client_registration") or "dynamic_or_manual"
+            method["client_registration"] = mcp_oauth_clients.normalize_registration(
+                method.get("client_registration")
             )
             method["scopes"] = [str(scope) for scope in (method.get("scopes") or []) if str(scope)]
         normalized.append(method)
@@ -67,6 +68,18 @@ def endpoint_identity(url: str) -> tuple[str, str, int | None]:
     scheme = (parsed.scheme or "").lower()
     default_port = 443 if scheme == "https" else 80 if scheme == "http" else None
     return scheme, (parsed.hostname or "").lower(), parsed.port or default_port
+
+
+def self_service_private_network_allowed() -> bool:
+    """Whether this trusted private deployment lets user-supplied endpoints reach its LAN.
+
+    The same switch that admits a user's private MCP must also admit its
+    marketplace submission, review, installs and revalidation; otherwise an
+    intranet MCP can be connected but never listed.
+    """
+    from core.config.settings import settings
+
+    return settings.server.mcp_self_service_allow_private_network
 
 
 def installs_admin_published_endpoint(

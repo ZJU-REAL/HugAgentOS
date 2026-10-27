@@ -29,7 +29,8 @@ def prepare_upload(db, *, key, user_id, scope, folder_id, filename, content, cha
     existing = db.query(Artifact).filter(Artifact.artifact_id == artifact_id).first()
     moved = existing is not None and (
         not upload_target_matches(existing, scope, folder_id)
-        or existing.filename != filename
+        # A renamed upload ("a (1).pdf") records its stored name; a later user rename still counts as moved.
+        or existing.filename != (existing.extra_data or {}).get("upload_name", filename)
         or existing.storage_key != (existing.extra_data or {}).get("upload_storage_key")
     )
     if existing and (

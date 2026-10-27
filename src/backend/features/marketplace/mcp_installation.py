@@ -136,7 +136,8 @@ def _plan_installation(
         "runtime_url": runtime_url,
         "allow_private_network": mcp_validation.installs_admin_published_endpoint(
             item, version, runtime_url
-        ),
+        )
+        or mcp_validation.self_service_private_network_allowed(),
         "item_id": item.slug,
         "version_id": version.version_id,
         "install_id": existing.install_id if existing else None,

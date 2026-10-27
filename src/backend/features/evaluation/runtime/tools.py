@@ -17,7 +17,6 @@ _DESCRIPTIONS = {
 
 
 def scoped_tool(tool, scope):
-    from agentscope.tool import FunctionTool
     from core.llm.factory.tools.definitions import function_tool
     func = tool._func
     original_signature = signature(func)
@@ -46,7 +45,7 @@ def scoped_tool(tool, scope):
 def register_evaluation_tools(toolkit, scope, *, read_only=False, allow_bash=True, vision_mode="none"):
     from core.config.local_mode import local_mode_enabled
     from core.llm.tools import (
-        ReadStateTracker, register_read, register_write,
+        register_read, register_write,
         register_edit, register_glob, register_grep,
     )
     if local_mode_enabled():
@@ -61,13 +60,12 @@ def register_evaluation_tools(toolkit, scope, *, read_only=False, allow_bash=Tru
         if not read_only and allow_bash:
             from features.evaluation.runtime.process_tools import register_evaluation_process_tools
             register_evaluation_process_tools(collector, scope)
-        state = ReadStateTracker()
-        register_read(collector, **common, state=state, vision_mode=vision_mode)
+        register_read(collector, **common, vision_mode=vision_mode)
         register_glob(collector, **common)
         register_grep(collector, **common)
         if not read_only:
-            register_write(collector, **common, state=state, interactive=False)
-            register_edit(collector, **common, state=state, interactive=False)
+            register_write(collector, **common)
+            register_edit(collector, **common)
     finally:
         CURRENT_EVALUATION_SCOPE.reset(token)
 

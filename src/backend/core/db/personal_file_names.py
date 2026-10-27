@@ -62,6 +62,27 @@ def check_name(db, user_id, folder_id, filename, exclude_id=None, exclude_folder
             raise conflict()
 
 
+def available_name(db, user_id, folder_id, filename, limit=1000, taken=None):
+    """First free name in the folder: ``a.pdf``, then ``a (1).pdf``, ``a (2).pdf``…
+
+    ``taken`` also rejects names already used outside the artifact table (the My Space directory).
+    """
+    stem, dot, ext = filename.rpartition(".")
+    if not stem:  # no extension, or a dotfile such as ".env"
+        stem, dot, ext = filename, "", ""
+    for index in range(limit):
+        candidate = filename if index == 0 else f"{stem} ({index}){dot}{ext}"
+        try:
+            check_name(db, user_id, folder_id, candidate)
+            if taken and taken(candidate):
+                continue
+            return candidate
+        except HTTPException as error:
+            if error.status_code != 409:
+                raise
+    raise conflict()
+
+
 @event.listens_for(Session, "before_flush")
 def validate_personal_filenames(db, flush_context, instances):
     from core.db.models import Artifact, UserFolder, UserShadow

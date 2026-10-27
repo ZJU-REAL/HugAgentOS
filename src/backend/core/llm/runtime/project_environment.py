@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from threading import Lock
 
@@ -166,7 +167,18 @@ async def bind_project_environment(request):
 
 def validate_project_environment(request):
     """Current authorization may narrow a run; project setting edits cannot widen it."""
-    if request.project_environment is not None and _resolve(request) != request.project_environment:
+    if request.project_environment is None:
+        return
+    current = _resolve(request)
+    if current != request.project_environment:
+        removed = {
+            name: sorted(getattr(request.project_environment, name) - getattr(current, name, frozenset()))
+            for name in FIELDS
+        }
+        logging.getLogger(__name__).warning(
+            "project_environment_revoked run_id=%s removed=%s project_available=%s",
+            getattr(request, "run_id", None), removed, current is not None,
+        )
         raise HTTPException(403, "项目资源权限已变更，本轮已暂停，请重新发起对话")
 
 

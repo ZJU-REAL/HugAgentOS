@@ -9,7 +9,7 @@ from typing import Any, Optional
 
 import core.sandbox.sessions.registry as session_registry
 from core.config.settings import settings
-from core.sandbox.errors import SandboxConnectError
+from core.sandbox.errors import SandboxCapacityExhausted, SandboxConnectError
 from core.sandbox.credential_dispatch import credential_mounts
 from core.sandbox.providers.opensandbox.models import SandboxSessionRecord as _Session
 
@@ -78,6 +78,8 @@ class _OpenSandboxCreationMixin:
                 sbx = await self._create_owned_sandbox(snapshot_id=from_snapshot_id, **common_kwargs)
             else:
                 sbx = await self._create_owned_sandbox(self._image, **common_kwargs)
+        except SandboxCapacityExhausted:
+            raise
         except Exception as e:
             raise SandboxConnectError(f"无法创建 OpenSandbox 持久会话沙盒: {e}") from e
 
@@ -116,6 +118,8 @@ class _OpenSandboxCreationMixin:
                 volumes=skills_vols or None,
                 metadata=_pool_metadata("light"),
             )
+        except SandboxCapacityExhausted:
+            raise
         except Exception as e:
             raise SandboxConnectError(f"无法创建 OpenSandbox 轻量沙盒: {e}") from e
         return sbx
@@ -233,6 +237,7 @@ class _OpenSandboxCreationMixin:
             ) as allowed:
                 if allowed:
                     await sbx.kill()
+                    await self._sandbox_admission().release(sandbox_id)
                 else:
                     logger.info("[opensandbox] retained sandbox=%s owned elsewhere", sandbox_id)
         except Exception as exc:
@@ -374,15 +379,21 @@ class _OpenSandboxCreationMixin:
             last_active_ts=time.monotonic(),
         )
 
+    def _sandbox_admission(self):
+        from core.sandbox.providers.opensandbox.admission import opensandbox_admission
+
+        return opensandbox_admission()
+
     async def _create_owned_sandbox(self, *args, **kwargs):
         """Prevent startup adoption while a new sandbox is being delivered."""
         from opensandbox import Sandbox
 
         async with session_registry.creation_guard() as token:
-            kwargs["metadata"] = {
-                **(kwargs.get("metadata") or {}), "hugagent-creation-token": token,
-            }
-            sandbox = await Sandbox.create(*args, **kwargs)
+            metadata = {**(kwargs.pop("metadata", None) or {}), "hugagent-creation-token": token}
+            sandbox = await self._sandbox_admission().create(
+                lambda admitted: Sandbox.create(*args, metadata=admitted, **kwargs),
+                metadata=metadata,
+            )
             await self._repoint_execd_direct(sandbox)
             if not await self._track_sandbox(str(sandbox.id)):
                 raise SandboxConnectError("sandbox ownership was acquired elsewhere")

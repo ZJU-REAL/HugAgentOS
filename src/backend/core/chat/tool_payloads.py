@@ -118,8 +118,6 @@ def _build_read_tool_payload(tool_args: Any, result: Any) -> Dict[str, Any]:
         "start_line",
         "end_line",
         "truncated",
-        "parsed_text",
-        "recovered_from_artifact",
         "persistent",
         "physical_path",
     ):

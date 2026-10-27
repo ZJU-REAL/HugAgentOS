@@ -35,6 +35,9 @@ class SessionTool(ToolBase):
         self.resource, self.mcp_name, self.timeout = resource, resource.name, timeout
 
     def _require_open(self):
+        if self.resource.client_session_lease:
+            from core.harness.registry.client_sessions import require
+            require(*self.resource.client_session_lease)
         if self.resource.closed or self.resource.session.stopped:
             raise RuntimeError("MCP run lease is closed")
 

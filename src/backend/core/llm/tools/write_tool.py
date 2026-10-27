@@ -1,10 +1,9 @@
-"""Read-checked mutations of files in the active sandbox."""
+"""Create or overwrite files in the active sandbox."""
 
 from __future__ import annotations
 from core.llm.factory.tools.definitions import function_tool
 
 import difflib
-import hashlib
 import logging
 from typing import Optional
 
@@ -20,7 +19,7 @@ from ._common import (
     register_file_artifact,
 )
 from core.sandbox.workspace.resolution import basename, is_myspace_physical, space_metadata, WORKSPACE_ROOT, parent_dir, to_physical_path, validate_project_scope_path, validate_workspace_path
-from ._state import ReadEntry, ReadStateTracker
+from ._mutation_queue import file_mutation_lock
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +47,6 @@ def register_write(
     chat_id: Optional[str] = None,
     sandbox_session_id: Optional[str] = None,
     user_id: Optional[str] = None,
-    state: ReadStateTracker,
-    interactive: bool = True,
     project_folder_name: Optional[str] = None,
     scope: Optional[ProjectScope] = None,
 ) -> None:
@@ -110,155 +107,92 @@ def register_write(
 
         _is_local = _local_on()
 
-        # ── Existing-file detection + invariant ─────────────────────────
-        provider = _get_provider()
-        existing: Optional[bytes] = None
-        try:
-            if _is_local:
-                require_local_path_permission(physical, "read")
-                with open(physical, "rb") as _f:
-                    existing = _f.read()
-            else:
-                existing = await provider.get_file(_sess, physical, user_id=user_id)
-        except FileNotFoundError:
-            existing = None
-        except PermissionEnforcementError as exc:
-            return resp_json({"error": str(exc), "blocked": True})
-        except _SE:
-            existing = None
-        except _SCE as exc:
-            return resp_json({"error": f"沙盒连接失败: {exc}"})
-        except OSError as exc:
-            return resp_json({"error": f"读取现有文件失败: {exc}"})
-
-        is_update = existing is not None
-        original_text: Optional[str] = None
-
-        if is_update:
-            entry = state.get(physical)
-            if entry is None:
-                # Also accept that the model Read'd via the logical path
-                entry = state.get(file_path)
-            if entry is None:
-                return resp_json(
-                    {
-                        "error": (
-                            f"{file_path} 已存在，必须先 Read 该文件再 Write "
-                            "（防止覆盖你未读过的内容）。"
-                        ),
-                    }
-                )
-            if entry.parsed_doc:
-                return resp_json(
-                    {
-                        "error": (
-                            f"{file_path} 是二进制文档（docx/pdf/xlsx/pptx），Read "
-                            "返回的是它的**解析文本**，用 Write 覆盖会损坏文档。"
-                            "请用 Bash 调命令行工具（python-docx 等）重新生成。"
-                        ),
-                    }
-                )
-            if entry.offset is not None:
-                return resp_json(
-                    {
-                        "error": (
-                            f"上次 Read({file_path}) 只读了部分内容；Write 之前"
-                            "需要先完整 Read（不传 offset/limit）。"
-                        ),
-                    }
-                )
-            cur_sha = hashlib.sha256(existing).hexdigest()
-            if cur_sha != entry.sha256:
-                state.forget(physical)
-                state.forget(file_path)
-                return resp_json(
-                    {
-                        "error": (
-                            f"{file_path} 在 Read 之后被外部修改了，" "请先重新 Read 再 Write。"
-                        ),
-                    }
-                )
+        async with file_mutation_lock(physical):
+            # ── Existing-file detection ─────────────────────────────────────
+            provider = _get_provider()
+            existing: Optional[bytes] = None
             try:
-                original_text = existing.decode("utf-8")
-            except UnicodeDecodeError:
-                original_text = None
+                if _is_local:
+                    require_local_path_permission(physical, "read")
+                    with open(physical, "rb") as _f:
+                        existing = _f.read()
+                else:
+                    existing = await provider.get_file(_sess, physical, user_id=user_id)
+            except FileNotFoundError:
+                existing = None
+            except PermissionEnforcementError as exc:
+                return resp_json({"error": str(exc), "blocked": True})
+            except _SE:
+                existing = None
+            except _SCE as exc:
+                return resp_json({"error": f"沙盒连接失败: {exc}"})
+            except OSError as exc:
+                return resp_json({"error": f"读取现有文件失败: {exc}"})
 
-        # ── Create parent directory (inside the sandbox) ─────────────────
-        pd = parent_dir(physical)
-        # The host-local script runner implements parent creation inside its
-        # native put_file endpoint.  Asking it to run POSIX ``mkdir -p`` first
-        # breaks standard Windows installations before the actual write starts.
-        if pd and pd != WORKSPACE_ROOT and provider.name != "script_runner":
-            mk_exit, _, mk_err = await sandbox_exec_bash(
-                f"mkdir -p {shell_quote(pd)}",
-                chat_id=_sess,
-                user_id=user_id,
-                timeout=10,
-            )
-            if mk_exit != 0:
-                return resp_json(
-                    {
-                        "error": f"创建父目录 {pd} 失败: {mk_err}",
-                    }
+            is_update = existing is not None
+            original_text: Optional[str] = None
+
+            # No read-before-overwrite precondition (aligned with pi-mono); the existing
+            # content is only read to report a diff.
+            if is_update:
+                try:
+                    original_text = existing.decode("utf-8")
+                except UnicodeDecodeError:
+                    original_text = None
+
+            # ── Create parent directory (inside the sandbox) ─────────────────
+            pd = parent_dir(physical)
+            # The host-local script runner implements parent creation inside its
+            # native put_file endpoint.  Asking it to run POSIX ``mkdir -p`` first
+            # breaks standard Windows installations before the actual write starts.
+            if pd and pd != WORKSPACE_ROOT and provider.name != "script_runner":
+                mk_exit, _, mk_err = await sandbox_exec_bash(
+                    f"mkdir -p {shell_quote(pd)}",
+                    chat_id=_sess,
+                    user_id=user_id,
+                    timeout=10,
                 )
+                if mk_exit != 0:
+                    return resp_json(
+                        {
+                            "error": f"创建父目录 {pd} 失败: {mk_err}",
+                        }
+                    )
 
-        # ── Write into the sandbox ─────────────────────────────────────
-        new_bytes = content.encode("utf-8")
-        # Local-mode write-back snapshot (ticket #08): back up the real file
-        # before overwriting it, so the user can roll back. No-op on cloud/web.
-        try:
-            from core.harness.registry.local_files import maybe_snapshot_local
+            # ── Write into the sandbox ─────────────────────────────────────
+            new_bytes = content.encode("utf-8")
+            # Local-mode write-back snapshot (ticket #08): back up the real file
+            # before overwriting it, so the user can roll back. No-op on cloud/web.
+            try:
+                from core.harness.registry.local_files import maybe_snapshot_local
 
-            maybe_snapshot_local(physical)
-        except Exception as fallback_error:
-            from core.infra.failures import record_best_effort_failure
-            record_best_effort_failure('core.llm.tools.write_tool:Write', fallback_error)
-        try:
-            if _is_local:
-                # Local desktop mode: the backend runs on the host, so write the
-                # real file directly. This reaches the user's actual folders
-                # (incl. real paths outside the sandbox workspace root), which the
-                # sidecar put_file refuses.
-                import os as _os
+                maybe_snapshot_local(physical)
+            except Exception as fallback_error:
+                from core.infra.failures import record_best_effort_failure
+                record_best_effort_failure('core.llm.tools.write_tool:Write', fallback_error)
+            try:
+                if _is_local:
+                    # Local desktop mode: the backend runs on the host, so write the
+                    # real file directly. This reaches the user's actual folders
+                    # (incl. real paths outside the sandbox workspace root), which the
+                    # sidecar put_file refuses.
+                    import os as _os
 
-                require_local_path_permission(physical, "write")
+                    require_local_path_permission(physical, "write")
 
-                parent = _os.path.dirname(physical)
-                if parent:
-                    _os.makedirs(parent, exist_ok=True)
-                with open(physical, "wb") as _f:
-                    _f.write(new_bytes)
-            else:
-                await provider.put_file(_sess, physical, new_bytes, user_id=user_id)
-        except PermissionEnforcementError as exc:
-            return resp_json({"error": str(exc), "blocked": True})
-        except (_SE, _SCE) as exc:
-            return resp_json({"error": f"写入失败: {exc}"})
-        except OSError as exc:
-            return resp_json({"error": f"写入失败: {exc}"})
-
-        # ── Update state (keyed by logical path so the model can Read/Edit with the same path next time) ──
-        new_sha = hashlib.sha256(new_bytes).hexdigest()
-        state.record(
-            file_path,
-            ReadEntry(
-                content=new_bytes,
-                sha256=new_sha,
-                offset=None,
-                limit=None,
-            ),
-        )
-        # Also record the physical path so a later Read/Edit that mixes logical/physical paths still hits
-        if physical != file_path:
-            state.record(
-                physical,
-                ReadEntry(
-                    content=new_bytes,
-                    sha256=new_sha,
-                    offset=None,
-                    limit=None,
-                ),
-            )
+                    parent = _os.path.dirname(physical)
+                    if parent:
+                        _os.makedirs(parent, exist_ok=True)
+                    with open(physical, "wb") as _f:
+                        _f.write(new_bytes)
+                else:
+                    await provider.put_file(_sess, physical, new_bytes, user_id=user_id)
+            except PermissionEnforcementError as exc:
+                return resp_json({"error": str(exc), "blocked": True})
+            except (_SE, _SCE) as exc:
+                return resp_json({"error": f"写入失败: {exc}"})
+            except OSError as exc:
+                return resp_json({"error": f"写入失败: {exc}"})
 
         artifact_ref: Optional[dict] = None
         needs_registration = bool(register_as_artifact and user_id and not is_persistent)
@@ -321,8 +255,7 @@ def register_write(
         "创建文件或全量覆盖已存在文件。\n\n"
         "写 ``/myspace/<文件夹>/<文件名>`` 时目录层级会映射到我的空间目录树"
         "（缺失文件夹自动建）。\n\n"
-        "**前置**：覆盖现存文件前必须先 ``Read`` 完整读过（不传 offset/limit），否则被拒；"
-        "小修改优先用 ``Edit``（只发 diff，比全量重写省 token）。\n\n"
+        "只用于新文件或整体重写；小修改优先用 ``Edit``（只发改动片段，比全量重写省 token）。\n\n"
         "Args:\n"
         "    file_path (`str`): 文件路径。默认沙盒 ``/workspace/scratch/<name>``；\n"
         "        仅在用户要求存入其「我的空间」时用 ``/myspace/...``。\n"

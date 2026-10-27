@@ -204,6 +204,7 @@ class _OpenSandboxAdoptionMixin:
                     return False
                 logger.info("[opensandbox] kill sandbox %s: %s", sandbox_id, reason)
                 await mgr.kill_sandbox(sandbox_id)
+                await self._sandbox_admission().release(str(sandbox_id))
                 return True
         except Exception as exc:
             logger.warning("[opensandbox] kill sandbox %s failed: %s", sandbox_id, exc)
