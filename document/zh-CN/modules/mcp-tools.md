@@ -280,6 +280,45 @@ MCP Server 的配置真源是数据库表 `admin_mcp_servers`（ORM：`core/db/m
 
 实现上复用同一张 `admin_mcp_servers` 表：`owner_user_id` = 当前用户实现 owner 隔离，server_id 自动生成 `umcp_<hex>` 防冲突。HTTP Header 值使用 Fernet 加密后落库，运行时才解密。该功能由管理台的 per-user 权限位 `can_add_mcp` 控制（社区版单租户默认即可放开；商业版由组织管理员按用户授予，见[版本说明](../editions/overview.md)）。
 
+### 示例：连接自己的百智云浏览器账户
+
+[百智云浏览器（Baizhi Cloud Browser，也即 CapyBrowser）](https://baizhibrowser.cloud/)
+提供账户校验和云浏览器 Session / Profile 管理等远程 MCP 工具。已有百智账户、希望在
+个人对话中管理自己的云浏览器资源时，可复用私有 MCP 入口，无需安装额外插件或修改后端。
+云运行可能产生独立于模型的服务费用。
+
+在能力中心选择添加连接器；若没有该入口，请先确认管理员已授予 `can_add_mcp` 权限。
+填写名称「百智云浏览器」、类型 `Streamable HTTP`、服务地址
+`https://capybrowser.app.baizhi.cloud/mcp`，鉴权方式选「请求头 / Token」。
+请求头文本框填写一整行：
+
+```text
+Authorization=Bearer <YOUR_CAPY_API_KEY>
+```
+
+将 `<YOUR_CAPY_API_KEY>` 替换为自己的完整 Key。这里使用 `=` 分隔请求头名称和值，
+`Bearer` 后有一个空格；不要只填 `Authorization=Bearer`。文本框不会展开环境变量。
+Key 会经你部署的 HugAgentOS 后端发送给百智云服务，私有连接不代表凭据只保存在本机。
+
+添加时系统会试连并发现工具，失败不会保存该连接。添加成功后，在个人会话中选择该能力，发送：
+
+> 只调用一次 browser_auth_check，仅报告校验成功或失败，不复述账户详情，不创建浏览器运行。
+
+连接仅归当前 HugAgentOS 用户所有。不同用户应分别连接自己的百智账户；应用用户隔离
+不会替代百智账户授权，也不会将同一 Key 拆成独立云账户。若后续需要创建运行，应先确认
+账户、费用及本次操作范围；只有管理员持有的可信 MCP 配置可以设置工具确认策略，不能
+假定远端工具的 annotations 自动提供确认保护。
+
+此 MCP 管理云资源；页面导航、点击等操作需要另接兼容的 CDP 客户端。它不会自动把
+HugAgentOS 的共享 Chromium 插件切换成云浏览器。完整使用方式见
+[服务安装与生命周期说明](https://capybrowser.app.baizhi.cloud/docs/installation.md)。
+删除私有连接、关闭聊天或退出客户端均不会自动停止云运行。移除前只停止自己为本次任务
+创建的运行，确认状态为 `released`；停止失败时保留运行标识并在百智控制台处理。
+仅做上述账户校验不会创建云运行。
+
+相关接入材料由 [ctcbyzx](https://github.com/ctcbyzx/baizhi-cloud-browser) 维护；
+接入问题可到[反馈入口](https://github.com/ctcbyzx/baizhi-cloud-browser/issues)报告。
+
 ## MCP 市场
 
 系统级市场治理入口位于 `/config → MCP 工具`。与技能管理一致，MCP 服务列表上方直接提供「MCP 市场」和「上架审核」两个按钮并以弹窗承载，不再增加第二层管理页签；`/admin` 内容运营台也不提供重复入口。这里可以上架和全局安装市场条目、审核用户申请、设置可见范围、复检、封禁和移除条目，使用 `CONFIG_TOKEN` 或 `can_system_config` 权限。
