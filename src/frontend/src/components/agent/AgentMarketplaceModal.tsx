@@ -7,11 +7,12 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Modal, Input, Tag, Button, Empty, Spin, Typography, Pagination, Tooltip, Popconfirm, Switch, message } from 'antd';
 import { SearchOutlined, FireOutlined, CheckOutlined, LeftOutlined, DeleteOutlined, ApiOutlined, ToolOutlined, AppstoreOutlined, EyeOutlined } from '@ant-design/icons';
 import { t } from '../../i18n';
+import { useIsMobileViewport } from '../../hooks/useIsMobileViewport';
 import type { MarketplaceAgent, MarketplaceAgentDetail, AgentMarketplaceFetchers, MarketVisibilityValue } from '../../types';
 import { mdToHtml } from '../../utils/markdown';
 import { SPRING, staggerStyle } from '../../utils/motionTokens';
 import { getOntologyBuildFailure, type OntologyBuildFailure } from '../../utils/apiError';
-import { OntologyBuildValidationModal, VisibilityScopeModal } from '../common';
+import { OntologyBuildValidationModal, VisibilityScopeModal, ContinuousLoadSentinel } from '../common';
 // Sub-agent marketplace modal: browse preset/community sub-agents, view their prompts and capability bindings, and install (clone) them.
 // The transport (user / admin) is injected via fetchers, reusing the skill marketplace's jx-mk-* styles.
 const MARKET_PAGE_SIZE = 12;
@@ -239,9 +240,11 @@ export function AgentMarketplaceModal({
       return `${it.name} ${it.summary} ${(it.tags || []).join(' ')} ${it.author}`.toLowerCase().includes(q);
     });
   }, [items, category, q]);
+  // 手机上没有页码条：列表从头连续增长，滚到底部再追加（见 ContinuousLoadSentinel）。
+  const isMobile = useIsMobileViewport();
   const paged = useMemo(
-    () => filtered.slice((page - 1) * MARKET_PAGE_SIZE, page * MARKET_PAGE_SIZE),
-    [filtered, page],
+    () => filtered.slice(isMobile ? 0 : (page - 1) * MARKET_PAGE_SIZE, page * MARKET_PAGE_SIZE),
+    [filtered, page, isMobile],
   );
   useEffect(() => {
     const maxPage = Math.max(1, Math.ceil(filtered.length / MARKET_PAGE_SIZE));
@@ -348,7 +351,7 @@ export function AgentMarketplaceModal({
           )}
           {fetchers.setEnabled && <MarketBatchToolbar selection={selection} />}
             <Spin spinning={loading}>
-            <div className="jx-mk-grid jx-anim-stagger" style={{ '--stagger-step': '30ms' } as React.CSSProperties} key={`agentmk-${page}-${category}`}>
+            <div className="jx-mk-grid jx-anim-stagger" style={{ '--stagger-step': '30ms' } as React.CSSProperties} key={`agentmk-${isMobile ? 0 : page}-${category}`}>
               {paged.map((agent, idx) => (
                 <div key={agent.slug} className="jx-mk-card jx-card-lift" style={staggerStyle(idx)} onClick={() => void openDetail(agent.slug)}>
                   <div className="jx-mk-cardTop">
@@ -384,7 +387,9 @@ export function AgentMarketplaceModal({
             {!loading && filtered.length === 0 && (
               <Empty className="jx-anim-fadeIn" description={t('没有匹配的智能体')} style={{ padding: '32px 0' }} />
             )}
-            {filtered.length > MARKET_PAGE_SIZE && (
+            {isMobile ? (
+        <ContinuousLoadSentinel hasMore={page * MARKET_PAGE_SIZE < filtered.length} count={paged.length} onMore={() => setPage((current) => current + 1)} />
+      ) : filtered.length > MARKET_PAGE_SIZE && (
               <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16 }}>
                 <Pagination
                   current={page}

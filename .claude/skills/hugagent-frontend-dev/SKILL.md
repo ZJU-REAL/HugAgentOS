@@ -85,8 +85,7 @@ src/frontend/src/
 │   ├── useStreaming.ts        # SSE 流式处理、文件上传、发送逻辑、断线续播
 │   ├── usePlanMode.ts         # Plan 模式
 │   ├── usePageConfig.ts       # 页面配置
-│   ├── useDelayedFlag.ts      # 延迟标志位
-│   └── useStallDetector.ts    # 流式停滞检测
+│   └── useDelayedFlag.ts      # 延迟标志位
 │
 ├── stores/                    # 18 个 Zustand Store
 │   ├── authStore.ts           # 认证状态

@@ -183,6 +183,8 @@ export const PERSONAL_AGENT_DICT: Record<string, string> = {
   '提示': 'Notice',
   '平台规则': 'Platform rules',
   '工作区尚未创建': 'The workspace has not been created yet',
+  '工作区文件列表加载失败': "Couldn't load the workspace file list",
+  '文件加载失败': "Couldn't load the file",
   '复制完整提示词': 'Copy full prompt',
   '放弃未保存的修改？': 'Discard unsaved changes?',
   '二进制文件不支持预览': 'Binary files cannot be previewed',

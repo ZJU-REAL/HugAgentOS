@@ -18,7 +18,7 @@ useCanvasStore.getState().openCanvas(file);
 window.canvas=useCanvasStore;
 function Fixture(){const guard=useCanvasGuard();return <><button onClick={()=>guard(()=>useCanvasStore.getState().openCanvas(file))}>Reopen</button><button onClick={()=>guard(()=>useCanvasStore.getState().openCanvas({...file,name:'code.go',mime_type:'application/octet-stream'}))}>Open Go</button><button onClick={()=>guard(()=>useCanvasStore.getState().openCanvas({...file,name:'note.txt',mime_type:'text/plain'}))}>Open TXT</button><button onClick={()=>guard(()=>useCanvasStore.getState().openCanvas({...file,name:'page.html',mime_type:'text/html'}))}>Open HTML</button><CanvasPanel/></>}
 createRoot(document.getElementById('root')).render(<Fixture/>);
-`,resolveDir:process.cwd(),loader:'tsx'},outfile:resolve(output,'fixture.js'),bundle:true,format:'esm',jsx:'automatic',define:{'import.meta.env':'{}'},external:['/loader.gif','/loader-done.png'],loader:{'.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl'}});
+`,resolveDir:process.cwd(),loader:'tsx'},outfile:resolve(output,'fixture.js'),bundle:true,format:'esm',jsx:'automatic',define:{'import.meta.env':'{}'},loader:{'.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl'}});
 const browser = await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE});
 try {
  const page=await browser.newPage();

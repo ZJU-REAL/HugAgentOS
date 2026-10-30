@@ -400,11 +400,9 @@ def create_agent(
     }
 
 def _friendly_error(action: str, exc: Exception) -> str:
-    """把 service 层异常转成人话。本体校验失败要说清楚是本体没过，而不是甩一句失败。"""
+    """把 service 层异常转成人话。"""
     text = str(exc) or exc.__class__.__name__
     low = text.lower()
-    if "ontology" in low or "本体" in text:
-        return f"❌ {action}失败：没通过本体校验——{text}。请按提示补齐名称/描述/正文或本体标签后重试。"
     if isinstance(exc, PermissionError):
         return f"❌ {action}失败：只能操作你自己的子智能体。"
     if isinstance(exc, LookupError):

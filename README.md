@@ -192,8 +192,6 @@ quietly learn the wrong things.
 - **Dreaming for Personal Agent**: a daily job consolidates logs into `MEMORY.md` /
   `USER.md`, with `DREAMS.md` recording sources, deduplication and conflicts; only what
   you explicitly asked it to remember is promoted automatically.
-- **Traceable ontology evolution**: approvals, rejections, evidence and outcomes are
-  recorded and organized into versioned ontology proposals that apply after human review.
 
 ## 🧰 More harness capabilities
 
@@ -205,7 +203,6 @@ quietly learn the wrong things.
 | 🔧 **MCP, Skills and plugins** | Built-in web search, page fetching, knowledge retrieval, charts and automation tools; an MCP marketplace, private MCP servers, Agent Skills and plugins |
 | 🧪 **Sandbox and artifacts** | Run code in OpenSandbox or a local subprocess sandbox, producing charts, reports, Office files, web pages and data canvases |
 | 📚 **Private knowledge-base RAG** | Document chunking, hybrid vector and keyword retrieval, optional reranking |
-| 🛡️ **Optional ontology control plane** | With a Domain Pack, deterministic rule checks run before tool execution and high-risk answers are reviewed by an independent reviewer or committee; switched off, the original flow is unchanged |
 | 🔌 **Replaceable models** | Connect cloud or local OpenAI-compatible models through one model service; reviewer, planner, memory and other roles can each use their own model |
 
 ## Quick start
@@ -267,7 +264,7 @@ troubleshooting.
 ## Architecture
 
 HugAgentOS separates user channels, agent workflows, reusable capability engines,
-ontology contracts, data governance, and infrastructure into clear layers. Durable
+data governance, and infrastructure into clear layers. Durable
 runs, leases and recovery run through the execution path, while security and
 platform governance span the complete stack.
 
@@ -327,7 +324,6 @@ feature boundary and upgrade path.
 | Memory and self-evolution | [Memory](./document/en/modules/memory.md) | [记忆系统](./document/zh-CN/modules/memory.md) |
 | Configure a deployment | [Deployment](./document/en/deployment/README.md) | [部署指南](./document/zh-CN/deployment/README.md) |
 | Explore the system design | [Architecture](./document/en/architecture/overview.md) | [架构总览](./document/zh-CN/architecture/overview.md) |
-| The ontology control plane | [Domain ontology quickstart](./document/en/getting-started/domain-ontology-quickstart.md) | [快速构建领域本体](./document/zh-CN/getting-started/domain-ontology-quickstart.md) |
 | Build backend or frontend features | [Development](./document/en/README.md#development) | [开发指南](./document/zh-CN/README.md#开发指南) |
 
 Start from [document/README.md](./document/README.md) to browse every guide.

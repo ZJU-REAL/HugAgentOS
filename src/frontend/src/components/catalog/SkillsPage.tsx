@@ -5,6 +5,8 @@ import { useCallback,useEffect,useMemo,useRef,useState } from 'react';
 import { deleteMySkill,uploadMySkill } from '../../api';
 import { usePanelHeader } from '../../hooks/usePageConfig';
 import { t } from '../../i18n';
+import { useIsMobileViewport } from '../../hooks/useIsMobileViewport';
+import { ContinuousLoadSentinel } from '../common';
 import { useAuthStore,useCatalogStore } from '../../stores';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import { useDesktopCapabilityStore } from '../../stores/desktopCapabilityStore';
@@ -106,13 +108,15 @@ export function SkillsPage() {
   const totalSkillsCount = allSkills.length;
 
   // Pagination slice (fall back to the first page when the page number is out of range)
+  // 手机上没有页码条：列表从头连续增长，滚到底部再追加（见 ContinuousLoadSentinel）。
+  const isMobile = useIsMobileViewport();
   const pagedSkills = useMemo(
-    () => filteredSkills.slice((skillsPage - 1) * SKILLS_PAGE_SIZE, skillsPage * SKILLS_PAGE_SIZE),
-    [filteredSkills, skillsPage],
+    () => filteredSkills.slice(isMobile ? 0 : (skillsPage - 1) * SKILLS_PAGE_SIZE, skillsPage * SKILLS_PAGE_SIZE),
+    [filteredSkills, skillsPage, isMobile],
   );
   const pagedAgents = useMemo(
-    () => filteredAgents.slice((agentsPage - 1) * SKILLS_PAGE_SIZE, agentsPage * SKILLS_PAGE_SIZE),
-    [filteredAgents, agentsPage],
+    () => filteredAgents.slice(isMobile ? 0 : (agentsPage - 1) * SKILLS_PAGE_SIZE, agentsPage * SKILLS_PAGE_SIZE),
+    [filteredAgents, agentsPage, isMobile],
   );
 
   // Pull back to the first page when search or data changes push the page number out of range
@@ -232,7 +236,7 @@ export function SkillsPage() {
       <div
         className="jx-sk-grid jx-anim-stagger"
         style={{ '--stagger-step': '30ms' } as React.CSSProperties}
-        key={`sk-${panelEntryNonce}-${skillsPage}`}
+        key={`sk-${panelEntryNonce}-${isMobile ? 0 : skillsPage}`}
       >
         {pagedSkills.map((item, idx) => (
           <div
@@ -352,7 +356,9 @@ export function SkillsPage() {
         </div>
       )}
 
-      {filteredSkills.length > SKILLS_PAGE_SIZE && (
+      {isMobile ? (
+        <ContinuousLoadSentinel hasMore={skillsPage * SKILLS_PAGE_SIZE < filteredSkills.length} count={pagedSkills.length} onMore={() => setSkillsPage((current) => current + 1)} />
+      ) : filteredSkills.length > SKILLS_PAGE_SIZE && (
         <div className="jx-sk-pagination">
           <Pagination
             current={skillsPage}
@@ -371,7 +377,7 @@ export function SkillsPage() {
           <div
             className="jx-sk-grid jx-sk-grid--agents jx-anim-stagger"
             style={{ '--stagger-step': '30ms' } as React.CSSProperties}
-            key={`ag-${panelEntryNonce}-${agentsPage}`}
+            key={`ag-${panelEntryNonce}-${isMobile ? 0 : agentsPage}`}
           >
             {pagedAgents.map((item, idx) => (
               <div
@@ -396,7 +402,9 @@ export function SkillsPage() {
             ))}
           </div>
 
-          {filteredAgents.length > SKILLS_PAGE_SIZE && (
+          {isMobile ? (
+        <ContinuousLoadSentinel hasMore={agentsPage * SKILLS_PAGE_SIZE < filteredAgents.length} count={pagedAgents.length} onMore={() => setAgentsPage((current) => current + 1)} />
+      ) : filteredAgents.length > SKILLS_PAGE_SIZE && (
             <div className="jx-sk-pagination">
               <Pagination
                 current={agentsPage}

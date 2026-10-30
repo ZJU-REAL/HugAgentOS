@@ -34,6 +34,9 @@ class SandboxSettings:
     idle_ttl_s: int = field(
         default_factory=lambda: max(60, _int(_env("SANDBOX_IDLE_TTL_S", "3600"), 3600))
     )
+    # Per-sandbox resource limits for Kubernetes workers (e.g. "1", "500m" / "1Gi").
+    cpu: str = field(default_factory=lambda: _env("SANDBOX_CPU", "").strip())
+    memory: str = field(default_factory=lambda: _env("SANDBOX_MEMORY", "").strip())
     artifact_max_bytes: int = field(
         default_factory=lambda: max(
             1,
@@ -83,12 +86,6 @@ class SandboxSettings:
     )
     opensandbox_pool_jupyter_max_idle: int = field(
         default_factory=lambda: _int(_env("OPENSANDBOX_POOL_JUPYTER_MAX_IDLE", "3"), 3)
-    )
-    opensandbox_pool_light_min_idle: int = field(
-        default_factory=lambda: _int(_env("OPENSANDBOX_POOL_LIGHT_MIN_IDLE", "2"), 2)
-    )
-    opensandbox_pool_light_max_idle: int = field(
-        default_factory=lambda: _int(_env("OPENSANDBOX_POOL_LIGHT_MAX_IDLE", "5"), 5)
     )
     # Deployment-wide sandbox capacity, enforced by the backend admission ledger
     # (core/sandbox/providers/opensandbox/admission.py) across all workers.

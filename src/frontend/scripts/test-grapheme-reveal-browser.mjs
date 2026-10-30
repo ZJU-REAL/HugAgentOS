@@ -33,8 +33,7 @@ function Fixture(){
 createRoot(document.getElementById('root')).render(<Fixture/>);
 `;
 const result=await build({stdin:{contents:fixture,resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,
- format:'esm',jsx:'automatic',outfile:'fixture.js',define:{'import.meta.env':'{}'},external:['/loader.gif','/loader-done.png'],
- loader:{'.css':'css','.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl','.svg':'dataurl'}});
+ format:'esm',jsx:'automatic',outfile:'fixture.js',define:{'import.meta.env':'{}'},loader:{'.css':'css','.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl','.svg':'dataurl'}});
 const js=result.outputFiles.find(f=>f.path.endsWith('.js')).text;
 const css=result.outputFiles.find(f=>f.path.endsWith('.css'))?.text||'';
 let stream;

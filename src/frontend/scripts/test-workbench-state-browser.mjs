@@ -58,12 +58,14 @@ try{
  assert.equal(await page.frameLocator('iframe[title="a"]').getByLabel('Draft').inputValue(),'unsaved draft');
  assert.equal(await page.locator('#loads').textContent(),'2','Reopen must reuse instance');
  await page.getByRole('button',{name:'dirty a',exact:true}).click();
- page.once('dialog',dialog=>dialog.dismiss());
+ const discard=page.getByRole('dialog').filter({hasText:'此页面有未保存内容'});
  await page.getByRole('button',{name:'open c',exact:true}).click();
+ await discard.getByRole('button',{name:'留在此页',exact:true}).click();await discard.waitFor({state:'detached'});
  assert.equal(await page.locator('iframe[title="a"]').isVisible(),true);
  assert.equal(await page.locator('#loads').textContent(),'2');
- page.once('dialog',dialog=>dialog.accept());
- await open('c');await open('d');await open('e');
+ await page.getByRole('button',{name:'open c',exact:true}).click();
+ await discard.getByRole('button',{name:'放弃更改',exact:true}).click();
+ await page.locator('iframe[title="c"]').waitFor({state:'visible'});await open('d');await open('e');
  assert.equal(await page.locator('iframe').count(),3);
  assert.equal(await page.locator('iframe[title="a"]').count(),0);
  assert.equal(await page.locator('iframe[title="b"]').count(),0);

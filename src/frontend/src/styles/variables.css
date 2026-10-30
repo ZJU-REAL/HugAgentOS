@@ -110,6 +110,11 @@
   --color-error-bg:#FFDFDF;
   --color-error-light:#FFF0F0;
 
+  /* ── 语义前景（v2）：语义色当文字时用 *-text，保证对比度 ── */
+  --color-success-text:#067A5E;
+  --color-warning-text:#B45309;
+  --color-error-text:#D92D20;
+
   /* ── Icon 色 ── */
   --color-icon-blue:#126DFF;
   --color-icon-red:#F25149;
@@ -302,6 +307,10 @@
   --color-error-disabled:rgba(255,107,107,.35);
   --color-error-bg:rgba(255,107,107,.16);
   --color-error-light:rgba(255,107,107,.10);
+
+  --color-success-text:#3DDBB0;
+  --color-warning-text:#FFC26B;
+  --color-error-text:#FF8A80;
 
   --color-icon-blue:#3E8BFF;
   --color-icon-red:#FF6B6B;

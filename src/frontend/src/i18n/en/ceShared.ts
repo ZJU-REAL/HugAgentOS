@@ -1,5 +1,6 @@
 /** English translations used by CE source but owned by mixed EE/CE dictionaries upstream. */
 export const CE_SHARED_DICT: Record<string, string> = {
+  '后台任务': 'Background tasks',
   '应用 ID': 'Application ID',
   '应用名称': 'Application name',
   '应用简介': 'Application description',

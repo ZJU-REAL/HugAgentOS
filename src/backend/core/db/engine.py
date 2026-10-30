@@ -201,6 +201,12 @@ def init_db():
         retire_site_storage(engine, directory)
         initialize_local_schema()
     if settings.edition.edition == "ce":
+        from core.db.ontology_retirement import has_ontology_data, retire_ontology
+
+        # Local SQLite has no Alembic: retire ontology data here (ce_0035 elsewhere).
+        with engine.begin() as connection:
+            if has_ontology_data(connection):
+                logger.info("Ontology data retired: %s", retire_ontology(connection))
         if settings.deploy.is_local:
             from core.db.local_schema_upgrade import reconcile_local_chat_sequences
 

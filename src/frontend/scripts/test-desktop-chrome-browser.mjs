@@ -36,7 +36,7 @@ const router=createBrowserRouter([{path:'*',element:<Workspace/>}]);bindRouter(r
 const root=createRoot(document.getElementById('root'));
 window.__fixture={theme:mode=>useUIStore.getState().setThemeMode(mode),collapse:v=>useUIStore.getState().setSiderCollapsed(v),loading:()=>root.render(<AppThemeProvider><AppLoadingSkeleton/></AppThemeProvider>)};
 root.render(<AppThemeProvider><RouterProvider router={router}/></AppThemeProvider>);
-`,resolveDir:process.cwd(),loader:'tsx'},outfile:resolve(output,'fixture.js'),bundle:true,jsx:'automatic',format:'esm',define:{'import.meta.env':'{"VITE_DEFAULT_LANGUAGE":"zh-CN"}'},loader:{'.css':'css','.svg':'dataurl','.woff2':'dataurl','.woff':'dataurl','.ttf':'dataurl'},external:['/loader.gif','/loader-done.png']});
+`,resolveDir:process.cwd(),loader:'tsx'},outfile:resolve(output,'fixture.js'),bundle:true,jsx:'automatic',format:'esm',define:{'import.meta.env':'{"VITE_DEFAULT_LANGUAGE":"zh-CN"}'},loader:{'.css':'css','.svg':'dataurl','.woff2':'dataurl','.woff':'dataurl','.ttf':'dataurl'}});
 const kits=[];
 const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM});
 try{

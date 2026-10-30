@@ -120,10 +120,7 @@ class OpenSandboxProvider(
         self._pool = SandboxPool(
             jupyter_min_idle=0,
             jupyter_max_idle=s.opensandbox_pool_jupyter_max_idle,
-            light_min_idle=s.opensandbox_pool_light_min_idle,
-            light_max_idle=s.opensandbox_pool_light_max_idle,
             jupyter_factory=self._create_jupyter_sandbox,
-            light_factory=self._create_light_sandbox,
             destroy_fn=self._destroy_sandbox,
             liveness_fn=self._probe_pooled_sandbox_alive,
             owner_fn=self._pooled_sandbox_owner,
@@ -261,6 +258,9 @@ class OpenSandboxProvider(
                 await write_file(sess.sandbox, path, content)
             except Exception as e:  # noqa: BLE001
                 raise SandboxError(f"write_file {path} 失败: {e}") from e
+            from core.files.spaces.transport import get_space_transport
+            # A failed write-back keeps the file in the copy for the next sync.
+            await get_space_transport().after_use(sess.sandbox, getattr(sess, "user_id", None), path=path)
 
     @_on_service_loop
     async def get_file(
@@ -273,6 +273,8 @@ class OpenSandboxProvider(
         if not session_id:
             raise SandboxError("sandbox get_file 需要 session_id（持久会话）；当前请求未绑定会话")
         async with self._session_use(session_id, user_id) as sess:
+            from core.files.spaces.transport import get_space_transport
+            await get_space_transport().before_use(sess.sandbox, getattr(sess, "user_id", None), path=path)
             try:
                 raw = await sess.sandbox.files.read_bytes(path)
             except Exception as e:  # noqa: BLE001
@@ -295,6 +297,8 @@ class OpenSandboxProvider(
         if not session_id:
             raise SandboxError("sandbox get_file 需要 session_id（持久会话）；当前请求未绑定会话")
         async with self._session_use(session_id, user_id) as sess:
+            from core.files.spaces.transport import get_space_transport
+            await get_space_transport().before_use(sess.sandbox, getattr(sess, "user_id", None), path=path)
             try:
                 info_by_path = await sess.sandbox.files.get_file_info([path])
                 info = info_by_path.get(path) if isinstance(info_by_path, dict) else None

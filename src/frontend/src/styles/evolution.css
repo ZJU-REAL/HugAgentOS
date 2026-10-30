@@ -402,6 +402,9 @@
 
 .jx-evoPrefs-ontology { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
 .jx-evoPrefs-packSelect { min-width: 200px; }
+.jx-evoPrefs-skLabel { width: 96px; height: 14px; }
+.jx-evoPrefs-skDesc { width: 72%; height: 12px; margin-top: 4px; }
+.jx-evoPrefs-skControl { width: 40px; height: 22px; border-radius: 999px; }
 
 @media (max-width: 640px) {
   .jx-evoPrefs-row { flex-direction: column; }

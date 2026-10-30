@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
-  Alert, Modal, Switch, Button, Tag, Slider, message, Input,
+  Modal, Switch, Button, Tag, Slider, message, Input,
   Spin, Tooltip,
 } from 'antd';
 import {
@@ -8,7 +8,6 @@ import {
   DeploymentUnitOutlined, EditOutlined, ExclamationCircleFilled, FileTextOutlined,
   KeyOutlined, LinkOutlined, LockOutlined, LogoutOutlined, LayoutOutlined, RobotOutlined,
   UserOutlined,
-  SafetyCertificateOutlined,
   ExperimentOutlined,
 } from '@ant-design/icons';
 import { AnimatePresence, motion } from 'motion/react';
@@ -18,7 +17,6 @@ import { resolveAvatarUrl } from '../../utils/avatar';
 import {
   getMyProfile,
   getMySystemAccess,
-  getOntologyGovernanceAccess,
   setMyAvatarUrl,
   updateMyProfile,
   uploadMyAvatar,
@@ -39,7 +37,6 @@ import { MyLogsPanel } from './MyLogsPanel';
 import { PasswordManagementPanel } from './PasswordManagementPanel';
 import { ChatModesPanel } from './ChatModesPanel';
 import { MemoryManagerModal } from '../memory/MemoryManagerModal';
-import { OntologyManager } from '../ontology';
 import { t } from '../../i18n';
 import { PageSettingsPanel } from './PageSettingsPanel';
 import { navigateTo, pathForPanel } from '../../routing/navigation';
@@ -55,7 +52,6 @@ const SETTINGS_SECTIONS: SectionDef[] = [
   { id: 'profile', label: t('个人信息'), icon: <UserOutlined /> },
   { id: 'session', label: t('页面设置'), icon: <LayoutOutlined /> },
   { id: 'memory', label: t('进化控制台'), icon: <DatabaseOutlined /> },
-  { id: 'ontology', label: t('本体校验'), icon: <SafetyCertificateOutlined /> },
   { id: 'enabled', label: t('已启用清单'), icon: <AppstoreOutlined /> },
 ];
 
@@ -109,21 +105,14 @@ export default function SettingsPage() {
     memoryPanelOpen,
     memoryProfile,
     lastToggleError,
-    ontologyEnabled,
-    ontologyAvailable,
-    ontologyImportValidationForced,
-    ontologyActivePacks,
     setMemoryPanelOpen,
     toggleMemory,
     toggleMemoryWrite,
-    toggleOntology,
-    loadOntologySettings,
   } = useSettingsStore();
 
   const { authUser, doLogout, setAvatarUrl, setAuthUser, loggingOut } = useAuthStore();
   const apiKeyEnabled = authUser?.can_use_api_key === true;
   const channelBotEnabled = authUser?.can_create_channel_bot === true;
-  const ontologyValidationAllowed = authUser?.can_use_ontology_validation === true;
   const chatModesAllowed = authUser?.can_manage_chat_modes === true;
   // Organization management is exposed only when the edition capability is active.
   const multiTenancy = useEditionStore((s) => (s.loaded ? !!s.features.multi_tenancy : true));
@@ -131,7 +120,6 @@ export default function SettingsPage() {
   // model service / service config; "My logs" is the user's own data, visible to all logged-in users under CE.
   const isCE = useEditionStore((s) => (s.loaded ? s.edition === 'ce' : false));
   const [sysAccess, setSysAccess] = useState(false);
-  const [ontologyGovernanceAccess, setOntologyGovernanceAccess] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   // Evolution detail card. The participation toggle it used to sit beside is
   // gone — the single「启动进化」switch in EvolutionPrefsPanel now governs both
@@ -144,25 +132,11 @@ export default function SettingsPage() {
       .then((info) => setSysAccess(!!info.allowed))
       .catch(() => setSysAccess(false));
   }, [isCE, authUser?.user_id]);
-  useEffect(() => {
-    if (!isCE) { setOntologyGovernanceAccess(false); return; }
-    getOntologyGovernanceAccess()
-      .then((info) => setOntologyGovernanceAccess(!!info.allowed))
-      .catch(() => setOntologyGovernanceAccess(false));
-  }, [isCE, authUser?.user_id]);
   // Only show a section in the settings center when the admin has enabled the corresponding capability bit
   const sections = useMemo<SectionDef[]>(() => {
     let base = (multiTenancy || (isCE && sysAccess))
       ? [...SETTINGS_SECTIONS, ...EDITION_SETTINGS_SECTIONS]
       : SETTINGS_SECTIONS;
-    if (!ontologyValidationAllowed) {
-      base = base.filter((section) => section.id !== 'ontology');
-    }
-    if (isCE && ontologyGovernanceAccess) {
-      base = base.map((section) => (
-        section.id === 'ontology' ? { ...section, label: t('本体治理') } : section
-      ));
-    }
     if (isCE) base = [base[0], PASSWORD_SECTION, ...base.slice(1)];
     if (apiKeyEnabled) base = [...base, API_KEY_SECTION];
     if (channelBotEnabled) base = [...base, CHANNELS_SECTION];
@@ -170,7 +144,7 @@ export default function SettingsPage() {
     if (isCE && sysAccess) base = [...base, SYS_MODEL_SECTION, SYS_SERVICE_SECTION];
     if (isCE) base = [...base, MY_LOGS_SECTION];
     return base;
-  }, [apiKeyEnabled, channelBotEnabled, chatModesAllowed, multiTenancy, isCE, ontologyGovernanceAccess, ontologyValidationAllowed, sysAccess]);
+  }, [apiKeyEnabled, channelBotEnabled, chatModesAllowed, multiTenancy, isCE, sysAccess]);
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameDraft, setNicknameDraft] = useState('');
   const [savingNickname, setSavingNickname] = useState(false);
@@ -450,7 +424,7 @@ export default function SettingsPage() {
   return (
     <>
       {contextHolder}
-      <div className={`jx-settings-shell${isCE && ontologyGovernanceAccess && activeSection === 'ontology' ? ' jx-settings-shell--wide' : ''}`}>
+      <div className="jx-settings-shell">
         <nav className="jx-settings-nav" aria-label={t('系统设置')}>
           <p className="jx-settings-navTitle">{t('系统设置')}</p>
           {sections.map((s) => (
@@ -730,71 +704,6 @@ export default function SettingsPage() {
         <div className="jx-settings-card jx-settings-card--padded">
           <EvolutionApprovalList />
         </div>
-        </section>
-        )}
-
-        {/* ── Ontology validation ─────────────────────────────── */}
-        {ontologyValidationAllowed && activeSection === 'ontology' && (
-        <section id="section-ontology" className="jx-settings-section">
-        <h3 className="jx-settings-section-title">{isCE && ontologyGovernanceAccess ? t('本体治理') : t('本体校验')}</h3>
-        <div className="jx-settings-card">
-          <div className={`jx-settings-row${shakeRowKey === 'ontology' ? ' jx-anim-shake' : ''}`}>
-            <div className="jx-settings-rowLeft">
-              <span className="jx-settings-rowLabel">{t('使用领域本体校验')}</span>
-              <span className="jx-settings-rowDesc">
-                {ontologyAvailable
-                  ? t('开启后，工具调用会先经过领域规则门禁，高风险答案会在交付前由独立评审委员会校验')
-                  : isCE && ontologyGovernanceAccess
-                    ? t('请先在下方导入并发布可用的领域本体包')
-                    : t('管理员尚未激活可用的领域本体包')}
-              </span>
-            </div>
-            <Tooltip title={!ontologyAvailable ? t('暂无可用本体包') : undefined}>
-              <span>
-                <Switch
-                  checked={ontologyEnabled && ontologyAvailable}
-                  disabled={!ontologyAvailable}
-                  onChange={(checked) => toggleOntology(checked)}
-                />
-              </span>
-            </Tooltip>
-          </div>
-          {ontologyImportValidationForced && (
-            <Alert
-              showIcon
-              type="warning"
-              style={{ margin: '0 16px 16px' }}
-              message={t('管理员已强制插件导入执行本体构建校验')}
-              description={t('此门禁独立于上方个人开关；即使你关闭对话本体校验，导入或安装插件时仍会检查技能和 MCP。')}
-            />
-          )}
-          {ontologyActivePacks.length > 0 && (
-            <>
-              <div className="jx-settings-divider" />
-              <div className="jx-settings-row">
-                <div className="jx-settings-rowLeft">
-                  <span className="jx-settings-rowLabel">{t('当前领域包')}</span>
-                  <span className="jx-settings-rowDesc">{t('仅在任务命中领域工作流时注入相关概念和规则')}</span>
-                </div>
-                <div className="jx-settings-tagWrap">
-                  {ontologyActivePacks.map((pack) => (
-                    <Tag key={pack.version_id} color="geekblue">
-                      {pack.pack_id} · v{pack.version}
-                    </Tag>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-        {isCE && ontologyGovernanceAccess && (
-          <div className="jx-settings-card jx-settings-card--padded jx-settings-ontologyGovernance">
-            <OntologyManager
-              apiPrefix="/v1/ontologies/governance"
-              onChanged={loadOntologySettings}
-            />
-          </div>
-        )}
         </section>
         )}
 

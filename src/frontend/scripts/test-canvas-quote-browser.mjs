@@ -43,7 +43,7 @@ window.fixture = {
   clearQuote: () => readComposer(chatDraftKey('a')).setQuotedFollowUp(null),
 };
 createRoot(document.getElementById('root')).render(<RouterProvider router={router} />);
-`, resolveDir:process.cwd(),loader:'tsx'},outfile:resolve(output,'fixture.js'),bundle:true,format:'esm',jsx:'automatic',define:{'import.meta.env':'{}'},external:['/loader.gif','/loader-done.png'],loader:{'.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl'}});
+`, resolveDir:process.cwd(),loader:'tsx'},outfile:resolve(output,'fixture.js'),bundle:true,format:'esm',jsx:'automatic',define:{'import.meta.env':'{}'},loader:{'.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl'}});
 
 const MARKDOWN = '# 第一章 总览\n\n## 1.1 背景\n\n这是一段需要被引用的原文内容，用来验证选区工具条。\n';
 const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {}) });

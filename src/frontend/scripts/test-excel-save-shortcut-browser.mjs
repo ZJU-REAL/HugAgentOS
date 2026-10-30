@@ -22,7 +22,7 @@ import {useCanvasStore} from './src/stores/canvasStore';
 window.canvas=useCanvasStore;
 useCanvasStore.getState().openCanvas({file_id:'sheet',name:'sheet.xlsx',url:'/files/sheet'});
 createRoot(document.getElementById('root')).render(<CanvasPanel/>);
-`,resolveDir:process.cwd(),loader:'tsx'},outfile:resolve(output,'fixture.js'),bundle:true,format:'esm',jsx:'automatic',define:{'import.meta.env':'{}'},external:['/loader.gif','/loader-done.png'],loader:{'.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl'},
+`,resolveDir:process.cwd(),loader:'tsx'},outfile:resolve(output,'fixture.js'),bundle:true,format:'esm',jsx:'automatic',define:{'import.meta.env':'{}'},loader:{'.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl'},
 plugins:[{name:'spreadsheet-adapter',setup(builder){builder.onResolve({filter:/^\.\/UniverSpreadsheet$/},()=>({path:adapter}));}}]});
 const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE});
 try{

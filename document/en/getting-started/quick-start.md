@@ -147,7 +147,5 @@ Continue with these guides after your first successful login:
 - Explore [MCP tools](../modules/mcp-tools.md),
   [Agent Skills](../modules/agent-skills.md), and
   [private knowledge bases](../modules/knowledge-base.md).
-- Build a governed workflow with the
-  [domain ontology quickstart](domain-ontology-quickstart.md).
 - Read the [complete no-Docker installation guide](../deployment/quick-install.md)
   for installer options, capability boundaries, and troubleshooting.

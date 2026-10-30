@@ -23,6 +23,8 @@ def _load_env_files() -> None:
     2. Env-specific file such as .env.dev
     3. Base .env
     """
+    if os.getenv("PYTHON_DOTENV_DISABLED", "").strip().lower() in {"1", "true", "t", "yes", "y"}:
+        return
     base_env_path = _REPO_ROOT / ".env"
     base_values = dotenv_values(base_env_path) if base_env_path.exists() else {}
 

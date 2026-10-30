@@ -2,7 +2,7 @@ import { useCanvasPane } from './useCanvasPane';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getToolCallResult } from '../../api';
 import { t } from '../../i18n';
-import { useChatStore, useUIStore } from '../../stores';
+import { useChatStore } from '../../stores';
 import type { SubagentPanelTarget } from '../../stores/canvasStore';
 import type { ChatMessage, ToolCall } from '../../types';
 import { subagentDisplayText, subagentStatus } from '../../utils/subagentView';
@@ -11,9 +11,7 @@ import { CitationMarkdownBlock } from '../citation';
 import { ElapsedTimer } from '../common';
 import { SubagentStatus } from '../tool/SubagentCallRow';
 import { useSubagentIdentity } from '../../hooks/useSubagentIdentity';
-import { ThinkingInline } from '../chat/ThinkingInline';
 import { ToolRunShell } from '../tool/ToolRunShell';
-import { ToolProgressInline } from '../tool/ToolProgressInline';
 import { groupExecutionRuns } from '../../utils/executionRuns';
 import { ToolMessageContext } from '../tool/ToolMessageContext';
 import { CanvasTabBar } from './CanvasTabBar';
@@ -41,6 +39,7 @@ function SubagentDetail({ target, message, tool }: { target: SubagentPanelTarget
   const following = useRef(true);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   // Text already streamed before the panel opened is shown at once; only later deltas fade in.
   const [revealSnapshot] = useState(() => Date.now());
   const applyOutput = useChatStore((state) => state.applyToolCallOutput);
@@ -65,7 +64,6 @@ function SubagentDetail({ target, message, tool }: { target: SubagentPanelTarget
     return () => cancelAnimationFrame(frame);
   }, [tool, running]);
 
-  const dispatchProcessVisible = useUIStore((state) => state.dispatchProcessVisible);
   const transcript: ChatMessage = {
     ...message, uid: `${message.uid}:${tool.id}`, ts: tool.timestamp ?? message.ts, isStreaming: running,
     toolCalls: [], segments: [], content: '', isMarkdown: true,
@@ -87,31 +85,31 @@ function SubagentDetail({ target, message, tool }: { target: SubagentPanelTarget
     if (last?.type === 'text' && last.content?.trim() && result.includes(last.content.trim())) last.content = result;
     else transcript.segments!.push({ type: 'text', content: result });
   }
-  const { runs, suppressedIdx } = groupExecutionRuns(transcript, dispatchProcessVisible);
+  const { runs, suppressedIdx } = groupExecutionRuns(transcript);
   const runByAnchor = new Map(runs.map((run) => [run.anchor, run]));
   return (
     <div className="jx-rightSidebar-body jx-subagentDetail" ref={body} onScroll={() => {
       const element = body.current;
-      if (element) following.current = element.scrollHeight - element.scrollTop - element.clientHeight < 72;
+      if (!element) return;
+      following.current = element.scrollHeight - element.scrollTop - element.clientHeight < 72;
+      setScrolled(element.scrollTop > 0);
     }}>
-      <header className="jx-subagentDetail-head">
-        <AgentIcon agent={agent} size={32} />
+      <header className={`jx-subagentDetail-head${scrolled ? ' jx-subagentDetail-head--scrolled' : ''}`}>
+        <AgentIcon agent={agent} size={28} />
         <strong>{agent.name}</strong>
-        <SubagentStatus tool={tool} isStreaming={message.isStreaming} />
-        {running && tool.timestamp ? <ElapsedTimer startTs={tool.timestamp} /> : null}
-        {!running && tool.durationMs != null ? <span>{t('用时 {sec}秒', { sec: (tool.durationMs / 1000).toFixed(1) })}</span> : null}
+        <span className={`jx-subagentDetail-meta${running ? ' jx-subagentDetail-meta--running' : ''}`}>
+          <SubagentStatus tool={tool} isStreaming={message.isStreaming} />
+          {running && tool.timestamp ? <ElapsedTimer startTs={tool.timestamp} className="jx-subagentDetail-time" /> : null}
+          {!running && tool.durationMs != null ? <span className="jx-subagentDetail-time">{t('用时 {sec}秒', { sec: (tool.durationMs / 1000).toFixed(1) })}</span> : null}
+        </span>
       </header>
       <div className="jx-msg assistant">
         <ToolMessageContext.Provider value={null}>
           {transcript.segments!.map((segment, index) => {
             const key = `${transcript.uid}:${index}`;
             const run = runByAnchor.get(index);
-            if (run) return dispatchProcessVisible
-              ? <ToolRunShell key={key} steps={run.steps} isStreaming={running} />
-              : <ToolProgressInline key={key} message={transcript} toolCalls={run.tools} />;
+            if (run) return <ToolRunShell key={key} steps={run.steps} isStreaming={running} />;
             if (suppressedIdx.has(index)) return null;
-            if (segment.type === 'thinking') return <ThinkingInline key={key} content={segment.content || ''}
-              isActive={running && !transcript.segments!.slice(index + 1).some((item) => item.type === 'text')} />;
             if (segment.type !== 'text' || !segment.content) return null;
             return <div key={key} className={`jx-bubble jx-md${running && index === transcript.segments!.length - 1 ? ' streaming' : ''}`}>
               <CitationMarkdownBlock className="jx-msgText" text={segment.content} isMarkdown

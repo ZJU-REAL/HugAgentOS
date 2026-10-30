@@ -22,7 +22,7 @@ class _JupyterUserPool:
     myspace bind mount must bucket by ``user_id`` (user B must never get user A's
     sandbox — the bind mount would expose the other user's myspace files). Rewriting a
     lightweight structure without touching ``_pool.py`` keeps the change surface small;
-    ``SandboxPool`` continues to serve light sandboxes / legacy paths.
+    ``SandboxPool`` only serves sessions without a user id.
 
     Plan F Q2 optimization: ``_destroy_session`` switched to ``reuse=True`` — the same
     user reuses sandboxes across chats. When ``acquire`` hits an idle sandbox it skips

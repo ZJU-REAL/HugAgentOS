@@ -334,8 +334,8 @@ export function createStreamSend(ctx: Pick<StreamingContext, 'abortControllersRe
         const last = msgs[msgs.length - 1];
         if (last?.role === 'assistant' && last.isStreaming) {
           // Also move still-running tools to a terminal state (same semantics as
-          // finalizeRunningTools on the normal completion path) — otherwise ToolProgressInline,
-          // which only looks at tool.status, would forever show "calling" with the timer ticking
+          // finalizeRunningTools on the normal completion path) — otherwise a tool row
+          // that only looks at tool.status would forever show "calling" with the timer ticking
           // after termination, and it persists across refreshes via localStorage.
           const finalizedTools = last.toolCalls?.map((tc) =>
             tc.status === 'running' ? { ...tc, status: 'success' as const } : tc,

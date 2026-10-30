@@ -4,6 +4,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useDeploymentModeStore } from '../stores/deploymentModeStore';
 import { reloadDirectory, useApplicationDirectory } from './catalog';
 import { t } from '../i18n';
+import { HostButton, HostNotice } from './ui';
 
 /** URL navigation is not authorization. Actual backend resource gates remain authoritative. */
 export function ApplicationAccess({id, children}: {id: string; children: ReactNode}) {
@@ -14,7 +15,7 @@ export function ApplicationAccess({id, children}: {id: string; children: ReactNo
   // This existing module has its own server-derived capability, not allowed_apps.
   // It retains its original ChatSidebar entry and is not a new catalog/rail icon.
   if (id === 'personal_agent') {
-    return personalAgentAvailable ? children : <p role="alert">{t('应用不存在或你没有访问权限')}</p>;
+    return personalAgentAvailable ? children : <Denied />;
   }
   const item = catalog.items.find(i => i.applicationKey === 'builtin:' + id);
   const authoritative = catalog.items.length > 0 && !catalog.error;
@@ -22,12 +23,15 @@ export function ApplicationAccess({id, children}: {id: string; children: ReactNo
     || (['lab', 'sites'].includes(id) && auth?.lab_enabled === false)
     );
   if (denied || (authoritative && !item)) {
-    return <p role="alert">{t('应用不存在或你没有访问权限')}</p>;
+    return <Denied />;
   }
   if ((id === 'my_space' && localOnly) || item?.availability.available === false) {
-    return <p role="alert">{t('当前环境不支持此应用')}</p>;
+    return <HostNotice tone="warning" placement="page">{t('当前环境不支持此应用')}</HostNotice>;
   }
-  if (catalog.error && id === 'automation') return <p role="alert">{t(catalog.error)}
-    <button onClick={reloadDirectory}>{t('重试')}</button></p>;
+  if (catalog.error && id === 'automation') return <HostNotice tone="error" placement="page"
+    actions={<HostButton tone="primary" onClick={() => void reloadDirectory()}>{t('重试')}</HostButton>}>{t(catalog.error)}</HostNotice>;
   return children;
+}
+function Denied() {
+  return <HostNotice tone="error" placement="page">{t('应用不存在或你没有访问权限')}</HostNotice>;
 }

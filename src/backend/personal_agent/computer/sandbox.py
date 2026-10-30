@@ -62,6 +62,16 @@ async def install_once(provider, box, uid, name, digest, command):
 def _computer_owner(db, session_id):
     return db.scalar(select(PersonalAgent.user_id).where(PersonalAgent.sandbox_session_id == session_id))
 
+class ComputerGone(SandboxError):
+    """The bound instance was killed or retired; a fresh instance may replace it."""
+
+class ProvisionInProgress(SandboxError):
+    """Another worker holds the creation lock; the computer is starting, not failing."""
+
+def _gone(exc):
+    # Only a confirmed missing or retired instance permits recreation. Network errors preserve identity.
+    return isinstance(exc, ComputerGone) or getattr(exc, "status_code", None) == 404
+
 class PersonalSandboxProvider(OpenSandboxProvider):
 
     def _sandbox_admission(self):
@@ -121,29 +131,21 @@ class PersonalSandboxProvider(OpenSandboxProvider):
                     await self._check_mount_revision(cached.sandbox, user_id)
                     return cached
                 except Exception as exc:
-                    if getattr(exc, "status_code", None) != 404:
-                        raise
+                    if not _gone(exc): raise
             if cached:
                 self._sessions.pop(session_id, None)
                 await cached.sandbox.close()
             if sandbox_id:
                 from opensandbox import Sandbox
+                sandbox = None
                 try:
                     sandbox = await Sandbox.connect(sandbox_id, connection_config=self._computer_config(ident)[0], skip_health_check=True)
                     await self._check_mount_revision(sandbox, user_id)
                 except Exception as exc:
-                    # Only a confirmed missing instance permits recreation. Network errors preserve identity.
-                    if getattr(exc, "status_code", None) != 404: raise
-                    await self._check_mount_revision(sandbox, user_id)
-                    def _drop_lost_sandbox(db):
-                        row = db.get(PersonalAgent, ident)
-                        if row.sandbox_id == sandbox_id:
-                            row.sandbox_id = None
-                            row.generation += 1
-                            row.computer_status = "recovering"
-                            db.commit()
-                    await run_in_session(_drop_lost_sandbox)
-                    _, sandbox_id, generation = self._binding(session_id, user_id)
+                    if not _gone(exc): raise
+                    if sandbox is not None: await sandbox.close()
+                    await self._retire(ident, sandbox_id)
+                    _, _, generation = self._binding(session_id, user_id)
                     sandbox = await self._provision(ident, session_id, user_id, generation)
             else:
                 sandbox = await self._provision(ident, session_id, user_id, generation)
@@ -161,13 +163,24 @@ class PersonalSandboxProvider(OpenSandboxProvider):
         if (info.metadata or {}).get(MOUNT_REVISION_TAG) != revision:
             await sandbox.kill()
             await self._sandbox_admission().release(str(sandbox.id))
-            raise SandboxError("File permissions changed; reopen the computer")
+            # Callers retire the binding and provision with the new mounts; the workspace lives on the volume.
+            raise ComputerGone("File permissions changed; replacing the computer")
         from core.files.spaces.recovery import ensure_mounts
         import os
         await ensure_mounts(sandbox, user_id, info,
             domain=os.environ["PERSONAL_AGENT_OPENSANDBOX_DOMAIN"],
             api_key=os.getenv("PERSONAL_AGENT_OPENSANDBOX_API_KEY", ""))
 
+    async def _retire(self, ident, sandbox_id):
+        """Drop a lost binding once. The next generation never adopts the old instance."""
+        def _drop(db):
+            row = db.get(PersonalAgent, ident)
+            if row is not None and row.sandbox_id == sandbox_id:
+                row.sandbox_id = None
+                row.generation += 1
+                row.computer_status = "recovering"
+                db.commit()
+        await run_in_session(_drop)
 
     async def _provision(self, ident, session_id, user_id, generation):
         from core.files.spaces.leases import async_space_lock
@@ -183,7 +196,7 @@ class PersonalSandboxProvider(OpenSandboxProvider):
         key = "pa:provision:" + ident
         state = get_ephemeral_state()
         if not await state.hold(key, token, ttl=180):
-            raise SandboxError("Permanent computer is being provisioned; retry shortly")
+            raise ProvisionInProgress("Permanent computer is being provisioned; retry shortly")
         try:
             # Recheck after acquiring the cross-worker creation lock.
             _, existing, _ = self._binding(session_id, user_id)
@@ -192,23 +205,35 @@ class PersonalSandboxProvider(OpenSandboxProvider):
                 await self._check_mount_revision(sandbox, user_id)
                 return sandbox
             from opensandbox import SandboxManager
-            from opensandbox.models.sandboxes import SandboxFilter
+            from opensandbox.models.sandboxes import SandboxFilter, SandboxState
             manager = await SandboxManager.create(self._make_config())
             try:
                 matches = await manager.list_sandbox_infos(SandboxFilter(page_size=10,
                     metadata={"hugagent-owner": "personal-agent", "personal-agent-id": ident, "generation": str(generation)}))
                 if len(matches.sandbox_infos) > 1: raise SandboxError("Permanent computer identity is ambiguous")
                 if matches.sandbox_infos:
-                    found = matches.sandbox_infos[0]
-                    if found.status.state not in {"RUNNING", "PENDING"}: raise SandboxError("Permanent computer requires recovery")
-                    sandbox = await Sandbox.connect(found.id, connection_config=self._computer_config(ident)[0], skip_health_check=True)
-                    await self._check_mount_revision(sandbox, user_id)
-                    def _mark_ready(db):
-                        row = db.get(PersonalAgent, ident)
-                        row.sandbox_id, row.computer_status = sandbox.id, "ready"
-                        db.commit()
-                    await run_in_session(_mark_ready)
-                    return sandbox
+                    # Created by an earlier attempt that never recorded it (a cancelled tick or a crashed worker).
+                    found, sandbox = matches.sandbox_infos[0], None
+                    try:
+                        if found.status.state not in {SandboxState.RUNNING, SandboxState.PENDING}:
+                            await manager.kill_sandbox(found.id)
+                            await self._sandbox_admission().release(str(found.id))
+                            raise ComputerGone("Permanent computer stopped")
+                        sandbox = await Sandbox.connect(found.id, connection_config=self._computer_config(ident)[0], skip_health_check=True)
+                        await self._check_mount_revision(sandbox, user_id)
+                    except Exception as exc:
+                        if not _gone(exc): raise
+                        if sandbox is not None: await sandbox.close()
+                        # Never adopt it again: start the next generation below.
+                        await self._retire(ident, None)
+                        _, _, generation = self._binding(session_id, user_id)
+                    else:
+                        def _mark_ready(db):
+                            row = db.get(PersonalAgent, ident)
+                            row.sandbox_id, row.computer_status = sandbox.id, "ready"
+                            db.commit()
+                        await run_in_session(_mark_ready)
+                        return sandbox
             finally: await manager.close()
             root = os.getenv("PERSONAL_AGENT_VOLUME_ROOT", "").strip()
             if not root or not Path(root).is_absolute():

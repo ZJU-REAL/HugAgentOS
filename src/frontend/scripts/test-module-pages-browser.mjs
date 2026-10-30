@@ -40,8 +40,7 @@ createRoot(document.getElementById('root')).render(<AppThemeProvider><RouterProv
   alias:{react:resolve('node_modules/react'),'react-dom':resolve('node_modules/react-dom')},outdir:output,entryNames:'fixture',splitting:true, bundle: true, format: 'esm', jsx: 'automatic',
   define: { 'import.meta.env': '{}' },
   loader: { '.css': 'css', '.svg': 'dataurl', '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl' },
-  external: ['/loader.gif', '/loader-done.png'],
-});
+  });
 const origin = 'http://127.0.0.1:5307';
 const user = {user_id:'wb-user', username:'tester', lab_enabled:true, allowed_apps:null};
 const sessions = [

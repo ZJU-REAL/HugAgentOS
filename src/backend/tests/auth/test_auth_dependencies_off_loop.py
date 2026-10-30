@@ -150,10 +150,8 @@ async def test_delegated_gates_check_capabilities_in_a_worker_thread(monkeypatch
     monkeypatch.setenv("CONFIG_TOKEN", "")
     monkeypatch.setenv("ADMIN_TOKEN", "")
     monkeypatch.setattr(deps, "user_can_manage_system_settings", threads(True))
-    monkeypatch.setattr(deps, "user_can_manage_ontology_governance", threads(True))
     monkeypatch.setattr(deps, "_audit_grant", threads())
     assert await deps.require_system_settings(_request(), _user()) == "u1"
-    assert await deps.require_ontology_governance(_request(), _user()) == "u1"
     _off_loop(threads)
 
 

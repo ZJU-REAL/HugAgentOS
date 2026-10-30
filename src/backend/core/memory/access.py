@@ -36,6 +36,13 @@ async def authorized_memory_context(memory_id: str, actor: str) -> Optional[Memo
     memory = await asyncio.to_thread(backend._get_memory)
     if memory is None:
         raise RuntimeError("memory store unavailable")
+    from core.memory.pgvector_store import is_pgvector
+    if is_pgvector(memory):
+        from uuid import UUID
+        try:
+            UUID(memory_id)
+        except (ValueError, TypeError, AttributeError):
+            return None
     try:
         item = await asyncio.to_thread(memory.get, memory_id)
     except IndexError:

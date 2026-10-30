@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/check-i18n.mjs && node scripts/check-dark-mode.mjs && node scripts/check-loading-motion.mjs && tsc -b && vite build && node scripts/precompress-dist.mjs",
+    "build": "node scripts/check-i18n.mjs && node scripts/check-dark-mode.mjs && node scripts/check-loading-motion.mjs && node scripts/check-native-controls.mjs && tsc -b && vite build && node scripts/precompress-dist.mjs",
     "check:i18n": "node scripts/check-i18n.mjs",
     "check:dark": "node scripts/check-dark-mode.mjs",
     "check:motion": "node scripts/check-loading-motion.mjs",
+    "check:controls": "node scripts/check-native-controls.mjs",
     "test:file-open-browser": "node scripts/test-file-open-browser.mjs",
     "test:canvas-quote-browser": "node scripts/test-canvas-quote-browser.mjs",
     "test:tool-capability-icons": "esbuild scripts/test-tool-capability-icons.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/test-tool-capability-icons.mjs && node node_modules/.tmp/test-tool-capability-icons.mjs",

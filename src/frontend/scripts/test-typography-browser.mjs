@@ -17,8 +17,7 @@ await build({
   `, resolveDir: process.cwd(), loader: 'tsx' },
   bundle: true, format: 'esm', jsx: 'automatic', define: {'import.meta.env':'{}'}, outfile: resolve(output, 'fixture.js'),
   loader: { '.woff2': 'dataurl', '.woff': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' },
-  external: ['/loader.gif', '/loader-done.png'],
-});
+  });
 const html = `<html><head><meta charset="utf-8"><link rel="stylesheet" href="/fixture.css"></head>
 <body><div class="jx-moduleSidebar">
 <button class="jx-newChatBtn">新建对话</button>

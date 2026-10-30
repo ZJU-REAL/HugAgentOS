@@ -17,7 +17,7 @@ const Entry=createPublicChatEntry();
 createRoot(document.getElementById('root')).render(<AppThemeProvider><Entry /></AppThemeProvider>);
 `,resolveDir:process.cwd(),loader:'tsx'},outfile:resolve(fixture,'fixture.js'),bundle:true,format:'esm',jsx:'automatic',
 define:{'import.meta.env':'{"VITE_DEFAULT_LANGUAGE":"zh-CN"}'},
-external:['/loader.gif','/loader-done.png'],loader:{'.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl','.png':'dataurl','.svg':'dataurl','.md':'text'}});
+loader:{'.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl','.png':'dataurl','.svg':'dataurl','.md':'text'}});
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
 const token = 'A'.repeat(43);
 const shots = resolve('node_modules/.tmp/public-chat-evidence');

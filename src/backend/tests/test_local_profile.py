@@ -518,6 +518,8 @@ def test_apply_local_env_seeds_the_profile_before_settings_is_frozen(tmp_path):
         "cli.apply_local_env(port=18999)\n"
         "from core.config.settings import settings\n"
         "print(json.dumps({'is_local': settings.deploy.is_local,\n"
+        "                  'session_persist': settings.session.persist_path,\n"
+        "                  'session_ttl_hours': settings.session.ttl_hours,\n"
         "                  'site_home': os.environ.get('SITE_TEMPLATE_HOME', '')}))\n"
     )
     out = subprocess.run(
@@ -531,3 +533,6 @@ def test_apply_local_env_seeds_the_profile_before_settings_is_frozen(tmp_path):
     payload = json.loads(out.stdout.strip().splitlines()[-1])
     assert payload["is_local"] is True
     assert payload["site_home"]
+    # The desktop restarts this process on every launch; logins must survive it.
+    assert payload["session_persist"] == str(tmp_path / "home" / "sessions.json")
+    assert payload["session_ttl_hours"] == 720

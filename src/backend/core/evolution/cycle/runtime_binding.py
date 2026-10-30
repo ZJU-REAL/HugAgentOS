@@ -341,7 +341,6 @@ def bind_runtime_assets(
     refs += _safe(
         lambda: _skill_refs(skill_ids, run_id, capability_scope=capability_scope), "skill", degraded
     )
-    refs += _safe(lambda: _ontology_refs(), "ontology", degraded)
     refs += _safe(lambda: _memory_refs(memory_enabled, workspace_id), "memory", degraded)
     refs += _safe(lambda: _model_refs(model_name, model_provider_id), "model", degraded)
     refs += _safe(lambda: _kb_refs(kb_ids), "kb", degraded)

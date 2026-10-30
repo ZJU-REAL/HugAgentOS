@@ -46,8 +46,8 @@ def _headers(state: Dict[str, Any]) -> Dict[str, str]:
 
 
 def _fetch(kind: str, state: Dict[str, Any]) -> Dict[str, Any]:
-    import httpx
     from core.capabilities.manifest_protocol import validate_entity_manifest
+    from features.desktop.bridge import cloud_http
 
     ticket = manifest_order.begin(kind, _profile(state))
     with _lock:
@@ -55,10 +55,10 @@ def _fetch(kind: str, state: Dict[str, Any]) -> Dict[str, Any]:
     headers = {**_headers(state), "Cache-Control": "no-cache"}
     if current:
         headers["If-None-Match"] = f'"{current["revision"]}"'
-    resp = httpx.get(
+    resp = cloud_http.get(
         f"{state['cloud_base']}/api/v1/desktop/capability/{_PATHS[kind]}/manifest",
         headers=headers,
-        timeout=httpx.Timeout(10.0, connect=5.0),
+        timeout=10.0,
     )
     if resp.status_code == 304 and current:
         return manifest_order.stamp(current, ticket)
@@ -70,16 +70,16 @@ def _fetch(kind: str, state: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _download(kind: str, state: Dict[str, Any], ident: str) -> bytes:
-    import httpx
+    from features.desktop.bridge import cloud_http
 
     try:
-        resp = httpx.get(
+        resp = cloud_http.get(
             f"{state['cloud_base']}/api/v1/desktop/capability/{_PATHS[kind]}/{ident}/bundle",
             headers=_headers(state),
-            timeout=httpx.Timeout(30.0, connect=5.0),
+            timeout=30.0,
         )
-    except httpx.HTTPError as exc:
-        raise CloudUnavailable(f"{kind} bundle download failed: {exc}", ref=ident) from exc
+    except CloudUnavailable as exc:
+        raise CloudUnavailable(exc.message, ref=ident) from exc
     if resp.status_code >= 400:
         raise CloudUnavailable(f"{kind} bundle download HTTP {resp.status_code}", ref=ident)
     return resp.content
@@ -260,8 +260,10 @@ def sync_kind(kind: str, state: Dict[str, Any]) -> bool:
         note_rejected_credential(state, exc)
         if _state_fingerprint(get_state()) != _state_fingerprint(state):
             return False
+        from features.desktop.bridge.cloud_http import describe
+
         with _lock:
-            _errors[kind] = str(exc)
+            _errors[kind] = describe(exc)
         logger.warning("[cloud-%s] sync failed: %s", kind, exc)
         return False
     if changed or prepared:

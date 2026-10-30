@@ -200,7 +200,7 @@ def _cloud(monkeypatch, skills_: dict, disabled=(), owned_by=None):
         )
         bundles[sid] = (_zip(sid, {"SKILL.md": md, **extra}), h)
     fake = _FakeCloud(build_skill_manifest(entries), bundles)
-    monkeypatch.setattr("httpx.get", fake.get)
+    monkeypatch.setattr("features.desktop.bridge.cloud_http.get", fake.get)
     return fake
 
 

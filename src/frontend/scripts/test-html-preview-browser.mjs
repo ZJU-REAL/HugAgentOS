@@ -16,7 +16,7 @@ const file={file_id:'page',name:'预览.html',url:'/files/page',origin:'local',m
 useCanvasStore.getState().openCanvas(file);
 function Fixture(){return <><button onClick={()=>useCanvasStore.getState().openCanvas(file)}>Reopen</button><button onClick={()=>useCanvasStore.getState().openCanvas({...file,file_id:"external",url:"https://external.test/page.html",origin:"cloud"})}>External</button><CanvasPanel/></>}
 createRoot(document.getElementById('root')).render(<Fixture/>);
-`, resolveDir:process.cwd(),loader:'tsx'},outfile:resolve(output,'fixture.js'),bundle:true,format:'esm',jsx:'automatic',define:{'import.meta.env':'{}'},external:['/loader.gif','/loader-done.png'],loader:{'.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl'}});
+`, resolveDir:process.cwd(),loader:'tsx'},outfile:resolve(output,'fixture.js'),bundle:true,format:'esm',jsx:'automatic',define:{'import.meta.env':'{}'},loader:{'.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl'}});
 const browser=await chromium.launch({headless:true});
 try {
  const page=await browser.newPage();

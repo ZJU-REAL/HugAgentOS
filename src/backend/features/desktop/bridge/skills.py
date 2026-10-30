@@ -57,8 +57,8 @@ def _headers(state: Dict[str, Any]) -> Dict[str, str]:
 
 
 def _fetch_manifest(state: Dict[str, Any]) -> Dict[str, Any]:
-    import httpx
     from core.capabilities.manifest_protocol import validate_skill_manifest
+    from features.desktop.bridge import cloud_http
 
     ticket = manifest_order.begin(KIND_SKILL, _profile(state))
     with _lock:
@@ -66,10 +66,10 @@ def _fetch_manifest(state: Dict[str, Any]) -> Dict[str, Any]:
     headers = {**_headers(state), "Cache-Control": "no-cache"}
     if current:
         headers["If-None-Match"] = f'"{current["revision"]}"'
-    resp = httpx.get(
+    resp = cloud_http.get(
         f"{state['cloud_base']}/api/v1/desktop/capability/skills/manifest",
         headers=headers,
-        timeout=httpx.Timeout(10.0, connect=5.0),
+        timeout=10.0,
     )
     if resp.status_code == 304 and current:
         return manifest_order.stamp(current, ticket)
@@ -153,8 +153,10 @@ def sync_blocking(state: Dict[str, Any]) -> None:
             note_rejected_credential(state, exc)
             if _state_fingerprint(get_state()) != _state_fingerprint(state):
                 return
+            from features.desktop.bridge.cloud_http import describe
+
             with _lock:
-                _error = str(exc)
+                _error = describe(exc)
             logger.warning("[cloud-skills] sync failed: %s", exc)
             return
         prepared = prepare(state, pending) if pending else []
@@ -174,16 +176,16 @@ def sync_blocking(state: Dict[str, Any]) -> None:
 
 
 def _download(state: Dict[str, Any], skill_id: str) -> bytes:
-    import httpx
+    from features.desktop.bridge import cloud_http
 
     try:
-        resp = httpx.get(
+        resp = cloud_http.get(
             f"{state['cloud_base']}/api/v1/desktop/capability/skills/{skill_id}/bundle",
             headers=_headers(state),
-            timeout=httpx.Timeout(60.0, connect=5.0),
+            timeout=60.0,
         )
-    except httpx.HTTPError as exc:
-        raise CloudUnavailable(f"bundle download failed: {exc}", ref=skill_id) from exc
+    except CloudUnavailable as exc:
+        raise CloudUnavailable(exc.message, ref=skill_id) from exc
     if resp.status_code == 404:
         raise PackageMissing("cloud no longer offers this skill", ref=skill_id)
     if resp.status_code >= 400:

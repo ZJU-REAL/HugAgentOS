@@ -44,7 +44,7 @@ src/frontend/src/
 │   ├── citation/ common/ config/ docs/ file/ kb/
 │   └── lab/ memory/ myspace/ projects/ settings/ share/ sidebar/ tool/ apidoc/
 ├── hooks/               # useChatInit / useChatActions / useStreaming / usePlanMode
-│                        # usePageConfig / useDelayedFlag / useStallDetector
+│                        # usePageConfig / useDelayedFlag
 ├── stores/              # Zustand stores (authStore, chatStore, catalogStore,
 │                        # editionStore, uiStore, settingsStore, fileStore, kbStore,
 │                        # agentStore, automationStore, canvasStore,

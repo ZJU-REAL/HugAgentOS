@@ -1,8 +1,9 @@
-import { Suspense, useEffect } from 'react';
+import { Suspense, useEffect, useRef } from 'react';
 import { useKbTab, useMySpaceTab } from '../../routing/subPages';
 import { useMySpaceStore } from '../../stores/mySpaceStore';
 import { useEditionStore } from '../../stores';
 import { AgentWorkspaceView, usePersonalAgentName } from '../../personalAgentEdition';
+import { AgentWorkspaceSkeleton } from '../personal-agent/workspace/AgentWorkspaceSkeleton';
 import { CatalogPanel } from '../catalog';
 import { ShareRecordsPage } from '../share';
 import { NotificationList } from './NotificationList';
@@ -28,10 +29,21 @@ export function MySpacePanel() {
   const tabs = TABS.filter(item => (item.scope !== 'team' || teams) && (item.kb !== 'public' || edition !== 'ce')
     && (!item.requiresPersonalAgent || !!agentName));
   const active = tabs.find(item => item.tab === tab && (!item.scope || item.scope === kind) && (!item.kb || item.kb === kb));
+  // 窄屏的 Tab 是横向滚动的胶囊条：切到靠后的 Tab（如从别处跳到「消息通知」）时把它滚进可视区。
+  const tabsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const strip = tabsRef.current;
+    const current = strip?.querySelector<HTMLElement>('.jx-mySpace-tab.active');
+    if (!strip || !current || strip.scrollWidth <= strip.clientWidth) return;
+    const left = current.getBoundingClientRect().left - strip.getBoundingClientRect().left + strip.scrollLeft;
+    if (left < strip.scrollLeft || left + current.offsetWidth > strip.scrollLeft + strip.clientWidth) {
+      strip.scrollTo({ left: Math.max(0, left - 16) });
+    }
+  }, [active?.key]);
   return <div className="jx-mySpace"><div className="jx-mySpace-shell">
     <div className="jx-mySpace-header">
       <div className="jx-mySpace-titleBar"><h1 className="jx-mySpace-title">{tab === 'agent' ? agentName : active?.label}</h1></div>
-      <div className="jx-mySpace-tabs">
+      <div className="jx-mySpace-tabs" ref={tabsRef}>
         {tabs.map(item => <button key={item.key}
           className={'jx-mySpace-tab' + (tab === item.tab && (!item.scope || item.scope === kind) && (!item.kb || item.kb === kb) ? ' active' : '')}
           onClick={() => {
@@ -50,7 +62,7 @@ export function MySpacePanel() {
         : tab === 'kb' ? <CatalogPanel />
         : tab === 'shares' ? <ShareRecordsPage embedded hideEmbeddedDesc />
         : tab === 'notifications' ? <NotificationList />
-        : <Suspense fallback={null}><AgentWorkspaceView /></Suspense>}
+        : <Suspense fallback={<AgentWorkspaceSkeleton />}><AgentWorkspaceView /></Suspense>}
     </div>
   </div>
     <MySpaceSearchModal onOpenChat={id => { useChatStore.getState().setCurrentChatId(id); useCatalogStore.getState().setPanel('chat'); }} onPreviewFile={openFile} />

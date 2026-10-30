@@ -15,6 +15,13 @@ async def _startup_thread_budget():
     apply_thread_budget()
 
 
+async def _startup_validate_space_transport():
+    """Refuse to serve with a space transport the deployment cannot provide."""
+    from core.files.spaces.transport import validate_space_transport
+
+    logger.info("[startup] space transport: %s", validate_space_transport())
+
+
 async def _startup_watch_capability_changes():
     """智能体 / 技能 / 连接器 / 插件被增删时递增能力变更号，桌面端据此同步一次。"""
     from features.desktop.capabilities.change_signal import watch_capability_tables

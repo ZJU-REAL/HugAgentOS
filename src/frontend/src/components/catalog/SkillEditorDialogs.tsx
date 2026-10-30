@@ -2,11 +2,10 @@ import { Modal, Typography, Form, Input, Select, Button, Popconfirm, Tag } from 
 import { UploadOutlined, FileTextOutlined, EditOutlined, DeleteOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons';
 import { t } from '../../i18n';
 import { SkillIconPicker } from './SkillIconPicker';
-import { OntologyTagSelect } from '../common/OntologyTagSelect';
 import { OntologyBuildValidationModal } from '../common/OntologyBuildValidationModal';
 import type { useSkillEditor } from './useSkillEditor';
 export function SkillEditorDialogs({ editor }: { editor: ReturnType<typeof useSkillEditor> }) {
-  const { handwriteOpen, setHandwriteOpen, creatingSkill, editingSkillId, setEditingSkillId, loadingSkill, skillIcon, setSkillIcon, skillForm, ontologyTagOptions, ontologyTagsLoading, buildFailure, setBuildFailure, skillMcpOptions, skillFiles, editingFileName, setEditingFileName, editingFileContent, setEditingFileContent, fileLoading, fileSaving, newSkillFileName, setNewSkillFileName, skillFileInputRef, resetSkillFileState, openSkillFile, handleSaveSkillFile, handleDeleteSkillFile, handleUploadSkillFile, handleCreateSkillFile, handleCreateSkill } = editor;
+  const { handwriteOpen, setHandwriteOpen, creatingSkill, editingSkillId, setEditingSkillId, loadingSkill, skillIcon, setSkillIcon, skillForm, buildFailure, setBuildFailure, skillMcpOptions, skillFiles, editingFileName, setEditingFileName, editingFileContent, setEditingFileContent, fileLoading, fileSaving, newSkillFileName, setNewSkillFileName, skillFileInputRef, resetSkillFileState, openSkillFile, handleSaveSkillFile, handleDeleteSkillFile, handleUploadSkillFile, handleCreateSkillFile, handleCreateSkill } = editor;
   return <>
       {/* Hand-write new / edit skill modal */}
       <Modal
@@ -63,17 +62,10 @@ export function SkillEditorDialogs({ editor }: { editor: ReturnType<typeof useSk
             <Select mode="tags" placeholder={t('回车添加标签')} tokenSeparators={[',']} />
           </Form.Item>
           <Form.Item
-            name="ontology_tags"
-            label={t('本体治理标签')}
-            tooltip={t('标签来自当前激活领域包；实际调用技能时，会触发标签关联的本体工作流和评审级别。')}
-          >
-            <OntologyTagSelect options={ontologyTagOptions} loading={ontologyTagsLoading} />
-          </Form.Item>
-          <Form.Item
             name="mcp_server_ids"
             label={t('绑定工具 (MCP)')}
-            tooltip={t('选择技能执行时依赖的 MCP。系统会读取 MCP 的实际工具清单，用于本体构建校验。')}
-            extra={t('如果本体流程要求特定工具，请在这里绑定对应 MCP；绑定信息和工具清单会写入 SKILL.md。')}
+            tooltip={t('选择技能执行时依赖的 MCP。系统会读取 MCP 的实际工具清单。')}
+            extra={t('技能需要特定工具时，请在这里绑定对应 MCP；绑定信息和工具清单会写入 SKILL.md。')}
           >
             <Select
               mode="multiple"

@@ -31,7 +31,9 @@ from features.installed import INSTALLED_FEATURES
 
 load_models(INSTALLED_FEATURES)
 
-config.set_main_option("sqlalchemy.url", settings.db.url)
+# Alembic stores options in ConfigParser, which treats "%" as interpolation;
+# URL-encoded credentials (e.g. p%40ss) must be escaped to survive the round trip.
+config.set_main_option("sqlalchemy.url", settings.db.url.replace("%", "%%"))
 
 # Set target metadata
 target_metadata = Base.metadata

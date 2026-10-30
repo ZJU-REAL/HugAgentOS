@@ -218,6 +218,7 @@
 .jx-projectWorkspaceRail { flex:0 0 clamp(360px, 32%, 440px); min-width:0; padding:16px 16px 16px 0; overflow-y:auto; }
 .jx-projectWorkspaceRail-toggle.ant-btn { display:none; }
 .jx-projectWorkspaceRail-body { min-width:0; }
+.jx-projectRail-inlineLink.ant-btn { height:auto; padding:0; font-size:inherit; }
 .jx-projectRail-cardHeader { gap:8px; min-width:0; }
 .jx-projectRail-cardTitle { min-width:0; overflow-wrap:anywhere; }
 .jx-projectRail-cardTitle .ant-tag { max-width:100%; overflow:hidden; text-overflow:ellipsis; vertical-align:middle; }

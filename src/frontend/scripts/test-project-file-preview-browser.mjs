@@ -38,8 +38,7 @@ createRoot(document.getElementById('root')).render(
   outfile: resolve(output, 'fixture.js'), bundle: true, format: 'esm', jsx: 'automatic',
   define: { 'import.meta.env': '{}' },
   loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl' },
-  external: ['/loader.gif', '/loader-done.png'],
-});
+  });
 const browser = await chromium.launch({
   headless: true,
   ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE

@@ -164,6 +164,7 @@
 
 @media (max-width: 768px), (max-width: 960px) and (max-height: 600px){
   .jx-mainRow,
+  .jx-conversationColumn,
   .jx-content{
     min-width:0;
     max-width:100%;

@@ -7,6 +7,7 @@ import type { EmbeddingPolicy } from './externalEmbed';
 import { EmbedPolicyFields } from './EmbedPolicyFields';
 import { getLang, t } from '../i18n';
 import { ExternalAuthenticationManager } from './ExternalAuthenticationEditor';
+import {HostButton, HostCheckbox, HostField, HostFieldset, HostHint, HostInput, HostMeta, HostNotice, HostSection, HostSelect, HostToolbar} from './ui';
 
 const empty = {id:'', title:'', description:'', url:'https://', enabled:true};
 const defaultEmbedding: EmbeddingPolicy = {origin:'https://', ready:'unconfirmed', allowForms:false, originStorage:false};
@@ -79,32 +80,38 @@ export function ExternalApplicationEditor({token}: {token: string}) {
       setError(externalErrorMessage(e));
     } finally {setSaving(false);}
   }
-  return <section aria-label={t('普通外部应用')} style={{margin:'24px 0', padding:20, border:'1px solid var(--color-border)', borderRadius:12}}>
-    <h2>{t('普通外部应用')}</h2>
-    <p>{t('独立登录，在浏览器新窗口打开。不会传递宿主登录凭据。旧应用配置保留在下方。')}</p>
-    {loading && <p role="status">{t('正在加载应用目录…')}</p>}
-    {error && <p role="alert">{error}</p>}
-    {notice && <p role="status">{t(notice)}</p>}
-    <button type="button" onClick={() => void load()} disabled={saving}>{t('重新加载')}</button>{' '}
-    <button type="button" onClick={() => edit(null)} disabled={saving}>{t('新增外部应用')}</button>
-    <ul>{items.map(item => <li key={item.applicationKey}>
-      <button type="button" disabled={saving} onClick={() => edit(item)}>{applicationText(item.declaration.title)}</button>
-      {' · '}{item.enabled ? t('启用') : t('禁用')}{' · revision '}{item.revision}
-    </li>)}</ul>
-    <form onSubmit={event => void save(event)}>
-      <fieldset disabled={saving || loading} style={{display:"grid",gap:12}}>
-        <legend>{selected ? t('编辑外部应用') : t('新增外部应用')}</legend>
-        <label>{t('应用 ID')}<input required maxLength={64} pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,63}" disabled={!!selected} value={form.id} onChange={e => setForm({...form,id:e.target.value})}/></label>{' '}
-        <label>{t('应用名称')}<input required maxLength={400} value={form.title} onChange={e => setForm({...form,title:e.target.value})}/></label>{' '}
-        <label>{t('应用简介')}<input maxLength={400} value={form.description} onChange={e => setForm({...form,description:e.target.value})}/></label>{' '}
-        <label>{t('跳转 URL')}<input required type="url" maxLength={2048} value={form.url} onChange={e => setForm({...form,url:e.target.value})}/></label>{' '}
-        <label>{t('打开方式')}<select aria-label={t('打开方式')} value={mode} onChange={e => setMode(e.target.value as 'browser' | 'embedded')}><option value="browser">{t('浏览器')}</option><option value="embedded">{t('嵌入工作区')}</option></select></label>
-        {mode === 'embedded' && <EmbedPolicyFields value={embedding} onChange={setEmbedding}/>}
-        <label><input type="checkbox" checked={form.enabled} onChange={e => setForm({...form,enabled:e.target.checked})}/>{t('启用')}</label>{' '}
-        <button type="submit">{saving ? t('正在保存…') : t('保存外部应用')}</button>
-      </fieldset>
-    </form>
-    <p>{t('并发更新冲突时，请重新加载并选择最新应用后再编辑。')}</p>
+  return <div className="jx-hostSections">
+    <HostSection level={2} title={t('普通外部应用')}
+      description={t('独立登录，在浏览器新窗口打开。不会传递宿主登录凭据。旧应用配置保留在下方。')}
+      actions={<>
+        <HostButton onClick={() => edit(null)} disabled={saving}>{t('新增外部应用')}</HostButton>
+        <HostButton tone="text" onClick={() => void load()} disabled={saving}>{t('重新加载')}</HostButton>
+      </>}>
+      {loading && <HostNotice tone="loading">{t('正在加载应用目录…')}</HostNotice>}
+      {error && <HostNotice tone="error">{t(error)}</HostNotice>}
+      {notice && <HostNotice tone="success">{t(notice)}</HostNotice>}
+      <ul className="jx-hostList">{items.map(item => <li key={item.applicationKey} className="jx-hostList-row">
+        <span className="jx-hostList-title">
+          <HostButton tone="text" size="small" disabled={saving} onClick={() => edit(item)}>{applicationText(item.declaration.title)}</HostButton>
+        </span>
+        <HostMeta>{item.enabled ? t('启用') : t('禁用')}{' · revision '}{item.revision}</HostMeta>
+      </li>)}</ul>
+      <form onSubmit={event => void save(event)}>
+        <HostFieldset disabled={saving || loading} legend={selected ? t('编辑外部应用') : t('新增外部应用')}>
+          <HostField label={t('应用 ID')}><HostInput required maxLength={64} pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,63}" disabled={!!selected} value={form.id} onChange={e => setForm({...form,id:e.target.value})}/></HostField>
+          <HostField label={t('应用名称')}><HostInput required maxLength={400} value={form.title} onChange={e => setForm({...form,title:e.target.value})}/></HostField>
+          <HostField label={t('应用简介')}><HostInput maxLength={400} value={form.description} onChange={e => setForm({...form,description:e.target.value})}/></HostField>
+          <HostField label={t('跳转 URL')}><HostInput required type="url" maxLength={2048} value={form.url} onChange={e => setForm({...form,url:e.target.value})}/></HostField>
+          <HostField label={t('打开方式')}><HostSelect aria-label={t('打开方式')} value={mode} onChange={e => setMode(e.target.value as 'browser' | 'embedded')}><option value="browser">{t('浏览器')}</option><option value="embedded">{t('嵌入工作区')}</option></HostSelect></HostField>
+          {mode === 'embedded' && <EmbedPolicyFields value={embedding} onChange={setEmbedding}/>}
+          <HostCheckbox checked={form.enabled} onChange={e => setForm({...form,enabled:e.target.checked})}>{t('启用')}</HostCheckbox>
+          <HostToolbar>
+            <HostButton tone="primary" submit>{saving ? t('正在保存…') : t('保存外部应用')}</HostButton>
+          </HostToolbar>
+          <HostHint>{t('并发更新冲突时，请重新加载并选择最新应用后再编辑。')}</HostHint>
+        </HostFieldset>
+      </form>
+    </HostSection>
     <ExternalAuthenticationManager key={token} token={token}/>
-  </section>;
+  </div>;
 }

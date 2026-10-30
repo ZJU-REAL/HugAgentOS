@@ -1,10 +1,11 @@
-"""Public L2 lifecycle against genuine mem0, Milvus Lite and embedding HTTP."""
+"""Public L2 lifecycle against genuine mem0, vector stores and embedding HTTP."""
 from __future__ import annotations
 
 import asyncio
 import hashlib
 import json
 import math
+import os
 import threading
 from datetime import timedelta
 from dataclasses import replace
@@ -17,11 +18,17 @@ from core.infra.time import utc_now
 from core.memory import backend, service
 from core.memory.context import MemoryContext
 
+_production_get_memory = backend._get_memory
 
-@pytest.fixture
-def real_memory(tmp_path, monkeypatch):
+
+@pytest.fixture(params=["milvus", "pgvector"])
+def real_memory(tmp_path, monkeypatch, request):
     mem0 = pytest.importorskip("mem0")
-    pytest.importorskip("milvus_lite")
+    provider = request.param
+    if provider == "milvus":
+        pytest.importorskip("milvus_lite")
+    elif not os.environ.get("HUGAGENT_TEST_PGVECTOR_URL"):
+        pytest.skip("requires an isolated HUGAGENT_TEST_PGVECTOR_URL database")
     requests = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -74,11 +81,22 @@ def real_memory(tmp_path, monkeypatch):
             "token": "", "url": str(tmp_path / "vectors.db"), "collection_name": "l2_lifecycle",
             "embedding_model_dims": 16, "metric_type": "COSINE"}},
     }
+    if provider == "pgvector":
+        from core.memory.pgvector_store import vector_config
+        config["vector_store"] = vector_config(os.environ["HUGAGENT_TEST_PGVECTOR_URL"], 16)
+        config["history_db_path"] = ":memory:"
     memory = None
     try:
         backend._patch_mem0_embedding()
         memory = mem0.Memory.from_config(config)
+        if provider == "pgvector":
+            from core.memory.pgvector_store import prepare_collection
+            prepare_collection(memory.vector_store)
+            # This URL is test-only and must point to an isolated database.
+            with memory.vector_store._get_cursor(commit=True) as cursor:
+                cursor.execute("TRUNCATE hugagent_memories")
         monkeypatch.setattr(backend, "_get_memory", lambda: memory)
+        monkeypatch.setattr(service, "get_memory", lambda: memory)
         monkeypatch.setattr(backend, "settings", SimpleNamespace(
             memory=replace(backend.settings.memory, enabled=True, graph_enabled=False)))
         from core.memory.pipeline import milvus_breaker
@@ -86,9 +104,12 @@ def real_memory(tmp_path, monkeypatch):
         yield memory, requests
     finally:
         if memory is not None:
-            memory.vector_store.client.close()
-        from milvus_lite.server_manager import server_manager_instance
-        server_manager_instance.release_server(str(tmp_path / "vectors.db"))
+            from core.memory.pgvector_store import close_vector_store
+            close_vector_store(memory.vector_store)
+            memory.close()
+        if provider == "milvus":
+            from milvus_lite.server_manager import server_manager_instance
+            server_manager_instance.release_server(str(tmp_path / "vectors.db"))
         server.shutdown()
         server.server_close()
         worker.join(timeout=3)
@@ -192,3 +213,74 @@ async def test_durable_foreign_actor_replay_cannot_modify_owned_memory(
     result = await outbox.consume_outbox_job(job)
     assert result["status"] == "retry"  # Existing bounded retry policy; no store effect.
     assert (await service.get_all_memories(context().user_id))[0]["memory"] == "Keep original authority"
+
+
+@pytest.mark.asyncio
+async def test_physical_expiry_sweep_keeps_unexpired_and_other_layers(real_memory, monkeypatch):
+    from core.memory import ttl_sweeper
+    memory, _ = real_memory
+    monkeypatch.setattr(ttl_sweeper, "settings", SimpleNamespace(memory=SimpleNamespace(enabled=True)))
+    expired = memory.add("old rule", user_id=context().user_id, infer=False, metadata={
+        "layer": "L2", "expiration_date": (utc_now().date() - timedelta(days=1)).isoformat()})["results"][0]["id"]
+    current = memory.add("current rule", user_id=context().user_id, infer=False, metadata={
+        "layer": "L2", "expiration_date": (utc_now().date() + timedelta(days=1)).isoformat()})["results"][0]["id"]
+    other = memory.add("other layer", user_id=context().user_id, infer=False, metadata={
+        "layer": "L1", "expiration_date": (utc_now().date() - timedelta(days=1)).isoformat()})["results"][0]["id"]
+    stats = await ttl_sweeper.sweep_expired_memories()
+    assert stats["deleted"] == 1
+    assert memory.get(expired) is None
+    assert memory.get(current) and memory.get(other)
+
+
+@pytest.mark.asyncio
+async def test_exact_receipt_query_checks_array_and_scope(real_memory):
+    memory, _ = real_memory
+    ctx = context(workspace="owned")
+    ident = memory.add("receipt array", user_id=ctx.user_id, infer=False, metadata={
+        "layer": "L2", "workspace_id": "owned", "outbox_effect_ids": ["first", "last"]})["results"][0]["id"]
+    found = await service.find_procedure_by_effect_id(ctx, "first", strict=True)
+    assert found and found["id"] == ident
+    assert await service.find_procedure_by_effect_id(context(workspace="foreign"), "first", strict=True) is None
+    assert await service.find_procedure_by_effect_id(context(user="foreign", workspace="owned"), "first", strict=True) is None
+
+
+def test_pgvector_reopen_keeps_memory_and_rejects_dimension_change(real_memory):
+    from core.memory.pgvector_store import is_pgvector, prepare_collection, close_vector_store
+    memory, _ = real_memory
+    if not is_pgvector(memory):
+        pytest.skip("PostgreSQL-specific persistence and schema test")
+    ident = memory.add("persist over process replacement", user_id=context().user_id, infer=False,
+                       metadata={"layer": "L2", "outbox_effect_id": "durable-receipt"})["results"][0]["id"]
+    from mem0 import Memory
+    reopened = Memory.from_config(memory.config.model_dump(warnings=False))
+    try:
+        prepare_collection(reopened.vector_store)
+        assert reopened.get(ident)["memory"] == "persist over process replacement"
+        reopened.vector_store.embedding_model_dims = 32
+        with pytest.raises(RuntimeError, match="existing data retained"):
+            prepare_collection(reopened.vector_store)
+        assert reopened.get(ident)["memory"] == "persist over process replacement"
+    finally:
+        close_vector_store(reopened.vector_store)
+        reopened.close()
+
+
+def test_pgvector_production_initialization(real_memory, monkeypatch):
+    from core.memory.pgvector_store import is_pgvector
+    memory, _ = real_memory
+    if not is_pgvector(memory):
+        pytest.skip("PostgreSQL-specific initialization test")
+    config = memory.config.model_dump(warnings=False)
+    monkeypatch.setattr(backend, "_build_mem0_config", lambda: config)
+    state = backend.process_state()
+    monkeypatch.setattr(state, "memory_instance", None)
+    monkeypatch.setattr(state, "memory_epoch", None)
+    monkeypatch.setattr(state, "memory_init_failed", False)
+    initialized = _production_get_memory()
+    try:
+        assert initialized is not None and is_pgvector(initialized)
+        assert initialized.vector_store._collection_ensured
+        assert not state.memory_init_failed
+    finally:
+        if initialized is not None:
+            backend._close_failed_memory(initialized)

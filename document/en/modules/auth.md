@@ -41,8 +41,7 @@ Password hashing lives in `core/auth/password.py`; the minimum length is control
 When you sign in to a CE instance with the default `admin/admin` credentials,
 you must replace the temporary password first. The application then opens a
 full-screen setup flow instead of the workspace. The flow covers display
-language, models, internet search, document parsing, persistent memory, and
-ontology validation.
+language, models, internet search, document parsing, and persistent memory.
 
 - The model step includes a required primary chat model and optional embedding
   and reranker models. Saving tests every completed model configuration and
@@ -55,11 +54,8 @@ ontology validation.
   can leave either retrieval model blank without blocking setup.
 - Internet search and external document parsing are optional. You can add them
   later under **Settings → System**.
-- Memory and ontology switches check whether the instance has the required
-  service or a published Domain Pack. Unavailable features remain off.
-- On a new CE deployment, **Show Dispatch Process** defaults to on when the
-  browser has no saved preference. If you turn it off under **Settings → Chat
-  Settings**, the browser preserves your choice.
+- The memory switch checks whether the instance has the required service.
+  Unavailable features remain off.
 - The application stores a versioned completion marker in the administrator's
   `users_shadow.metadata`. Refreshing or signing in again doesn't repeat a
   completed setup flow.
@@ -152,7 +148,6 @@ User-granular feature switches are stored in the `users_shadow.metadata` JSON co
 | `can_use_api_key` | off | `PATCH /v1/config/users/{id}/api-key-permission` | Creating / using personal API keys; turning it off immediately invalidates existing keys |
 | `can_add_skill` | off | `PATCH /v1/config/users/{id}/skill-permission` | Self-service private skill upload / authoring in the capability center (`api/routes/v1/me_capabilities.py`) |
 | `can_add_mcp` | off | `PATCH /v1/config/users/{id}/mcp-permission` | Self-service private remote MCP servers (HTTP/SSE) |
-| `can_use_ontology_validation` | off | `PATCH /v1/config/users/{id}/ontology-validation-permission` | The ontology-validation Settings entry, personal switch, and runtime validation; without permission the entry is hidden and a previously enabled preference is ignored |
 | `lab_enabled` | **on** | `PATCH /v1/config/users/{id}/lab-permission` | Lab module entry and access |
 | `allowed_apps` | unrestricted | `PATCH /v1/config/users/{id}/app-permissions` | App visibility; `None` = all enabled apps, list = allowlist (empty list = block all) |
 | `role: super_admin` | none | (written directly into metadata) | Passes the `require_super_admin` dependency; bypasses team role checks |

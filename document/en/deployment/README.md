@@ -57,3 +57,5 @@ A `{"status":"healthy",...}` response means the backend is up; then open the cor
 ## Local skill and plugin management
 
 [Local skill and plugin management](local-capability-management.md)
+
+For existing PostgreSQL, Redis and MinIO without new persistent volumes, see [External-services Kubernetes deployment (EE)](external-services-kubernetes.md). Run the live mount and network preflight before installation.

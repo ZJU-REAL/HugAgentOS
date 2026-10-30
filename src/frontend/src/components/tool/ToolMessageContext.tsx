@@ -4,8 +4,8 @@ import { createContext, useContext } from 'react';
  * 工具卡所属的「哪条消息」。
  *
  * 历史里的工具结果只下发梗概，展开时才回后端取全文（见 `getToolCallResult`）——
- * 取的时候要报出 chat_id + message_id + tool_id。工具卡外面套着 ToolRunShell /
- * ToolProgressInline 好几层，逐层透传三个参数会把这几层的签名都搅浑，所以用一个
+ * 取的时候要报出 chat_id + message_id + tool_id。工具卡外面套着 ToolRunShell
+ * 好几层，逐层透传三个参数会把这几层的签名都搅浑，所以用一个
  * 只读上下文在 MessageBubble 处一次性挂上。
  *
  * 值为 null（流式过程中、批量面板等没有落库消息的场景）时，工具卡就老老实实只显示

@@ -152,7 +152,10 @@ class CloudProcesses:
                 )
                 if not execution.id:
                     raise SandboxError("Background command returned no execution ID")
-                return OpenSandboxHandle(provider, req, sess.sandbox.commands, execution.id)
+                return OpenSandboxHandle(
+                    provider, req, sess.sandbox.commands, execution.id,
+                    launched_at=time.monotonic(), sandbox=sess.sandbox,
+                )
         # Cube uses the E2B-compatible background command handle.
         async with await provider._get_session_lock(req.session_id):
             sbx = await provider._acquire_persistent(req.session_id, req.user_id)
@@ -181,11 +184,16 @@ class CloudProcesses:
 
 
 class CloudHandle:
+    # Most commands finish within tens of milliseconds, so a fixed interval made
+    # every result wait for the next tick. Poll fast first and back off to the
+    # steady interval; a long run costs a handful of extra status reads.
     poll_interval = 0.5
+    first_poll_interval = 0.02
 
     def __init__(self, provider, req):
         self.provider = provider
         self.req = req
+        self._poll_delay = self.first_poll_interval
         self.last_touch = 0.0
         self.metadata = {}
         if provider.name == "cube":
@@ -194,6 +202,11 @@ class CloudHandle:
                 "still enforce a sandbox lifetime that its API cannot renew."
             )
         self.finished = False
+
+    def next_poll_delay(self):
+        delay = self._poll_delay
+        self._poll_delay = min(delay * 2, self.poll_interval)
+        return delay
 
     async def touch(self):
         now = time.monotonic()
@@ -205,19 +218,57 @@ class CloudHandle:
 
 
 class OpenSandboxHandle(CloudHandle):
-    def __init__(self, provider, req, commands, execution_id):
+    # execd before v1.0.22 answers a background run before it registers the command,
+    # so a status read right after launch can get "command not found" for a command
+    # that is already running. Read that as "not started yet" for a short window
+    # after our own launch; a recovered handle (no launched_at) gets no such window.
+    registration_window_s = 2.0
+
+    def __init__(self, provider, req, commands, execution_id, *, launched_at=None, sandbox=None):
         super().__init__(provider, req)
         self.commands = commands
         self.execution_id = execution_id
+        self.launched_at = launched_at
         self.cursor = 0
         self.metadata["execution_cursor"] = 0
         self.detached = False
+        # Present for commands launched here; a space copy is then stored before the exit.
+        self.sandbox = sandbox
+        self._exit_code = None
+        self._writeback = None
 
     async def poll(self):
+        # A synchronized space copy is stored before the exit is reported, so the
+        # next command (and the user) sees what this one wrote. The upload runs
+        # as a task: each poll stays short under the session's status timeout.
+        if self._writeback is not None:
+            if not self._writeback.done():
+                return "", "", None
+            self.finished = True
+            report = self._writeback.result()
+            text = report.text() if report else ""
+            return ("\n" + text + "\n" if text else ""), "", self._exit_code
+        out, err, code = await self._poll_command()
+        if code is None or self.sandbox is None or not self.req.user_id:
+            return out, err, code
+        from core.files.spaces.transport import get_space_transport
+        transport = get_space_transport()
+        if not transport.synchronizes:
+            return out, err, code
+        self._exit_code = code
+        self._writeback = asyncio.create_task(transport.after_use(self.sandbox, self.req.user_id))
+        return out, err, None
+
+    async def _poll_command(self):
         await self.touch()
         # Read status before logs: when exit is observed, the subsequent log
         # read includes the final chunk rather than dropping it in a race.
-        status = await self.commands.get_command_status(self.execution_id)
+        try:
+            status = await self.commands.get_command_status(self.execution_id)
+        except Exception as exc:
+            if self._not_registered_yet(exc):
+                return "", "", None
+            raise
         logs = await self.commands.get_background_command_logs(
             self.execution_id, cursor=self.cursor
         )
@@ -238,11 +289,20 @@ class OpenSandboxHandle(CloudHandle):
         # OpenSandbox's background API merges stdout/stderr.
         return logs.content or "", status.error or "", code
 
+    def _not_registered_yet(self, exc):
+        return (
+            self.launched_at is not None
+            and time.monotonic() - self.launched_at < self.registration_window_s
+            and "command not found" in str(exc)
+        )
+
     async def interrupt(self):
         await self.commands.interrupt(self.execution_id)
 
     async def close(self):
-        if not self.finished and not self.detached:
+        # After the exit only the write-back may still run; it must finish
+        # rather than be cancelled with the handle.
+        if not self.finished and not self.detached and self._writeback is None:
             await self.interrupt()
 
 

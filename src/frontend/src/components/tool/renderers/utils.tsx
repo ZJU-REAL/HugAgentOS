@@ -21,11 +21,6 @@ export function coerceOutput(raw: unknown): unknown {
   try { return unwrapMcpResult(JSON.parse(raw)); } catch { return raw; }
 }
 
-/** True if any tool in the list is still running. */
-export function anyToolRunning(tools: Pick<ToolCall, 'status'>[]): boolean {
-  return tools.some((t) => t.status === 'running');
-}
-
 /** Resolve display-time tool status — a still-streaming message treats 'running' as 'success'.
  *
  *  中断是它自己的一档，不能并进 success：流收尾时没拿到结果的调用会被标成

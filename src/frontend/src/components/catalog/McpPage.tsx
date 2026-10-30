@@ -10,6 +10,8 @@ withdrawMcpMarketSubmission,
 } from '../../api';
 import { usePanelHeader } from '../../hooks/usePageConfig';
 import { t } from '../../i18n';
+import { useIsMobileViewport } from '../../hooks/useIsMobileViewport';
+import { ContinuousLoadSentinel } from '../common';
 import { useAuthStore,useCatalogStore } from '../../stores';
 import type { McpMarketSubmission } from '../../types';
 import { sortCapabilitiesByCreation } from '../../utils/capabilityOrder';
@@ -134,9 +136,11 @@ export function McpPage() {
   }, [catalog.mcp, query]);
   const totalMcpCount = catalog.mcp.length;
 
+  // 手机上没有页码条：列表从头连续增长，滚到底部再追加（见 ContinuousLoadSentinel）。
+  const isMobile = useIsMobileViewport();
   const pagedItems = useMemo(
-    () => filteredItems.slice((page - 1) * MCP_PAGE_SIZE, page * MCP_PAGE_SIZE),
-    [filteredItems, page],
+    () => filteredItems.slice(isMobile ? 0 : (page - 1) * MCP_PAGE_SIZE, page * MCP_PAGE_SIZE),
+    [filteredItems, page, isMobile],
   );
 
   // Return to the first page when the keyword changes
@@ -274,7 +278,7 @@ export function McpPage() {
       <div
         className="jx-mcp-grid jx-anim-stagger"
         style={{ '--stagger-step': '30ms' } as React.CSSProperties}
-        key={`mcp-${panelEntryNonce}-${page}`}
+        key={`mcp-${panelEntryNonce}-${isMobile ? 0 : page}`}
       >
         {pagedItems.map((item, idx) => (
           <div
@@ -365,7 +369,9 @@ export function McpPage() {
         </div>
       )}
 
-      {filteredItems.length > MCP_PAGE_SIZE && (
+      {isMobile ? (
+        <ContinuousLoadSentinel hasMore={page * MCP_PAGE_SIZE < filteredItems.length} count={pagedItems.length} onMore={() => setPage((current) => current + 1)} />
+      ) : filteredItems.length > MCP_PAGE_SIZE && (
         <div className="jx-mcp-pagination">
           <Pagination
             current={page}

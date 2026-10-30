@@ -18,11 +18,11 @@ HugAgentOS is an open-source, self-hosted agent harness: your request keeps runn
 ```
 document/
 ├── zh-CN/ · en/             # 双语产品文档（镜像）
-│   ├── getting-started/     # 产品简介、快速开始、领域本体快速入门
+│   ├── getting-started/     # 产品简介、快速开始
 │   ├── deployment/          # 部署总览、Docker Compose、桌面本机模式、一键安装、Windows / macOS / UOS、环境变量
 │   ├── architecture/        # 总体架构、后端、前端、数据模型
 │   ├── modules/             # 功能模块：对话与 Run、Personal Agent、自主循环、后台作业、MCP、技能、沙箱、
-│   │                        #   记忆、本体治理、知识库、站点与应用托管、存储、项目空间、认证、管理台等
+│   │                        #   记忆、知识库、站点与应用托管、存储、项目空间、认证、管理台等
 │   ├── api/                 # API 总览（信封 / 鉴权 / SSE / 路由清单）、错误码
 │   ├── editions/            # 社区版 vs 商业版、License 机制、CE 构建管线
 │   └── development/         # 后端 / 前端开发、界面定制、工作台（Workbench）协议与 SDK

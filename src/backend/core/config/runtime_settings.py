@@ -30,6 +30,7 @@ class MemorySettings:
     api_key: str = field(
         default_factory=lambda: _env("MEMORY_API_KEY", _env("API_KEY", "sk-placeholder"))
     )
+    vector_provider: str = field(default_factory=lambda: _env("MEM0_VECTOR_PROVIDER", "milvus").strip().lower())
     milvus_url: str = field(default_factory=lambda: _env("MILVUS_URL", "http://milvus:19530"))
     milvus_token: str = field(default_factory=lambda: _env("MILVUS_TOKEN", ""))
     neo4j_url: str = field(default_factory=lambda: _env("NEO4J_URL", "bolt://neo4j:7687"))

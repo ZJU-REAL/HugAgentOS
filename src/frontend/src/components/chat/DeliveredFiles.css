@@ -54,3 +54,9 @@
 .hg-delivery-type-pdf { color: var(--delivery-icon-pdf); }
 .hg-delivery-type-ppt { color: var(--delivery-icon-ppt); }
 .hg-delivery-type-word { color: var(--delivery-icon-word); }
+
+/* Touch: the 24px download pill and 10px caption are below the touch/readability floor. */
+@media (max-width: 960px) {
+  .hg-delivery-download { height: 36px; padding-inline: 12px; font-size: 13px; }
+  .hg-delivery-description { font-size: 12px; }
+}

@@ -1,10 +1,11 @@
 import { InfoCircleOutlined } from '@ant-design/icons';
-import { InputNumber, Radio, Select, Switch, Tag, Tooltip, message } from 'antd';
+import { InputNumber, Switch, Tooltip, message } from 'antd';
 import { useEffect, useState } from 'react';
 
 import { getEvolutionPrefs, updateEvolutionPrefs } from '../../api';
-import type { EvolutionPrefs, OntologyPackOption } from '../../api';
+import type { EvolutionPrefs } from '../../api';
 import { t } from '../../i18n';
+import { LoadError } from '../common/LoadState';
 
 const MECHANISMS: Array<{ key: string; label: string; desc: string }> = [
   { key: 'memory', label: '记忆生长', desc: '把事实与偏好沉淀为长期记忆' },
@@ -15,26 +16,45 @@ const MECHANISMS: Array<{ key: string; label: string; desc: string }> = [
 /**
  * Fine-grained evolution configuration.
  *
- * The ontology control is the reason this panel exists rather than a single
- * switch: deployments run several domain packs, exactly one, or none at all,
- * and a design that assumes a pack exists breaks the third case completely.
- * "Not bound" is therefore presented as an ordinary choice, not a warning.
+ * Mechanisms, distillation threshold and related switches beyond the single
+ * on/off control.
  */
 export function EvolutionPrefsPanel({ onShowDetail }: { onShowDetail?: () => void }) {
   const [prefs, setPrefs] = useState<EvolutionPrefs | null>(null);
-  const [packs, setPacks] = useState<OntologyPackOption[]>([]);
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    let disposed = false;
     getEvolutionPrefs()
       .then((data) => {
+        if (disposed) return;
         setPrefs(data.prefs);
-        setPacks(data.ontology_packs ?? []);
       })
-      .catch(() => setPrefs(null));
-  }, []);
+      .catch((err) => { if (!disposed) setLoadError((err as Error).message || t('加载失败')); });
+    return () => { disposed = true; };
+  }, [attempt]);
 
-  if (!prefs) return null;
+  const retry = () => { setLoadError(''); setAttempt((n) => n + 1); };
+
+  if (!prefs) {
+    return loadError
+      ? <LoadError title={t('进化设置加载失败')} reason={loadError} onRetry={retry} />
+      : (
+        <div className="jx-evoPrefs" role="status" aria-label={t('加载中…')} aria-busy="true">
+          {Array.from({ length: 5 }, (_, index) => (
+            <div className="jx-evoPrefs-row" key={index} aria-hidden="true">
+              <div className="jx-evoPrefs-label">
+                <div className="jx-skeletonBlock jx-evoPrefs-skLabel" />
+                <div className="jx-skeletonBlock jx-evoPrefs-skDesc" />
+              </div>
+              <div className="jx-skeletonBlock jx-evoPrefs-skControl" />
+            </div>
+          ))}
+        </div>
+      );
+  }
 
   const patch = (change: Partial<EvolutionPrefs>) => {
     const previous = prefs;
@@ -64,7 +84,6 @@ export function EvolutionPrefsPanel({ onShowDetail }: { onShowDetail?: () => voi
     patch({ mechanisms: next });
   };
 
-  const activePacks = packs.filter((p) => p.active);
 
   return (
     <div className="jx-evoPrefs">
@@ -112,46 +131,6 @@ export function EvolutionPrefsPanel({ onShowDetail }: { onShowDetail?: () => voi
               <small>{t(mech.desc)}</small>
             </label>
           ))}
-        </div>
-      </div>
-
-      <div className="jx-evoPrefs-row">
-        <div className="jx-evoPrefs-label">
-          <span>{t('领域本体关联')}</span>
-          <small>{t('沉淀能力时是否按领域规则校验；没有本体包也可正常进化')}</small>
-        </div>
-        <div className="jx-evoPrefs-ontology">
-          <Radio.Group
-            value={prefs.ontology_mode}
-            onChange={(e) => patch({ ontology_mode: e.target.value })}
-            disabled={saving || !prefs.enabled}
-          >
-            <Radio.Button value="none">{t('不关联')}</Radio.Button>
-            <Radio.Button value="any" disabled={activePacks.length === 0}>
-              {t('全部本体')}
-            </Radio.Button>
-            <Radio.Button value="specific" disabled={activePacks.length === 0}>
-              {t('指定本体')}
-            </Radio.Button>
-          </Radio.Group>
-
-          {prefs.ontology_mode === 'specific' && (
-            <Select
-              className="jx-evoPrefs-packSelect"
-              size="small"
-              placeholder={t('选择领域本体包')}
-              value={prefs.ontology_pack_id || undefined}
-              disabled={saving || !prefs.enabled}
-              onChange={(value) => patch({ ontology_pack_id: value })}
-              options={activePacks.map((p) => ({ value: p.pack_id, label: p.name }))}
-            />
-          )}
-
-          {activePacks.length === 0 && (
-            // Stated plainly rather than hiding the control: an absent setting
-            // reads as a missing feature, which is a different message.
-            <Tag>{t('当前没有已激活的领域本体包，进化将不做本体校验')}</Tag>
-          )}
         </div>
       </div>
 

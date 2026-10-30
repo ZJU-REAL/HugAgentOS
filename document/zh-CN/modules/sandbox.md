@@ -119,9 +119,10 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 ```
 
 - 一个会话复用同一容器中的文件。Python/JS 每次启动独立进程，不保留内存变量。
+- 每个容器创建时都设置 `EXECD_API_GRACE_SHUTDOWN=0s`。execd 默认会在前台命令结束后让流再挂 1 秒，导致每次写文件（其后的 `chown`）和每条初始化命令都多等 1 秒；事件本来就是逐条写出并刷新的，不会丢输出。后台命令启动后 2 秒内查状态遇到 `command not found` 时按"尚未登记"处理：v1.0.22 之前的 execd 会先回复、后登记命令。
 - 用户绑定的容器仅能交给同一用户，复用前清理上一会话的工作区。
 - 基础实现保留个人空间和技能挂载。EE 扩展额外保留团队挂载并复核权限。
-- CE Docker 默认不预热空闲容器。历史配置名中的 jupyter 表示用户会话池，不会启动 Jupyter。
+- 不预热空闲容器。用户的容器在第一次需要它的工具调用时创建，之后重置干净再给这个用户的后续会话复用。历史配置名中的 jupyter 表示用户会话池，不会启动 Jupyter。
 - SANDBOX_IDLE_TTL_S 控制空闲快照阈值，默认 3600 秒。服务端硬到期时间另加回收排队、续期限频、快照请求和等待的宽限。每轮扫描先为排队会话续期，再公平分批创建快照。
 - 带密钥的续期与快照请求统一使用 OPEN-SANDBOX-API-KEY 认证头。
 
@@ -129,7 +130,7 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 
 实现位于 core/sandbox/providers/opensandbox/snapshots.py。目标：会话空闲时不白白占着 Docker 资源，又能在用户回来时**带着文件系统**满血复活。
 
-- **park（雪藏）**：后台 worker 每 60s 扫描，对 idle 超过 `SANDBOX_IDLE_TTL_S`（默认 3600s）的会话发起 snapshot（实测 accept→Ready 约 60s，docker commit），Ready 后 upsert `chat_sandbox_snapshots` 表（chat_id 为主键）、擦净 `/workspace` 把容器还回 idle 池；单轮最多并发 park 3 个保护 docker daemon。**这是回收会话沙箱的唯一路径**——旧版另有一条 600s 的「直接擦、不快照」回收比 park 先跑，结果文件没了也没备份，现已合并成这一条；
+- **park（雪藏）**：后台 worker 每 60s 扫描，对 idle 超过 `SANDBOX_IDLE_TTL_S`（默认 3600s）的会话发起 snapshot（实测 accept→Ready 约 60s，docker commit），Ready 后 upsert `chat_sandbox_snapshots` 表（chat_id 为主键）、把容器重置干净（杀掉沙箱用户残留进程；删除 `/workspace`、`$HOME`、`/tmp`、`/var/tmp`、`/dev/shm` 中挂载点以外的全部内容，含 execd 旧命令输出；按 `/proc/self/mountinfo` 跳过网盘、团队空间、技能和 `$HOME` 下的账号凭据挂载；重置失败则直接销毁）再还回 idle 池；单轮最多并发 park 3 个保护 docker daemon。**这是回收会话沙箱的唯一路径**——旧版另有一条 600s 的「直接擦、不快照」回收比 park 先跑，结果文件没了也没备份，现已合并成这一条；
 - **restore（恢复）**：`_create_session_for` **优先查 DB snapshot**（~15–20s restore，仍快于全新创建）；本会话没有快照时才走 Q2 user idle 池（~7s 暖路径），都没有才全新建。顺序不能反——idle 池里的容器是擦干净的，端给有快照的会话等于把它的文件悄悄丢掉。从 snapshot 启动时 volumes 必须**重新声明**——docker commit 不保存 mount 配置，否则 `/workspace/skills/` 等 bind-mount 会丢；
 - **一次性消耗**：snapshot 被用作启动镜像后立即标 1 小时短保留（立刻 DELETE 会因镜像层被新容器引用而 409）；
 - **GC**：每小时清理过期快照（DB 行 + 远端，默认保留 `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS=7` 天），删除冲突自动下轮重试；
@@ -146,7 +147,7 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 
 ## 技能目录只读挂载
 
-技能文件通过只读 bind mount 暴露在沙箱 `/workspace/skills/<id>`（`_make_skills_volumes`），挂的是**该用户自己的技能视图** `$HOST_STORAGE_PATH/sandbox_skills_u/<user_id>`：里面是他的私有技能加上指向公共技能的相对软链，公共技能库 `$HOST_STORAGE_PATH/sandbox_skills` 另挂到 `/workspace/skills_shared` 供软链解析（内置技能启动时同步进来、DB 技能按需物化，见[技能系统](agent-skills.md)）。于是所有技能仍是同一个路径，但别人安装的私有技能（含其 `secrets.json`）根本不在挂载范围内。预热的临时（light）沙箱会发给任意用户，只挂公共技能库。read-only 保证沙箱内不可篡改技能；目录 bind 是实时的，新导入技能立即可见。`HOST_STORAGE_PATH` 未配置时退回只挂内置源码树并告警。
+技能文件通过只读 bind mount 暴露在沙箱 `/workspace/skills/<id>`（`_make_skills_volumes`），挂的是**该用户自己的技能视图** `$HOST_STORAGE_PATH/sandbox_skills_u/<user_id>`：里面是他的私有技能加上指向公共技能的相对软链，公共技能库 `$HOST_STORAGE_PATH/sandbox_skills` 另挂到 `/workspace/skills_shared` 供软链解析（内置技能启动时同步进来、DB 技能按需物化，见[技能系统](agent-skills.md)）。于是所有技能仍是同一个路径，但别人安装的私有技能（含其 `secrets.json`）根本不在挂载范围内。没有用户 id 的沙箱只挂公共技能库。read-only 保证沙箱内不可篡改技能；目录 bind 是实时的，新导入技能立即可见。`HOST_STORAGE_PATH` 未配置时退回只挂内置源码树并告警。
 
 ## 超长工具结果落盘
 
@@ -184,7 +185,7 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 | `SANDBOX_RUNNER_URL` | `http://hugagent-script-runner:8900` | script_runner sidecar 地址 |
 | `SANDBOX_ARTIFACT_MAX_BYTES` | `104857600` | 沙盒文件大小唯一开关（默认 100 MiB）：取件、自动收集产物、送入沙盒、`/myspace` 写回同步共用 |
 | `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY` / `OPENSANDBOX_IMAGE` | — | OpenSandbox 服务端与镜像 |
-| `OPENSANDBOX_POOL_{JUPYTER,LIGHT}_{MIN,MAX}_IDLE` / `OPENSANDBOX_POOL_MAX_TOTAL` | 2/3、2/5、20 | 预热池水位 |
+| `OPENSANDBOX_POOL_JUPYTER_{MIN,MAX}_IDLE` / `OPENSANDBOX_POOL_MAX_TOTAL` | 2/3、20 | 预热池水位 |
 | `SANDBOX_IDLE_TTL_S` | 3600 | 空闲快照阈值和保活间隔基准；服务端 TTL 另加快照与排队宽限 |
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | true | 快照体系总开关 |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | 7 | 快照保留天数 |
@@ -211,7 +212,7 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 | `src/backend/core/sandbox/providers/opensandbox/` | 会话/快照/park-restore worker（EE） |
 | `src/backend/core/sandbox/providers/opensandbox/execution.py` | 执行路径 + idle reaper（EE） |
 | `src/backend/core/sandbox/providers/opensandbox/` | volume 构造、metadata、user pool（EE） |
-| `src/backend/core/sandbox/providers/opensandbox/pool.py` | 双桶预热池 |
+| `src/backend/core/sandbox/providers/opensandbox/pool.py` | 无用户会话的预热池（用户会话走 `user_pool.py`） |
 | `src/backend/core/sandbox/providers/cube/provider.py` | Cube 远端 MicroVM provider（EE） |
 | `src/backend/core/llm/tools/sandbox_tool.py` | Bash / write_stdin / sandbox_put_artifact / sandbox_get_artifact |
 | `src/backend/core/llm/context/offloader.py` | 超长结果落盘 /workspace/.offload |

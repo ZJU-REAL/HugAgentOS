@@ -112,17 +112,6 @@ SEED_CONFIGS: list[tuple[str, str | None, str, str, str, bool]] = [
         "sandbox",
         False,
     ),
-    # ontology —— independent enterprise governance gate for plugin imports.
-    # Unlike the user's ontology preference, this switch cannot be bypassed by
-    # turning off ontology validation in personal settings.
-    (
-        "ontology.force_plugin_import_build_validation",
-        "false",
-        "强制构建时本体校验",
-        "插件导入或安装时必须通过激活 Domain Pack 的构建校验；个人本体开关不能关闭此门禁。",
-        "ontology",
-        False,
-    ),
     # context —— the single compaction trigger ratio. Read per turn by
     # compaction_service.resolve_trigger_ratio and applied by every phase (mid-turn at the ReAct step
     # boundary, pre-turn before a turn samples, post-turn background pre-warm) — it is no longer an

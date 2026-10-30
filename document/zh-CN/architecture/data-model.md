@@ -20,8 +20,7 @@ core/db/
 │   ├── logs.py          # 工具/子智能体/技能调用日志、审计
 │   ├── memory.py        # 画像记忆、记忆审计、脱敏规则
 │   ├── datasource.py    # 数据源、元数据治理与黄金 SQL
-│   ├── site.py          # 站点、连接器与渠道配置
-│   └── ontology.py      # Domain Pack 版本、门禁、委员会与演进草案
+│   └── site.py          # 站点、连接器与渠道配置
 ├── repository/          # 仓储层：agent/artifact/audit/catalog/chat/kb/team/user
 ├── model_repository.py  # 模型供应商/角色指派仓储
 └── edition_tables.py    # CE/EE 建表边界单一真源
@@ -135,16 +134,6 @@ core/db/
 | `skill_call_logs` | 技能触发记录（view / run_script / auto_load） |
 | `audit_logs`（商业版 EE） | 用户态关键操作审计 |
 
-### 领域本体（models/ontology.py）
-
-| 表 | 用途 |
-|---|---|
-| `ontology_packs` | Domain Pack 身份、启用/默认标记与激活版本指针 |
-| `ontology_pack_versions` | 不可变的四层本体版本内容与校验报告 |
-| `ontology_enforcement_events` | 构建、工具和输出门禁的追加式证据 |
-| `ontology_review_runs` | checkpoint / committee 评审裁决、证据与延迟 |
-| `ontology_drafts` | 待人工审查的演进候选及物化版本指针 |
-
 ## Alembic 迁移机制
 
 - **商业版主链**：`src/backend/alembic/versions/` 下 93 个迁移，从初始建表一路演进（含 MCP 迁往 streamable-http、办公 MCP 下线改技能等结构性变更）。常用命令：`alembic upgrade head`、`make migrate-new msg="..."`（autogenerate 基于 `core/db/models` 元数据）；
@@ -178,7 +167,6 @@ user_feedback                                             # 问题反馈审核 /
 | 主题 | 路径 |
 |---|---|
 | 共享 ORM / EE ORM | `src/backend/core/db/models/`、`src/backend/edition_ee/db/models/` |
-| 本体仓储 | `src/backend/core/db/repository/ontology.py` |
 | 问题反馈模型 / 仓储 | `src/backend/edition_ee/db/models/feedback.py`、`edition_ee/db/repository/feedback.py` |
 | 引擎与启动建表 | `src/backend/core/db/engine.py` |
 | 仓储层 | `src/backend/core/db/repository/` |

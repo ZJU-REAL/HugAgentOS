@@ -38,8 +38,7 @@ function Fixture() {
 createRoot(document.getElementById('root')).render(<Fixture />);
 `, resolveDir: process.cwd(), loader: 'tsx' },
   outfile: resolve(output, 'fixture.js'), bundle: true, format: 'esm', jsx: 'automatic',
-  define: {'import.meta.env': '{}'}, external: ['/loader.gif', '/loader-done.png'],
-  loader: {'.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl'},
+  define: {'import.meta.env': '{}'}, loader: {'.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl'},
 });
 const apps = Array.from({length: 60}, (_, i) => ({id: 'app-' + i, name: 'Editor ' + i, icon: null}));
 const browser = await chromium.launch({headless: true});

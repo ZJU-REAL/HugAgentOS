@@ -21,7 +21,6 @@ from core.capabilities.plugins import management as ps
 
 from core.capabilities.plugins.management import components as plugin_components
 
-from core.ontology.policy import set_plugin_import_build_validation_forced
 
 OWNER = "test_user_123"
 
@@ -129,58 +128,6 @@ def test_import_cc_plugin_into_db(tmp_path, db_session):
     assert row is not None
     assert row.source == "imported_claude"
     assert len(row.component_ids["skills"]) == 2
-
-
-@pytest.mark.parametrize(
-    ("user_enabled", "forced", "expected_calls"),
-    [
-        (False, False, 0),
-        (True, False, 4),
-        (False, True, 4),
-    ],
-)
-def test_plugin_import_ontology_validation_follows_user_and_force_policy(
-    tmp_path,
-    db_session,
-    monkeypatch,
-    user_enabled,
-    forced,
-    expected_calls,
-):
-    """Personal opt-out skips checks unless the independent admin gate is on."""
-    owner = f"ontology_import_{int(user_enabled)}_{int(forced)}"
-    db_session.add(
-        UserShadow(
-            user_id=owner,
-            username=owner,
-            extra_data={
-                "ontology_enabled": user_enabled,
-                "can_use_ontology_validation": user_enabled,
-            },
-        )
-    )
-    db_session.commit()
-    if forced:
-        set_plugin_import_build_validation_forced(db_session, True, updated_by="test")
-
-    calls = []
-    monkeypatch.setattr(
-        plugin_components,
-        "ensure_ontology_build_valid",
-        lambda *_args, **kwargs: calls.append(kwargs["asset_type"]),
-    )
-
-    ps.import_plugin(
-        db_session,
-        _make_cc_plugin(tmp_path),
-        owner_user_id=owner,
-        secrets={"api_token": "test"},
-    )
-
-    assert len(calls) == expected_calls
-    if expected_calls:
-        assert calls.count("skill") == 2
-        assert calls.count("tool") == 2
 
 
 def test_owned_skill_enters_runtime_set(tmp_path, db_session):

@@ -8,6 +8,17 @@
   overflow:hidden;
 }
 
+/* 对话列：包住 .jx-content 与悬浮其上的运行监控栏，右侧面板（运行时间线、工具结果、
+ * 提示词库）作为 .jx-mainRow 的兄弟项挤窄这一列，而不是滑到监控栏底下。 */
+.jx-conversationColumn{
+  container:conversation-column / inline-size;
+  position:relative;
+  display:flex;
+  flex:1;
+  min-width:0;
+  min-height:0;
+}
+
 .jx-content{
   flex:1;
   min-width:0;

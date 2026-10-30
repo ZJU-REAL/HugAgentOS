@@ -84,7 +84,7 @@ def _cloud_dependencies(client, monkeypatch, b_metadata):
         for key, metadata in definitions.items()
     }
     cloud = _Cloud(files)
-    monkeypatch.setattr("httpx.get", cloud.get)
+    monkeypatch.setattr("features.desktop.bridge.cloud_http.get", cloud.get)
     assert client.post("/v1/desktop/capabilities/sync").status_code == 200
     return [f"skill:{PROFILE}:{key}" for key in definitions]
 

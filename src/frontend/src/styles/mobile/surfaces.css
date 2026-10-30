@@ -75,6 +75,52 @@
     transform:scale(.96);
   }
 
+  /* 首页空对话的底色是 --color-bg-chat，顶栏沿用 --color-bg-layout 会在顶部压出一条
+     冷灰色带；对话面上让顶栏跟随它下面的底色。 */
+  .jx-primaryPane.is-chatSurface > .jx-mobileHeader{
+    background:color-mix(in srgb, var(--color-bg-chat) 86%, transparent);
+  }
+
+  /* 顶栏右侧「新建对话」：手机上原本只能先开侧栏再找按钮 */
+  .jx-mobileNewChatBtn{
+    display:grid;
+    place-items:center;
+    width:var(--jx-touch-min);
+    height:var(--jx-touch-min);
+    flex:0 0 var(--jx-touch-min);
+    margin-left:auto;
+    padding:0;
+    border:0;
+    border-radius:50%;
+    background:transparent;
+    color:var(--color-text);
+    font-size:19px;
+    cursor:pointer;
+    transition:transform var(--motion-duration-instant) var(--motion-ease-standard);
+  }
+
+  .jx-mobileNewChatBtn:active{
+    background:var(--color-fill-hover);
+    transform:scale(.96);
+  }
+
+  .jx-mobileNewChatBtn:focus-visible{
+    outline:2px solid var(--color-primary);
+    outline-offset:2px;
+  }
+
+  .jx-chatTopbar .jx-mobileNewChatBtn{
+    margin-left:4px;
+  }
+
+  .jx-chatTopbarTitle{
+    flex:1 1 auto;
+    min-width:0;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+
   .jx-chatTopbar{
     min-height:calc(64px + var(--jx-safe-t));
     padding:calc(10px + var(--jx-safe-t)) max(16px, var(--jx-safe-r)) 10px max(16px, var(--jx-safe-l));

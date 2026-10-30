@@ -122,9 +122,10 @@ User returns → restore the session snapshot first → declare mounts again →
 ```
 
 - A conversation reuses container files. Each Python/JS command starts a separate process and retains no variables.
-- A user-bound container can only be reused by the same user, after clearing the previous conversation workspace.
+- Every container is created with `EXECD_API_GRACE_SHUTDOWN=0s`. execd's default of 1 s holds a foreground command's stream open after it completes, which made each file write (its `chown`) and each setup command wait a full second. Events are flushed as they are written, so nothing is lost. Background status reads that get `command not found` within 2 s of launch are treated as "not started yet": execd before v1.0.22 replies before it registers the command.
+- A user-bound container can only be reused by the same user, after it is reset: leftover processes of the sandbox user are killed and everything outside mount points under `/workspace`, `$HOME`, `/tmp`, `/var/tmp` and `/dev/shm` is deleted, including execd's old command output; `scratch` and the home skeleton are rebuilt. Mount points (My Space, team spaces, skills, account credentials under `$HOME`) are detected from `/proc/self/mountinfo` and never entered. If the reset fails the container is destroyed instead.
 - The base runtime preserves personal and skill mounts. EE adds team mounts and permission checks.
-- Docker CE does not prewarm idle containers by default. Historical jupyter setting names refer to the user-session pool; no Jupyter server starts.
+- Nothing is prewarmed. A user's container is created on the first tool call that needs one, then reused for that user's later chats once reset. Historical jupyter setting names refer to the user-session pool; no Jupyter server starts.
 - SANDBOX_IDLE_TTL_S sets the idle snapshot threshold, default 3600 seconds. Hard server expiry adds grace for the reclaim queue, renewal skew, snapshot request and readiness wait. Each scan renews queued sessions before fairly scheduling snapshot batches.
 - Authenticated renewal and snapshot requests share the OPEN-SANDBOX-API-KEY header.
 
@@ -149,7 +150,7 @@ With `OPENSANDBOX_MYSPACE_BIND_MOUNT_ENABLED=true` (the default), User-session s
 
 ## Read-only skills mount
 
-Skill files are exposed inside the sandbox at `/workspace/skills/<id>` through read-only bind mounts (`_make_skills_volumes`). What is bound there is **that user's own skill view**, `$HOST_STORAGE_PATH/sandbox_skills_u/<user_id>`: their private skills plus relative symlinks to the shared ones, with the shared skill dir `$HOST_STORAGE_PATH/sandbox_skills` mounted alongside at `/workspace/skills_shared` so those symlinks resolve (built-ins synced in at startup, DB skills materialized on demand — see the [skill system](agent-skills.md)). Every skill therefore keeps the same in-sandbox path, while another user's private skills (and their `secrets.json`) are simply not mounted. Pre-warmed light sandboxes are handed to whoever asks next, so they only ever mount the shared dir. Read-only guarantees skills cannot be tampered with from inside the sandbox; the directory bind is live, so newly imported skills are visible immediately. Without `HOST_STORAGE_PATH` it falls back to mounting only the built-in source tree, with a warning.
+Skill files are exposed inside the sandbox at `/workspace/skills/<id>` through read-only bind mounts (`_make_skills_volumes`). What is bound there is **that user's own skill view**, `$HOST_STORAGE_PATH/sandbox_skills_u/<user_id>`: their private skills plus relative symlinks to the shared ones, with the shared skill dir `$HOST_STORAGE_PATH/sandbox_skills` mounted alongside at `/workspace/skills_shared` so those symlinks resolve (built-ins synced in at startup, DB skills materialized on demand — see the [skill system](agent-skills.md)). Every skill therefore keeps the same in-sandbox path, while another user's private skills (and their `secrets.json`) are simply not mounted. Sandboxes without a user id only ever mount the shared dir. Read-only guarantees skills cannot be tampered with from inside the sandbox; the directory bind is live, so newly imported skills are visible immediately. Without `HOST_STORAGE_PATH` it falls back to mounting only the built-in source tree, with a warning.
 
 ## Offloading oversized tool results
 
@@ -194,7 +195,7 @@ fix on both execution surfaces. Updating only the cloud does not fix old clients
 | `SANDBOX_RUNNER_URL` | `http://hugagent-script-runner:8900` | script_runner sidecar address |
 | `SANDBOX_ARTIFACT_MAX_BYTES` | `104857600` | Single switch for sandbox file size (100 MiB): fetch, auto-collected artifacts, push-in, and `/myspace` write-back share it |
 | `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY` / `OPENSANDBOX_IMAGE` | — | OpenSandbox server & image |
-| `OPENSANDBOX_POOL_{JUPYTER,LIGHT}_{MIN,MAX}_IDLE` / `OPENSANDBOX_POOL_MAX_TOTAL` | 2/3, 2/5, 20 | Warm-pool watermarks |
+| `OPENSANDBOX_POOL_JUPYTER_{MIN,MAX}_IDLE` / `OPENSANDBOX_POOL_MAX_TOTAL` | 2/3, 20 | Warm-pool watermarks |
 | `SANDBOX_IDLE_TTL_S` | 3600 | Idle snapshot threshold and keepalive basis; server expiry adds snapshot and queue grace |
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | true | Snapshot system master switch |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | 7 | Snapshot retention |
@@ -221,7 +222,7 @@ Full list in the [environment variable reference](../deployment/environment-vari
 | `src/backend/core/sandbox/providers/opensandbox/` | Sessions / snapshots / park-restore workers (EE) |
 | `src/backend/core/sandbox/providers/opensandbox/execution.py` | Execution path + idle reaper (EE) |
 | `src/backend/core/sandbox/providers/opensandbox/` | Volume builders, metadata, user pool (EE) |
-| `src/backend/core/sandbox/providers/opensandbox/pool.py` | Two-bucket warm pool |
+| `src/backend/core/sandbox/providers/opensandbox/pool.py` | Warm pool for sessions without a user (user sessions use `user_pool.py`) |
 | `src/backend/core/sandbox/providers/cube/provider.py` | Cube remote-MicroVM provider (EE) |
 | `src/backend/core/llm/tools/sandbox_tool.py` | Bash / write_stdin / sandbox_put_artifact / sandbox_get_artifact |
 | `src/backend/core/llm/context/offloader.py` | Overflow offloading to the session workspace |

@@ -12,6 +12,7 @@ import { useAuthStore } from '../stores/authStore';
 import { usePersonalAgentAvailable } from '../personalAgentEdition';
 import {
   CloseOutlined,
+  EditOutlined,
   MenuOutlined,
 } from '@ant-design/icons';
 import {
@@ -31,6 +32,7 @@ import { useProjectStore } from '../stores/projectStore';
 import { resolvePlanModeActive } from '../utils/chatMode';
 import { TOPIC_TAG_COLORS } from '../utils/constants';
 import { RightSidebarPanel } from './canvas';
+import { RunMonitorRail } from './monitor';
 import { PromptHubPanel } from './chat';
 import { builtinPages } from '../applicationComposition';
 import { WorkbenchPage } from '../workbench/WorkbenchPage';
@@ -44,7 +46,7 @@ import type { useAppController } from '../hooks/useAppController';
 import { SlidePanel } from './common/SlidePanel';
 import { usePaneOcclusion } from '../hooks/usePaneOcclusion';
 import PanelLoadingSkeleton from './common/PanelLoadingSkeleton';
-import { ProjectsSkeleton } from './projects/ProjectSkeletons';
+import { ProjectHeaderSkeleton, ProjectsSkeleton, ProjectWorkspaceRailSkeleton } from './projects/ProjectSkeletons';
 const RunTimelinePanel = lazy(() => import('./automation/RunTimelinePanel').then(m => ({ default: m.RunTimelinePanel })));
 const ProjectHeader = lazy(() => import('./projects/ProjectHeader'));
 const ProjectWorkspaceRail = lazy(() => import('./projects/ProjectWorkspaceRail'));
@@ -78,6 +80,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
   }, [panel]);
   const showProjectOverview = !generic && !!overviewProjectId;
   const { paneRef, hidden: paneHidden } = usePaneOcclusion(canvasOpen, canvasFullscreen);
+  const showRunMonitor = chatSurface && !isEmptyChat && !generic && !showProjectOverview;
   return (
     <Layout className="jx-appShell" style={{ height: '100%' }}>
       <ChatSlot name="sidebar"><Sidebar
@@ -120,6 +123,16 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
               >
                 <MenuOutlined />
               </button>
+              {!(chatSurface && isEmptyChat) && (
+                <button
+                  type="button"
+                  className="jx-mobileNewChatBtn"
+                  onClick={handleNewChat}
+                  aria-label={t('新建对话')}
+                >
+                  <EditOutlined />
+                </button>
+              )}
             </header>
           )}
           {chatSurface && !isEmptyChat && !canvasOpen && (
@@ -179,6 +192,14 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
               {chat?.businessTopic && (
                 <Tag className="jx-headerTopicTag" color={TOPIC_TAG_COLORS[chat.businessTopic] || 'default'}>{chat.businessTopic}</Tag>
               )}
+              <button
+                type="button"
+                className="jx-mobileNewChatBtn"
+                onClick={handleNewChat}
+                aria-label={t('新建对话')}
+              >
+                <EditOutlined />
+              </button>
             </div>
           )}
 
@@ -203,35 +224,40 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
 
 
           <div className={`jx-mainRow${showProjectOverview ? ' jx-mainRow--project' : ''}`}>
-            <Content ref={moduleScrollRef} className={`jx-content${moduleSurface ? ' jx-content--moduleSurface' : ''}${chatSurface ? ' jx-content--chatSurface' : ''}${chatSurface && !!chat?.messages.length ? ' jx-content--messageSurface' : ''}${panelEntering ? ' jx-content--panelEntering' : ''}`}>
-              {/* Unified panel-switch entrance (fade+rise, enter-only to stay responsive); key=panel:
-              * switching chats within the chat panel does not replay it. One-way entrance
-              * needs no motion — CSS primitives suffice. */}
-              <ActivityPanel onOpen={key=>navigateTo('/apps/'+encodeURIComponent(key))}/>
-              <WorkspaceRuntime />
-              <div
-                key={panel}
-                className={`jx-panel jx-anim-fadeInUp${moduleSurface ? ' jx-panel--moduleSurface' : ''}`}
-                data-panel={panel}
-                onAnimationEnd={settlePanel}
-                style={{ '--fadeInUp-distance': '6px', animationDuration: '180ms' } as React.CSSProperties}
-              >
-                {overviewProjectId && (
-                  <Suspense fallback={null}><ProjectHeader key={overviewProjectId} projectId={overviewProjectId} /></Suspense>
-                )}
-                {generic ? <WorkspaceApplication /> : <ApplicationAccess id={chatSurface ? 'chat' : panel}>
-                <WorkbenchPage
-                  registry={builtinPages}
-                  applicationId={chatSurface ? 'chat' : panel}
-                  context={{ state, paneHidden }}
-                  fallback={panel === 'projects' ? <ProjectsSkeleton /> : <PanelLoadingSkeleton />}
-                />
-                </ApplicationAccess>}
-              </div>
-            </Content>
-
+            {/* The run monitor floats over this column's right edge, so side panels
+              * opening beside it (run timeline, tool result, prompt hub) narrow the
+              * column instead of sliding under the rail. */}
+            <div className={`jx-conversationColumn${showRunMonitor ? ' jx-conversationColumn--runMonitor' : ''}`}>
+              <Content ref={moduleScrollRef} className={`jx-content${moduleSurface ? ' jx-content--moduleSurface' : ''}${chatSurface ? ' jx-content--chatSurface' : ''}${chatSurface && !!chat?.messages.length ? ' jx-content--messageSurface' : ''}${panelEntering ? ' jx-content--panelEntering' : ''}`}>
+                {/* Unified panel-switch entrance (fade+rise, enter-only to stay responsive); key=panel:
+                * switching chats within the chat panel does not replay it. One-way entrance
+                * needs no motion — CSS primitives suffice. */}
+                <ActivityPanel onOpen={key=>navigateTo('/apps/'+encodeURIComponent(key))}/>
+                <WorkspaceRuntime />
+                <div
+                  key={panel}
+                  className={`jx-panel jx-anim-fadeInUp${moduleSurface ? ' jx-panel--moduleSurface' : ''}`}
+                  data-panel={panel}
+                  onAnimationEnd={settlePanel}
+                  style={{ '--fadeInUp-distance': '6px', animationDuration: '180ms' } as React.CSSProperties}
+                >
+                  {overviewProjectId && (
+                    <Suspense fallback={<ProjectHeaderSkeleton />}><ProjectHeader key={overviewProjectId} projectId={overviewProjectId} /></Suspense>
+                  )}
+                  {generic ? <WorkspaceApplication /> : <ApplicationAccess id={chatSurface ? 'chat' : panel}>
+                  <WorkbenchPage
+                    registry={builtinPages}
+                    applicationId={chatSurface ? 'chat' : panel}
+                    context={{ state, paneHidden }}
+                    fallback={panel === 'projects' ? <ProjectsSkeleton /> : <PanelLoadingSkeleton />}
+                  />
+                  </ApplicationAccess>}
+                </div>
+              </Content>
+              {showRunMonitor && <RunMonitorRail />}
+            </div>
             {overviewProjectId && !canvasOpen && (
-              <Suspense fallback={null}>
+              <Suspense fallback={<ProjectWorkspaceRailSkeleton />}>
                 <ProjectWorkspaceRail key={overviewProjectId} projectId={overviewProjectId} />
               </Suspense>
             )}

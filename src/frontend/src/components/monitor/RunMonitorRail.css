@@ -1,0 +1,273 @@
+/* ══════════════════════════════════════════════════════
+   Run monitor rail — 上下文 / 子智能体 / 产出与输入文件 / 后台任务
+   A column of separate cards inside the conversation pane, right of the messages.
+   ══════════════════════════════════════════════════════ */
+
+/* The rail floats over the chat scroller's right side, so the scroller — and
+   its scrollbar and message navigation — still reach the column's right edge.
+   The message column and composer shift left by --jx-runMonitor-reserve.
+   It is anchored to .jx-conversationColumn, not the whole main row, so side
+   panels beside the column never end up under it. */
+.jx-conversationColumn--runMonitor {
+  --jx-runMonitor-width: 304px;
+  /* Room on the right for the message navigation (32px + 8px) and the scrollbar. */
+  --jx-runMonitor-edge: 48px;
+  /* Rail + edge + 16px gap, less the 44px chat gutter the panel already keeps
+     (--jx-chat-panel-inline-gutter is set on the panel, below this element). */
+  --jx-runMonitor-reserve: calc(var(--jx-runMonitor-width) + var(--jx-runMonitor-edge) + 16px - 44px);
+}
+
+.jx-runMonitor {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: var(--jx-runMonitor-edge);
+  bottom: 0;
+  display: flex;
+  width: var(--jx-runMonitor-width);
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+  /* Part of the conversation: no divider, the chat surface shows through. */
+  padding: 16px 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  background: transparent;
+  /* The rail spans the full height; its empty space must not swallow clicks
+     or wheel scrolling meant for the messages underneath. Cards opt back in. */
+  pointer-events: none;
+}
+.jx-runMonitor > * { pointer-events: auto; }
+.jx-runMonitor::-webkit-scrollbar { display: none; }
+
+@container conversation-column (min-width: 1120px) {
+  .jx-conversationColumn--runMonitor .jx-content .jx-panel:has(.jx-chatWrap) {
+    padding-right: calc(var(--jx-chat-panel-inline-gutter) + var(--jx-runMonitor-reserve));
+  }
+  /* The history viewport bleeds to the column edges; re-centre it on the column
+     after the panel's extra right padding and keep the list out from under the rail. */
+  .jx-conversationColumn--runMonitor .jx-chatViewportFrame {
+    left: calc(var(--jx-runMonitor-reserve) / 2);
+  }
+  .jx-conversationColumn--runMonitor .jx-chatViewport {
+    --jx-chat-wrap-right: var(--jx-runMonitor-reserve);
+  }
+}
+
+/* The 760px message column keeps its width first; below that the rail drops
+   out instead of stacking under the chat. Opening the canvas or a side panel
+   narrows the column, so the same rule applies there. */
+@container conversation-column (max-width: 1119px) {
+  .jx-runMonitor { display: none; }
+}
+
+/* ── Card: static, bordered, no shadow (v2 L1) ── */
+.jx-runMonitor-card {
+  flex: none;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-container);
+}
+
+.jx-runMonitor-cardHead {
+  display: flex;
+  width: 100%;
+  height: 36px;
+  padding: 0 8px;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  text-align: left;
+}
+.jx-runMonitor-cardHead:hover { background: var(--state-hover); }
+
+.jx-runMonitor-cardTitle {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.jx-runMonitor-caret {
+  flex: none;
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  transform: rotate(-90deg);
+  transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.jx-runMonitor-card[data-open] > .jx-runMonitor-cardHead .jx-runMonitor-caret { transform: none; }
+
+.jx-runMonitor-summary {
+  display: flex;
+  margin-left: auto;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-tertiary);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.jx-runMonitor-cardBody {
+  display: flex;
+  padding-top: 4px;
+  flex-direction: column;
+}
+
+/* ── Rows: one line each ── */
+.jx-runMonitor-row {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-text);
+  font-size: 13px;
+  text-align: left;
+}
+button.jx-runMonitor-row { cursor: pointer; }
+button.jx-runMonitor-row:hover { background: var(--state-hover); }
+button.jx-runMonitor-row:active { background: var(--state-press); }
+.jx-runMonitor-row[data-active] { background: var(--color-primary-light); }
+.jx-runMonitor-cardHead:focus-visible,
+.jx-runMonitor-row:focus-visible,
+.jx-runMonitor-stop:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.jx-runMonitor-lead {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  place-items: center;
+}
+.jx-runMonitor-glyph {
+  color: var(--color-text-secondary);
+  font-size: 14px;
+}
+
+.jx-runMonitor-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jx-runMonitor-code {
+  font-family: var(--font-family-number), ui-monospace, monospace;
+  font-size: 12px;
+}
+
+.jx-runMonitor-meta,
+.jx-runMonitor-num {
+  flex: none;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-family-number);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+/* ElapsedTimer brings its own left padding from tool.css when reused there. */
+.jx-runMonitor-row .jx-runMonitor-meta { padding-left: 0; }
+
+.jx-runMonitor-status {
+  display: inline-grid;
+  width: 16px;
+  flex: none;
+  place-items: center;
+  color: var(--color-text-tertiary);
+  font-size: 13px;
+}
+.jx-runMonitor-status[data-status='running'] { color: var(--color-primary); }
+.jx-runMonitor-status[data-status='success'] { color: var(--color-success); }
+.jx-runMonitor-status[data-status='error'] { color: var(--color-error); }
+
+/* Stop: a filled square, like a media stop key */
+.jx-runMonitor-stop {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+}
+.jx-runMonitor-stop:hover { background: var(--state-hover); }
+.jx-runMonitor-stop:disabled { opacity: .4; cursor: default; }
+.jx-runMonitor-stopGlyph {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+/* ── Environment ── */
+.jx-runMonitor-place {
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+button.jx-runMonitor-row:disabled { cursor: default; }
+.jx-runMonitor-gear { color: var(--color-text-secondary); }
+.jx-runMonitor-gear:hover { color: var(--color-text); }
+
+/* ── Context ── */
+.jx-runMonitor-mini {
+  display: block;
+  width: 48px;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-bg-gray);
+}
+.jx-runMonitor-mini > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-primary);
+}
+.jx-runMonitor-mini[data-level='warn'] > span { background: var(--color-warning); }
+.jx-runMonitor-mini[data-level='high'] > span { background: var(--color-error); }
+
+.jx-runMonitor-kv {
+  display: flex;
+  padding: 0 8px 4px;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+}
+.jx-runMonitor-kvRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.jx-runMonitor-kvLabel {
+  min-width: 0;
+  flex: 1;
+  color: var(--color-text-secondary);
+}
+.jx-runMonitor-kvTotal {
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+}
+.jx-runMonitor-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 2px;
+}
+
+.jx-runMonitor-failed { color: var(--color-error); }

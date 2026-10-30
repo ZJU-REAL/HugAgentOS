@@ -2,14 +2,11 @@ import type { ReactNode } from 'react';
 import { create } from 'zustand';
 import type { UpdateEntry, UpdateCategory, FileConfirmInfo, DesignPickInfo, UserQuestionRequest } from '../types';
 import type { SearchResultItem } from '../api';
-import { IS_COMMUNITY_EDITION_BUILD } from '../edition';
 import { loadThemeMode, saveThemeMode, type ThemeMode } from '../theme';
-import { writeLocal } from '../storage';
 
 export type HistoryTimeFilter = 'all' | 'today' | '7d' | '30d';
 export type UpdateFilter = '全部' | UpdateCategory;
 
-const DISPATCH_PROCESS_STORAGE_KEY = 'hugagent_dispatch_process_visible';
 // A resolved SSE can race with an older pending-GET response already in
 // flight. Keep a small process-local tombstone set so that stale recovery
 // snapshots cannot resurrect a question the server has already settled.
@@ -29,16 +26,6 @@ function markUserQuestionResolved(chatId: string, requestId: string): void {
 
 function wasUserQuestionResolved(chatId: string, requestId: string): boolean {
   return resolvedUserQuestionKeys.has(userQuestionKey(chatId, requestId));
-}
-
-function loadDispatchProcessVisible(): boolean {
-  if (typeof window === 'undefined') return IS_COMMUNITY_EDITION_BUILD;
-  try {
-    const raw = window.localStorage.getItem(DISPATCH_PROCESS_STORAGE_KEY);
-    return raw == null ? IS_COMMUNITY_EDITION_BUILD : raw !== 'false';
-  } catch {
-    return IS_COMMUNITY_EDITION_BUILD;
-  }
 }
 
 interface UIState {
@@ -72,7 +59,6 @@ interface UIState {
 
   // ── Prompt Hub ──
   promptHubOpen: boolean;
-  dispatchProcessVisible: boolean;
 
   // ── 主题（深色模式）──
   // 只存用户档位（system/light/dark）；实际深浅由 AppThemeProvider 结合系统外观解析，
@@ -117,7 +103,6 @@ interface UIState {
   setFeatureUpdates: (updates: UpdateEntry[]) => void;
 
   setPromptHubOpen: (v: boolean) => void;
-  setDispatchProcessVisible: (v: boolean) => void;
 
   setThemeMode: (mode: ThemeMode) => void;
 
@@ -164,7 +149,6 @@ export const useUIStore = create<UIState>((set) => ({
   featureUpdates: [],
 
   promptHubOpen: false,
-  dispatchProcessVisible: loadDispatchProcessVisible(),
 
   themeMode: loadThemeMode(),
 
@@ -324,17 +308,6 @@ export const useUIStore = create<UIState>((set) => ({
       }
       return changed ? { pendingUserQuestions: next } : s;
     }),
-  setDispatchProcessVisible: (v) => {
-    if (typeof window !== 'undefined') {
-      try {
-        writeLocal(DISPATCH_PROCESS_STORAGE_KEY, String(v));
-      } catch {
-        // Keep the in-memory preference usable when browser storage is blocked.
-      }
-    }
-    set({ dispatchProcessVisible: v });
-  },
-
   setThemeMode: (mode) => {
     saveThemeMode(mode);
     set({ themeMode: mode });

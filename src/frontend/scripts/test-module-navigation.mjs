@@ -45,7 +45,7 @@ function Shell(){useAppBootstrap(isConversationPath());useChatSearch(); const pa
 const router=createBrowserRouter([{path:'/',element:<Shell/>,children:[{index:true,element:<p>Workspace</p>},{path:'*',element:<p>Module content</p>}]}]);bindRouter(router);
 window.__navigation={selectTask:()=>useChatStore.getState().setCurrentChatId('task-chat'),unresolvedTask:()=>{useChatStore.getState().adoptChatFromUrl('unresolved-task-chat');navigateTo('/automation/task-one/conversations/unresolved-task-chat');},theme:mode=>useUIStore.getState().setThemeMode(mode),loaded:id=>!!useChatStore.getState().store.chats[id],owner:id=>useChatStore.getState().store.chats[id]?.automationTaskId,plugin:()=>readComposer().activePlugin};
 createRoot(document.getElementById('root')).render(<AppThemeProvider><RouterProvider router={router}/></AppThemeProvider>);
-`,resolveDir:process.cwd(),loader:'tsx'},outdir:output,entryNames:'fixture',splitting:true,bundle:true,jsx:'automatic',format:'esm',define:{'import.meta.env':'{}'},loader:{'.css':'css','.svg':'dataurl','.woff2':'dataurl','.woff':'dataurl','.ttf':'dataurl'},external:['/loader.gif','/loader-done.png']});
+`,resolveDir:process.cwd(),loader:'tsx'},outdir:output,entryNames:'fixture',splitting:true,bundle:true,jsx:'automatic',format:'esm',define:{'import.meta.env':'{}'},loader:{'.css':'css','.svg':'dataurl','.woff2':'dataurl','.woff':'dataurl','.ttf':'dataurl'}});
 const origin='http://127.0.0.1:5199';
 const browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_CHROMIUM?{executablePath:process.env.PLAYWRIGHT_CHROMIUM}:{})});
 try{

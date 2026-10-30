@@ -306,12 +306,12 @@ async def test_pool_refill_is_prewarm_and_stops_when_capacity_is_in_use():
     async def destroy(_sandbox):
         return None
 
-    pool = SandboxPool(jupyter_min_idle=0, jupyter_max_idle=1, light_min_idle=2, light_max_idle=2,
-                       jupyter_factory=factory, light_factory=factory, destroy_fn=destroy)
-    await asyncio.wait_for(pool._refill("light"), 1)
+    pool = SandboxPool(jupyter_min_idle=2, jupyter_max_idle=2,
+                       jupyter_factory=factory, destroy_fn=destroy)
+    await asyncio.wait_for(pool._refill("jupyter"), 1)
     # One background attempt, no retry loop hammering a full deployment.
     assert calls == [True]
-    assert pool.stats()["light"]["in_flight"] == 0
+    assert pool.stats()["jupyter"]["in_flight"] == 0
 
 
 async def test_creation_that_never_reached_the_controller_frees_its_slot_at_once(store):

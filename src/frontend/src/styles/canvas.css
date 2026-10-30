@@ -844,7 +844,7 @@ button.jx-canvas-actionBtn { width: 30px; }
 }
 .jx-subagentCall > img, .jx-subagentCall > span { flex-shrink: 0; }
 .jx-subagentCall .jx-tcr-label { flex-shrink: 1; }
-.jx-subagentDetail { padding: 24px; overflow-wrap: anywhere; }
+.jx-subagentDetail { padding: 0 24px 24px; overflow-wrap: anywhere; }
 /* The message column aligns children to the start; tool batches must not
    derive their width from whichever nested detail happens to be open. */
 .jx-subagentDetail > .jx-msg > .jx-trs {
@@ -852,6 +852,49 @@ button.jx-canvas-actionBtn { width: 30px; }
   min-width: 0;
   max-width: 100%;
 }
-.jx-subagentDetail-head { display: flex; align-items: center; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid var(--color-border); }
-.jx-subagentDetail-head strong { flex: 1; min-width: 0; }
-.jx-subagentDetail-head > span { color: var(--color-text-secondary); font-size: 13px; }
+/* Sticky identity bar: no resting divider; a hairline appears only once the
+   transcript scrolls underneath it. */
+.jx-subagentDetail-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 -24px 8px;
+  padding: 16px 24px;
+  background: var(--bg);
+  box-shadow: 0 1px 0 transparent;
+  transition: box-shadow var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.jx-subagentDetail-head--scrolled { box-shadow: 0 1px 0 var(--color-border); }
+.jx-subagentDetail-head strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.jx-subagentDetail-meta {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: var(--color-text-tertiary);
+  font-size: 0.8125rem;
+}
+.jx-subagentDetail-meta:empty { display: none; }
+.jx-subagentDetail-meta--running {
+  background: var(--color-fill-hover);
+  color: var(--color-text-secondary);
+}
+.jx-subagentDetail-meta .anticon { font-size: 12px; }
+.jx-subagentDetail-time {
+  font-family: var(--font-family-number);
+  font-variant-numeric: tabular-nums;
+}

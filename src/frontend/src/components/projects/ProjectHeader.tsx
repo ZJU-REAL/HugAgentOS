@@ -6,12 +6,14 @@ import { useProjectStore } from '../../stores/projectStore';
 import { useCatalogStore } from '../../stores/catalogStore';
 import { t } from '../../i18n';
 import EditProjectModal from './EditProjectModal';
+import { ProjectHeaderSkeleton } from './ProjectSkeletons';
 
 export default function ProjectHeader({ projectId }: { projectId: string }) {
   const project = useProjectStore(s => s.currentProject);
+  const failed = useProjectStore(s => !!s.detailError);
   const [editOpen, setEditOpen] = useState(false);
   const [environmentOpen, setEnvironmentOpen] = useState(false);
-  if (!project || project.project_id !== projectId) return null;
+  if (!project || project.project_id !== projectId) return failed ? null : <ProjectHeaderSkeleton />;
   const canAdmin = project.permission === 'admin';
   const canEdit = canAdmin || project.permission === 'edit';
   const canDelete = !!project.is_owner;
@@ -36,7 +38,7 @@ export default function ProjectHeader({ projectId }: { projectId: string }) {
     </div>
     <div className="jx-projectHeader-heading">
       <h2 className="jx-projectHeader-title">{project.name}</h2>
-      {(project as { kind?: string }).kind === 'local' && (
+      {project.kind === 'local' && (
         <Tag color="green">{t('本机')}</Tag>
       )}
       <div className="jx-projectHeader-actions">

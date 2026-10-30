@@ -225,7 +225,6 @@ the database has no value.
 | `OPENSANDBOX_REQUEST_TIMEOUT_S` | `120` | Per-HTTP-call timeout (s) |
 | `OPENSANDBOX_PORT` | Full repository: `8910`; CE: no mapping | Controller uses 8080 inside the network |
 | `OPENSANDBOX_POOL_JUPYTER_MIN_IDLE` / `MAX_IDLE` | `.env.example` 1/3; compose defaults 2/3 | User session pool (historical setting name); CE minimum is 0 |
-| `OPENSANDBOX_POOL_LIGHT_MIN_IDLE` / `MAX_IDLE` | `2` / `5` | Light bucket (one-shot executions) |
 | `OPENSANDBOX_POOL_MAX_TOTAL` | CE: `4`; full: `20` | Deployment-wide sandbox capacity (all workers, warm, active and evaluation instances), enforced by the backend's shared admission ledger; read by the backend only |
 | `OPENSANDBOX_CREATE_CONCURRENCY` | `4` | Concurrent creations sent to the controller; protects the Docker daemon |
 | `OPENSANDBOX_ADMISSION_WAIT_S` | `30` | How long an interactive creation waits for a free slot (s); "capacity exhausted" is reported only after a fresh reconciliation |

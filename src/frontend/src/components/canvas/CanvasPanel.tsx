@@ -40,7 +40,7 @@ export function CanvasPanel() {
   const paneId = useCanvasPaneId();
   const activePane = useCanvasPane(s => s.activePane);
   const {
-    isOpen, activeView, artifact, updateArtifact, openSeq,
+    activeView, artifact, updateArtifact, openSeq,
     activeTabId, setTabDirty, panelWidth, setPanelWidth, reloadTab,
   } = useCanvasPane();
   const guardDirty = useCanvasGuard();
@@ -89,7 +89,7 @@ export function CanvasPanel() {
 
   // Intercept Ctrl+S to prevent browser "Save Page" and trigger xlsx save instead
   useEffect(() => {
-    if (!isOpen || activeView !== 'file' || activePane !== paneId) return;
+    if (activeView !== 'file' || activePane !== paneId) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
@@ -99,7 +99,7 @@ export function CanvasPanel() {
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [activeView, isOpen, activePane, paneId]);
+  }, [activeView, activePane, paneId]);
 
   const handleDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -127,7 +127,7 @@ export function CanvasPanel() {
     document.addEventListener('mouseup', onUp);
   }, [resizeWidth]);
 
-  if (!isOpen || activeView !== 'file' || !artifact) return null;
+  if (activeView !== 'file' || !artifact) return null;
 
   const fileUrl = artifactUrl(artifact, { params: { v: String(openSeq) } });
   const category = getFilePreviewKind(artifact);

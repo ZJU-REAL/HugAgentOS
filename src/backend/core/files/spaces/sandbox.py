@@ -15,6 +15,10 @@ def current_revision(actor):
 
 class SpaceSandboxMixin:
     from core.files.edition import workspace_mount_names
+    from core.files.spaces.transport.sync.sandbox_io import STATE_DIR_NAME
+    # A synchronized space copy keeps its baseline across a reset for reuse.
+    workspace_mount_names = (*workspace_mount_names, STATE_DIR_NAME)
+    del STATE_DIR_NAME
 
     def _session_entrypoint(self, user_id):
         from core.files.edition import session_entrypoint
@@ -61,4 +65,7 @@ class SpaceSandboxMixin:
         ).get(MOUNT_REVISION_TAG):
             await self._destroy_session(session_id, session, reuse_sandbox=False)
             return
+        from core.files.spaces.transport import get_space_transport
+        # Files written after a command returned (background processes).
+        await get_space_transport().flush(session.sandbox, session.user_id)
         await super()._renew_in_background(session_id, session)

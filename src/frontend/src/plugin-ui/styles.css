@@ -37,6 +37,7 @@
 .jx-pv-empty,
 .jx-pv-loading { color: var(--jx-pv-fg-soft); padding: 10px 12px; font-size: 12.5px; }
 .jx-pv-error { color: var(--jx-pv-danger); padding: 10px 12px; font-size: 12.5px; }
+.jx-pv-outcomeState { padding: 12px; }
 .jx-pv-null { color: var(--jx-pv-fg-soft); }
 .jx-pv-num { font-variant-numeric: tabular-nums; }
 

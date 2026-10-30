@@ -85,8 +85,7 @@ await build({ stdin: { contents: fixture, loader: 'tsx', resolveDir: process.cwd
   outfile: resolve(output, 'fixture.js'), bundle: true, format: 'esm', jsx: 'automatic',
   define: { 'import.meta.env': '{}', 'process.env.NODE_ENV': '"production"' },
   loader: { '.svg': 'dataurl', '.png': 'dataurl', '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.md': 'text' },
-  alias: { '@hugagent/workbench-protocol': resolve('../../packages/workbench-protocol/dist/index.js') },
-  external: ['/loader.gif', '/loader-done.png'] });
+  alias: { '@hugagent/workbench-protocol': resolve('../../packages/workbench-protocol/dist/index.js') } });
 const browser = await chromium.launch({ headless: true });
 try {
   const page = await browser.newPage();

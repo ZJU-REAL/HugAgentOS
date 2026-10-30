@@ -376,3 +376,15 @@
     max-width:none;
   }
 }
+
+/* 定时任务排序下拉、站点页主按钮：桌面紧凑尺寸（24 / 32px）在触屏上点不稳 */
+@media (max-width: 960px){
+  body .jx-automation-sort.ant-select{
+    height:40px;
+    font-size:14px;
+  }
+
+  .jx-agentPage-header .ant-btn{
+    min-height:40px;
+  }
+}

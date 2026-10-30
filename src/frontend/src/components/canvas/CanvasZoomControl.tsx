@@ -1,8 +1,7 @@
-import { useContext, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { ColumnWidthOutlined, MinusOutlined, PlusOutlined } from '@ant-design/icons';
 import { t } from '../../i18n';
-import { useCanvasStore } from '../../stores/canvasStore';
-import { CanvasPaneContext } from './CanvasPaneContext';
+import { useCanvasPane } from './useCanvasPane';
 import {
   clampZoom, resolveZoom, stepZoom, useCanvasZoom, useCanvasZoomable, useCanvasZoomStore,
 } from './canvasZoom';
@@ -14,8 +13,8 @@ import {
  * zoom keeps working everywhere else, including the other pane of a split.
  */
 export function CanvasZoomControl() {
-  const pane = useContext(CanvasPaneContext);
-  const tabId = useCanvasStore((s) => s.paneTabs[pane]);
+  // 经 useCanvasPane 取页签：面板退出动画期间保持关闭前的页签，缩放不会中途跳变
+  const tabId = useCanvasPane((s) => s.activeTabId);
   const zoomable = useCanvasZoomable(tabId);
   const zoom = useCanvasZoom(tabId);
   const fitScale = useCanvasZoomStore((s) => (tabId ? s.fitScaleByTab[tabId] : undefined));

@@ -87,8 +87,7 @@ window.finish=()=>{
 window.ready=true;
 `,resolveDir:process.cwd(),loader:'tsx'},bundle:true,format:'esm',jsx:'automatic',outdir:output,
  define:{'import.meta.env':'{}','process.env.NODE_ENV':'"production"'},
- loader:{'.svg':'dataurl','.png':'dataurl','.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl','.md':'text'},
- external:['/loader.gif','/loader-done.png']});
+ loader:{'.svg':'dataurl','.png':'dataurl','.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl','.md':'text'}});
 const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE});
 try{
  const page=await browser.newPage();

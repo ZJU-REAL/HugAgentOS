@@ -67,15 +67,25 @@ _EXECD_BASH_ENVS: dict[str, str] = {
     "PLAYWRIGHT_BROWSERS_PATH": "/ms-playwright",
 }
 
-# The ephemeral path does not start Jupyter; the injected execd alone provides commands.run.
-# Startup drops from ~10s to ~3s.
+# Entrypoint for sandboxes without a user: no Jupyter, the injected execd alone
+# provides commands.run.
 # PID 1 is sandbox-init (docker/sandbox/sandbox-init.c): it reaps every orphan and kills
 # what user commands, which run as SANDBOX_RUN_UID, leave behind.
-_LIGHT_ENTRYPOINT = ["sandbox-init", str(SANDBOX_RUN_UID)]
+_INIT_ENTRYPOINT = ["sandbox-init", str(SANDBOX_RUN_UID)]
+
+# 容器环境变量，execd 由 bootstrap.sh 启动时继承。
+# execd 在前台命令发完 execution_complete 后还要 sleep EXECD_API_GRACE_SHUTDOWN（默认
+# 1s）才关 SSE 流，SDK 的前台 commands.run 要等流关闭才返回，于是每次写文件后的 chown、
+# _persistent_setup、复用前的重置都白等 1 秒。这段 sleep 保护不了任何输出：每个事件都是
+# 同步写出并 flush 的，前台命令也是把 stdout/stderr 读空之后才发 complete（execd
+# runtime/command.go runCommand；v1.0.17 到 v1.1.0 都如此）。它另外是 Jupyter 执行等
+# 结果的上限，我们不启动 Jupyter。实测 0s 后前台命令 1015ms → 3ms，空行、20 万行输出、
+# stderr 与退出码均不变。用户代码也能看到这个变量，无害。
+_EXECD_ENVS: dict[str, str] = {"EXECD_API_GRACE_SHUTDOWN": "0s"}
 
 # 用户绑定沙箱的 entrypoint：容器启动时就建好目录约定（scratch + /myspace 软链），
-# 首条命令不必再为此花一次 execd 往返（实测固定 ~1s，而这段 shell 只要 2ms）。uid 走
-# 环境变量，entrypoint 保持常量，adopt 仍能按它认出自己创建的沙箱。
+# 首条命令不必再为此花一次 execd 往返。uid 走环境变量，entrypoint 保持常量，adopt
+# 仍能按它认出自己创建的沙箱。
 #
 # 两个约束：``/myspace`` 已是真目录时不能直接 ln（软链会建到目录里面），所以先判断；
 # 整段不许中途退出，任何一步失败都要走到 exec sandbox-init，否则容器直接死掉。
@@ -93,6 +103,15 @@ _SETUP_ENTRYPOINT = [
     "fi; "
     f"exec sandbox-init {SANDBOX_RUN_UID}",
 ]
+
+
+def sandbox_lock(sandbox: Any, attr: str) -> asyncio.Lock:
+    """A lock stored on the SDK sandbox object, serializing one kind of staging per sandbox."""
+    lock = getattr(sandbox, attr, None)
+    if lock is None:
+        lock = asyncio.Lock()
+        setattr(sandbox, attr, lock)
+    return lock
 
 
 def _join_logs(parts: list) -> str:

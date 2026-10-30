@@ -1,5 +1,4 @@
 """Autonomous loop phases retain durable root ownership and independent snapshots."""
-from core.ontology import reviewer as reviewer_module
 from core.capabilities.skills import loader_factory as loader_factory_module
 from core.harness import log_writer
 from features.desktop.bridge import gateway as bridge_gateway
@@ -9,7 +8,6 @@ from features.desktop.capabilities import skill_publication
 
 from types import SimpleNamespace
 
-import core.ontology.reviewer as reviewer
 import orchestration.loops.driver as driver
 import orchestration.loops.planner as planner
 import pytest
@@ -183,7 +181,7 @@ async def test_resumed_loop_uses_persisted_iteration_and_distinct_review_scopes(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("helper", ["planner", "judge", "ontology"])
+@pytest.mark.parametrize("helper", ["planner", "judge"])
 async def test_text_helpers_partition_factory_audit_scope(monkeypatch, helper):
     import core.capabilities.catalog.api as catalog
     import core.llm.runtime.review_text_agent as ontology_text_agent
@@ -262,35 +260,3 @@ async def test_loop_reviewer_forwards_exact_durable_scope_to_factory(monkeypatch
     assert len(captured) == 1
     assert captured[0]["capability_scope"] == "durable-review-scope"
     assert captured[0]["sandbox_session_id"] == "same-workspace"
-
-
-@pytest.mark.asyncio
-async def test_ontology_committee_keeps_parent_iteration_and_seat_scopes(monkeypatch):
-    import core.llm.runtime.review_text_agent as ontology_text_agent
-    from tests.ontology.test_ontology_reviewer import _disable_audit, _runtime
-
-    captured = []
-
-    async def text_agent(*a, **kw):
-        captured.append(kw["capability_scope"])
-        return '{"verdict":"pass","evidence":["synthetic"],"feedback":""}'
-
-    from core.ontology import review_operations
-    monkeypatch.setattr(review_operations, "_run_text_agent", text_agent)
-    _disable_audit(monkeypatch)
-    for parent_scope in ["worker-1", "worker-2", "worker-1"]:
-        result = await reviewer_module.review_ontology_output(
-            task="synthetic",
-            answer="synthetic",
-            runtime=_runtime(),
-            trace=[],
-            citations=[],
-            user_id="unit",
-            chat_id=None,
-            model_name=None,
-            capability_scope=parent_scope,
-        )
-        assert result["verdict"] == "pass"
-    assert len(captured) == 9
-    assert len(set(captured[:6])) == 6
-    assert captured[:3] == captured[6:]

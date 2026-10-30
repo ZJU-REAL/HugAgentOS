@@ -29,7 +29,6 @@ async def test_automation_prompt_injects_durable_binding_and_recovery_surface(
 ):
     sessions = recovery_env
     from core.db import engine as db_engine
-    from core.ontology import service as ontology_service
     from core.models import selection as user_model_selection
     pass
     from orchestration.automations.automation_conversation import execute_prompt

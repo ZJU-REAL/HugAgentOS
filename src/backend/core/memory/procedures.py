@@ -112,6 +112,21 @@ async def find_procedure_by_effect_id(
     # directly, with Strong consistency, so the result is exact and observes a
     # receipt committed immediately before a crash.
     vector_store = getattr(memory, "vector_store", None)
+    from core.memory.pgvector_store import is_pgvector, receipt_rows
+    if is_pgvector(memory):
+        try:
+            rows = await run_effect(receipt_rows, vector_store,
+                                    ctx.effective_scope_user_id, ctx.workspace_id, effect_id)
+        except Exception as exc:
+            if strict:
+                raise RuntimeError("procedure idempotency lookup failed") from exc
+            logger.debug("[MemoryService] exact PG effect lookup failed: %s", type(exc).__name__)
+            return None
+        if not rows:
+            return None
+        item = rows[0]
+        meta = item["metadata"] or {}
+        return {"id": item["id"], "memory": meta.get("data") or "", "metadata": meta}
     client = getattr(vector_store, "client", None)
     collection_name = getattr(vector_store, "collection_name", None)
     if client is not None and collection_name:

@@ -1,4 +1,7 @@
+import { useRef, useState } from 'react';
 import { Dropdown } from 'antd';
+import type { MenuProps } from 'antd';
+import { LeftOutlined, RightOutlined } from '@ant-design/icons';
 import { FileImageOutlined, FileTextOutlined, CloudDownloadOutlined, AppstoreOutlined,
   RobotOutlined, OrderedListOutlined, ApiOutlined, SyncOutlined, PartitionOutlined, LinkOutlined } from '@ant-design/icons';
 import { MySpaceImportModal } from '../file';
@@ -8,6 +11,7 @@ import { McpIcon } from '../catalog/McpIcon';
 import { PluginAvatar } from '../catalog/PluginIconPicker';
 import { IconPlus } from '../common/DshIcons';
 import { t } from '../../i18n';
+import { useIsMobileViewport } from '../../hooks/useIsMobileViewport';
 import type { InputAreaProps, ComposerOptions } from './composerTypes';
 import type { ComposerState } from './useComposerState';
 import type { ComposerEditor } from './useComposerEditor';
@@ -22,6 +26,10 @@ export function ComposerAttachmentMenu({ state, editor, options, fileInputRef }:
     setMySpaceImportOpen, setAttachOpen, fetchAgents, attachOpen, mySpaceImportOpen,
   } = state;
   const { onPickAgentFromMenu, onPickSkillFromMenu, onPickConnectorFromMenu, onPickPluginFromMenu } = editor;
+  const isMobile = useIsMobileViewport();
+  // 手机上不弹侧向级联子菜单（会飞出屏幕左缘），改为在同一个菜单里逐层进入。
+  const [mobileSub, setMobileSub] = useState<string | null>(null);
+  const keepOpenRef = useRef(false);
   const planActive = isModeOn('plan');
   const workflowActive = isModeOn('workflow');
   const activeSuffix = t('（已开启）');
@@ -42,7 +50,7 @@ export function ComposerAttachmentMenu({ state, editor, options, fileInputRef }:
       onClick: () => onEnterMode('workflow'),
     },
   ];
-  const items = [
+  const items: NonNullable<MenuProps['items']> = [
     {
       key: 'image',
       icon: <FileImageOutlined />,
@@ -145,18 +153,49 @@ export function ComposerAttachmentMenu({ state, editor, options, fileInputRef }:
           },
         ]),
   ];
+  const mobileItems = (): NonNullable<MenuProps['items']> => {
+    const parent = items.find((it) => it && it.key === mobileSub && 'children' in it);
+    if (parent && 'children' in parent && parent.children) {
+      return [
+        {
+          key: 'mobile-back',
+          icon: <LeftOutlined />,
+          label: parent.label,
+          className: 'jx-attachMenu-back',
+          onClick: () => { keepOpenRef.current = true; setMobileSub(null); },
+        },
+        { type: 'divider' as const },
+        ...parent.children,
+      ];
+    }
+    return items.map((it) => {
+      if (!it || !('children' in it) || !it.children || it.key == null) return it;
+      return {
+        key: it.key,
+        icon: 'icon' in it ? it.icon : undefined,
+        label: it.label,
+        extra: <RightOutlined className="jx-attachMenu-drill" />,
+        onClick: () => { keepOpenRef.current = true; setMobileSub(String(it.key)); },
+      };
+    });
+  };
   return (
     <>
       <Dropdown
         trigger={['click']}
         placement="topRight"
-        overlayClassName="jx-attachMenu"
-        onOpenChange={(open) => {
+        overlayClassName={`jx-attachMenu${isMobile ? ' jx-attachMenu--mobile' : ''}`}
+        open={attachOpen}
+        onOpenChange={(open, info) => {
+          if (!open && info?.source === 'menu' && keepOpenRef.current) {
+            keepOpenRef.current = false;
+            return;
+          }
           setAttachOpen(open);
-          if (!open) return;
+          if (!open) { setMobileSub(null); return; }
           if (!disableMention && agents.length === 0) void fetchAgents();
         }}
-        menu={{ items }}
+        menu={{ items: isMobile ? mobileItems() : items }}
       >
         <button
           type="button"

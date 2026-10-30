@@ -55,13 +55,6 @@ from core.db.models.memory import (
     MemorySanitizerRule,
     ProfileMemory,
 )
-from core.db.models.ontology import (
-    OntologyDraft,
-    OntologyEnforcementEvent,
-    OntologyPack,
-    OntologyPackVersion,
-    OntologyReviewRun,
-)
 from core.db.models.command import CommandTask
 from core.db.models.job import JOB_LIVE_STATUSES, JOB_TERMINAL_STATUSES, Job, JobCall, JobItem
 from core.db.edition import EDITION_MODEL_NAMES, edition_model_exports
@@ -147,11 +140,6 @@ __all__ = [
     'EvolutionEvidencePack',
     'EvolutionCreditDecision',
     'EvolutionPromotionLink',
-    'OntologyPack',
-    'OntologyPackVersion',
-    'OntologyEnforcementEvent',
-    'OntologyReviewRun',
-    'OntologyDraft',
     *EDITION_MODEL_NAMES,
 ]
 

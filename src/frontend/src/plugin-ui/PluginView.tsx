@@ -12,6 +12,7 @@ import { memo, useCallback, useMemo, useRef, useState, type ReactNode } from 're
 
 import { callPluginDataSource } from '../api';
 import { t } from '../i18n';
+import { LoadError, SkeletonLines } from '../components/common/LoadState';
 import { useUIStore } from '../stores';
 import { resolveText } from './i18n';
 import { resolveParams, unwrap } from './pointer';
@@ -95,17 +96,17 @@ function PluginViewInner({
       requestRef.current?.abort();
       const controller = new AbortController();
       requestRef.current = controller;
-      setOutcome({ action, status: 'loading', page, filters });
+      setOutcome({ action, scopes, status: 'loading', page, filters });
 
       callPluginDataSource(slug, action.data_source, params, controller.signal)
         .then((result) => {
           if (controller.signal.aborted) return;
-          setOutcome({ action, status: 'success', data: result, page, filters });
+          setOutcome({ action, scopes, status: 'success', data: result, page, filters });
         })
         .catch((error: unknown) => {
           if (controller.signal.aborted) return;
           const message = error instanceof Error ? error.message : String(error);
-          setOutcome({ action, status: 'error', error: message, page, filters });
+          setOutcome({ action, scopes, status: 'error', error: message, page, filters });
         });
     },
     [data, slug],
@@ -204,8 +205,11 @@ function ActionOutcomePanel({
         <span>{resolveText(action.label, action.id)}</span>
         <button type="button" onClick={onClose}>{t('关闭')}</button>
       </header>
-      {outcome.status === 'loading' && <div className="jx-pv-loading">{t('加载中…')}</div>}
-      {outcome.status === 'error' && <div className="jx-pv-error">{outcome.error || t('加载失败')}</div>}
+      {outcome.status === 'loading' && <SkeletonLines rows={3} className="jx-pv-outcomeState" />}
+      {outcome.status === 'error' && (
+        <LoadError className="jx-pv-outcomeState" reason={outcome.error}
+          onRetry={() => ctx.runAction?.(action, outcome.scopes, { page: outcome.page, filters: outcome.filters })} />
+      )}
       {outcome.status === 'success' && action.result && ctx.renderChild && (
         <>
           {ctx.renderChild({ view: action.result.view, map: action.result.map }, outcome.data)}

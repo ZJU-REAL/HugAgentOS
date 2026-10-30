@@ -32,7 +32,7 @@ function Fixture() {
 createRoot(document.getElementById('root')).render(<Fixture />);
 `, resolveDir: process.cwd(), loader: 'tsx' }, outfile: resolve(output, 'fixture.js'),
 bundle: true, format: 'esm', jsx: 'automatic', define: { 'import.meta.env': '{"VITE_DEFAULT_LANGUAGE":"zh-CN"}' },
-external: ['/loader.gif', '/loader-done.png'], loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl' } });
+loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl' } });
 let page;
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
 try {

@@ -39,7 +39,6 @@ Personal Agent；商业版补充团队协作、SSO、审计合规、行业数据
 | 沙箱执行 | OpenSandbox 会话、环境复用与快照恢复，或本地子进程沙箱；工作流后台作业以受管进程运行，可按租约接管 | CE（CubeSandbox 与团队挂载为 EE） |
 | 记忆与个人进化 | L1 画像、L2 做法记忆（Milvus，可选）、L3 关系图谱（Neo4j，可选）；持久 Outbox 写入；进化建议逐条审批 | CE（记忆审计为 EE） |
 | 知识库 | 文档分块、向量 + 关键词混合检索、私有知识库、知识库 Wiki | CE（公共库管理与 Dify 对接为 EE） |
-| 领域本体治理 | Domain Pack 导入与版本发布、工具执行前规则检查、高风险答案独立评审、演进草案人工审核 | CE |
 | 自动化 | 自然语言创建定时任务、Cron 调度、失败重试 | CE |
 | 站点与应用托管 | 对话建站并一键发布；应用独立数据库与 MCP 托管 | CE（项目转换后的站点协作为 EE） |
 | 数据画布与产物 | Univer 在线表格、图表、报告、Office 文件、网页等产物与产物中心 | CE 个人编辑；多人协同为 EE |
@@ -74,7 +73,7 @@ Personal Agent；商业版补充团队协作、SSO、审计合规、行业数据
                          │
                          ▼
  智能体执行（core/agent_runtime · core/llm）
-   ReActAgent · 上下文按步装配与压缩 · 记忆 / 本体 / 进化集成
+   ReActAgent · 上下文按步装配与压缩 · 记忆 / 进化集成
    外层编排（orchestration/）：计划模式 · 自主循环 · 自动化
                          │
         ┌────────────────┼──────────────────┐
@@ -111,7 +110,6 @@ Personal Agent（`personal_agent/`）复用同一套 Run、租约与沙箱机制
 | 计划模式、自主循环、自动化 | `src/backend/orchestration/plans/`、`orchestration/loops/`、`orchestration/automations/` |
 | Personal Agent | `src/backend/personal_agent/` |
 | 记忆与进化 | `src/backend/core/memory/`、`src/backend/core/evolution/` |
-| 领域本体 | `src/backend/core/ontology/` |
 | 沙箱 | `src/backend/core/sandbox/` |
 | 内置 MCP、技能、插件与智能体 | `src/backend/extensions/` |
 | 前端入口 | `src/frontend/src/main.tsx`、`App.tsx` |

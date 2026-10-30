@@ -254,21 +254,6 @@ def user_can_manage_system_settings(db: Session, user_id: Optional[str]) -> bool
     return settings.edition.edition == "ce" and settings.auth.mode == "mock"
 
 
-def user_can_manage_ontology_governance(db: Session, user_id: Optional[str]) -> bool:
-    """Whether a signed-in CE instance owner may manage global ontology assets.
-
-    The management surface is intentionally delegated only in CE, where the
-    separate Admin console is not shipped.  A CE user must still be either a
-    content/system administrator (super-admin implies both) or the sole mock
-    user in the single-trust-domain development mode.
-    """
-    if not user_id or settings.edition.edition != "ce":
-        return False
-    return _user_has_meta_flag(
-        db, user_id, "can_content_manage"
-    ) or user_can_manage_system_settings(db, user_id)
-
-
 def _authorize_delegated(
     db: Session,
     request: Request,
@@ -335,28 +320,6 @@ async def require_system_settings(
         action="system_settings",
         required="can_system_config",
         forbidden="需要系统配置权限",
-    )
-
-
-async def require_ontology_governance(
-    request: Request,
-    user: Optional[UserContext] = Depends(require_auth(False)),
-) -> str:
-    """Authorize the CE settings-page ontology governance surface.
-
-    ``ADMIN_TOKEN`` remains an operational fallback. Browser access is limited
-    to users accepted by :func:`user_can_manage_ontology_governance`.
-    """
-    return await run_in_session(
-        _authorize_delegated,
-        request,
-        user,
-        token=os.getenv("ADMIN_TOKEN") or getattr(settings.auth, "admin_token", ""),
-        token_grant="admin_token",
-        allowed=user_can_manage_ontology_governance,
-        action="ontology_governance",
-        required="ce_ontology_governance",
-        forbidden="需要 CE 本体治理权限",
     )
 
 

@@ -86,8 +86,8 @@ def sync_tool_manifest(st: Dict[str, Any]) -> None:
 
     bridge_identity.require_current_account(st)
     url = f"{st['cloud_base']}/api/v1/desktop/capability/manifest"
-    import httpx
     from core.capabilities.manifest_protocol import validate_manifest
+    from features.desktop.bridge import cloud_http
 
     headers = {**bridge_identity.cloud_headers(st), "Cache-Control": "no-cache"}
     with bridge_client_state.manifest_lock:
@@ -95,11 +95,7 @@ def sync_tool_manifest(st: Dict[str, Any]) -> None:
     if current_revision:
         headers["If-None-Match"] = f'"{current_revision}"'
 
-    resp = httpx.get(
-        url,
-        headers=headers,
-        timeout=httpx.Timeout(10.0, connect=5.0),
-    )
+    resp = cloud_http.get(url, headers=headers, timeout=10.0)
     bridge_identity.require_current_account(st)
     if resp.status_code in (401, 403):
         with bridge_identity.account_scope(st):
@@ -129,6 +125,8 @@ def sync_tool_manifest(st: Dict[str, Any]) -> None:
 
 def fetch_manifest_blocking(st: Dict[str, Any]) -> None:
     pass  # State is owned by its responsibility module.
+    from features.desktop.bridge import cloud_http
+
     refresh_replacement = False
     try:
         sync_tool_manifest_blocking(st)
@@ -142,7 +140,7 @@ def fetch_manifest_blocking(st: Dict[str, Any]) -> None:
                 return
             with bridge_client_state.manifest_lock:
                 bridge_client_state.manifest_ts = time.monotonic()
-                bridge_client_state.manifest_error = str(exc)
+                bridge_client_state.manifest_error = cloud_http.describe(exc)
         logger.warning("[cloud-bridge] manifest 拉取失败: %s", exc)
     finally:
         with bridge_client_state.manifest_lock:

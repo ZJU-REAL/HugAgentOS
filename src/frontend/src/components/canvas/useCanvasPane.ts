@@ -1,5 +1,5 @@
 import { useContext, useMemo } from 'react';
-import { derive, useCanvasStore, type CanvasState } from '../../stores/canvasStore';
+import { derive, useCanvasStore, useCanvasViewStore, type CanvasState } from '../../stores/canvasStore';
 import { CanvasPaneContext } from './CanvasPaneContext';
 
 export function useCanvasPaneId() { return useContext(CanvasPaneContext); }
@@ -7,7 +7,7 @@ export function useCanvasPaneId() { return useContext(CanvasPaneContext); }
 /** Project the shared tabs into the pane that owns this mounted content. */
 export function useCanvasPane<T = CanvasState>(selector?: (state: CanvasState) => T): T {
   const pane = useCanvasPaneId();
-  const state = useCanvasStore();
+  const state = useCanvasViewStore();
   const tabId = state.paneTabs[pane];
   const actions = useMemo(() => ({
     activateTab: (id: string) => useCanvasStore.getState().activateTab(id, pane),

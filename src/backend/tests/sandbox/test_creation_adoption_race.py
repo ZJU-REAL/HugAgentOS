@@ -23,12 +23,12 @@ def creator():
 
 
 def stats():
-    return dict.fromkeys(("adopted_jupyter", "adopted_light", "skipped_bound", "killed_invalid", "killed_dead", "killed_overflow"), 0)
+    return dict.fromkeys(("adopted_jupyter", "skipped_bound", "killed_invalid", "killed_dead", "killed_overflow"), 0)
 
 
 def test_adopter_skips_container_while_creator_is_still_delivering_it(monkeypatch):
     a, b = creator(), creator()
-    b._pool = SimpleNamespace(_buckets={"light": SimpleNamespace(idle=[], max_idle=2)}, adopt_idle=AsyncMock(return_value=True))
+    b._jupyter_user_pool = SimpleNamespace(adopt=AsyncMock(return_value=True))
     manager = SimpleNamespace(kill_sandbox=AsyncMock())
     sandbox = SimpleNamespace(id="new", close=AsyncMock(), kill=AsyncMock())
     async def create(*args, **kwargs):
@@ -38,29 +38,38 @@ def test_adopter_skips_container_while_creator_is_still_delivering_it(monkeypatc
     monkeypatch.setattr(Sandbox, "create", create)
     monkeypatch.setattr(Sandbox, "connect", AsyncMock(return_value=sandbox))
     monkeypatch.setattr("core.sandbox.providers.opensandbox.creation._make_skills_volumes", lambda *args: [])
-    asyncio.run(a._create_light_sandbox())
-    b._pool.adopt_idle.assert_not_awaited()
+    asyncio.run(a._create_jupyter_sandbox(user_id="u1"))
+    b._jupyter_user_pool.adopt.assert_not_awaited()
     manager.kill_sandbox.assert_not_awaited()
 
 
-@pytest.mark.parametrize("kind", ["light", "jupyter"])
-def test_creator_refuses_delivery_when_tracking_ownership_is_elsewhere(monkeypatch, kind):
+def test_creator_refuses_delivery_when_tracking_ownership_is_elsewhere(monkeypatch):
     a = creator()
     a._track_sandbox = AsyncMock(return_value=False)
     sandbox = SimpleNamespace(id="new")
     monkeypatch.setattr(Sandbox, "create", AsyncMock(return_value=sandbox))
     monkeypatch.setattr("core.sandbox.providers.opensandbox.creation._make_skills_volumes", lambda *args: [])
     with pytest.raises(SandboxConnectError, match="ownership"):
-        asyncio.run(a._create_light_sandbox() if kind == "light" else a._create_jupyter_sandbox(user_id="api_ak_test"))
+        asyncio.run(a._create_jupyter_sandbox(user_id="api_ak_test"))
 
 
 def test_adoption_connect_timeout_preserves_live_container(monkeypatch):
     b = creator()
     manager = SimpleNamespace(kill_sandbox=AsyncMock())
-    info = SimpleNamespace(id="live", status=SimpleNamespace(state="Running"), metadata=_pool_metadata("light"), entrypoint=[])
+    info = SimpleNamespace(id="live", status=SimpleNamespace(state="Running"), metadata=_pool_metadata("jupyter", user_id="u1"), entrypoint=[])
     monkeypatch.setattr(Sandbox, "connect", AsyncMock(side_effect=TimeoutError("busy")))
     asyncio.run(b._classify_and_adopt(manager, info, stats()))
     manager.kill_sandbox.assert_not_awaited()
+
+
+def test_adoption_kills_sandboxes_left_by_the_retired_light_pool():
+    b = creator()
+    manager = SimpleNamespace(kill_sandbox=AsyncMock())
+    info = SimpleNamespace(id="old-light", status=SimpleNamespace(state="Running"), metadata=_pool_metadata("light"), entrypoint=[])
+    counts = stats()
+    asyncio.run(b._classify_and_adopt(manager, info, counts))
+    manager.kill_sandbox.assert_awaited_once_with("old-light")
+    assert counts["killed_invalid"] == 1
 
 
 @pytest.mark.parametrize("state,bound", [("Stopped", False), ("Running", False), ("Stopped", True)])

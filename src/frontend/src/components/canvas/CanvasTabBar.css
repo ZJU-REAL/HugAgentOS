@@ -20,3 +20,16 @@
 .jx-canvasTabs--strip .jx-canvasTabs-action { border-radius: 6px; }
 .jx-rightSidebar--moduleHeader { position: relative; }
 .jx-rightSidebar--moduleHeader > .jx-canvasTabs--controls { position: absolute; top: 4px; right: 0; z-index: 3; width: auto; min-height: 0; background: transparent; border: 0; }
+
+/* Phones: the canvas is a full-screen layer over the chat. Split view and a new
+   tab strip have no room there; the remaining controls get touch-size hit areas.
+   A split opened on a wider window keeps its button so it can still be merged
+   (through the unsaved-changes guard) after the window narrows. */
+@media (max-width: 960px) {
+  .jx-canvasTabs-split:not([aria-pressed='true']),
+  .jx-canvasTabs-add { display: none; }
+  .jx-canvasTabs--strip .jx-canvasTabs-action,
+  .jx-canvasTabs--controls .jx-canvasTabs-action { width: 40px; height: 40px; min-width: 40px; }
+  .jx-canvasTabs--strip .jx-canvasTab-close { flex-basis: 32px; width: 32px; height: 32px; font-size: 12px; }
+  .jx-canvas-fileHeader .jx-canvas-actionBtn { width: 40px; height: 40px; min-width: 40px; }
+}

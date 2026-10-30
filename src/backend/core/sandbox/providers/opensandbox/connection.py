@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+import os
 
 from core.config.settings import settings
 from core.sandbox.providers.opensandbox.runtime import logger
@@ -29,7 +30,7 @@ class _OpenSandboxConnectionMixin:
         failure is only logged and falls back to the SDK default, without affecting
         functionality.
         """
-        if not settings.sandbox.opensandbox_endpoint_fastpath_enabled:
+        if os.getenv("DEPLOY_PROFILE") == "kubernetes" or not settings.sandbox.opensandbox_endpoint_fastpath_enabled:
             return
         if self._api_key:
             logger.info(

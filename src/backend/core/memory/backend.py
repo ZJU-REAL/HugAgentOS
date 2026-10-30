@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import logging
+import os
 import threading
 from dataclasses import dataclass, field
 from typing import Optional
@@ -17,6 +18,11 @@ MEMORY_TYPE_PROCEDURAL = "procedural"
 
 
 _MIGRATION_MAX_ROWS = 10_000
+
+# mem0 reads MEM0_TELEMETRY once, when first imported (only from this module).
+# Its default reports usage to an external service and opens a second vector-store
+# client with an extra "mem0migrations" collection/table. Operators may still opt in.
+os.environ.setdefault("MEM0_TELEMETRY", "false")
 
 
 def _patch_mem0_embedding() -> None:
@@ -120,6 +126,16 @@ def _build_mem0_config() -> dict:
         # exists.
     }
 
+    provider = settings.memory.vector_provider
+    if provider == "pgvector":
+        from core.db.engine import DATABASE_URL
+        from core.memory.pgvector_store import vector_config
+        config["vector_store"] = vector_config(DATABASE_URL, embed_dims)
+        # Product history and replay receipts live in PostgreSQL. mem0's private
+        # diagnostic history is not consumed by the product and is disposable.
+        config["history_db_path"] = ":memory:"
+    elif provider != "milvus":
+        raise ValueError("MEM0_VECTOR_PROVIDER must be milvus or pgvector")
     return config
 
 
@@ -184,6 +200,8 @@ def _reconcile_vector_collection(cfg: dict) -> Optional[list]:
 
     Reconcile failures only warn — init proceeds exactly as before.
     """
+    if cfg["vector_store"]["provider"] == "pgvector":
+        return None
     vs = cfg["vector_store"]["config"]
     client = None
     try:
@@ -331,23 +349,19 @@ def _desktop_memory_epoch() -> str:
 
 def _close_failed_memory(instance) -> None:
     """Close clients owned by an unpublished mem0 instance, preserving stored data."""
-    from mem0.memory.main import MEM0_TELEMETRY
+    from core.memory.pgvector_store import close_vector_store
 
-    closers = [
-        instance.vector_store.client.close,
-        instance.embedding_model.client.close,
-        instance.llm.client.close,
-        instance.close,
-    ]
-    if MEM0_TELEMETRY:
-        closers.append(instance._telemetry_vector_store.client.close)
+    closers = [lambda: close_vector_store(instance.vector_store),
+               instance.embedding_model.client.close, instance.llm.client.close,
+               instance.close]
+    telemetry = getattr(instance, "_telemetry_vector_store", None)
+    if telemetry is not None:
+        closers.append(lambda: close_vector_store(telemetry))
     for close in closers:
         try:
             close()
         except Exception as exc:
-            logger.warning(
-                "[MemoryService] failed initialization cleanup error_type=%s", type(exc).__name__
-            )
+            logger.warning("[MemoryService] cleanup error_type=%s", type(exc).__name__)
 
 
 def _get_memory() -> Optional[object]:
@@ -383,7 +397,11 @@ def _get_memory() -> Optional[object]:
             )
             instance = Memory.from_config(cfg)
             # Existing collections remain released after a local database restart.
-            instance.vector_store.client.load_collection(collection_name=MEMORY_COLLECTION_NAME)
+            if cfg["vector_store"]["provider"] == "pgvector":
+                from core.memory.pgvector_store import prepare_collection
+                prepare_collection(instance.vector_store)
+            else:
+                instance.vector_store.client.load_collection(collection_name=MEMORY_COLLECTION_NAME)
             from core.harness.registry.model_credentials import is_reference, sync_client_kwargs
             from openai import OpenAI
 

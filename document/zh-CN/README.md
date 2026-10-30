@@ -13,7 +13,6 @@ HugAgentOS 是一个开源、可自托管的 Agent Harness：你提出的问题�
 |------|------|
 | [产品简介](getting-started/introduction.md) | Durable Agent、运行形态、能力总览、技术栈与整体架构 |
 | [快速开始](getting-started/quick-start.md) | 选择 HugAgentOS Cloud、桌面客户端或一键安装，并启用 Personal Agent |
-| [快速构建领域本体](getting-started/domain-ontology-quickstart.md) | 用最小 Domain Pack 跑通校验、发布、测试和工具绑定 |
 
 ## 部署
 
@@ -36,7 +35,7 @@ HugAgentOS 是一个开源、可自托管的 Agent Harness：你提出的问题�
 
 | 文档 | 说明 |
 |------|------|
-| [总体架构](architecture/overview.md) | 分层架构、本体控制平面、一次对话的完整生命周期、容器拓扑 |
+| [总体架构](architecture/overview.md) | 分层架构、一次对话的完整生命周期、容器拓扑 |
 | [后端架构](architecture/backend.md) | `src/backend/` 目录详解与路由注册表 |
 | [前端架构](architecture/frontend.md) | 入口分发、组件组、Zustand store、模块页面与应用中心 |
 | [数据模型](architecture/data-model.md) | 表分组速览、迁移链、CE/EE 表边界 |
@@ -70,7 +69,6 @@ HugAgentOS 是一个开源、可自托管的 Agent Harness：你提出的问题�
 | 文档 | 说明 |
 |------|------|
 | [记忆系统](modules/memory.md) | L1/L2/L3 三层记忆、持久 Outbox、做法沉淀、脱敏与审计 |
-| [领域本体治理与校验](modules/ontology-harness.md) | Domain Pack、工具门禁、交付前评审、演进草案人工审核 |
 | [知识库](modules/knowledge-base.md) | 自建知识库（混合检索）与外接知识库 |
 | [知识库 Wiki](modules/knowledge-base-wiki.md) | 抽取实体与概念，生成互链条目页与概念图谱 |
 

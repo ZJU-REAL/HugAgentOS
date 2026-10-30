@@ -16,7 +16,7 @@ def _cloud_skill(client, monkeypatch, metadata, key="requires-runtime", sync=Tru
     """同步即准备：这一次 sync 之后技能字节就已经在本机，没有手动准备这一步。"""
     md = "---\nname: " + key + "\ndescription: test\n" + metadata + "\n---\nSynthetic skill\n"
     cloud = _Cloud({key: {"SKILL.md": md}})
-    monkeypatch.setattr("httpx.get", cloud.get)
+    monkeypatch.setattr("features.desktop.bridge.cloud_http.get", cloud.get)
     if sync:
         assert client.post("/v1/desktop/capabilities/sync").status_code == 200
     return registry.install_id("skill", PROFILE, key), cloud
@@ -58,7 +58,7 @@ def test_missing_runtime_recovers_without_redownload(client, monkeypatch):
     def no_network(*args, **kwargs):
         raise AssertionError("rechecking retained files must not download")
 
-    monkeypatch.setattr("httpx.get", no_network)
+    monkeypatch.setattr("features.desktop.bridge.cloud_http.get", no_network)
     recovered = _item(client, "skill", iid)
     assert recovered["usable"] and recovered["readiness"]["ready"]
     assert registry.get(iid).resolved_revision == revision

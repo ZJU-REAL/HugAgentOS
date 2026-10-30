@@ -12,6 +12,8 @@ HugAgentOS 支持多种部署方式，从「个人单机零依赖尝鲜」到「
 | **无 Docker 一键安装** | 个人单机尝鲜、二次开发体验；一条命令装好即用 | 不需要 | SQLite | 否（单用户） | [quick-install.md](quick-install.md) |
 | **Docker Compose** | 团队 / 生产的标准形态，多用户、全功能 | 需要 | PostgreSQL | 是 | [docker-compose.md](docker-compose.md) |
 
+已有外部 PostgreSQL、Redis、MinIO 且不能新增持久卷的容器云，使用[外部服务 Kubernetes 部署](external-services-kubernetes.md)。真实空间挂载需要先通过平台权限及网络预检。
+
 跨平台与参考：
 
 | 文档 | 说明 |

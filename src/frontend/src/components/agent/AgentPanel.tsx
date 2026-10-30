@@ -13,6 +13,8 @@ withdrawAgentSubmission,
 } from '../../api';
 import { usePanelHeader } from '../../hooks/usePageConfig';
 import { t } from '../../i18n';
+import { useIsMobileViewport } from '../../hooks/useIsMobileViewport';
+import { ContinuousLoadSentinel } from '../common';
 import { usePanel } from '../../routing/usePanel';
 import { nowId } from '../../storage';
 import { useAgentStore,type UserAgentItem } from '../../stores/agentStore';
@@ -132,9 +134,11 @@ export function AgentPanel() {
 
   // 分页：与技能页 / MCP 页同一套（每页 12 + antd Pagination），智能体多起来以后
   // 原来是一屏铺到底，翻不完也定位不到（问题 40）。
+  // 手机上没有页码条：列表从头连续增长，滚到底部再追加（见 ContinuousLoadSentinel）。
+  const isMobile = useIsMobileViewport();
   const pagedAgents = useMemo(
-    () => filtered.slice((agentsPage - 1) * AGENTS_PAGE_SIZE, agentsPage * AGENTS_PAGE_SIZE),
-    [filtered, agentsPage],
+    () => filtered.slice(isMobile ? 0 : (agentsPage - 1) * AGENTS_PAGE_SIZE, agentsPage * AGENTS_PAGE_SIZE),
+    [filtered, agentsPage, isMobile],
   );
 
   // 搜索或数据变化把页码顶出范围时拉回第一页
@@ -405,7 +409,9 @@ export function AgentPanel() {
         </div>
       )}
 
-      {filtered.length > AGENTS_PAGE_SIZE && (
+      {isMobile ? (
+        <ContinuousLoadSentinel hasMore={agentsPage * AGENTS_PAGE_SIZE < filtered.length} count={pagedAgents.length} onMore={() => setAgentsPage((current) => current + 1)} />
+      ) : filtered.length > AGENTS_PAGE_SIZE && (
         <div className="jx-sk-pagination">
           <Pagination
             current={agentsPage}

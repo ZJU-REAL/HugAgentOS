@@ -99,6 +99,19 @@ export function ChatArea({
     onViewportMount?.(element);
   }, [onViewportMount]);
   const pendingShareExpiryRef = useRef<ShareExpiryOption>('15d');
+  // The footer floats over the history viewport so the scroller (and its
+  // scrollbar) runs to the pane's bottom edge; the list keeps its height clear.
+  const chatWrapRef = useRef<HTMLDivElement>(null);
+  const [footerEl, setFooterEl] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const wrap = chatWrapRef.current;
+    if (!footerEl || !wrap || typeof ResizeObserver === 'undefined') return;
+    const sync = () => wrap.style.setProperty('--jx-chat-footer-h', `${footerEl.offsetHeight}px`);
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(footerEl);
+    return () => ro.disconnect();
+  }, [footerEl]);
 
   const chat = store.chats[currentChatId];
   useChatResultRead(currentChatId, chat?.messages || [], viewportEl, isPaneHidden || !!publicChat);
@@ -307,7 +320,7 @@ export function ChatArea({
   };
 
   return (
-    <div className="jx-chatWrap">
+    <div className="jx-chatWrap" ref={chatWrapRef}>
       <ConversationNavigation hidden={isPaneHidden} key={currentChatId} messages={chat.messages} chatListRef={chatListRef} />
       <Modal
         title={t('有效期设置')}
@@ -437,7 +450,7 @@ export function ChatArea({
           )}
         </AnimatePresence>
       </div>
-      <div className="jx-chatFooter">
+      <div className="jx-chatFooter" ref={setFooterEl}>
         {!planMode && <PlanProgressStrip chatId={currentChatId} />}
         {/* 后台作业状态条：工作流模式下作业跑在后台，没有它就完全看不出在不在跑 */}
         {!publicChat && <JobProgressStrip chatId={currentChatId} />}

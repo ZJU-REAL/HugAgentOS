@@ -1,7 +1,6 @@
-import { useCallback, useContext, useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { create } from 'zustand';
-import { useCanvasStore } from '../../stores/canvasStore';
-import { CanvasPaneContext } from './CanvasPaneContext';
+import { useCanvasPane } from './useCanvasPane';
 
 /** 'fit' = scale content to the pane width; a number is an absolute scale (1 = 100%). */
 export type CanvasZoom = 'fit' | number;
@@ -67,8 +66,8 @@ export function stepZoom(tabId: string, dir: 1 | -1) {
  * returns that tab's zoom plus a callback to report what 'fit' resolved to.
  */
 export function useCanvasZoomTarget(enabled = true) {
-  const pane = useContext(CanvasPaneContext);
-  const tabId = useCanvasStore((s) => s.paneTabs[pane]);
+  // 经 useCanvasPane 取页签：面板退出动画期间保持关闭前的页签，缩放不会中途跳变
+  const tabId = useCanvasPane((s) => s.activeTabId);
   const zoom = useCanvasZoom(tabId);
   useEffect(() => {
     if (!enabled || !tabId) return;

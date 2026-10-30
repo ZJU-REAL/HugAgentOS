@@ -50,7 +50,7 @@ data: [DONE]          # 流终止
 |---|---|
 | `content`（别名 `ai_message` / `text` / `delta`） | 取 `delta || content || text` 追加；内嵌 `<think>` 的模型由 parseBuffer 拆出思考 |
 | `thinking`（别名 `thought`） | 带 `delta` 时按增量追加到最近的 thinking 段，并标记 structuredReasoning |
-| `content_replace` | **整体替换**当前正文（本体治理重写答案） |
+| `content_replace` | **整体替换**当前正文 |
 
 ## 工具
 
@@ -92,11 +92,6 @@ data: [DONE]          # 流终止
 - `plan_update`：`update_plan` 工具产生的轻量计划清单；run 正常结束时后端补发全部 completed 的收尾帧。
 - Plan 模式（`plan_step_*` / `plan_complete` 等）与自主循环（`loop_*`）事件经 `ChatStreamOptions.onEvent` 钩子交给
   `usePlanMode` / `useLoopMode` 先处理，钩子返回 true 则不再进通用 reducer。
-
-## 本体治理
-
-`ontology_activation` / `ontology_gate` / `ontology_review` / `ontology_repair` / `ontology_revision` /
-`ontology_revision_thinking`；`scope === 'ontology_revision'` 的工具事件单独分流（重写结果经 `content_replace` 落地）。
 
 ## 已退役（不要再处理或产出）
 

@@ -124,6 +124,17 @@ pub async fn validate(
     cookie_name: &str,
     token: &str,
 ) -> bool {
+    check(http, server_base, cookie_name, token).await == Some(true)
+}
+
+/// `Some(false)` only when the server rejected the session (401/403); `None` when
+/// it could not answer (timeout, connection error, 5xx), so callers can keep the token.
+pub async fn check(
+    http: &reqwest::Client,
+    server_base: &str,
+    cookie_name: &str,
+    token: &str,
+) -> Option<bool> {
     let url = format!(
         "{}/api/v1/auth/session/check",
         server_base.trim_end_matches('/')
@@ -140,8 +151,16 @@ pub async fn validate(
         .send()
         .await
     {
-        Ok(resp) => resp.status().is_success(),
-        Err(_) => false,
+        Ok(resp) if resp.status().is_success() => Some(true),
+        Ok(resp)
+            if matches!(
+                resp.status(),
+                reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN
+            ) =>
+        {
+            Some(false)
+        }
+        _ => None,
     }
 }
 

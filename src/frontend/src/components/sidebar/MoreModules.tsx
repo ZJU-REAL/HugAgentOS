@@ -30,6 +30,6 @@ export function MoreModules({ entries, panel, onSelect, expanded = false, classN
         if (['Enter', ' ', 'ArrowDown'].includes(event.key)) {
           event.preventDefault(); event.stopPropagation(); setOpen(true);
         }
-      }}><EllipsisOutlined />{expanded && <span>{t('更多')}</span>}</button>
+      }}><EllipsisOutlined />{expanded ? <span>{t('更多')}</span> : <span className="jx-moduleButtonLabel" aria-hidden="true">{t('更多')}</span>}</button>
   </Dropdown>;
 }

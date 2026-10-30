@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Button, Popover, Switch, Tooltip, message } from 'antd';
 import { SettingOutlined } from '@ant-design/icons';
 import { useProjectStore } from '../../stores/projectStore';
+import { getMemories } from '../../api';
+import { SkeletonLines } from '../common/LoadState';
 import ProjectMemoriesModal from './ProjectMemoriesModal';
 import { t } from '../../i18n';
 
@@ -19,22 +21,11 @@ export default function ProjectMemoryCard({ projectId }: { projectId: string }) 
   const [viewerOpen, setViewerOpen] = useState(false);
 
   useEffect(() => {
+    if (!readEnabled) return;
     let aborted = false;
-    void (async () => {
-      try {
-        const { getApiUrl } = await import('../../api');
-        const resp = await fetch(
-          `${getApiUrl()}/v1/memories?project_id=${encodeURIComponent(projectId)}`,
-          { credentials: 'include' },
-        );
-        const payload = await resp.json();
-        if (aborted) return;
-        const data = payload?.data || {};
-        setCount(typeof data.count === 'number' ? data.count : 0);
-      } catch {
-        if (!aborted) setCount(0);
-      }
-    })();
+    getMemories(projectId)
+      .then(({ count: total }) => { if (!aborted) setCount(total); })
+      .catch(() => { if (!aborted) setCount(0); });
     return () => { aborted = true; };
   }, [projectId, reloadKey, readEnabled]);
 
@@ -108,17 +99,13 @@ export default function ProjectMemoryCard({ projectId }: { projectId: string }) 
       {!readEnabled ? (
         <div className="jx-projectRail-cardEmpty">{t('读取已关闭，项目记忆不会注入对话')}</div>
       ) : count === null ? (
-        <div className="jx-projectRail-cardEmpty">{t('加载中…')}</div>
+        <SkeletonLines rows={1} />
       ) : count === 0 ? (
         <div className="jx-projectRail-cardEmpty">{t('几轮对话之后，项目记忆会出现在这里。')}</div>
       ) : (
-        <div
-          className="jx-projectRail-cardEmpty jx-projectRail-memoryCount"
-          onClick={() => setViewerOpen(true)}
-          style={{ cursor: 'pointer' }}
-          title={t('点击查看项目记忆详情')}
-        >
-          {t('已积累 {n} 条记忆 · ', { n: count })}<span style={{ color: 'var(--color-primary)' }}>{t('查看')}</span>
+        <div className="jx-projectRail-cardEmpty">
+          {t('已积累 {n} 条记忆 · ', { n: count })}
+          <Button type="link" size="small" className="jx-projectRail-inlineLink" onClick={() => setViewerOpen(true)}>{t('查看')}</Button>
         </div>
       )}
 

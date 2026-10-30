@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Spin, message } from 'antd';
+import { Button, message } from 'antd';
 import { ClockCircleOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons';
 import { automationAvailabilityWarning, getAutomationRuns, listAutomations } from '../../api';
+import { LoadError, SkeletonLines } from '../common/LoadState';
 import { useAuthStore } from '../../stores/authStore';
 import { prepareRunChat } from '../../stores/automationChatStore';
 import { navigateTo, pathForAutomationChat, pathForPanel } from '../../routing/navigation';
@@ -91,8 +92,8 @@ export default function ProjectAutomationsCard({ project }: { project: ProjectDe
       <Button size="small" type="text" icon={<ReloadOutlined />} loading={loading}
         aria-label={t('刷新项目定时任务')} onClick={() => void reload()} />
     </div>
-    {error && <div role="alert">{error}<Button size="small" onClick={() => void reload()}>{t('重试')}</Button></div>}
-    {loading && entries.length === 0 ? <Spin size="small" /> : entries.length === 0 && !error
+    {error && <LoadError title={t('项目定时任务加载失败')} reason={error} onRetry={() => void reload()} />}
+    {loading && entries.length === 0 ? <SkeletonLines rows={2} /> : entries.length === 0 && !error
       ? <div className="jx-projectRail-cardEmpty">{t('本项目暂无定时任务')}</div>
       : <div className="jx-projectAutomation-list">
         {entries.map(({ task, latest, error: runError }) => <div className="jx-projectAutomation-row" key={task.task_id}>

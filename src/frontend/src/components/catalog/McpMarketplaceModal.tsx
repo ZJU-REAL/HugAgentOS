@@ -23,6 +23,8 @@ import {
   SearchOutlined,
 } from '@ant-design/icons';
 import { t } from '../../i18n';
+import { useIsMobileViewport } from '../../hooks/useIsMobileViewport';
+import { ContinuousLoadSentinel } from '../common';
 import { formatDateTime } from '../../utils/date';
 import {
   getMcpMarketItem,
@@ -129,9 +131,11 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
     });
   }, [items, query, category]);
 
+  // 手机上没有页码条：列表从头连续增长，滚到底部再追加（见 ContinuousLoadSentinel）。
+  const isMobile = useIsMobileViewport();
   const paged = useMemo(
-    () => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
-    [filtered, page],
+    () => filtered.slice(isMobile ? 0 : (page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [filtered, page, isMobile],
   );
 
   useEffect(() => setPage(1), [query, category]);
@@ -342,7 +346,9 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
                 ))}
               </div>
             )}
-            {filtered.length > PAGE_SIZE && (
+            {isMobile ? (
+        <ContinuousLoadSentinel hasMore={page * PAGE_SIZE < filtered.length} count={paged.length} onMore={() => setPage((current) => current + 1)} />
+      ) : filtered.length > PAGE_SIZE && (
               <Pagination
                 current={page}
                 pageSize={PAGE_SIZE}

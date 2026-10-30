@@ -90,15 +90,20 @@ async def sweep_expired_memories(scan_limit: int = DEFAULT_SCAN_LIMIT) -> dict:
     # whole mem0 payload. Scoped to L2 — L1 lives in the DB profile and TASK in
     # chat metadata; neither is swept here.
     try:
-        rows = await loop.run_in_executor(
-            None,
-            lambda: memory.vector_store.client.query(
-                collection_name=memory.vector_store.collection_name,
-                filter='metadata["layer"] == "L2"',
-                output_fields=["id", "metadata"],
-                limit=scan_limit,
-            ),
-        )
+        from core.memory.pgvector_store import is_pgvector, expiry_candidates
+        if is_pgvector(memory):
+            rows = await loop.run_in_executor(
+                None, lambda: expiry_candidates(memory.vector_store, scan_limit, utc_now().date().isoformat()))
+        else:
+            rows = await loop.run_in_executor(
+                None,
+                lambda: memory.vector_store.client.query(
+                    collection_name=memory.vector_store.collection_name,
+                    filter='metadata["layer"] == "L2"',
+                    output_fields=["id", "metadata"],
+                    limit=scan_limit,
+                ),
+            )
     except Exception as exc:
         logger.warning("[memory-ttl] candidate query failed: %s", exc)
         return stats

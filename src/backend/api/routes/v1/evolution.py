@@ -123,8 +123,6 @@ async def approve_my_candidate(
 
 class PrefsPatch(BaseModel):
     enabled: Optional[bool] = None
-    ontology_mode: Optional[str] = Field(None, description="none | any | specific")
-    ontology_pack_id: Optional[str] = None
     mechanisms: Optional[list] = None
     min_support: Optional[int] = Field(None, ge=2, le=20)
     auto_approve_low_risk: Optional[bool] = None
@@ -132,19 +130,12 @@ class PrefsPatch(BaseModel):
 
 @router.get("/prefs", summary="获取我的进化配置")
 async def get_prefs(user: UserContext = Depends(get_current_user)):
-    """Preferences plus the domain packs available to bind to.
-
-    The pack list ships with the prefs so the UI can render "no packs
-    configured" as a visible fact rather than hiding the setting — an absent
-    control looks like a missing feature, which is a different message.
-    """
-    from core.evolution.profiles.prefs import ONTOLOGY_MODES, available_ontology_packs, resolve_prefs
+    """The current user's evolution preferences."""
+    from core.evolution.profiles.prefs import resolve_prefs
 
     return success_response(
         data={
             "prefs": resolve_prefs(user.user_id),
-            "ontology_packs": available_ontology_packs(),
-            "ontology_modes": list(ONTOLOGY_MODES),
         }
     )
 

@@ -7,12 +7,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Modal, Input, Tag, Button, Empty, Spin, Form, Typography, Pagination, Tooltip, Popconfirm, Switch, message } from 'antd';
 import { t } from '../../i18n';
+import { useIsMobileViewport } from '../../hooks/useIsMobileViewport';
 import { stripMarkdown } from '../../utils/markdown';
 import { SearchOutlined, FireOutlined, DownloadOutlined, KeyOutlined, CheckOutlined, LeftOutlined, FileTextOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons';
 import type { MarketplaceSkill, MarketplaceSkillDetail, MarketplaceFetchers, MarketVisibilityValue } from '../../types';
 import { mdToHtml } from '../../utils/markdown';
 import { SPRING, staggerStyle } from '../../utils/motionTokens';
-import { VisibilityScopeModal } from '../common';
+import { VisibilityScopeModal, ContinuousLoadSentinel } from '../common';
 import { SkillAvatar, categoryPreset } from './skillIcons';
 function MarketIcon({ skill, size }: { skill: MarketplaceSkill; size?: number }) {
   return <SkillAvatar icon={skill.icon_url || categoryPreset(skill.category)} seed={skill.slug} size={size || 40} />;
@@ -221,9 +222,11 @@ export function SkillMarketplaceModal({
       return `${it.display_name} ${it.summary} ${it.tags.join(' ')} ${it.author}`.toLowerCase().includes(q);
     });
   }, [items, category, q]);
+  // 手机上没有页码条：列表从头连续增长，滚到底部再追加（见 ContinuousLoadSentinel）。
+  const isMobile = useIsMobileViewport();
   const paged = useMemo(
-    () => filtered.slice((page - 1) * MARKET_PAGE_SIZE, page * MARKET_PAGE_SIZE),
-    [filtered, page],
+    () => filtered.slice(isMobile ? 0 : (page - 1) * MARKET_PAGE_SIZE, page * MARKET_PAGE_SIZE),
+    [filtered, page, isMobile],
   );
   // Pull back to the first page when data changes push the page number out of range
   useEffect(() => {
@@ -412,7 +415,7 @@ export function SkillMarketplaceModal({
               <div
                 className="jx-mk-grid jx-anim-stagger"
                 style={{ '--stagger-step': '30ms' } as React.CSSProperties}
-                key={`mk-${page}-${category}`}
+                key={`mk-${isMobile ? 0 : page}-${category}`}
               >
                 {paged.map((skill, idx) => (
                   <div
@@ -463,7 +466,9 @@ export function SkillMarketplaceModal({
               {!loading && filtered.length === 0 && (
                 <Empty className="jx-anim-fadeIn" description={t('没有匹配的技能')} style={{ padding: '32px 0' }} />
               )}
-              {filtered.length > MARKET_PAGE_SIZE && (
+              {isMobile ? (
+        <ContinuousLoadSentinel hasMore={page * MARKET_PAGE_SIZE < filtered.length} count={paged.length} onMore={() => setPage((current) => current + 1)} />
+      ) : filtered.length > MARKET_PAGE_SIZE && (
                 <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16 }}>
                   <Pagination
                     current={page}

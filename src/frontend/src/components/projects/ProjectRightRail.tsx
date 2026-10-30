@@ -1,6 +1,6 @@
 import { prepareProjectFolderDeletion } from './projectFolderDeletion';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Dropdown, Empty, Input, Modal, Progress, Spin, Tag, message } from 'antd';
+import { Button, Dropdown, Empty, Input, Modal, Progress, Tag, message } from 'antd';
 import {
   EditOutlined,
   ExportOutlined,
@@ -11,13 +11,14 @@ import {
 } from '@ant-design/icons';
 import ProjectFileList from './ProjectFileList';
 import { fmtBytes, leafName } from './projectFileDisplay';
-import type { ProjectFileItem } from '../../types';
+import type { ProjectFileItem, ResourceItem } from '../../types';
 import { useProjectStore } from '../../stores/projectStore';
 import { FilePreviewModal } from '../file/FilePreviewModal';
 import { DropOverlay } from '../common/DropOverlay';
 import { UploadProgressBar } from '../common/UploadProgressBar';
 import ProjectMemoryCard from './ProjectMemoryCard';
 import ProjectAutomationsCard from './ProjectAutomationsCard';
+import { LoadError, SkeletonLines } from '../common/LoadState';
 import { useFileDropZone } from '../../hooks/useFileDropZone';
 import { t } from '../../i18n';
 
@@ -176,8 +177,8 @@ function FilesCard() {
   const canEdit = project?.permission === 'admin' || project?.permission === 'edit';
   // 本地文件夹项目：文件即本机真实文件，增删在访达/文件管理器里做——隐藏上传、
   // 删除与容量条，改为提供「在访达中打开」入口（项目文件卡片头部，+ 号位置旁）。
-  const isLocal = (project as { kind?: string } | null)?.kind === 'local';
-  const localPath = (project as { local_path?: string } | null)?.local_path || '';
+  const isLocal = project?.kind === 'local';
+  const localPath = project?.local_path || '';
   const canUpload = canEdit && !isLocal;
   const pct = capacityLimit > 0 ? Math.min(100, Math.round((capacityUsed / capacityLimit) * 100)) : 0;
 
@@ -258,7 +259,7 @@ function FilesCard() {
   }, [project, canUpload, refreshFiles]);
 
   // Adapt ProjectFileItem to the ResourceItem shape that FilePreviewPane accepts
-  const previewItem = previewFile
+  const previewItem: ResourceItem | null = previewFile
     ? {
         id: previewFile.artifact_id,
         origin: isLocal ? 'local' : 'cloud',
@@ -269,7 +270,7 @@ function FilesCard() {
         download_url: previewFile.download_url,
         type: (previewFile.mime_type || '').startsWith('image/') ? 'image' : 'document',
         created_at: previewFile.created_at || '',
-      } as unknown as import('../../types').ResourceItem
+      }
     : null;
 
   const folderTag = project?.folder_name ? (
@@ -326,7 +327,7 @@ function FilesCard() {
         <div className="jx-projectRail-cardSub" title={localPath}>{localPath}</div>
       ) : (
         <>
-          <Progress percent={pct} size="small" showInfo={false} strokeColor="#126DFF" />
+          <Progress percent={pct} size="small" showInfo={false} />
           <div className="jx-projectRail-cardSub">
             {t('已用 {used} / {limit}', { used: fmtBytes(capacityUsed), limit: fmtBytes(capacityLimit || 0) })}
           </div>
@@ -337,12 +338,9 @@ function FilesCard() {
       <UploadProgressBar progress={uploadProgress} />
 
       {filesError && (
-        <div role="alert">
-          {filesError}
-          <Button size="small" onClick={() => { void refreshFiles().catch(() => {}); }}>{t('重试')}</Button>
-        </div>
+        <LoadError title={t('项目文件加载失败')} reason={filesError} onRetry={() => { void refreshFiles().catch(() => {}); }} />
       )}
-      {filesLoading && files.length === 0 ? <Spin /> : files.length === 0 && !filesError ? (
+      {filesLoading && files.length === 0 ? <SkeletonLines rows={4} /> : files.length === 0 && !filesError ? (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('该项目还没有文件')} />
       ) : (
         <ProjectFileList key={project?.project_id} files={files} canEdit={canUpload}

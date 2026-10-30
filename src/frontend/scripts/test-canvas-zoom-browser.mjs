@@ -55,7 +55,7 @@ createRoot(document.getElementById('root')).render(<main><RightSidebarPanel/></m
     resolveDir: process.cwd(), loader: 'tsx',
   },
   bundle: true, format: 'esm', jsx: 'automatic', define: { 'import.meta.env': '{}' },
-  external: ['/loader.gif', '/loader-done.png'], loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl' },
+  loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl' },
   outfile: resolve(output, 'fixture.js'),
 });
 

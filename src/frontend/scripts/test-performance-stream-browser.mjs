@@ -36,7 +36,7 @@ window.measure=async()=>{
   samples.push(performance.now()-start);
  }
  return samples;
-};`,resolveDir:source,loader:'tsx'},bundle:true,format:'esm',jsx:'automatic',outdir:dir,nodePaths:[resolve('node_modules')],define:{'import.meta.env':'{}','process.env.NODE_ENV':'"production"'},loader:{'.svg':'dataurl','.png':'dataurl','.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl','.md':'text'},external:['/loader.gif','/loader-done.png']});
+};`,resolveDir:source,loader:'tsx'},bundle:true,format:'esm',jsx:'automatic',outdir:dir,nodePaths:[resolve('node_modules')],define:{'import.meta.env':'{}','process.env.NODE_ENV':'"production"'},loader:{'.svg':'dataurl','.png':'dataurl','.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl','.md':'text'}});
   const page=await browser.newPage({viewport:{width:1280,height:800}});
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.route('http://stream.test/**',async route=>{

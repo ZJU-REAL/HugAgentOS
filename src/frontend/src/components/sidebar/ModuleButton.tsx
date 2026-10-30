@@ -12,7 +12,7 @@ export function ModuleButton({ entry, active, onSelect, expanded = false, count 
       aria-label={meta.label} aria-current={active ? 'page' : undefined}
       onClick={() => onSelect(meta.targetPanel)}>
       <Badge count={count} size="small"><img className={expanded ? 'jx-navItemIcon' : 'jx-miniRailIcon'} src={meta.icon} alt="" /></Badge>
-      {expanded && <span>{meta.label}</span>}
+      {expanded ? <span>{meta.label}</span> : <span className="jx-moduleButtonLabel" aria-hidden="true">{meta.label}</span>}
     </button>
   </Tooltip>;
 }

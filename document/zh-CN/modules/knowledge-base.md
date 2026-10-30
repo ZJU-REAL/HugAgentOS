@@ -89,20 +89,20 @@ Wiki 相关的三张表（`kb_wiki_pages` / `kb_wiki_folders` / `kb_wiki_jobs`�
 
 文档里的图不再被丢弃。索引时走 `features/knowledge/kb_assets.py`：
 
-1. **抽图**——PDF 经外部解析服务的版面切分拿回图片本体、图注、页码与 bbox；单独上传的
+1. **抽图**——PDF 经外部解析服务的版面切分拿回图片原图、图注、页码与 bbox；单独上传的
    图片自身即一个资产（此前会被当作纯文本硬解成乱码入库，现已修复）。字节存对象存储，
    正文里原本指向解析服务临时路径的死链被改写成真实资产 URL。
 2. **图像理解**——复用[视觉桥](./model-providers.md#视觉桥让纯文本模型能读图)（`core/models/vision`），和对话里「纯文本主模型读图」
    走的是同一条通路、同一个 `vision` 模型角色，因此白得三样东西：按图片内容哈希的**证据缓存**
    （重新索引同一篇文档不用再付一次钱）、三协议与结构化输出降级、以及「该角色只能指派多模态模型」
    的硬约束。产出映射：`summary` → `caption`，`ocr.full_text` 并入 `text_content`（与原图注共存），
-   实体 / 关系 / 不确定项留档进 `metadata.vision` 供本体层与人工复核使用。
+   实体 / 关系 / 不确定项留档进 `metadata.vision` 供人工复核使用。
    **未指派 `vision` 角色（且主模型不识图）是正常状态**：图片仍以图注入索引，之后配好再回填即可，
    无需重新解析文档。
 3. **入索引**——每个资产写一条 `row_type="image"` 的检索行，`parent_chunk_id` 指向包含它
    的父块，因此去重、回表取父块原文、重排、按文档删除等既有链路全部无改动复用。
 4. **回传**——检索结果里该片段会带 `images: [{asset_id, url, caption}]`，供模型据描述作答、
-   供前端渲染缩略图。图片本体经 `GET /v1/catalog/kb/assets/{asset_id}` 读取，可见性完全
+   供前端渲染缩略图。图片原图经 `GET /v1/catalog/kb/assets/{asset_id}` 读取，可见性完全
    跟随所属知识库空间。
 
 开关与调优：`indexing_config.multimodal_indexing`（单库）优先于全局 `KB_MULTIMODAL_INDEXING`。

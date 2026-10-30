@@ -83,6 +83,10 @@ class SessionSettings:
     )
     ttl_hours: float = field(default_factory=lambda: float(_env("SESSION_TTL_HOURS", "8")))
     store_type: str = field(default_factory=lambda: _env("SESSION_STORE", "memory").lower().strip())
+    # Memory store only: mirror the in-process session table to this file so a
+    # single-process install (the desktop local server) keeps its logins across
+    # restarts. Empty keeps sessions purely in memory.
+    persist_path: str = field(default_factory=lambda: _env("SESSION_PERSIST_PATH", "").strip())
 
 @dataclass(frozen=True)
 class OASsoSettings:

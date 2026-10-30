@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2733 1331" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2733 1189" role="img" aria-labelledby="title desc">
   <title id="title">HugAgentOS layered architecture</title>
-  <desc id="desc">Platform, agent, capability component, ontology, data governance, data foundation, and security governance layers.</desc>
+  <desc id="desc">Platform, agent, capability component, data governance, data foundation, and security governance layers.</desc>
   <defs>
     <style>
       text { font-family: Inter, "Segoe UI", Arial, sans-serif; }
@@ -20,8 +20,6 @@
       .badge-text { fill: #fff; font-size: 20px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
       .action { fill: #fff; stroke: #c40000; stroke-width: 5; }
       .action-text { fill: #c40000; font-size: 25px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
-      .ontology-focus { fill: #fff; stroke: #c40000; stroke-width: 5; }
-      .ontology-focus-text { fill: #c40000; font-size: 31px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
       .governance-bg { fill: #fff9ed; stroke: #dfa12d; stroke-width: 5; }
       .governance-label { fill: #e5a127; }
       .governance-title { fill: #fff; font-size: 24px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
@@ -34,7 +32,7 @@
     </style>
   </defs>
 
-  <rect width="2733" height="1331" fill="#fff"/>
+  <rect width="2733" height="1189" fill="#fff"/>
 
   <!-- Platform layer -->
   <rect class="section-bg" x="18" y="18" width="2328" height="255" rx="18"/>
@@ -132,70 +130,46 @@
   <rect class="action" x="565" y="823" width="1380" height="65" rx="32"/>
   <text class="action-text" x="1255" y="855">Action-driven capability assembly: Generate Plan → Approval &amp; Validation → Gated Execution</text>
 
-  <!-- Ontology layer -->
-  <rect class="section-bg" x="18" y="900" width="2328" height="126" rx="18"/>
-  <rect class="section-label" x="42" y="916" width="255" height="94" rx="16"/>
-  <text class="section-label-text" x="169" y="963">Ontology Layer</text>
-  <rect class="box" x="322" y="921" width="342" height="82" rx="10"/>
-  <rect class="box" x="680" y="921" width="342" height="82" rx="10"/>
-  <rect class="ontology-focus" x="1038" y="921" width="342" height="82" rx="10"/>
-  <rect class="box" x="1396" y="921" width="342" height="82" rx="10"/>
-  <rect class="box" x="1754" y="921" width="568" height="82" rx="10"/>
-  <text class="box-text" x="493" y="962">Domain Ontology</text>
-  <text class="box-text" x="851" y="947" style="font-size:24px">
-    <tspan x="851" dy="0">Entities · Relations</tspan>
-    <tspan x="851" dy="30">· Invariants</tspan>
-  </text>
-  <text class="ontology-focus-text" x="1209" y="962">Action Contracts</text>
-  <text class="box-text" x="1567" y="947" style="font-size:24px">
-    <tspan x="1567" dy="0">Role &amp; Permission</tspan>
-    <tspan x="1567" dy="30">Derivation</tspan>
-  </text>
-  <text class="box-text" x="2038" y="962">Capability Graph · Memory Graph</text>
-
   <!-- Data governance -->
-  <rect class="governance-bg" x="18" y="1042" width="2328" height="118" rx="18"/>
-  <rect class="governance-label" x="42" y="1042" width="255" height="118" rx="16"/>
-  <text class="governance-title" x="169" y="1101">Data Governance</text>
-  <polygon class="chevron" points="322,1055 592,1055 637,1101 592,1147 322,1147 367,1101"/>
-  <polygon class="chevron" points="647,1055 917,1055 962,1101 917,1147 647,1147 692,1101"/>
-  <polygon class="chevron" points="972,1055 1242,1055 1287,1101 1242,1147 972,1147 1017,1101"/>
-  <polygon class="chevron" points="1297,1055 1567,1055 1612,1101 1567,1147 1297,1147 1342,1101"/>
-  <polygon class="chevron" points="1622,1055 1892,1055 1937,1101 1892,1147 1622,1147 1667,1101"/>
-  <polygon class="chevron" points="1947,1055 2217,1055 2262,1101 2217,1147 1947,1147 1992,1101"/>
-  <text class="chevron-text" x="479" y="1101">Data Ingestion</text>
-  <text class="chevron-text" x="804" y="1101">Metadata Scan</text>
-  <text class="chevron-text" x="1129" y="1101">Data Profiling</text>
-  <text class="chevron-text" x="1454" y="1101">Ontology Proposals</text>
-  <text class="chevron-text" x="1779" y="1101">Semantic Mapping</text>
-  <text class="chevron-text" x="2104" y="1101">Governance Approval</text>
+  <rect class="governance-bg" x="18" y="900" width="2328" height="118" rx="18"/>
+  <rect class="governance-label" x="42" y="900" width="255" height="118" rx="16"/>
+  <text class="governance-title" x="169" y="959">Data Governance</text>
+  <polygon class="chevron" points="322,913 592,913 637,959 592,1005 322,1005 367,959"/>
+  <polygon class="chevron" points="647,913 917,913 962,959 917,1005 647,1005 692,959"/>
+  <polygon class="chevron" points="972,913 1242,913 1287,959 1242,1005 972,1005 1017,959"/>
+  <polygon class="chevron" points="1297,913 1567,913 1612,959 1567,1005 1297,1005 1342,959"/>
+  <polygon class="chevron" points="1622,913 1892,913 1937,959 1892,1005 1622,1005 1667,959"/>
+  <polygon class="chevron" points="1947,913 2217,913 2262,959 2217,1005 1947,1005 1992,959"/>
+  <text class="chevron-text" x="479" y="959">Data Ingestion</text>
+  <text class="chevron-text" x="804" y="959">Metadata Scan</text>
+  <text class="chevron-text" x="1129" y="959">Data Profiling</text>
+  <text class="chevron-text" x="1454" y="959">Quality Checks</text>
+  <text class="chevron-text" x="1779" y="959">Semantic Mapping</text>
+  <text class="chevron-text" x="2104" y="959">Governance Approval</text>
 
   <!-- Data foundation -->
-  <rect class="section-bg" x="18" y="1177" width="2328" height="136" rx="18"/>
-  <rect class="section-label" x="42" y="1190" width="255" height="110" rx="16"/>
-  <text class="section-label-text" x="169" y="1245">Data Foundation</text>
-  <rect class="box" x="322" y="1200" width="300" height="90" rx="10"/>
-  <rect class="box" x="638" y="1200" width="300" height="90" rx="10"/>
-  <rect class="box" x="954" y="1200" width="300" height="90" rx="10"/>
-  <rect class="box" x="1270" y="1200" width="300" height="90" rx="10"/>
-  <rect class="box" x="1586" y="1200" width="300" height="90" rx="10"/>
-  <rect class="box" x="1902" y="1200" width="420" height="90" rx="10"/>
-  <text class="box-text" x="472" y="1245">PostgreSQL</text>
-  <text class="box-text" x="788" y="1245">Redis</text>
-  <text class="box-text" x="1104" y="1245">Milvus</text>
-  <text class="box-text" x="1420" y="1245">Neo4j</text>
-  <text class="box-text" x="1736" y="1245">Object Storage</text>
-  <text class="box-text" x="2112" y="1245">Sandbox Runtime</text>
+  <rect class="section-bg" x="18" y="1035" width="2328" height="136" rx="18"/>
+  <rect class="section-label" x="42" y="1048" width="255" height="110" rx="16"/>
+  <text class="section-label-text" x="169" y="1103">Data Foundation</text>
+  <rect class="box" x="322" y="1058" width="300" height="90" rx="10"/>
+  <rect class="box" x="638" y="1058" width="300" height="90" rx="10"/>
+  <rect class="box" x="954" y="1058" width="300" height="90" rx="10"/>
+  <rect class="box" x="1270" y="1058" width="300" height="90" rx="10"/>
+  <rect class="box" x="1586" y="1058" width="300" height="90" rx="10"/>
+  <rect class="box" x="1902" y="1058" width="420" height="90" rx="10"/>
+  <text class="box-text" x="472" y="1103">PostgreSQL</text>
+  <text class="box-text" x="788" y="1103">Redis</text>
+  <text class="box-text" x="1104" y="1103">Milvus</text>
+  <text class="box-text" x="1420" y="1103">Neo4j</text>
+  <text class="box-text" x="1736" y="1103">Object Storage</text>
+  <text class="box-text" x="2112" y="1103">Sandbox Runtime</text>
 
-  <path d="M485 1177 V1164 H465 L500 1136 L535 1164 H515 V1177 Z" fill="#e4b33c"/>
-  <path d="M1185 1177 V1164 H1165 L1200 1136 L1235 1164 H1215 V1177 Z" fill="#e4b33c"/>
-  <path d="M1885 1177 V1164 H1865 L1900 1136 L1935 1164 H1915 V1177 Z" fill="#e4b33c"/>
-  <path d="M485 1042 V1029 H465 L500 1001 L535 1029 H515 V1042 Z" fill="#e4b33c"/>
-  <path d="M1185 1042 V1029 H1165 L1200 1001 L1235 1029 H1215 V1042 Z" fill="#e4b33c"/>
-  <path d="M1885 1042 V1029 H1865 L1900 1001 L1935 1029 H1915 V1042 Z" fill="#e4b33c"/>
+  <path d="M485 1035 V1022 H465 L500 994 L535 1022 H515 V1035 Z" fill="#e4b33c"/>
+  <path d="M1185 1035 V1022 H1165 L1200 994 L1235 1022 H1215 V1035 Z" fill="#e4b33c"/>
+  <path d="M1885 1035 V1022 H1865 L1900 994 L1935 1022 H1915 V1035 Z" fill="#e4b33c"/>
 
   <!-- Security and platform governance -->
-  <rect class="side-bg" x="2372" y="18" width="343" height="1295" rx="18"/>
+  <rect class="side-bg" x="2372" y="18" width="343" height="1153" rx="18"/>
   <text class="side-title" x="2543" y="66">
     <tspan x="2543" dy="0">Security Management</tspan>
     <tspan x="2543" dy="38">Platform Governance</tspan>

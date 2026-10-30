@@ -45,9 +45,8 @@ def test_expired_tracking_during_probe_cannot_deliver_another_workers_container(
 
         if kind == "general":
             pool = SandboxPool(
-                jupyter_min_idle=0, light_min_idle=0,
+                jupyter_min_idle=0,
                 jupyter_factory=AsyncMock(return_value=fresh),
-                light_factory=AsyncMock(return_value=fresh),
                 destroy_fn=AsyncMock(), liveness_fn=probe, owner_fn=a._pooled_sandbox_owner,
             )
             pool._buckets["jupyter"].idle.append(box)
@@ -97,8 +96,7 @@ def test_cancelled_early_return_does_not_release_another_active_reservation(case
         owner = AsyncMock(return_value="another-worker" if branch == "owner" else None)
         if kind == "general":
             pool = SandboxPool(
-                jupyter_min_idle=0, light_min_idle=0,
-                jupyter_factory=AsyncMock(), light_factory=AsyncMock(),
+                jupyter_min_idle=0, jupyter_factory=AsyncMock(),
                 destroy_fn=AsyncMock(), owner_fn=owner, liveness_fn=AsyncMock(return_value=False),
             )
             pool._buckets["jupyter"].idle.append(SimpleNamespace(id="foreign"))

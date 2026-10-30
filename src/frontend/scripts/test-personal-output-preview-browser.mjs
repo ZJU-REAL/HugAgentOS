@@ -25,8 +25,7 @@ createRoot(document.getElementById('root')).render(<PersonalOutputs page={{ item
   outfile: resolve(output, 'fixture.js'), bundle: true, format: 'esm', jsx: 'automatic',
   define: { 'import.meta.env': '{}' },
   loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl' },
-  external: ['/loader.gif', '/loader-done.png'],
-});
+  });
 const rows = Array.from({ length: 180 }, (_, r) => Array.from({ length: 40 }, (_, c) => `Row ${r} column ${c} long value`));
 const workbook = XLSX.utils.book_new();
 for (const name of ['First sheet', 'Second sheet']) XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), name);

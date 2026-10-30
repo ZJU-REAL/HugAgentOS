@@ -12,7 +12,6 @@ from core.db.repository.catalog import CatalogRepository
 
 from core.db.repository.chat import ChatMessageRepository, ChatSessionRepository
 
-from core.db.repository.ontology import OntologyRepository
 from core.db.repository.user import LocalUserRepository, UserRepository
 
 
@@ -29,5 +28,4 @@ __all__ = [
     "ROOT_FOLDER_SENTINEL",
     "AuditLogRepository",
     "UserAgentRepository",
-    "OntologyRepository",
 ]

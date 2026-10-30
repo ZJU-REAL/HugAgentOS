@@ -1,4 +1,4 @@
-"""Ontology acceptance and assistant feedback endpoints."""
+"""Assistant feedback endpoints."""
 
 import core.chat.operations.schemas as chat_models
 import core.chat.operations.session_context as chat_session_context
@@ -18,37 +18,6 @@ from sqlalchemy.orm import Session
 router = APIRouter()
 
 logger = get_logger(__name__)
-
-
-@router.post(
-    "/messages/{message_id}/ontology-revision/accept",
-    summary="采用领域本体优化稿",
-)
-def accept_ontology_revision(
-    message_id: str,
-    user: UserContext = Depends(auth_backend.get_current_user),
-    db: Session = Depends(db_engine.get_db),
-):
-    """Atomically replace one assistant message with its reviewed candidate answer."""
-    chat_service = chat_services_ChatService_module.ChatService(db)
-    target = chat_service.get_message_by_id(message_id)
-    if not target or target.role != "assistant":
-        raise ResourceNotFoundError(resource_type="chat_message", resource_id=message_id)
-    db_user_id = chat_context.resolve_db_user_id(
-        db, chat_session_context.authenticated_user_id(user)
-    )
-    access = chat_service.get_session_with_access(target.chat_id, db_user_id)
-    if access is None:
-        raise ResourceNotFoundError(resource_type="chat_message", resource_id=message_id)
-    if access[1] not in ("admin", "edit"):
-        raise HTTPException(status_code=403, detail="只读共享会话不可替换消息正文")
-    updated = chat_service.accept_ontology_revision(message_id)
-    if updated is None:
-        raise HTTPException(status_code=409, detail="当前消息没有可采用的本体优化稿")
-    return success_response(
-        data={"message_id": message_id, "content": updated.content},
-        message="已采用本体优化稿",
-    )
 
 
 @router.post("/messages/{message_id}/feedback", summary="消息反馈")
@@ -93,19 +62,5 @@ def submit_feedback(
         db.add(record)
         db.commit()
         db.refresh(record)
-
-    if body.rating == "dislike" and (body.comment or "").strip() and record.chat_id:
-        try:
-            from core.ontology.evolution import OntologyEvolutionService
-
-            OntologyEvolutionService(db).ingest_user_correction(
-                user_id=db_user_id,
-                chat_id=record.chat_id,
-                message_id=message_id,
-                feedback_id=str(record.feedback_id),
-                comment=(body.comment or "").strip(),
-            )
-        except Exception:  # noqa: BLE001 - feedback persistence must remain available
-            logger.warning("ontology user-correction ingestion failed", exc_info=True)
 
     return {"ok": True, "feedback_id": record.feedback_id, "rating": record.rating}

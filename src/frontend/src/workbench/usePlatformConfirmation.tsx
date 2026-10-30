@@ -1,6 +1,7 @@
 import {t} from '../i18n';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {Modal} from 'antd';
+import {HostButton} from './ui';
 interface Pending {
  method:string;detail:string;perform:()=>Promise<unknown>;
  resolve:(value:unknown)=>void;reject:(error:Error)=>void;clear:()=>void;
@@ -29,6 +30,8 @@ export function usePlatformConfirmation(){
   try{void item.perform().then(item.resolve,item.reject);}catch(error){item.reject(error instanceof Error?error:new Error('bridge_error'));}
  };
  return {approve,dialog:pending?<Modal open title={t(pending.method==='file.pick'?'选择设备文件并上传':pending.method==='file.save'?'保存文件':'打开外部链接')} footer={null} onCancel={cancel}>
-  <p>{pending.detail}</p><button type="button" onClick={cancel}>{t('取消')}</button>
-  <button type="button" onClick={allow}>{t('继续')}</button></Modal>:null};
+  <div className="jx-hostDialog"><p>{pending.detail}</p><div className="jx-hostDialog-actions">
+   <HostButton onClick={cancel}>{t('取消')}</HostButton>
+   <HostButton tone="primary" onClick={allow}>{t('继续')}</HostButton>
+  </div></div></Modal>:null};
 }

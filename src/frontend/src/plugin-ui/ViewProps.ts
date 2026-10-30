@@ -14,6 +14,8 @@ import type { ViewAction, ViewKind, ViewMap } from './types';
 export interface ActionOutcome {
   action: ViewAction;
   status: 'loading' | 'success' | 'error';
+  /** The row the action ran against, kept so a failed call can be retried as-is. */
+  scopes: { node?: unknown; item?: unknown };
   data?: unknown;
   error?: string;
   page: number;

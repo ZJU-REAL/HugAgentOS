@@ -3,7 +3,6 @@ import {
   CheckCircleFilled,
   ExclamationCircleFilled,
   RobotOutlined,
-  SafetyCertificateOutlined,
   ThunderboltOutlined,
 }
 from '@ant-design/icons';
@@ -29,7 +28,6 @@ import {
   getMemorySettings,
   getModelProviderSchemas,
   getMyServiceConfigs,
-  getOntologySettings,
   getUserPreferences,
   listModelProviders,
   listModelRoles,
@@ -38,7 +36,6 @@ import {
   updateMemorySettings,
   updateMemoryWriteSettings,
   updateMyServiceConfigs,
-  updateOntologySettings,
   updateUserPreferences,
   type AuthUser,
   type ModelProviderItem,
@@ -112,7 +109,7 @@ const STEP_META = [
   { title: '模型配置', hint: '连接推理与检索服务' },
   { title: '联网搜索', hint: '可选服务' },
   { title: '文件解析', hint: '可选服务' },
-  { title: '智能增强', hint: '记忆与本体' },
+  { title: '智能增强', hint: '记忆与进化' },
   { title: '准备就绪', hint: '检查并进入' },
 ] as const;
 
@@ -182,9 +179,6 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
   // below still decides whether that choice can take effect, so this is a
   // recommendation rather than a decision made on the user's behalf.
   const [evolutionEnabled, setEvolutionEnabled] = useState(true);
-  const [ontologyEnabled, setOntologyEnabled] = useState(false);
-  const [ontologyAvailable, setOntologyAvailable] = useState(false);
-  const [activeOntologyCount, setActiveOntologyCount] = useState(0);
 
   // Evolution cannot do its job without the embedding model (intent clustering
   // and the memory scan both fall back to something measurably blind) and it
@@ -209,7 +203,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
     setLoading(true);
     setLoadError('');
     try {
-      const [prefs, modelProviders, modelRoles, providerSchemas, groups, memory, ontology] =
+      const [prefs, modelProviders, modelRoles, providerSchemas, groups, memory] =
         await Promise.all([
           getUserPreferences(user.user_id),
           listModelProviders(),
@@ -217,7 +211,6 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
           getModelProviderSchemas(),
           getMyServiceConfigs(),
           getMemorySettings(),
-          getOntologySettings(),
         ]);
 
       setPreferences(prefs);
@@ -272,9 +265,6 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
       setMemoryWriteEnabled(memory.memory_write_enabled);
       setMemoryAvailable(memory.mem0_available);
       setEmbeddingAvailable(memory.embedding_available);
-      setOntologyEnabled(ontology.ontology_enabled);
-      setOntologyAvailable(ontology.available);
-      setActiveOntologyCount(ontology.active_packs?.length || 0);
     } catch (error) {
       setLoadError((error as Error).message || t('初始化信息加载失败'));
     } finally {
@@ -479,7 +469,6 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
           // Written on every pass, including when it resolves to false, so the
           // wizard is what decides this rather than the stored default.
           updateEvolutionPrefs({ enabled: evolutionActive }),
-          updateOntologySettings(ontologyAvailable && ontologyEnabled),
         ]);
       } else {
         await completeFirstRunSetup();
@@ -490,7 +479,6 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
         }
         await Promise.all([
           useSettingsStore.getState().loadMemorySettings(),
-          useSettingsStore.getState().loadOntologySettings(),
           useModelCapabilitiesStore.getState().fetchCapabilities(),
         ]);
         message.success(t('初始化完成，欢迎使用 {name}', { name: brandName }));
@@ -938,23 +926,6 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
           )}
         </div>
       </div>
-      <div className={`jx-firstRun-feature${ontologyEnabled ? ' jx-firstRun-feature--active' : ''}`}>
-        <div className="jx-firstRun-featureIcon"><SafetyCertificateOutlined /></div>
-        <div className="jx-firstRun-featureBody">
-          <div className="jx-firstRun-labelRow">
-            <Text strong>{t('本体核验')}</Text>
-            <Switch
-              checked={ontologyAvailable && ontologyEnabled}
-              disabled={!ontologyAvailable}
-              onChange={setOntologyEnabled}
-            />
-          </div>
-          <Paragraph>{t('工具调用和高风险结果会经过领域规则检查，减少不符合业务约束的输出。')}</Paragraph>
-          {ontologyAvailable
-            ? <Tag color="blue">{t('已发布 {n} 个领域包', { n: activeOntologyCount })}</Tag>
-            : <Tag>{t('尚无已发布的领域本体包')}</Tag>}
-        </div>
-      </div>
     </div>
   );
 
@@ -970,7 +941,6 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
         <div><span>{t('重排模型')}</span><strong>{selectedAuxProviderIds.reranker ? t('已配置') : t('未配置')}</strong></div>
         <div><span>{t('永久记忆')}</span><strong>{memoryReady ? t('开启') : t('关闭')}</strong></div>
         <div><span>{t('启动进化')}</span><strong>{evolutionActive ? t('开启') : t('关闭')}</strong></div>
-        <div><span>{t('本体核验')}</span><strong>{ontologyAvailable && ontologyEnabled ? t('开启') : t('关闭')}</strong></div>
       </div>
     </div>
   );
@@ -988,7 +958,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
     ['连接你的 AI 模型', '主对话模型为必填项；索引模型和重排模型可按需配置。'],
     ['让智能体访问实时信息', '配置搜索服务后，天气、新闻和公开资料查询会更加完整。'],
     ['决定如何读取复杂文档', '外部解析服务适合 PDF、扫描件和包含公式的文档。'],
-    ['选择需要的智能增强', '你可以控制是否跨对话记忆、是否让系统从你的用法中自我进化，以及是否执行领域本体核验。'],
+    ['选择需要的智能增强', '你可以控制是否跨对话记忆，以及是否让系统从你的用法中自我进化。'],
     ['一切就绪', '完成初始化后，你将进入 HugAgentOS 工作台。'],
   ];
 

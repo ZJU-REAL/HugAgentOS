@@ -39,3 +39,9 @@
   .pa-ws-split{flex-direction:column}
   .pa-ws-tree{width:auto;max-height:280px}
 }
+
+/* Loading placeholders */
+.pa-ws-skHint{flex:1;max-width:480px;height:12px}
+.pa-ws-skButton{width:72px;height:24px}
+.pa-ws-skPath{width:120px;height:16px}
+.pa-ws-skTree{padding:8px}

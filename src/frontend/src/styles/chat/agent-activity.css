@@ -9,7 +9,7 @@
    ══════════════════════════════════════════════════════════════════════════ */
 
 /* ── Slots and the travelling mark ── */
-/* Box shared with .jx-turnStatusMark (turn-status.css). */
+/* Box size lives in turn-status.css. */
 .jx-agentSlot{
   position:relative;
 }

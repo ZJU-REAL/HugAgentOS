@@ -127,7 +127,9 @@ export interface CanvasPluginTab {
 
 export type CanvasTab = CanvasFileTab | CanvasOntologyTab | CanvasPluginTab | CanvasSubagentTab | CanvasCustomTab;
 
-const fileTabId = (file: CanvasArtifact) => `file:${file.origin || 'cloud'}:${file.file_id}`;
+export const fileTabId = (file: Pick<CanvasArtifact, 'origin' | 'file_id'>) => `file:${file.origin || 'cloud'}:${file.file_id}`;
+export const subagentTabId = (target: Pick<SubagentPanelTarget, 'chatId' | 'messageUid' | 'toolId'>) =>
+  `subagent:${JSON.stringify([target.chatId, target.messageUid, target.toolId])}`;
 const ontologyTabId = (chatId: string) => `ontology:${chatId}`;
 const pluginTabId = (target: PluginPanelTarget) =>
   target.resource
@@ -256,7 +258,7 @@ export const useCanvasStore = create<CanvasState>((set) => ({
     return selectTab(state, tabs, id);
   }),
   openSubagent: (target) => set((state) => {
-    const id = `subagent:${JSON.stringify([target.chatId, target.messageUid, target.toolId])}`;
+    const id = subagentTabId(target);
     const index = state.tabs.findIndex((tab) => tab.id === id);
     const tab: CanvasSubagentTab = { id, kind: 'subagent', target };
     const tabs = index >= 0 ? replaceAt(state.tabs, index, tab) : [...state.tabs, tab];
@@ -415,3 +417,19 @@ export const useCanvasStore = create<CanvasState>((set) => ({
     return { tabs, ...derive(tabs, state.activeTabId) };
   }),
 }));
+
+// 画布收起后 SlidePanel 还要播退出动画，而关掉最后一个页签会同时清空 tabs。
+// 面板内容统一读这份「最后一次打开时的状态」，退出过程中停在关闭前那一帧，
+// 不会先闪成空白启动页、缩放控件消失或分屏塌成单栏。
+let lastOpenState = useCanvasStore.getState();
+useCanvasStore.subscribe((state) => { if (state.isOpen) lastOpenState = state; });
+
+/** 面板内容专用：打开时是实时状态，收起（退出动画）期间是关闭前的最后状态。 */
+export function useCanvasViewStore(): CanvasState;
+export function useCanvasViewStore<T>(selector: (state: CanvasState) => T): T;
+export function useCanvasViewStore<T>(selector?: (state: CanvasState) => T) {
+  return useCanvasStore((state) => {
+    const view = state.isOpen ? state : lastOpenState;
+    return selector ? selector(view) : view;
+  });
+}

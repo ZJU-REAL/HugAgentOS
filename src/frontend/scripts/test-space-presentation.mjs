@@ -24,7 +24,6 @@ window.canvas=useCanvasStore;
 createRoot(document.getElementById('root')).render(<BrowserRouter><MySpacePanel/><CanvasPanel/></BrowserRouter>);
 `, resolveDir: process.cwd(), loader:'tsx' }, outfile:output+'/fixture.js', bundle:true, format:'esm', jsx:'automatic',
 define:{'import.meta.env':'{"VITE_DEFAULT_LANGUAGE":"zh-CN","VITE_API_BASE_URL":"/api"}'},
-external:['/loader.gif','/loader-done.png'],
 loader:{'.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl','.svg':'dataurl','.png':'dataurl','.md':'text'} });
 const server=createServer(async(req,res)=>{
  const path=req.url.split('?')[0];

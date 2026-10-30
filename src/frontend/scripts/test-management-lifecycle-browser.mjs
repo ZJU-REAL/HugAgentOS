@@ -36,8 +36,7 @@ useCatalogStore.getState().fetchCatalog();
 createRoot(document.getElementById('root')).render(<Fixture />);
 `, resolveDir: process.cwd(), loader: 'tsx' },
   outfile: resolve(output, 'fixture.js'), bundle: true, format: 'esm', jsx: 'automatic',
-  define: { 'import.meta.env': '{"VITE_DEFAULT_LANGUAGE":"zh-CN"}' }, external: ['/loader.gif', '/loader-done.png'],
-  loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl' },
+  define: { 'import.meta.env': '{"VITE_DEFAULT_LANGUAGE":"zh-CN"}' }, loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl' },
 });
 async function post(path, body) {
  const response = await fetch(backend + path, { method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(body) });

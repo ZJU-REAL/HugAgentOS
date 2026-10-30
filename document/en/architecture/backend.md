@@ -11,7 +11,7 @@ src/backend/
 ├── api/             # FastAPI app, middleware, and CE routes
 ├── edition_ee/      # EE routes, License, Team/RBAC, ORM, Dify, and service implementations
 ├── orchestration/   # Chat orchestration: Run executor, workflow, strategy, citations, schedulers
-├── core/            # Domain core: 17 submodules (auth/llm/db/ontology/services/...)
+├── core/            # Domain core: 17 submodules (auth/llm/db/services/...)
 ├── prompts/         # Prompt assembly runtime + file fallback texts
 ├── extensions/       # Bundled extensions
 │   ├── skills/       # default / marketplace
@@ -90,8 +90,6 @@ Content domain: `artifact_service` (artifacts / MySpace resources), `kb_service`
 User domain: `user_service`, `local_user_service` (register / login / password change), `api_key_service` (personal API keys), `user_folder_service`, `project_service` + `project_file_service` + `project_scope` (project workspaces).
 
 Config domain: `model_config` (DB-backed model config, cached), `system_config` (service config), `mcp_service` (MCP server config), `log_service` (async observability log writer).
-
-Ontology domain: `ontology_service` (user setting, versions, and runtime cropping) and `ontology_evolution_service` (evidence prefiltering, sanitization, human-review drafts, and inactive-version materialization); `core/ontology/` contains the four-layer schema, build gate, deterministic runtime gate, tool filter, and prompt renderer.
 
 Enterprise Edition (EE): `team_service` / `team_folder_service` / `sso_sync` (teams and SSO sync), `distillation_service` (skill distillation), `sandbox_rebuild_service` + `cube_template_builder` (persistent-sandbox template rebuilds), `security_service` (read-only security-console aggregation).
 
@@ -188,7 +186,7 @@ CE routes live under `api/routes/v1/`; physically split commercial routes live u
 |---|---|
 | Chat and streaming | `chats.py` (the SSE streaming entry point), `chat_runs.py`, `chat_shares.py`, `summary.py`, `classify.py`, `memories.py` |
 | Content and files | `content.py`, `file_upload.py`, `file_parse.py`, `artifacts.py`, `myspace_folders.py`, `kb.py` (+ `kb_models.py`, Pydantic models only), `projects.py` |
-| Capabilities and config | `catalog.py`, `models.py`, `config.py`, `marketplace.py`, `me_capabilities.py` (self-service capability center), `ontologies.py` (user setting, version governance, evidence loop), `agents.py`, `plans.py`, `automations.py`, `meta.py` (edition / feature probe, unauthenticated) |
+| Capabilities and config | `catalog.py`, `models.py`, `config.py`, `marketplace.py`, `me_capabilities.py` (self-service capability center), `agents.py`, `plans.py`, `automations.py`, `meta.py` (edition / feature probe, unauthenticated) |
 | Users and auth | `users.py`, `me.py`, `api_keys.py`, `mock_sso.py` (dev) |
 | Content console (Enterprise Edition, EE; backend of `/admin`) | `admin_skills.py`, `admin_prompts.py`, `admin_kb.py`, `admin_agents.py`, `admin_mcp_servers.py`, `admin_marketplace.py`, `admin_skill_drafts.py`, `admin_sandbox.py`, `admin_logs.py`, `admin_usage_logs.py`, `admin_billing.py`, `admin_chat_history.py` |
 | System console (Enterprise Edition, EE; backend of `/config`) | `config_users.py`, `config_teams.py`, `config_invites.py`, `config_security.py`, `config_verify.py`, `config_license.py`, `service_configs.py` |

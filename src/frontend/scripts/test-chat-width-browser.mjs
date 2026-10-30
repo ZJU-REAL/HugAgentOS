@@ -73,8 +73,7 @@ createRoot(document.getElementById('root')).render(<Fixture />);
   jsx: 'automatic',
   define: { 'import.meta.env': '{}' },
   loader: { '.svg': 'dataurl', '.png': 'dataurl', '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl' },
-  external: ['/loader.gif', '/loader-done.png'],
-});
+  });
 const browser = await chromium.launch({
   headless: true,
   ...(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {}),
@@ -133,6 +132,8 @@ try {
   async function check(label) {
     await page.waitForFunction(() => {
       const nav = document.querySelector('.jx-conversationNav');
+      // Phones drop the jump rail so the message column can use the full width.
+      if (window.innerWidth <= 960) return !nav || getComputedStyle(nav).display === 'none';
       const viewport = document.querySelector('.jx-chatViewport').getBoundingClientRect();
       return nav && Math.abs(nav.getBoundingClientRect().right - (viewport.right - 8)) < 2;
     });

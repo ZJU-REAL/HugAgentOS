@@ -5,6 +5,15 @@ import {externalErrorMessage} from './externalApi';
 import {reloadDirectory, useApplicationDirectory} from './catalog';
 import {ExternalEmbedFrame} from './ExternalEmbedFrame';
 import {validateEmbedLaunch, type ExternalEmbedLaunch} from './externalEmbed';
+import {HostButton, HostNotice} from './ui';
+
+function Failure({message, onRetry}: {message:string; onRetry?:() => void}) {
+  return <HostNotice tone="error" placement="page"
+    actions={onRetry && <HostButton tone="primary" onClick={onRetry}>{t('重试')}</HostButton>}>{message}</HostNotice>;
+}
+function Loading({children}: {children:string}) {
+  return <HostNotice tone="loading" placement="page">{children}</HostNotice>;
+}
 
 function EmbedLaunchLoader({applicationKey, onRetry}: {
   applicationKey:string; onRetry:() => void;
@@ -24,8 +33,8 @@ function EmbedLaunchLoader({applicationKey, onRetry}: {
     }).catch(e => {if (!controller.signal.aborted) setError(externalErrorMessage(e));});
     return () => controller.abort();
   }, [applicationKey]);
-  if (error) return <p role="alert">{t(error)} <button onClick={onRetry}>{t('重试')}</button></p>;
-  if (!launch) return <p role="status">{t('正在加载外部页面…')}</p>;
+  if (error) return <Failure message={t(error)} onRetry={onRetry}/>;
+  if (!launch) return <Loading>{t('正在加载外部页面…')}</Loading>;
   return <ExternalEmbedFrame launch={launch} onRetry={onRetry}/>;
 }
 
@@ -37,9 +46,9 @@ export function EmbeddedExternalApplication({applicationKey}: {applicationKey:st
   const [retry, setRetry] = useState(0);
   const item = catalog.items.find(i => i.applicationKey === applicationKey);
   function again() {reloadDirectory(); setRetry(n => n + 1);}
-  if (catalog.error) return <p role="alert">{t(catalog.error)} <button onClick={again}>{t('重试')}</button></p>;
-  if (catalog.loading && !item) return <p role="status">{t('正在加载应用目录…')}</p>;
-  if (!item?.availability.available) return <p role="alert">{t('应用不存在或你没有访问权限')}</p>;
+  if (catalog.error) return <Failure message={t(catalog.error)} onRetry={again}/>;
+  if (catalog.loading && !item) return <Loading>{t('正在加载应用目录…')}</Loading>;
+  if (!item?.availability.available) return <Failure message={t('应用不存在或你没有访问权限')}/>;
   return <EmbedLaunchLoader key={JSON.stringify([catalog.userId, applicationKey, item.revision, retry])}
     applicationKey={applicationKey} onRetry={again}/>;
 }

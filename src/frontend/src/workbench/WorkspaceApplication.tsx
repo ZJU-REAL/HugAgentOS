@@ -7,6 +7,11 @@ import { t } from '../i18n';
 import { reloadDirectory, useApplicationDirectory, type CatalogItem } from './catalog';
 import {DiagnosticFailure} from './DiagnosticFailure';
 import { applicationRoute } from './workspaceNavigation';
+import { HostNotice } from './ui';
+
+function Loading() {
+  return <HostNotice tone="loading" placement="page">{t('正在加载应用目录…')}</HostNotice>;
+}
 
 function unavailable(item: CatalogItem) {
   const reason = item.availability.reason;
@@ -22,7 +27,7 @@ export function WorkspaceApplication() {
   const item = catalog.items.find(value => value.applicationKey === route?.applicationKey);
   if (!route) return <DiagnosticFailure message={t('应用地址无效')} onRetry={()=>void reloadDirectory()}/>;
   if (catalog.error) return <DiagnosticFailure applicationKey={route.applicationKey} onRetry={()=>void reloadDirectory()}/>;
-  if (catalog.loading && !item) return <p role="status">{t('正在加载应用目录…')}</p>;
+  if (catalog.loading && !item) return <Loading />;
   if (!item) return <MissingApplication key={JSON.stringify([catalog.identity,route.applicationKey])} applicationKey={route.applicationKey} empty={catalog.items.length === 0} />;
   if (!item.availability.available) return <DiagnosticFailure message={unavailable(item)} onRetry={()=>void reloadDirectory()}/>;
   if (item.declaration.target.kind === 'external' && item.declaration.target.mode === 'embedded')
@@ -44,12 +49,12 @@ function MissingApplication({applicationKey, empty}:{applicationKey:string; empt
       });
     return ()=>controller.abort();
   },[applicationKey,attempt]);
-  if(!result.done)return <p role="status">{t('正在加载应用目录…')}</p>;
+  if(!result.done)return <Loading />;
   const retry=()=>{setResult({done:false});setAttempt(value=>value+1);void reloadDirectory();};
   const message=result.failed ? t('应用目录加载失败') :
     result.item && !result.item.availability.available ? unavailable(result.item) : t('应用不存在或你没有访问权限');
-  return <section>
-    {empty && !result.item && <p role="status">{t('暂无可用应用')}</p>}
+  return <>
+    {empty && !result.item && <HostNotice>{t('暂无可用应用')}</HostNotice>}
     <DiagnosticFailure error={result.error} message={message} onRetry={retry}/>
-  </section>;
+  </>;
 }

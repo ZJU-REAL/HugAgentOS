@@ -179,7 +179,7 @@ extensions/mcp_servers/<name>_mcp/
 
    ```json
    {
-     "result": "……业务数据本体……",
+     "result": "……业务数据……",
      "__citations__": [
        {"title": "来源标题", "url": "https://…", "snippet": "关键摘录", "source_type": "internet"},
        {"title": "第二个来源"}
@@ -221,7 +221,7 @@ MCP 工具的执行预算不包含等待用户回答的时间。有效提问会�
 - 工具名命中 Registry 时，Middleware 在副作用和真实分发之前解析调用参数，依次执行
   本机目录 Grant、危险命令策略、MySpace 写确认或通用工具确认；
 - 通过后产生绑定 `tool name + call id + arguments hash + spec key` 的短期票据；最终
-  `OntologyFilteredToolkit.call_tool()` 会再次核验票据，Read/Write/Edit/Bash 的真实
+  工具集分发入口 `call_tool()` 会再次核验票据，Read/Write/Edit/Bash 的真实
   宿主 I/O 边界还会消费票据内的路径或命令约束；
 - 需要确认的受控工具在批处理、子智能体、计划模式、自动化运行或无确认 UI 的渠道运行中
   一律拒绝，不会再以“记录审计后继续执行”降级；

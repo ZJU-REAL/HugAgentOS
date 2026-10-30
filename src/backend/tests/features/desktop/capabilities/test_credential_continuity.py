@@ -3,6 +3,7 @@
 from __future__ import annotations
 from features.desktop.bridge import client as bridge_client
 from features.desktop.bridge import client_state as bridge_client_state
+from features.desktop.bridge import cloud_http
 from features.desktop.bridge import identity as bridge_identity
 from features.desktop.bridge import status as bridge_status
 
@@ -95,7 +96,7 @@ def test_definition_sync_records_a_refused_credential(forced, monkeypatch, kind)
     state = bridge_identity.get_state()
     monkeypatch.setattr(desktop_cloud_bundles, "capabilities_enabled", lambda: True)
     monkeypatch.setattr(
-        httpx,
+        cloud_http,
         "get",
         lambda url, **kw: httpx.Response(
             401, request=httpx.Request("GET", url, headers=kw.get("headers"))
@@ -110,7 +111,7 @@ def test_skill_sync_records_a_refused_credential(forced, monkeypatch):
     state = bridge_identity.get_state()
     monkeypatch.setattr(desktop_cloud_skills, "capabilities_enabled", lambda: True)
     monkeypatch.setattr(
-        httpx,
+        cloud_http,
         "get",
         lambda url, **kw: httpx.Response(
             401, request=httpx.Request("GET", url, headers=kw.get("headers"))
@@ -128,7 +129,7 @@ def test_refusal_of_an_expired_token_is_still_recorded(forced, monkeypatch):
     assert bridge_identity.get_state() is None
     monkeypatch.setattr(desktop_cloud_bundles, "capabilities_enabled", lambda: True)
     monkeypatch.setattr(
-        httpx,
+        cloud_http,
         "get",
         lambda url, **kw: httpx.Response(
             401, request=httpx.Request("GET", url, headers=kw.get("headers"))

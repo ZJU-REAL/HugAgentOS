@@ -48,7 +48,7 @@
 /* ── legacy 思考块 chevron：单图标 rotate 过渡（替代双图标硬切） ── */
 
 .jx-thinkingBlockHeader .jx-expandIcon{
-  /* 与执行卡 / 折叠摘要行的箭头同口径：留位不留形，悬浮或键盘聚焦才淡入 */
+  /* 与执行卡的箭头同口径：留位不留形，悬浮或键盘聚焦才淡入 */
   opacity:0;
   transition:transform var(--motion-duration-fast) var(--motion-ease-brand-out), opacity .15s ease;
 }
