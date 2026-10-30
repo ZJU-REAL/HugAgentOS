@@ -120,10 +120,7 @@ class OpenSandboxProvider(
         self._pool = SandboxPool(
             jupyter_min_idle=0,
             jupyter_max_idle=s.opensandbox_pool_jupyter_max_idle,
-            light_min_idle=s.opensandbox_pool_light_min_idle,
-            light_max_idle=s.opensandbox_pool_light_max_idle,
             jupyter_factory=self._create_jupyter_sandbox,
-            light_factory=self._create_light_sandbox,
             destroy_fn=self._destroy_sandbox,
             liveness_fn=self._probe_pooled_sandbox_alive,
             owner_fn=self._pooled_sandbox_owner,

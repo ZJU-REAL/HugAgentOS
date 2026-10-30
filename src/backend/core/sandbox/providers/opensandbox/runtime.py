@@ -67,11 +67,11 @@ _EXECD_BASH_ENVS: dict[str, str] = {
     "PLAYWRIGHT_BROWSERS_PATH": "/ms-playwright",
 }
 
-# The ephemeral path does not start Jupyter; the injected execd alone provides commands.run.
-# Startup drops from ~10s to ~3s.
+# Entrypoint for sandboxes without a user: no Jupyter, the injected execd alone
+# provides commands.run.
 # PID 1 is sandbox-init (docker/sandbox/sandbox-init.c): it reaps every orphan and kills
 # what user commands, which run as SANDBOX_RUN_UID, leave behind.
-_LIGHT_ENTRYPOINT = ["sandbox-init", str(SANDBOX_RUN_UID)]
+_INIT_ENTRYPOINT = ["sandbox-init", str(SANDBOX_RUN_UID)]
 
 # 用户绑定沙箱的 entrypoint：容器启动时就建好目录约定（scratch + /myspace 软链），
 # 首条命令不必再为此花一次 execd 往返（实测固定 ~1s，而这段 shell 只要 2ms）。uid 走

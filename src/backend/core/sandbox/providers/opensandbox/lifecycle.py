@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import shlex
 import time
 from datetime import timedelta
 from typing import Optional
@@ -16,6 +17,74 @@ from core.sandbox.providers.opensandbox.models import SandboxSessionRecord as _S
 # (models.py also imports core.db.engine).
 from core.sandbox.providers.opensandbox.runtime import logger
 from core.sandbox.workspace.identity import SANDBOX_RUN_GID, SANDBOX_RUN_UID
+
+
+# 复用前把上一个会话能留下的东西全部清掉。沙箱用户（SANDBOX_RUN_UID，无 sudo）能写的
+# 地方只有 /workspace、HOME、/tmp、/var/tmp、/dev/shm；另外 execd 以 root 在 /tmp 留下的
+# 命令输出文件对沙箱用户可读，也一并删。挂载点（网盘、团队空间、技能、账号凭据）一律
+# 不进：HOME 底下也挂着 .dws、.local/share/lark-cli、yida-workspace，按名单保留迟早漏，
+# 所以按 /proc/self/mountinfo 判定，只清挂载点之外的内容。以 root 运行；任何一步失败
+# 都以非零退出，调用方据此放弃复用。
+_RESET_SCRIPT = r"""
+import os, re, shutil, signal, stat, sys, time
+
+uid, gid = int(sys.argv[1]), int(sys.argv[2])
+keep_top = set(sys.argv[3:])
+home = "/home/ubuntu"
+started = time.time()
+mounts = {line.split()[4].encode().decode("unicode_escape") for line in open("/proc/self/mountinfo")}
+execd_output = re.compile(r"[0-9a-f]{32}\.(output|stdout|stderr)$")
+
+for pid in filter(str.isdigit, os.listdir("/proc")):
+    try:
+        with open(f"/proc/{pid}/status") as f:
+            real_uid = next(int(l.split()[1]) for l in f if l.startswith("Uid:"))
+        if real_uid == uid:
+            os.kill(int(pid), signal.SIGKILL)
+    except (OSError, StopIteration):
+        pass
+
+def clear(root, skip=lambda path, info: False):
+    for name in os.listdir(root):
+        path = os.path.join(root, name)
+        info = os.lstat(path)
+        if path in mounts or skip(path, info):
+            continue
+        if stat.S_ISDIR(info.st_mode):
+            if any(m.startswith(path + "/") for m in mounts):
+                clear(path, skip)
+            else:
+                shutil.rmtree(path)
+        else:
+            os.unlink(path)
+
+clear("/workspace", lambda path, info: os.path.dirname(path) == "/workspace"
+      and os.path.basename(path) in keep_top)
+os.makedirs("/workspace/scratch", exist_ok=True)
+os.chown("/workspace/scratch", uid, gid)
+
+def system_tmp(path, info):
+    # 保留镜像自带的 root 文件；execd 的命令输出要删，但跳过本条命令刚建的那份。
+    if info.st_uid != 0:
+        return False
+    return not execd_output.search(path) or info.st_mtime > started - 10
+
+for root in ("/tmp", "/var/tmp", "/dev/shm"):
+    if os.path.isdir(root):
+        clear(root, system_tmp)
+
+clear(home)
+for name in os.listdir("/etc/skel"):
+    target = os.path.join(home, name)
+    if not os.path.lexists(target):
+        shutil.copy2(os.path.join("/etc/skel", name), target)
+        os.lchown(target, uid, gid)
+for name in (".cache", ".config", ".jupyter", ".local", ".npm"):
+    target = os.path.join(home, name)
+    if not os.path.lexists(target):
+        os.mkdir(target)
+        os.chown(target, uid, gid)
+"""
 
 
 from core.sandbox.providers.opensandbox.binding import _OpenSandboxBindingMixin
@@ -200,19 +269,16 @@ class _OpenSandboxLifecycleMixin(_OpenSandboxBindingMixin, _OpenSandboxTrackingM
             raise SandboxError(f"renew failed: HTTP {resp.status_code} {resp.text[:300]}")
 
     async def _wipe_workspace(self, sess: _Session) -> bool:
-        """清空 /workspace，保留当前 provider 声明的挂载点。
+        """把沙箱恢复成新建时的样子再交给下一个会话（见 ``_RESET_SCRIPT``）。
 
-        挂载点必须留下：``myspace`` 是用户网盘、``skills`` 是只读技能目录，删了会破坏挂载。
-        ``scratch`` 删掉后按沙箱运行身份重建，保持镜像里的目录约定不变。
+        清掉沙箱用户残留的进程，以及 /workspace、HOME、/tmp、/var/tmp、/dev/shm 里
+        挂载点之外的全部内容；``scratch`` 和 HOME 骨架按沙箱运行身份重建。
+        ``workspace_mount_names`` 即便没挂上也照样保留。
 
         返回是否擦干净；失败返回 False，调用方据此放弃复用、直接销毁。
         """
-        keep = self.workspace_mount_names
-        conds = " ".join(f"! -name {name}" for name in keep)
-        cmd = (
-            f"find /workspace -mindepth 1 -maxdepth 1 {conds} -exec rm -rf -- {{}} + && "
-            f"install -d -o {SANDBOX_RUN_UID} -g {SANDBOX_RUN_GID} /workspace/scratch"
-        )
+        args = [str(SANDBOX_RUN_UID), str(SANDBOX_RUN_GID), *self.workspace_mount_names]
+        cmd = shlex.join(["/opt/python/current/bin/python3", "-c", _RESET_SCRIPT, *args])
         try:
             from opensandbox.models.execd import RunCommandOpts
 
@@ -223,14 +289,14 @@ class _OpenSandboxLifecycleMixin(_OpenSandboxBindingMixin, _OpenSandboxTrackingM
             exit_code = int(getattr(result, "exit_code", 0) or 0)
         except Exception as exc:  # noqa: BLE001 — 容器可能已经失联
             logger.warning(
-                "[opensandbox] 清空 /workspace 失败 sandbox_id=%s: %r；放弃复用",
+                "[opensandbox] 重置沙箱失败 sandbox_id=%s: %r；放弃复用",
                 getattr(sess.sandbox, "id", "?"),
                 exc,
             )
             return False
         if exit_code != 0:
             logger.warning(
-                "[opensandbox] 清空 /workspace 退出码 %d sandbox_id=%s；放弃复用",
+                "[opensandbox] 重置沙箱退出码 %d sandbox_id=%s；放弃复用",
                 exit_code,
                 getattr(sess.sandbox, "id", "?"),
             )

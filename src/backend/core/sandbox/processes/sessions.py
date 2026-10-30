@@ -160,7 +160,10 @@ class ProcessSessions:
                     entry.error = f"Command execution deadline exceeded ({timeout}s)"
                     entry.exit_code = 124
                     break
-                await asyncio.sleep(getattr(entry.handle, "poll_interval", 0.1))
+                next_delay = getattr(entry.handle, "next_poll_delay", None)
+                await asyncio.sleep(
+                    next_delay() if next_delay else getattr(entry.handle, "poll_interval", 0.1)
+                )
         except asyncio.CancelledError:
             entry.error = "Command session closed"
             entry.exit_code = -1

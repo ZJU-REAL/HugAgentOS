@@ -84,12 +84,6 @@ class SandboxSettings:
     opensandbox_pool_jupyter_max_idle: int = field(
         default_factory=lambda: _int(_env("OPENSANDBOX_POOL_JUPYTER_MAX_IDLE", "3"), 3)
     )
-    opensandbox_pool_light_min_idle: int = field(
-        default_factory=lambda: _int(_env("OPENSANDBOX_POOL_LIGHT_MIN_IDLE", "2"), 2)
-    )
-    opensandbox_pool_light_max_idle: int = field(
-        default_factory=lambda: _int(_env("OPENSANDBOX_POOL_LIGHT_MAX_IDLE", "5"), 5)
-    )
     # Deployment-wide sandbox capacity, enforced by the backend admission ledger
     # (core/sandbox/providers/opensandbox/admission.py) across all workers.
     opensandbox_pool_max_total: int = field(

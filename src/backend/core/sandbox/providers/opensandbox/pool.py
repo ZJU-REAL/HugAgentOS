@@ -1,13 +1,10 @@
 """SandboxPool — OpenSandbox sandbox pre-warm pool.
 
-Dual-bucket design:
-- ``jupyter`` bucket: for persistent sessions; each sandbox includes a Jupyter Server,
-  slow to start (~10s) but supports variable persistence across calls. After ``acquire``
-  it is bound to a chat_id and **never returned to the bucket** — governed by the session
-  lifecycle; on destruction a replacement is created asynchronously in the background.
-- ``light`` bucket: for ephemeral one-shot execution; each sandbox only runs execd
-  (no Jupyter), fast to start (~3s). After ``acquire`` it is used once and destroyed;
-  a replacement is created asynchronously in the background.
+One ``jupyter`` bucket serves persistent sessions that carry no user id. After
+``acquire`` a sandbox is bound to a chat_id and **never returned to the bucket** —
+governed by the session lifecycle; on destruction a replacement is created
+asynchronously in the background. Account sessions use ``_JupyterUserPool``
+instead, because their mounts are fixed per user at container creation.
 
 Proactive pre-warm: right after ``provider.__init__`` completes, ``warmup()`` is called
 fire-and-forget, so ``min_idle`` sandboxes are ready within N seconds of process startup.
@@ -37,7 +34,7 @@ from typing import Any, Awaitable, Callable, Literal
 
 logger = logging.getLogger(__name__)
 
-PoolKind = Literal["jupyter", "light"]
+PoolKind = Literal["jupyter"]
 
 
 class _Bucket:
@@ -62,10 +59,7 @@ class SandboxPool:
         *,
         jupyter_min_idle: int = 1,
         jupyter_max_idle: int = 3,
-        light_min_idle: int = 2,
-        light_max_idle: int = 5,
         jupyter_factory: Callable[[], Awaitable[Any]],
-        light_factory: Callable[[], Awaitable[Any]],
         destroy_fn: Callable[[Any], Awaitable[None]],
         liveness_fn: Callable[[Any], Awaitable[bool]] | None = None,
         owner_fn: Callable[[Any], Awaitable[str | None]] | None = None,
@@ -84,7 +78,6 @@ class SandboxPool:
         """
         self._buckets: dict[PoolKind, _Bucket] = {
             "jupyter": _Bucket(jupyter_min_idle, jupyter_max_idle, jupyter_factory),
-            "light": _Bucket(light_min_idle, light_max_idle, light_factory),
         }
         self._destroy = destroy_fn
         self._liveness = liveness_fn
@@ -94,7 +87,6 @@ class SandboxPool:
         # preventing concurrent _kick_refill calls from entering the deficit check simultaneously and over-creating
         self._refill_locks: dict[PoolKind, asyncio.Lock] = {
             "jupyter": asyncio.Lock(),
-            "light": asyncio.Lock(),
         }
         self._closed = False
         self._refill_tasks: set[asyncio.Task] = set()
@@ -140,7 +132,7 @@ class SandboxPool:
     async def release(self, kind: PoolKind, sbx: Any, *, reuse: bool, destroy: bool = True, can_destroy: Callable[[], bool] | None = None) -> None:
         """Return a sandbox.
 
-        ``reuse=False`` (light-bucket use-once-then-destroy scenario): destroy outright, refill one in the background;
+        ``reuse=False``: destroy outright, refill one in the background;
         ``reuse=True`` (currently unused): put back into the idle bucket for the next acquire; destroy if over max_idle.
         """
         bucket = self._buckets[kind]

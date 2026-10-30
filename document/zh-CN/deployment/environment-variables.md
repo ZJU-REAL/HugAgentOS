@@ -223,7 +223,6 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 | `OPENSANDBOX_REQUEST_TIMEOUT_S` | `120` | 单次 HTTP 调用超时（秒） |
 | `OPENSANDBOX_PORT` | 全量仓库 `8910`；CE 不映射 | 控制器容器内固定 8080 |
 | `OPENSANDBOX_POOL_JUPYTER_MIN_IDLE` / `MAX_IDLE` | `.env.example` 1/3；compose 默认 2/3 | 用户会话池（历史配置名）；CE 最小预热数为 0 |
-| `OPENSANDBOX_POOL_LIGHT_MIN_IDLE` / `MAX_IDLE` | `2` / `5` | 轻量桶（一次性执行） |
 | `OPENSANDBOX_POOL_MAX_TOTAL` | CE: `4`; full: `20` | 部署级沙箱名额（所有 worker、预热、使用中与评测实例），由 backend 共享名额账本执行；仅 backend 读取 |
 | `OPENSANDBOX_CREATE_CONCURRENCY` | `4` | 同时向控制器发起的创建数，保护 Docker daemon |
 | `OPENSANDBOX_ADMISSION_WAIT_S` | `30` | 交互式创建等待空闲名额的上限（秒）；对账后仍满才报“沙箱资源已满” |
