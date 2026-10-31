@@ -8,7 +8,6 @@ import time
 import uuid
 from pathlib import Path
 from urllib.parse import quote
-import httpx
 from fastapi import HTTPException
 from core.db.models import ContentBlock
 from core.capabilities.skills.binary_files import encode_upload
@@ -19,7 +18,8 @@ from features.desktop.capabilities import store
 from core.capabilities.identity_rules import LOCAL_PROFILE, BUILTIN_PROFILE
 from features.desktop.capabilities.paths import assert_managed_path
 from features.desktop.capabilities.change_merge import plan, revision, validate_files, sensitive_paths
-from core.harness.capability_errors import CapabilityError
+from core.harness.capability_errors import CapabilityError, CloudUnavailable
+from features.desktop.bridge import cloud_http
 from features.desktop.capabilities.mcp_json import McpJsonError
 from sqlalchemy.exc import SQLAlchemyError
 from core.infra.crypto import encrypt_secret, decrypt_secret
@@ -60,8 +60,8 @@ def cloud_request(state, method, kind, key, body=None):
         + quote(key, safe="")
     )
     try:
-        response = httpx.request(method, url, headers=cloud_headers(state), json=body, timeout=30)
-    except httpx.HTTPError as exc:
+        response = cloud_http.request(method, url, headers=cloud_headers(state), json=body, timeout=30.0)
+    except CloudUnavailable as exc:
         raise HTTPException(502, detail="云端暂不可用，本地修改已保留") from exc
     require_current_account(state)
     if response.status_code >= 400:

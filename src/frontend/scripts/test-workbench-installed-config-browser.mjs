@@ -62,10 +62,11 @@ try {
  await page.waitForFunction(()=>document.querySelector('input[type=password]').value==='');
  assert.equal(writes.at(-1).values.TOKEN,'new-provider-secret');
  const clear=page.getByRole('checkbox').nth(1);
- page.once('dialog',dialog=>dialog.dismiss());
- await clear.click();assert.equal(await clear.isChecked(),false);
- page.once('dialog',dialog=>dialog.accept());
- await clear.click();assert.equal(await clear.isChecked(),true);
+ const confirmClear=page.getByRole('dialog').filter({hasText:'确认清除配置项'});
+ await clear.click();await confirmClear.getByRole('button',{name:/^取\s?消$/}).click();
+ await confirmClear.waitFor({state:'detached'});assert.equal(await clear.isChecked(),false);
+ await clear.click();await confirmClear.getByRole('button',{name:/^清\s?除$/}).click();
+ await confirmClear.waitFor({state:'detached'});assert.equal(await clear.isChecked(),true);
  await page.getByRole('button',{name:'保存应用配置',exact:true}).click();
  await page.waitForFunction(()=>!document.querySelectorAll('input[type=checkbox]')[1].checked);
  assert.deepEqual(writes.at(-1).clearKeys,['TOKEN']);assert.equal('TOKEN' in writes.at(-1).values,false);

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import os
 from datetime import timedelta
 from shlex import quote as shell_escape
 from typing import Any
@@ -70,6 +71,11 @@ class _OpenSandboxExecMixin:
 
     async def _sync_inputs(self, sess: _Session, req: ProcessRequest) -> None:
         await self._persistent_setup(sess, req)
+        if os.getenv("DEPLOY_PROFILE") == "kubernetes" and not str(req.user_id or "").startswith("api_ak_"):
+            from core.sandbox.providers.opensandbox.skills import stage_skill_view
+            await stage_skill_view(sess.sandbox, req)
+        from core.files.spaces.transport import get_space_transport
+        await get_space_transport().before_use(sess.sandbox, req.user_id)
         await self._sync_inputs_to_sandbox(
             sess.sandbox,
             req,

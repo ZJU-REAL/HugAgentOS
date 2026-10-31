@@ -308,19 +308,23 @@ def test_configure_chat_model_persists_context_window(monkeypatch):
     assert db.closed is True
 
 
-def test_ce_schema_keeps_ontology_control_plane_tables():
+def test_ce_schema_has_no_ontology_tables():
     import core.db.models  # noqa: F401  register all model metadata
     from core.db.engine import Base
+    from core.db.ontology_retirement import ONTOLOGY_TABLES
 
-    ontology_tables = {
-        "ontology_packs",
-        "ontology_pack_versions",
-        "ontology_enforcement_events",
-        "ontology_review_runs",
-        "ontology_drafts",
-    }
+    assert not set(ONTOLOGY_TABLES) & set(Base.metadata.tables)
 
-    assert ontology_tables <= set(Base.metadata.tables)
+
+def test_ce_ontology_runtime_is_always_off():
+    from core.ontology import output_review_state, runtime_pack, runtime_policy
+
+    enabled, runtime = runtime_policy.build_user_ontology_runtime(user_id="u", task="t")
+    assert enabled is False
+    assert runtime == runtime_policy.disabled_ontology_runtime()
+    assert runtime_pack.activate_runtime_for_asset(runtime, kind="skill", asset_id="s") == []
+    assert runtime_pack.render_runtime_prompt(runtime) == ""
+    assert output_review_state.claim_output_review(runtime, owner="o") is False
 
 
 def test_ce_schema_can_create_without_enterprise_foreign_keys(db_session):

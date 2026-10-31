@@ -10,6 +10,7 @@ export function ApplicationButton({entry,onOpen,current,className,expanded = fal
   const activity=useApplicationActivity(entry.key,count);
   const personalStatus=usePersonalAgentStatusText();
   const icon = <ApplicationIcon icon={entry.icon} builtinIcon={entry.builtinIcon} />;
+  // raw-ok: rail icon button, styled by the sidebar rail (data-rail-application) rather than a form control.
   const button = <button type="button" data-rail-application={entry.key} className={className + (current ? ' active' : '')}
     aria-label={[activityAccessibleName(entry.title,activity.count,activity.background),entry.key==='builtin:personal_agent'?personalStatus:''].filter(Boolean).join(' · ')} aria-current={current ? 'page' : undefined} aria-pressed={current}
     disabled={!entry.item.availability.available} onClick={() => onOpen(entry)}>

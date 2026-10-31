@@ -167,7 +167,6 @@ HugAgentOS 不让智能体每次从零开始，也不让它「悄悄学坏」。
 - **逐条审批、可回滚**：记忆与技能的进化建议以卡片形式出现，经你确认才生效，可随时关闭。
 - **Personal Agent 的 Dreaming**：每天定时把日志整理为 `MEMORY.md` / `USER.md` 的更新，
   `DREAMS.md` 记录来源、去重与冲突；只自动提升你明确说「记住」的内容。
-- **可溯的本体进化**：审批、驳回、证据与执行结果留痕，整理为版本化的本体建议，人工审核后生效。
 
 ## 🧰 更多 Harness 能力
 
@@ -179,7 +178,6 @@ HugAgentOS 不让智能体每次从零开始，也不让它「悄悄学坏」。
 | 🔧 **MCP · Skills · 插件** | 内置联网搜索、网页抓取、知识检索、图表、自动化等工具；MCP 市场、私有 MCP、Agent Skills 与插件 |
 | 🧪 **沙箱与产物** | OpenSandbox 或子进程沙箱执行代码，产出图表、报告、Office 文件、网页与数据画布 |
 | 📚 **私有知识库 RAG** | 文档分块，向量与关键词混合检索，可选重排 |
-| 🛡️ **可选的本体控制平面** | 导入 Domain Pack 后，工具执行前做确定性规则检查，高风险答案由独立评审员或委员会复核；关闭时完全不改变原流程 |
 | 🔌 **模型可替换** | 统一的模型服务配置接入云端或本地 OpenAI 兼容模型，评审、规划、记忆等角色可分别指定模型 |
 
 ## 快速开始
@@ -232,7 +230,7 @@ curl -fsSL https://raw.githubusercontent.com/ZJU-REAL/HugAgentOS/main/install.sh
 
 ## 系统架构
 
-HugAgentOS 将用户渠道、智能体工作流、可复用能力引擎、本体契约、数据治理和
+HugAgentOS 将用户渠道、智能体工作流、可复用能力引擎、数据治理和
 基础设施分层组织；Durable Run、租约与恢复机制贯穿执行链路，安全管理与平台监管
 贯穿完整技术栈。
 
@@ -288,7 +286,6 @@ HugAgentOS 将用户渠道、智能体工作流、可复用能力引擎、本体
 | 记忆与自进化 | [记忆系统](./document/zh-CN/modules/memory.md) | [Memory](./document/en/modules/memory.md) |
 | 生产部署与环境变量 | [部署指南](./document/zh-CN/deployment/README.md) | [Deployment](./document/en/deployment/README.md) |
 | 系统设计与请求链路 | [架构总览](./document/zh-CN/architecture/overview.md) | [Architecture](./document/en/architecture/overview.md) |
-| 领域本体控制平面 | [领域本体快速入门](./document/zh-CN/getting-started/domain-ontology-quickstart.md) | [Domain ontology quickstart](./document/en/getting-started/domain-ontology-quickstart.md) |
 | 后端与前端开发 | [开发指南](./document/zh-CN/README.md#开发指南) | [Development](./document/en/README.md#development) |
 
 所有文档入口见 [document/README.md](./document/README.md)。

@@ -61,9 +61,13 @@ def invalidate_catalog_cache() -> None:
 
 
 def _write_catalog(data: Dict[str, Any]) -> None:
-    catalog_common.CATALOG_PATH.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+    from core.capabilities.catalog import persistence
+    if persistence.enabled():
+        persistence.save(data)
+    else:
+        catalog_common.CATALOG_PATH.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
     invalidate_catalog_cache()
 
 
@@ -250,6 +254,9 @@ def _filter_to_static_defaults(data: Dict[str, Any], defaults: Dict[str, Any]) -
 
 def ensure_default_catalog() -> Dict[str, Any]:
     """Create catalog.json with repository defaults if missing; return loaded catalog."""
+    from core.capabilities.catalog import persistence
+    if persistence.enabled():
+        return load_catalog()
     if not catalog_common.CATALOG_PATH.exists():
         cat = _default_catalog()
         catalog_common.CATALOG_PATH.write_text(
@@ -261,32 +268,29 @@ def ensure_default_catalog() -> Dict[str, Any]:
     return load_catalog()
 
 
-def load_catalog(*, include_runtime_details: bool = True) -> Dict[str, Any]:
+def load_catalog(*, include_runtime_details: bool = True, fresh: bool = False) -> Dict[str, Any]:
     """Load catalog.json; if missing or invalid, recreate defaults.
 
     Results are cached in-memory for up to ``_CATALOG_CACHE_TTL`` seconds to
     avoid repeated disk I/O and dynamic source loading on every request.
+    ``fresh`` skips the cached copy (and refreshes it) for callers that must
+    observe the latest administrator choices.
     """
     from core.capabilities.catalog.migration import _migrate_legacy_shape
 
     now = monotonic()
     cached_time = process_state().CATALOG_CACHE_TIME.get(include_runtime_details, 0.0)
-    if include_runtime_details in process_state().CATALOG_CACHE and (now - cached_time) < _CATALOG_CACHE_TTL:
+    if (not fresh and include_runtime_details in process_state().CATALOG_CACHE
+            and (now - cached_time) < _CATALOG_CACHE_TTL):
         return copy.deepcopy(process_state().CATALOG_CACHE[include_runtime_details])
 
-    if not catalog_common.CATALOG_PATH.exists():
-        result = _default_catalog()
-        process_state().CATALOG_CACHE[include_runtime_details] = copy.deepcopy(result)
-        process_state().CATALOG_CACHE_TIME[include_runtime_details] = monotonic()
-        return result
-
-    try:
-        raw = _read_raw_catalog()
-        data = _migrate_legacy_shape(raw)
-    except Exception:
-        # Return defaults on any parse/shape error without mutating repo files.
+    if catalog_common.CATALOG_PATH.exists():
+        try:
+            data = _migrate_legacy_shape(_read_raw_catalog())
+        except (OSError, ValueError, TypeError):
+            data = _default_catalog()
+    else:
         data = _default_catalog()
-        return data
 
     # Ensure required top-level keys exist and keep arrays.
     defaults = _default_catalog()
@@ -300,6 +304,9 @@ def load_catalog(*, include_runtime_details: bool = True) -> Dict[str, Any]:
     # Do not persist static detail fields for skills/mcp.  This cleanup is kept
     # in-memory here; explicit admin operations remain the only catalog writers.
     _strip_static_detail_fields(data)
+    from core.capabilities.catalog import persistence
+    if persistence.enabled():
+        persistence.apply(data)
 
     if include_runtime_details:
         from core.capabilities.catalog.details import _attach_runtime_details

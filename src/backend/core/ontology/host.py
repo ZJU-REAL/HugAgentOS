@@ -1,13 +1,20 @@
-"""Install ontology governance at the application composition boundary."""
+"""Register pass-through capability build governance."""
+
+from core.ontology.build_validator import BuildValidationReport
+
+
+def _no_import_policy(*_args, **_kwargs):
+    from core.ontology.policy import PluginImportOntologyValidationPolicy
+
+    return PluginImportOntologyValidationPolicy(user_enabled=False, forced=False)
+
 
 def register():
     from core.harness.registry.build_governance import register_build_governance
-    from core.ontology.build_validator import ensure_ontology_build_valid, OntologyBuildValidator
-    from core.ontology.service import OntologyService
-    from core.ontology.policy import resolve_plugin_import_ontology_validation
+
     register_build_governance(
-        ensure=ensure_ontology_build_valid,
-        validate=lambda db, **kwargs: OntologyBuildValidator(db).validate(**kwargs),
-        tag_options=lambda db, asset_type: OntologyService(db).list_asset_tag_options(asset_type),
-        import_policy=resolve_plugin_import_ontology_validation,
+        ensure=lambda *_args, **_kwargs: BuildValidationReport(valid=True),
+        validate=lambda _db, **_kwargs: BuildValidationReport(valid=True),
+        tag_options=lambda _db, _asset_type: [],
+        import_policy=_no_import_policy,
     )

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Dropdown, Empty, Input, Modal } from 'antd';
-import { ArrowLeftOutlined, DownOutlined, FolderAddOutlined, ReloadOutlined, SafetyOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, DownOutlined, FolderAddOutlined, FolderOpenOutlined, PlusOutlined, ReloadOutlined, SafetyOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons';
 import { SidebarToggleIcon } from './SidebarToggleIcon';
 import type { PersonalFolderNode, ResourceItem } from '../../types';
 import { t } from '../../i18n';
@@ -11,8 +11,10 @@ import { MySpaceSkeleton } from './MySpaceSkeleton';
 import { SpacePermissions } from './SpacePermissions';
 import { useSpaceCanvas } from './useSpaceCanvas';
 import { useDelayedFlag } from '../../hooks';
+import { useIsMobileViewport } from '../../hooks/useIsMobileViewport';
 import { SpaceDirectoryTree } from './SpaceDirectoryTree';
 import { useSpaceDirectory } from './useSpaceDirectory';
+import { useMySpaceStore } from '../../stores/mySpaceStore';
 import { createSpaceDirectory, deleteSpaceEntry, downloadSpaceFile, renameSpaceFile, uploadSpaceFile, type SpaceEntry } from './spaceFilesApi';
 
 const joinPath = (parent: string, name: string) => parent ? parent + '/' + name : name;
@@ -21,6 +23,14 @@ const imageName = /\.(png|jpe?g|gif|webp|bmp|svg|avif|ico)$/i;
 export function SpaceFileBrowser({ kind }: { kind: 'personal' | 'team' }) {
   const [query, setQuery] = useState('');
   const s = useSpaceDirectory(kind, query);
+  // Another view (the run monitor) asked for a folder: open it once its space is listed.
+  const pendingFolder = useMySpaceStore((state) => state.pendingFolder);
+  const { open: openFolder, roots: spaceRoots } = s;
+  useEffect(() => {
+    if (!pendingFolder || !spaceRoots.some((item) => item.space_id === pendingFolder.space)) return;
+    openFolder(pendingFolder.space, pendingFolder.path);
+    useMySpaceStore.getState().clearPendingFolder();
+  }, [pendingFolder, spaceRoots, openFolder]);
   const { roots, selected, path, setPath, page, loading, initializing, busy, error, root,
     writable, reload, perform, loadMore, dialog, setDialog, name, setName, permissions, setPermissions } = s;
   const [filter, setFilter] = useState<'document' | 'image'>('document');
@@ -34,6 +44,8 @@ export function SpaceFileBrowser({ kind }: { kind: 'personal' | 'team' }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [pagedAt, setPagedAt] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
+  // 手机上「新建文件夹 / 上传」收进一个圆形「+」菜单，像 iOS 导航栏的添加按钮，不再并排两个大按钮。
+  const isMobile = useIsMobileViewport();
   useEffect(() => {
     if (!drawerOpen) return;
     const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setDrawerOpen(false); };
@@ -154,8 +166,18 @@ export function SpaceFileBrowser({ kind }: { kind: 'personal' | 'team' }) {
     <div className="jx-mySpace-assetBar">
       <AssetTypeSwitch value={filter} onChange={setFilter} />
       <div className="jx-mySpace-filterTools">
-        {kind === 'personal' && path && <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => setPath(parts.slice(0, -1).join('/'))}>{t('返回上级')}</Button>}
-        {kind === 'personal' && writable && <>
+        {kind === 'personal' && path && <Button type="text" className="jx-mySpace-backBtn" icon={<ArrowLeftOutlined />} onClick={() => setPath(parts.slice(0, -1).join('/'))}>{t('返回上级')}</Button>}
+        {kind === 'personal' && writable && isMobile && <Dropdown trigger={['click']} placement="bottomRight" overlayClassName="jx-mySpace-addMenu" menu={{ items: [
+          { key: 'directory', icon: <FolderAddOutlined />, label: t('新建文件夹'), disabled: busy, onClick: () => { setName(''); setDialog('directory'); } },
+          { key: 'file', icon: <UploadOutlined />, label: t(filter === 'image' ? '上传图片' : '上传文件'), disabled: busy, onClick: () => fileInput.current?.click() },
+          { key: 'folder', icon: <FolderOpenOutlined />, label: t('上传文件夹'), disabled: busy, onClick: () => folderInput.current?.click() },
+        ] }}>
+          <Button type="primary" className="jx-mySpace-addBtn" aria-label={t('新建或上传')} loading={busy && !progress}
+            icon={progress ? undefined : <PlusOutlined />}>
+            {progress ? `${progress.done}/${progress.total}` : null}
+          </Button>
+        </Dropdown>}
+        {kind === 'personal' && writable && !isMobile && <>
           <Button icon={<FolderAddOutlined />} disabled={busy} onClick={() => { setName(''); setDialog('directory'); }}>{t('新建文件夹')}</Button>
           <Dropdown trigger={['click']} menu={{ items: [
             { key: 'file', label: t('上传文件'), onClick: () => fileInput.current?.click() },
@@ -166,7 +188,7 @@ export function SpaceFileBrowser({ kind }: { kind: 'personal' | 'team' }) {
             </Button>
           </Dropdown>
         </>}
-        {kind === 'personal' && <Button type="text" aria-label={t('刷新')} icon={<ReloadOutlined />} disabled={busy} onClick={reload} />}
+        {kind === 'personal' && <Button type="text" className="jx-mySpace-refreshBtn" aria-label={t('刷新')} icon={<ReloadOutlined />} disabled={busy} onClick={reload} />}
         <Input className="jx-mySpace-search" placeholder={t('搜索')} prefix={<SearchOutlined />} value={query} allowClear onChange={event => setQuery(event.target.value)} />
       </div>
     </div>

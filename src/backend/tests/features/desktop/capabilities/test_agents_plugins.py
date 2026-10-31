@@ -267,7 +267,7 @@ def test_sync_prepares_definitions_and_plugin_readiness(device, monkeypatch):
             }
         },
     )
-    monkeypatch.setattr("httpx.get", fake.get)
+    monkeypatch.setattr("features.desktop.bridge.cloud_http.get", fake.get)
     bundles.sync_blocking(STATE)
 
     inst = registry.get(registry.install_id(KIND_AGENT, PROFILE, "ua_cloud"))
@@ -310,7 +310,7 @@ def test_sync_prepares_definitions_and_plugin_readiness(device, monkeypatch):
 
     # 清单里消失 → 撤销授权；保留历史引用所需的不可变内容
     empty = _Cloud(agents={}, plugins={})
-    monkeypatch.setattr("httpx.get", empty.get)
+    monkeypatch.setattr("features.desktop.bridge.cloud_http.get", empty.get)
     bundles.reset_for_tests()
     bundles.sync_blocking(STATE)
     assert registry.list_installations(kind=KIND_AGENT, profile_id=PROFILE) == []
@@ -323,7 +323,7 @@ def test_tampered_definition_is_rejected(device, monkeypatch):
     fake.bundles[("agents", "ua_cloud")] = _zip(
         "ua_cloud", {"agent.json": "{}", "instructions.md": "假"}
     )
-    monkeypatch.setattr("httpx.get", fake.get)
+    monkeypatch.setattr("features.desktop.bridge.cloud_http.get", fake.get)
     bundles.sync_blocking(STATE)
     inst = registry.get(registry.install_id(KIND_AGENT, PROFILE, "ua_cloud"))
     assert inst.state == "failed" and "hash" in (inst.last_error or "")
@@ -332,7 +332,7 @@ def test_tampered_definition_is_rejected(device, monkeypatch):
 
 def test_visible_list_merges_and_resolves_names(device, monkeypatch):
     fake = _Cloud(agents={"ua_cloud": (_agent_def("写手"), "云端")}, plugins={})
-    monkeypatch.setattr("httpx.get", fake.get)
+    monkeypatch.setattr("features.desktop.bridge.cloud_http.get", fake.get)
     bundles.sync_blocking(STATE)
     local_rows = [
         {**_agent_def("本地助手", agent_id="ua_local"), "system_prompt": "本地", "user_id": "u"},

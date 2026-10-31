@@ -131,3 +131,27 @@
     display: none;
   }
 }
+
+/* 窄容器下工具区原本一项一行（新建文件夹 / 上传 / 刷新 / 搜索各占整行），
+   第一份文件被推到约 400px 以下。改为两行：操作按钮一行，搜索一行。 */
+@container myspace (max-width: 560px) {
+  .jx-mySpace-filterTools {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .jx-mySpace-filterTools > .ant-btn,
+  .jx-mySpace-filterTools > .ant-dropdown-trigger {
+    min-height: 40px;
+  }
+
+  .jx-mySpace-filterTools > .ant-dropdown-trigger {
+    flex: 1 1 auto;
+  }
+
+  .jx-mySpace-search.ant-input-affix-wrapper {
+    flex: 1 1 100%;
+  }
+}

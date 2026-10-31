@@ -20,8 +20,7 @@ core/db/
 │   ├── logs.py          # Tool/sub-agent/skill call logs, audit
 │   ├── memory.py        # Profile memory, memory audit, sanitizer rules
 │   ├── datasource.py    # Data sources, metadata governance, golden SQL
-│   ├── site.py          # Sites, connectors, and channel configuration
-│   └── ontology.py      # Domain Pack versions, gates, committees, evolution drafts
+│   └── site.py          # Sites, connectors, and channel configuration
 ├── repository/          # Repository layer: agent/artifact/audit/catalog/chat/kb/team/user
 ├── model_repository.py  # Repository for model providers / role assignments
 └── edition_tables.py    # Single source of truth for the CE/EE table boundary
@@ -135,16 +134,6 @@ Tables marked "(Enterprise Edition, EE)" belong to the `EE_ONLY_TABLES` set and 
 | `skill_call_logs` | Skill triggers (view / run_script / auto_load) |
 | `audit_logs` (Enterprise Edition, EE) | User-facing audit of critical operations |
 
-### Domain ontology (models/ontology.py)
-
-| Table | Purpose |
-|---|---|
-| `ontology_packs` | Domain Pack identity, enable/default flags, and active-version pointer |
-| `ontology_pack_versions` | Immutable four-layer ontology content and validation report |
-| `ontology_enforcement_events` | Append-only evidence from build, tool, and output gates |
-| `ontology_review_runs` | Checkpoint/committee verdicts, evidence, and latency |
-| `ontology_drafts` | Human-reviewed evolution candidates and their materialized-version pointer |
-
 ## Alembic Migrations
 
 - **EE main chain**: 93 migrations under `src/backend/alembic/versions/`, evolving from the initial schema (including structural moves such as MCP-to-streamable-http and the retirement of the office MCPs in favor of skills). Common commands: `alembic upgrade head`, `make migrate-new msg="..."` (autogenerate is driven by `core/db/models` metadata);
@@ -178,7 +167,6 @@ A few tables that *look* EE but are required by CE are deliberately excluded fro
 | Topic | Path |
 |---|---|
 | Shared ORM / EE ORM | `src/backend/core/db/models/`, `src/backend/edition_ee/db/models/` |
-| Ontology repository | `src/backend/core/db/repository/ontology.py` |
 | Feedback model / repository | `src/backend/edition_ee/db/models/feedback.py`, `edition_ee/db/repository/feedback.py` |
 | Engine and startup table creation | `src/backend/core/db/engine.py` |
 | Repository layer | `src/backend/core/db/repository/` |

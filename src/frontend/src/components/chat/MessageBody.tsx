@@ -1,13 +1,9 @@
-import React, { useCallback, type ReactNode } from 'react';
+import { useCallback, type ReactNode } from 'react';
 import { BulbOutlined, BulbFilled, DownOutlined, CheckCircleFilled } from '@ant-design/icons';
 import { useConversationCitations } from '../../hooks/useConversationCitations';
 import { groupExecutionRuns } from '../../utils/executionRuns';
 import { isForkedHistory } from '../../utils/forkHistory';
 import { ToolRunShell } from '../tool/ToolRunShell';
-import { ToolProgressInline } from '../tool/ToolProgressInline';
-import { anyToolRunning } from '../tool/renderers/utils';
-import { ThinkingInline } from './ThinkingInline';
-import { StreamWaitIndicator } from './StreamWaitIndicator';
 import { TurnStatusIndicator } from './TurnStatusIndicator';
 import { AgentCursor } from './AgentCursor';
 import type { AgentMarkState } from '../common/AgentMark';
@@ -16,7 +12,7 @@ import { PlanCard } from './PlanCard';
 import { MessageInheritedPlan } from './MessageInheritedPlan';
 import { UserMarkdownBlock } from './UserMarkdownBlock';
 import { CitationMarkdownBlock } from '../citation';
-import { useChatStore, useUIStore } from '../../stores';
+import { useChatStore } from '../../stores';
 import { updatePlanApi } from '../../api';
 import { quoteSourceLabel } from '../../utils/quotedFollowUp';
 import { markPlanDecision } from '../../hooks/usePlanMode';
@@ -27,18 +23,15 @@ import type { ChatMessage } from '../../types';
 import { t } from '../../i18n';
 interface MessageBodyProps {
   m: ChatMessage;
-  showProcess?: boolean;
   messageIndex: number;
   currentChatId: string;
   send: (text?: string) => void;
 }
-export function MessageBody({ m, messageIndex, currentChatId, send, showProcess }: MessageBodyProps) {
+export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBodyProps) {
   const handleCitationAction = useMessageCitation(m);
   const expandedThinking = useChatStore((s) => s.expandedThinking);
   const toggleThinking = useChatStore((s) => s.toggleThinking);
   const chatMode = useChatStore((s) => s.chatMode);
-  const processPreference = useUIStore((s) => s.dispatchProcessVisible);
-  const dispatchProcessVisible = showProcess ?? processPreference;
   const conversationCitations = useConversationCitations(currentChatId, m, messageIndex);
   // 视觉桥正在读图（模型还没开口）→ 轮级状态换成「图像理解中」，别让这几秒看起来
   // 像模型在发呆。识图结束由 chatStream 清空。
@@ -88,11 +81,11 @@ export function MessageBody({ m, messageIndex, currentChatId, send, showProcess 
   const settledTools = (m.toolCalls || []).filter((tool) => tool.status && tool.status !== 'running').length;
   const activity = useActivityAge(
     `${stallSignature}|${settledTools}`,
-    !!m.isStreaming && dispatchProcessVisible,
+    !!m.isStreaming,
     ACTIVITY_THRESHOLDS,
   );
 
-  /** Render a settled thinking block. Live thinking is rendered by ThinkingInline. */
+  /** Render a settled thinking block (legacy, non-segmented messages). */
   const renderThinkingBlock = (content: string, thinkKey: string) => {
     const isExpanded = expandedThinking.has(thinkKey);
     const toggleThink = () => toggleThinking(thinkKey);
@@ -150,25 +143,21 @@ export function MessageBody({ m, messageIndex, currentChatId, send, showProcess 
               // A run is a maximal contiguous sequence of {thinking, tool,
               // empty-text} segments. Non-empty text breaks the run. Pure
               // empty-text only chunks are absorbed but never anchor a run.
-              //
-              // OFF mode (dispatchProcessVisible=false) keeps the existing
-              // ToolProgressInline for tool batches; the unified shell takes over in ON mode.
               const segs = m.segments!;
-              const { runs, suppressedIdx } = groupExecutionRuns(m, dispatchProcessVisible);
+              const { runs, suppressedIdx } = groupExecutionRuns(m);
 
-              // ON mode gives every moment of a live reply one owner: the tool run
+              // Every moment of a live reply has one owner: the tool run
               // still in flight, or a tail row under the text. The reply's single
               // agent mark parks on that owner, so a pause never reads as a hang —
               // except a run with tools, whose lit tool icons already say what is
               // happening; the mark steps away and comes back on the next owner.
-              const liveTurn = !!m.isStreaming && dispatchProcessVisible;
+              const liveTurn = !!m.isStreaming;
               const lastRun = runs[runs.length - 1];
               const tailRun = liveTurn && lastRun
                 && !segs.slice(lastRun.endIdx + 1).some(s => !(s.type === 'text' && !(s.content || '').trim()))
                 ? lastRun : null;
-              // A reasoning block outside a run is already on screen (OFF mode only).
               const hasVisibleProgress = runs.length > 0 || segs.some(
-                s => (s.type === 'text' || s.type === 'thinking') && (s.content || '').trim().length > 0,
+                s => s.type === 'text' && (s.content || '').trim().length > 0,
               );
               const tailSlot = `${m.uid}-tail`;
               let tail: { label: string; startTs: number; clockAfterMs?: number } | null = null;
@@ -207,23 +196,17 @@ export function MessageBody({ m, messageIndex, currentChatId, send, showProcess 
 
                 if (runByAnchor.has(segIdx)) {
                   const run = runByAnchor.get(segIdx)!;
-                  if (dispatchProcessVisible || run.steps.some(step => step.kind === 'compaction')) {
-                    return (
-                      <ToolRunShell
-                        key={segKey}
-                        steps={run.steps}
-                        isStreaming={m.isStreaming}
-                        isTail={liveTurn ? run === tailRun : undefined}
-                        idleMs={run === tailRun ? activity.idleMs : undefined}
-                        agentSlotKey={agent?.slot === segKey ? segKey : undefined}
-                        takeOverFrom={run === takeOver ? (turnStatusLabel ?? t('正在处理…')) : undefined}
-                      />
-                    );
-                  }
-                  if (run.tools.length > 0) {
-                    return <ToolProgressInline key={segKey} message={m} toolCalls={run.tools} />;
-                  }
-                  return null;
+                  return (
+                    <ToolRunShell
+                      key={segKey}
+                      steps={run.steps}
+                      isStreaming={m.isStreaming}
+                      isTail={liveTurn ? run === tailRun : undefined}
+                      idleMs={run === tailRun ? activity.idleMs : undefined}
+                      agentSlotKey={agent?.slot === segKey ? segKey : undefined}
+                      takeOverFrom={run === takeOver ? (turnStatusLabel ?? t('正在处理…')) : undefined}
+                    />
+                  );
                 }
 
                 if (suppressedIdx.has(segIdx)) return null;
@@ -294,44 +277,24 @@ export function MessageBody({ m, messageIndex, currentChatId, send, showProcess 
                   );
                 }
 
-                if (seg.type === 'thinking') {
-                  // OFF mode: thinking that wasn't folded into a tool run still
-                  // renders as its inline summary.
-                  const isActiveThinking = !!(m.isStreaming && !m.segments!.slice(segIdx + 1).some(s => s.type === 'text'));
-                  return <ThinkingInline key={segKey} content={seg.content || ''} isActive={isActiveThinking} />;
-                }
-
                 if (seg.type === 'text') {
                   const textContent = seg.content || '';
                   if (!textContent && (!m.isStreaming || !isLastSeg)) return null;
                   const effectiveCitations = conversationCitations;
-                  // OFF mode keeps the inline StreamWaitIndicator under the
-                  // text bubble; ON mode handles waits inside the shell so
-                  // we suppress the indicator entirely.
-                  const showInlineWait = !dispatchProcessVisible && m.isStreaming && isLastSeg;
                   return (
-                    <React.Fragment key={segKey}>
-                      <div className={`jx-bubble ${m.role === 'user' ? 'user' : ''} jx-md ${m.isStreaming && isLastSeg ? 'streaming' : ''}`}>
-                        {segIdx === 0 && renderUserQuote()}
-                        {segIdx === 0 && renderChipBadges()}
-                        {m.role === 'user' ? <UserMarkdownBlock className="jx-msgText" text={textContent} /> : <CitationMarkdownBlock
-                          className="jx-msgText"
-                          text={textContent}
-                          isMarkdown
-                          citations={effectiveCitations}
-                          messageIsStreaming={m.isStreaming}
-                          streamingSnapshot={m.inFlight?.textSnapshotOffset}
-                          onCitationAction={handleCitationAction}
-                        />}
-                      </div>
-                      {showInlineWait && (
-                        <StreamWaitIndicator
-                          signature={stallSignature}
-                          suppressed={anyToolRunning(m.toolCalls || [])}
-                          anchorTs={m.lastActivityTs}
-                        />
-                      )}
-                    </React.Fragment>
+                    <div key={segKey} className={`jx-bubble ${m.role === 'user' ? 'user' : ''} jx-md ${m.isStreaming && isLastSeg ? 'streaming' : ''}`}>
+                      {segIdx === 0 && renderUserQuote()}
+                      {segIdx === 0 && renderChipBadges()}
+                      {m.role === 'user' ? <UserMarkdownBlock className="jx-msgText" text={textContent} /> : <CitationMarkdownBlock
+                        className="jx-msgText"
+                        text={textContent}
+                        isMarkdown
+                        citations={effectiveCitations}
+                        messageIsStreaming={m.isStreaming}
+                        streamingSnapshot={m.inFlight?.textSnapshotOffset}
+                        onCitationAction={handleCitationAction}
+                      />}
+                    </div>
                   );
                 }
                 return null;
@@ -360,7 +323,7 @@ export function MessageBody({ m, messageIndex, currentChatId, send, showProcess 
         ) : (
           /* Legacy rendering path */
           <>
-            {m.toolCalls && m.toolCalls.length > 0 && dispatchProcessVisible && (
+            {m.toolCalls && m.toolCalls.length > 0 && (
               <div className="jx-toolCallsList">
                 <ToolRunShell
                   steps={m.toolCalls.map((tool, idx) => ({ kind: 'tool' as const, tool, key: `${m.uid}-legacy-${idx}` }))}
@@ -380,11 +343,9 @@ export function MessageBody({ m, messageIndex, currentChatId, send, showProcess 
               </div>
             )}
             {m.isStreaming && !m.content ? (
-              dispatchProcessVisible && !m.toolCalls?.length && !m.thinking?.some(block => block.content?.trim()) ? (
+              !m.toolCalls?.length && !m.thinking?.some(block => block.content?.trim()) ? (
                 <TurnStatusIndicator startTs={turnStartTs} label={turnStatusLabel} />
-              ) : dispatchProcessVisible ? null : (
-                <ThinkingInline content="" isActive={true} />
-              )
+              ) : null
             ) : (
             <div className={`jx-bubble ${m.role === 'user' ? 'user' : ''} jx-md ${m.isStreaming ? 'streaming' : ''}`}>
               {renderUserQuote()}

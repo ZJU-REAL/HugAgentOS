@@ -1,0 +1,386 @@
+/* ══════════════════════════════════════════
+   手机版「我的空间」：按 iOS 分组列表的逻辑排版
+   - 整页灰底（与顶栏同色），内容放在白色圆角卡片里，不再是白底上压一条灰顶栏
+   - 大标题 + 横向滚动的胶囊 Tab（不再是 20px 下划线 Tab 被屏幕边缘截断）
+   - 分段控件与「刷新 / +」同一行；新建与上传收进「+」菜单
+   - 搜索框是无边框的填充式搜索栏，字号 16px（iOS 低于 16px 聚焦时会整页放大）
+   - 文件行：32px 图标 + 名称 + 一行「大小 · 时间」副标题，分隔线从文字处起（inset）
+   本文件最后导入，覆盖 responsive.css 里按容器宽度隐藏列的规则。
+   ══════════════════════════════════════════ */
+
+@media (max-width: 960px) {
+  .jx-mySpace,
+  .jx-mySpace-header {
+    background: var(--color-bg-layout);
+  }
+
+  .jx-mySpace-shell {
+    padding: 0 16px;
+  }
+
+  /* 大标题跟着内容滚走，只留系统顶栏常驻，屏幕高度留给列表 */
+  .jx-mySpace-header {
+    position: static;
+    padding-top: 4px;
+  }
+
+  .jx-mySpace-titleBar {
+    padding-bottom: 12px;
+  }
+
+  .jx-mySpace-title {
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 34px;
+    letter-spacing: -0.01em;
+  }
+
+  /* ── 胶囊 Tab：贴屏幕两边滚动，选中项是深色胶囊（layoutId 让胶囊在 Tab 间滑动） ── */
+  .jx-mySpace-tabs {
+    gap: 8px;
+    margin: 0 -16px;
+    padding: 0 16px 4px;
+    border-bottom: 0;
+    scroll-padding-inline: 16px;
+  }
+
+  .jx-mySpace-tab {
+    height: 32px;
+    margin-right: 0;
+    padding: 0 14px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--color-text) 6%, transparent);
+    color: var(--color-text-secondary);
+    font-size: 15px;
+    font-weight: 500;
+    isolation: isolate;
+  }
+
+  .jx-mySpace-tab:hover {
+    color: var(--color-text-secondary);
+  }
+
+  .jx-mySpace-tab.active {
+    background: transparent;
+    color: var(--color-bg-container);
+    font-weight: 600;
+  }
+
+  .jx-mySpace-tab > span:not(.jx-mySpace-tabInk) {
+    position: relative;
+    z-index: 1;
+  }
+
+  .jx-mySpace-tab .jx-mySpace-tabInk {
+    inset: 0;
+    z-index: 0;
+    height: auto;
+    border-radius: inherit;
+    background: var(--color-text);
+  }
+
+  .jx-mySpace-tab:active {
+    transform: scale(0.97);
+  }
+
+  /* ── 工具区：[分段控件][刷新][+] 一行，搜索栏一行 ── */
+  .jx-mySpace-assetBar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 8px;
+    padding-top: 16px;
+  }
+
+  .jx-mySpace-assetBar .jx-mySpace-filterTools {
+    display: contents;
+  }
+
+  .jx-mySpace .jx-assetTypeSwitch {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 36px;
+    padding: 2px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--color-text) 7%, transparent);
+  }
+
+  .jx-mySpace .jx-assetTypeSwitch > button {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .jx-mySpace .jx-assetTypeSwitch-thumb {
+    border: 0;
+    border-radius: 8px;
+    box-shadow: var(--shadow-card);
+  }
+
+  .jx-mySpace-assetBar .jx-mySpace-backBtn.ant-btn {
+    order: -1;
+    flex: 1 1 100%;
+    justify-content: flex-start;
+    height: 32px;
+    min-height: 32px;
+    margin-bottom: -4px;
+    padding: 0 4px;
+    color: var(--color-primary);
+    font-size: 15px;
+  }
+
+  .jx-mySpace-assetBar .jx-mySpace-refreshBtn.ant-btn,
+  .jx-mySpace-assetBar .jx-mySpace-addBtn.ant-btn {
+    flex: 0 0 auto;
+    min-width: 40px;
+    height: 40px;
+    min-height: 40px;
+    border-radius: 999px;
+    font-size: 17px;
+  }
+
+  .jx-mySpace-assetBar .jx-mySpace-refreshBtn.ant-btn {
+    order: 1;
+    width: 40px;
+    padding: 0;
+    color: var(--color-text-secondary);
+  }
+
+  .jx-mySpace-assetBar .jx-mySpace-addBtn.ant-btn,
+  .jx-mySpace-assetBar .ant-dropdown-trigger:has(> .jx-mySpace-addBtn) {
+    order: 2;
+  }
+
+  .jx-mySpace-assetBar .jx-mySpace-addBtn.ant-btn {
+    padding: 0 12px;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .jx-mySpace-assetBar .jx-mySpace-addBtn.ant-btn .anticon {
+    font-size: 18px;
+  }
+
+  .jx-mySpace-assetBar .jx-mySpace-search.ant-input-affix-wrapper {
+    order: 10;
+    flex: 1 1 100%;
+    width: 100%;
+    height: 40px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--color-text) 7%, transparent);
+    box-shadow: none;
+  }
+
+  .jx-mySpace-assetBar .jx-mySpace-search.ant-input-affix-wrapper-focused {
+    background: var(--color-bg-container);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 28%, transparent);
+  }
+
+  .jx-mySpace-search .ant-input {
+    background: transparent;
+    font-size: 16px;
+  }
+
+  .jx-mySpace-search .ant-input-prefix {
+    margin-inline-end: 6px;
+    color: var(--color-text-tertiary);
+  }
+
+  /* ── 列表：白色圆角分组卡片，去掉表头 ── */
+  .jx-mySpace-docTable {
+    margin-top: 16px;
+    padding-top: 0;
+    border-radius: var(--radius-md);
+    background: var(--color-bg-container);
+    overflow: clip;
+  }
+
+  .jx-mySpace-docTable .jx-mySpace-docTable-header {
+    display: none;
+  }
+
+  .jx-mySpace-docTable .jx-mySpace-docRow {
+    position: relative;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-content: center;
+    row-gap: 2px;
+    min-height: 64px;
+    padding: 10px 48px 10px 60px;
+    border-bottom: 0;
+  }
+
+  /* inset 分隔线：从文字起，不穿过图标 */
+  .jx-mySpace-docTable .jx-mySpace-docRow::after {
+    content: '';
+    position: absolute;
+    left: 60px;
+    right: 0;
+    bottom: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
+    pointer-events: none;
+  }
+
+  .jx-mySpace-docTable > .jx-mySpace-docRow:last-child::after,
+  .jx-mySpace-docTable > :last-child > .jx-mySpace-docRow::after {
+    display: none;
+  }
+
+  .jx-mySpace-docRow .jx-mySpace-docTable-col {
+    padding: 0;
+  }
+
+  .jx-mySpace-docRow .jx-mySpace-docTable-col--check,
+  .jx-mySpace-docRow .jx-mySpace-docTable-col--source {
+    display: none;
+  }
+
+  .jx-mySpace-docRow .jx-mySpace-docTable-col--name {
+    grid-column: 1 / 3;
+    grid-row: 1;
+  }
+
+  .jx-mySpace-docRow .jx-mySpace-docRow-icon {
+    position: absolute;
+    top: 50%;
+    left: 16px;
+    width: 32px;
+    height: 32px;
+    margin-top: -16px;
+  }
+
+  .jx-mySpace-docRow .jx-mySpace-docRow-name {
+    font-size: 16px;
+    line-height: 22px;
+  }
+
+  .jx-mySpace-docRow .jx-mySpace-docTable-col--size,
+  .jx-mySpace-docRow .jx-mySpace-docTable-col--time {
+    display: block;
+    grid-row: 2;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .jx-mySpace-docRow .jx-mySpace-docTable-col--size {
+    grid-column: 1;
+  }
+
+  .jx-mySpace-docRow .jx-mySpace-docTable-col--time {
+    grid-column: 2;
+  }
+
+  .jx-mySpace-docRow--folder .jx-mySpace-docTable-col--time {
+    grid-column: 1 / 3;
+  }
+
+  /* 文件夹没有大小；没有修改时间时连副标题行也不留，名称垂直居中 */
+  .jx-mySpace-docRow.jx-mySpace-docRow--folder .jx-mySpace-docTable-col--size,
+  .jx-mySpace-docRow .jx-mySpace-docTable-col--time:has(.jx-mySpace-docRow-time:empty) {
+    display: none;
+  }
+
+  .jx-mySpace-docRow:not(.jx-mySpace-docRow--folder) .jx-mySpace-docTable-col--time::before {
+    content: '·';
+    margin: 0 6px;
+    color: var(--color-text-tertiary);
+  }
+
+  .jx-mySpace-docRow .jx-mySpace-docRow-meta,
+  .jx-mySpace-docRow .jx-mySpace-docRow-time {
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--color-text-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 不参与网格：否则 36px 按钮会把空的副标题行撑高，单行的文件夹名就不再居中 */
+  .jx-mySpace-docRow .jx-mySpace-docTable-col--actions {
+    position: absolute;
+    top: 50%;
+    right: 4px;
+    width: 44px;
+    transform: translateY(-50%);
+  }
+
+  /* iOS 的「更多」是横向三点 */
+  .jx-mySpace-docRow .jx-mySpace-moreBtn .anticon {
+    transform: rotate(90deg);
+    font-size: 17px;
+  }
+
+  .jx-mySpace-docRow:active {
+    background: var(--color-fill-hover);
+  }
+
+  .jx-mySpace-empty {
+    min-height: 240px;
+    margin-top: 16px;
+    border: 0;
+    border-radius: var(--radius-md);
+    background: var(--color-bg-container);
+  }
+
+  /* 团队目录工具条：v2 不用描边按钮，次要操作走浅灰填充；与上面的圆形按钮同一节奏 */
+  .jx-team-workspace-actions .ant-btn {
+    min-width: 36px;
+    height: 36px;
+    border-radius: 999px;
+  }
+
+  .jx-team-workspace-actions .ant-btn.ant-btn-variant-outlined {
+    --ant-btn-border-color: transparent;
+    --ant-btn-border-color-hover: transparent;
+    --ant-btn-border-color-active: transparent;
+    --ant-btn-bg-color: color-mix(in srgb, var(--color-text) 7%, transparent);
+    --ant-btn-bg-color-hover: color-mix(in srgb, var(--color-text) 7%, transparent);
+    --ant-btn-bg-color-active: color-mix(in srgb, var(--color-text) 12%, transparent);
+  }
+
+  /* 「+」菜单：触屏行高 44px */
+  .jx-mySpace-addMenu .ant-dropdown-menu {
+    min-width: 200px;
+  }
+
+  .jx-mySpace-addMenu .ant-dropdown-menu-item {
+    min-height: 44px;
+    font-size: 15px;
+  }
+
+  .jx-mySpace-body {
+    padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* 触屏：点按后 :hover 会一直粘着，行底色和蓝色文件名看起来像被选中 */
+@media (max-width: 960px) and (hover: none) {
+  .jx-mySpace-docRow:hover {
+    background: transparent;
+  }
+
+  .jx-mySpace-docRow:active {
+    background: var(--color-fill-hover);
+  }
+
+  .jx-mySpace-docRow:hover .jx-mySpace-docRow-name {
+    color: var(--color-text);
+  }
+
+  .jx-mySpace-docRow.jx-mySpace-docRow--checked .jx-mySpace-docRow-name {
+    color: var(--color-primary);
+  }
+}
+
+/* 深色：分段控件的选中块要比轨道亮（iOS 深色同样是浅一档的滑块），否则看起来像凹陷 */
+@media (max-width: 960px) {
+  :root[data-theme='dark'] .jx-mySpace .jx-assetTypeSwitch-thumb {
+    background: color-mix(in srgb, var(--color-text) 16%, var(--color-bg-container));
+    box-shadow: none;
+  }
+}

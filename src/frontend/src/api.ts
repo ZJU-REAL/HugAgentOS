@@ -16,7 +16,7 @@ type SiteUpdateEditionFields,
 type SiteVisibility,
 } from './editionSiteVisibility';
 import { t } from './i18n';
-import type { AutomationNotification,AutomationRun,AutomationTask,Catalog,ChatItem,ChatMessage,ChunkPreviewResult,DesignPickInfo,EvolutionSummary,FileConfirmDecision,FileConfirmInfo,JobBrief,KBChunk,KBIndexMode,KBWikiStatus,MemoryGraphRelation,MemoryItem,MemoryProfile,OntologyAssetKind,OntologyTagOption,PlanProgressState,ReferencableChat,ResourceItem,UserQuestionAnswer,UserQuestionRequest,WikiConfig } from './types';
+import type { AutomationNotification,AutomationRun,AutomationTask,Catalog,ChatItem,ChatMessage,ChunkPreviewResult,CommandTaskBrief,DesignPickInfo,EvolutionSummary,FileConfirmDecision,FileConfirmInfo,JobBrief,KBChunk,KBIndexMode,KBWikiStatus,MemoryGraphRelation,MemoryItem,MemoryProfile,OntologyAssetKind,OntologyTagOption,PlanProgressState,ReferencableChat,ResourceItem,UserQuestionAnswer,UserQuestionRequest,WikiConfig } from './types';
 import { createApiResponseError,readErrorMessage } from './utils/apiError';
 import { conversationTitle } from './utils/conversationTitle';
 import { newOperationId } from './utils/operationId';
@@ -1488,6 +1488,34 @@ export async function getKBDocuments(
   }
 }
 
+/** 手机上的连续列表：一次取前 `count` 条（后端单页上限 100，超出时按 100 一页依次取再拼接）。
+ *  返回的 page_size 按调用方的「每批条数」回填，调用方据此算总批数。 */
+export async function getKBDocumentsWindow(
+  kbId: string,
+  count: number,
+  batchSize: number,
+  keyword?: string,
+): Promise<KBDocumentsResponse> {
+  const chunk = Math.min(100, count);
+  const first = await getKBDocuments(kbId, 1, chunk, keyword);
+  const items = [...first.items];
+  let page = 1;
+  let hasMore = first.has_more;
+  while (items.length < count && hasMore) {
+    page += 1;
+    const next = await getKBDocuments(kbId, page, chunk, keyword);
+    items.push(...next.items);
+    hasMore = next.has_more;
+  }
+  return {
+    ...first,
+    items: items.slice(0, count),
+    page: Math.ceil(count / batchSize),
+    page_size: batchSize,
+    has_more: first.total > count,
+  };
+}
+
 export async function getKBDocumentDetail(
   kbId: string,
   _documentId: string,
@@ -1852,24 +1880,21 @@ export interface OntologySettings {
 }
 
 export async function getOntologySettings(): Promise<OntologySettings> {
-  const wrapped = await apiRequest<unknown>('/v1/ontologies/settings');
-  return unwrapData<OntologySettings>(wrapped);
+  return {
+    allowed: false,
+    ontology_enabled: false,
+    ontology_pack_ids: [],
+    available: false,
+    plugin_import_build_validation_forced: false,
+    active_packs: [],
+  };
 }
 
-export async function updateOntologySettings(ontologyEnabled: boolean): Promise<void> {
-  await apiRequest('/v1/ontologies/settings', {
-    method: 'PATCH',
-    body: JSON.stringify({ ontology_enabled: ontologyEnabled }),
-  });
-}
+export async function updateOntologySettings(_ontologyEnabled: boolean): Promise<void> {}
 
 /** Tags from active Domain Packs that actually trigger workflows for this asset kind. */
-export async function getOntologyTagOptions(assetKind: OntologyAssetKind): Promise<OntologyTagOption[]> {
-  const wrapped = await apiRequest<unknown>(
-    `/v1/ontologies/tags?asset_kind=${encodeURIComponent(assetKind)}`,
-  );
-  const data = unwrapData<{ items?: OntologyTagOption[] }>(wrapped);
-  return Array.isArray(data.items) ? data.items : [];
+export async function getOntologyTagOptions(_assetKind: OntologyAssetKind): Promise<OntologyTagOption[]> {
+  return [];
 }
 
 // ── Personal API keys ────────────────────────────────────────────────────
@@ -3037,6 +3062,21 @@ export async function getJobApi(jobId: string): Promise<JobBrief> {
 
 export async function cancelJobApi(jobId: string): Promise<void> {
   await apiRequest<unknown>(`/v1/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
+}
+
+/** Sandbox command tasks of a chat: live ones first, then the latest finished. */
+export async function listChatCommands(chatId: string): Promise<CommandTaskBrief[]> {
+  const res = await apiRequest<unknown>(
+    `/v1/commands?chat_id=${encodeURIComponent(chatId)}`,
+    { headers: chatTargetHeaders(chatId) },
+  );
+  return unwrapData<CommandTaskBrief[]>(res) ?? [];
+}
+
+export async function cancelCommandApi(taskId: string, chatId?: string): Promise<void> {
+  await apiRequest<unknown>(`/v1/commands/${encodeURIComponent(taskId)}/cancel`, {
+    method: 'POST', headers: chatTargetHeaders(chatId),
+  });
 }
 
 export async function listPlans(target?: 'local'): Promise<Plan[]> {
@@ -4318,8 +4358,7 @@ export async function getMySystemAccess(): Promise<SystemAccessInfo> {
 
 /** Probe: whether the current CE user may manage the instance-wide Domain Packs from Settings. */
 export async function getOntologyGovernanceAccess(): Promise<OntologyGovernanceAccessInfo> {
-  const wrapped = await apiRequest<unknown>('/v1/ontologies/governance/access');
-  return unwrapData<OntologyGovernanceAccessInfo>(wrapped);
+  return { allowed: false, edition: 'ce' };
 }
 
 export interface ServiceConfigItem {

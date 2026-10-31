@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Empty, Spin } from 'antd';
+import { Button, Empty } from 'antd';
 import { MessageOutlined, ReloadOutlined } from '@ant-design/icons';
 import { listProjectChats } from '../../api';
 import { mergeProjectHistory } from '../../stores/projectHistory';
@@ -10,6 +10,8 @@ import { useAuthStore } from '../../stores/authStore';
 import { formatShortDateTime } from '../../utils/date';
 import type { ProjectDetail } from '../../types';
 import { t } from '../../i18n';
+import { LoadError } from '../common/LoadState';
+import { ProjectConversationHistorySkeleton } from './ProjectSkeletons';
 
 /** Discovery list only; every record opens the shared main conversation. */
 export default function ProjectConversationHistory({ project }: { project: ProjectDetail }) {
@@ -55,8 +57,8 @@ export default function ProjectConversationHistory({ project }: { project: Proje
       <Button type="text" size="small" icon={<ReloadOutlined />} loading={loading}
         aria-label={t('刷新')} onClick={() => void reload()} />
     </div>
-    {error && <div role="alert">{error}<Button size="small" onClick={() => void reload()}>{t('重试')}</Button></div>}
-    {loading && items.length === 0 ? <Spin size="small" /> : items.length === 0 && !error
+    {error && <LoadError title={t('项目对话历史加载失败')} reason={error} onRetry={() => void reload()} />}
+    {loading && items.length === 0 ? <ProjectConversationHistorySkeleton /> : items.length === 0 && !error
       ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('还没有对话')} />
       : <div className="jx-projectConversationHistory-list">
         {items.slice(0, limit).map(item => <button type="button" key={item.id}

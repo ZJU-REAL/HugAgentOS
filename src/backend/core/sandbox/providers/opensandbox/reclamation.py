@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from core.config.settings import settings
 
 import core.sandbox.sessions.registry as session_registry
@@ -48,6 +50,24 @@ class _OpenSandboxReclamationMixin:
                                    chat_id, exc)
 
         await asyncio.gather(*(protect(chat_id, sess) for chat_id, sess in entries))
+
+    async def _flush_space_copy(self, sess) -> None:
+        """Store a synchronized space copy before the sandbox is reset or destroyed.
+
+        A failure keeps the copy: a reused sandbox still holds it for the same
+        account's next session; only a destroyed one loses unsaved edits.
+        """
+        from core.files.spaces.transport import get_space_transport
+        import asyncio
+
+        try:
+            report = await asyncio.wait_for(
+                get_space_transport().flush(sess.sandbox, sess.user_id, force=True), timeout=120)
+            if report.errors:
+                logger.warning("[opensandbox] space copy not fully stored before release: %s",
+                               report.text())
+        except Exception as exc:  # noqa: BLE001 - release must proceed
+            logger.warning("[opensandbox] space copy flush before release failed: %r", exc)
 
     async def _destroy_session(self, session_id, sess, *, reuse_sandbox=False):
         from core.capabilities.plugins.resources.prewarm import closing, stop
@@ -98,6 +118,8 @@ class _OpenSandboxReclamationMixin:
         # harmless and cannot pop a replacement created while a cleanup was queued.
         if self._sessions.get(session_id) is not sess:
             return
+        if not detach_only:
+            await self._flush_space_copy(sess)
         # Choose the target pool by sess.pool_source — recorded at acquire time, always accurate
         is_user_pool = sess.pool_source == "user" and bool(sess.user_id)
         reuse_ok = (
@@ -111,6 +133,14 @@ class _OpenSandboxReclamationMixin:
             # 结果、解压出来的原料会原样留着，下一个会话一 ls 就看见、会当成自己的上文。
             # 擦不干净就不复用 —— 宁可多花十秒新建，也不能把脏容器递出去。
             reuse_ok = await self._wipe_workspace(sess)
+            if reuse_ok and os.getenv("DEPLOY_PROFILE") == "kubernetes":
+                # 下一个会话重新下发一次技能视图，不沿用上一会话里可能被改动的副本。
+                from core.sandbox.providers.opensandbox.skills import forget_skill_view
+                try:
+                    await forget_skill_view(sess.sandbox)
+                except Exception as exc:  # noqa: BLE001 — 记不下就不复用，宁可新建
+                    logger.warning("[opensandbox] 清除技能视图记录失败，放弃复用: %r", exc)
+                    reuse_ok = False
         # 先解绑再入池：容器一旦进了空闲队列，归属判定就会在 acquire / reap 时被问到，
         # 这时登记还指着它的话，池子会以为它仍有主而拒绝复用和回收，白白漏掉一台。
         # 撤销只在登记仍指向这一个沙箱时生效，免得抹掉别的 worker 刚建的那条。

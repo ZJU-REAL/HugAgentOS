@@ -261,7 +261,7 @@ MCP execution budgets exclude time waiting for user answers. Valid questions pau
   directory grants, dangerous-command policy, My Space write confirmation, or
   generic tool approval;
 - an allowed call receives a short-lived ticket bound to its tool name, call
-  id, argument hash, and spec key. `OntologyFilteredToolkit.call_tool()` checks
+  id, argument hash, and spec key. The toolkit's final `call_tool()` checks
   it again, while the real Read/Write/Edit/Bash host boundary consumes its path
   or command constraints;
 - a registered call that needs confirmation is denied in batch, sub-agent,

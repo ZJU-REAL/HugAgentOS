@@ -34,6 +34,9 @@ class SandboxSettings:
     idle_ttl_s: int = field(
         default_factory=lambda: max(60, _int(_env("SANDBOX_IDLE_TTL_S", "3600"), 3600))
     )
+    # Per-sandbox resource limits for Kubernetes workers (e.g. "1", "500m" / "1Gi").
+    cpu: str = field(default_factory=lambda: _env("SANDBOX_CPU", "").strip())
+    memory: str = field(default_factory=lambda: _env("SANDBOX_MEMORY", "").strip())
     artifact_max_bytes: int = field(
         default_factory=lambda: max(
             1,

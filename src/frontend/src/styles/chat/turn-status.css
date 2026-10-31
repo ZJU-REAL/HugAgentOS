@@ -1,7 +1,6 @@
-/* One geometry for startup, standalone reasoning, and the execution header.
+/* One geometry for startup and the execution header.
    Keep the mark slot fixed; only the image inside it breathes. */
 .jx-turnStatusRow,
-.jx-inlineSummary.jx-turnStatusRow,
 .jx-trs-head.jx-turnStatusRow{
   display:flex;
   align-items:center;
@@ -21,10 +20,8 @@
 .jx-turnStatus{align-self:flex-start;}
 .jx-trs.jx-trs--turnStatus{margin:0;animation:none;}
 
-/* One mark box for rows with the vector agent mark (.jx-agentSlot) and rows
-   still on the brand GIF (.jx-turnStatusMark), so their text shares a column. */
-.jx-agentSlot,
-.jx-turnStatusMark{
+/* One mark box for every row with the agent mark, so their text shares a column. */
+.jx-agentSlot{
   display:inline-flex;
   align-items:center;
   justify-content:center;
@@ -33,13 +30,7 @@
   height:18px;
 }
 
-/* motion-keep: Fixed-size status marks breathe while a request is active. */
-.jx-turnStatusMark .jx-brandLoader:not(.jx-brandLoader--done){
-  animation:jxTurnStatusBreathe 2.4s ease-in-out infinite;
-}
-
 .jx-turnStatusText,
-.jx-inlineSummary .jx-inlineSummaryText.jx-turnStatusText,
 .jx-trs .jx-trs-title.jx-turnStatusText{
   font-family:var(--font-family);
   font-size:14px;
@@ -71,8 +62,7 @@
    transform animation never competes with the scan for `animation`. */
 /* motion-keep: Text scanning is an activity signal while a request is running. */
 .jx-rollText-text.is-shimmer,
-.jx-tcr .jx-tcr-prefix.jx-tcr-prefix--shimmer,
-.jx-inlineFold .jx-inlineSummary .jx-inlineSummaryText--live{
+.jx-tcr .jx-tcr-prefix.jx-tcr-prefix--shimmer{
   background-image:linear-gradient(90deg,
     color-mix(in srgb, var(--color-text-secondary) 80%, var(--color-primary)) 0%,
     var(--color-text-secondary) 35%,
@@ -94,11 +84,6 @@
   font-weight:400;
   font-variant-numeric:tabular-nums;
   color:var(--color-text-secondary);
-}
-
-@keyframes jxTurnStatusBreathe{
-  0%,100%{opacity:.8;transform:scale(.94);}
-  50%{opacity:1;transform:scale(1.06);}
 }
 
 @keyframes jxTurnStatusShine{

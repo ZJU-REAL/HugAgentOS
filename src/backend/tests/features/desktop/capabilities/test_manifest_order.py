@@ -12,6 +12,7 @@ from core.capabilities.reference import profile_id, cloud_ref
 from features.desktop.bridge import client as bridge
 from features.desktop.bridge import skills as cloud_skills
 from features.desktop.bridge import bundles as bundles
+from features.desktop.bridge import cloud_http
 from core.capabilities.manifest_protocol import build_skill_manifest, build_entity_manifest
 
 
@@ -91,7 +92,7 @@ def test_late_background_manifest_cannot_replace_new_checkpoint(
             payload = updated
         return httpx.Response(200, request=httpx.Request("GET", url), json={"data": payload})
 
-    monkeypatch.setattr(httpx, "get", get)
+    monkeypatch.setattr(cloud_http, "get", get)
 
     def background():
         try:
@@ -151,7 +152,7 @@ def test_new_failed_request_still_prevents_older_response_resurrection(
             )
         return httpx.Response(502, request=httpx.Request("GET", url))
 
-    monkeypatch.setattr(httpx, "get", get)
+    monkeypatch.setattr(cloud_http, "get", get)
 
     def background():
         cloud_skills.sync_blocking(st) if kind == "skill" else bundles.sync_kind(kind, st)
@@ -188,7 +189,7 @@ def test_304_gets_new_private_ticket_without_changing_manifest_hash(
             json={"data": payload},
         )
 
-    monkeypatch.setattr(httpx, "get", get)
+    monkeypatch.setattr(cloud_http, "get", get)
     first = cloud_skills._fetch_manifest(st) if kind == "skill" else bundles._fetch(kind, st)
     if kind == "skill":
         cloud_skills._reconcile_intent(first, st)

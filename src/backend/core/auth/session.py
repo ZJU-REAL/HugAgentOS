@@ -3,14 +3,23 @@
 Key format:  jx:session:{sha256(token)}
 Value:       JSON-encoded user data
 TTL:         SESSION_TTL_HOURS (default 8h)
+
+``SESSION_STORE=memory`` keeps the table in process instead. With
+``SESSION_PERSIST_PATH`` set, that table is mirrored to a file so the desktop
+local server, which restarts with the desktop app, keeps its logins.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import os
 import secrets
+import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from core.config.settings import settings
@@ -20,6 +29,11 @@ from core.infra.redis import get_redis
 logger = get_logger(__name__)
 
 SESSION_KEY_PREFIX = "jx:session:"
+
+# Sliding renewal touches every request; the file only needs to follow it often
+# enough that a restart does not cost a session its last few minutes of life.
+_PERSIST_RENEWAL_INTERVAL_SECONDS = 300.0
+_PERSIST_WRITE_LOCK = threading.Lock()
 
 
 def _ttl_seconds() -> int:
@@ -63,15 +77,88 @@ def _use_memory_store() -> bool:
     return settings.session.store_type == "memory"
 
 
+def _persist_path() -> Optional[Path]:
+    raw = settings.session.persist_path
+    return Path(raw) if raw else None
+
+
+def _read_persisted(path: Path) -> dict[str, dict[str, Any]]:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as exc:
+        logger.warning("session_persist_unreadable", path=str(path), error=str(exc))
+        return {}
+    now = datetime.now(timezone.utc)
+    sessions: dict[str, dict[str, Any]] = {}
+    for token_hash, entry in (raw.items() if isinstance(raw, dict) else ()):
+        try:
+            payload = entry["payload"]
+            expires_at = datetime.fromisoformat(entry["expires_at"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if isinstance(payload, dict) and expires_at > now:
+            sessions[token_hash] = {"payload": payload, "expires_at": expires_at}
+    return sessions
+
+
+def _memory_sessions() -> dict[str, dict[str, Any]]:
+    """The in-process session table, loaded from the persist file on first use."""
+    state = process_state()
+    path = _persist_path()
+    if path is not None and not state.persist_loaded:
+        state.persist_loaded = True
+        state.MEMORY_SESSIONS.update(_read_persisted(path))
+    return state.MEMORY_SESSIONS
+
+
+def _write_persisted(path: Path, snapshot: dict[str, Any], generation: int) -> None:
+    with _PERSIST_WRITE_LOCK:
+        state = process_state()
+        # Snapshots are taken in order on the event loop but written from worker
+        # threads; never let an older one overwrite a newer one.
+        if generation <= state.persist_written_generation:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(f".{path.name}.tmp")
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(snapshot, handle, ensure_ascii=False)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        state.persist_written_generation = generation
+
+
+async def _persist_memory_sessions() -> None:
+    path = _persist_path()
+    if path is None:
+        return
+    state = process_state()
+    state.persist_generation += 1
+    state.persisted_at = time.monotonic()
+    snapshot = {
+        token_hash: {"payload": entry["payload"], "expires_at": entry["expires_at"].isoformat()}
+        for token_hash, entry in _memory_sessions().items()
+    }
+    try:
+        await asyncio.to_thread(_write_persisted, path, snapshot, state.persist_generation)
+    except OSError as exc:
+        # The session itself is valid in memory; only surviving a restart is lost.
+        logger.warning("session_persist_failed", path=str(path), error=str(exc))
+
+
 def _prune_expired_memory_sessions() -> None:
     now = datetime.now(timezone.utc)
+    sessions = _memory_sessions()
     expired = [
         key
-        for key, value in process_state().MEMORY_SESSIONS.items()
+        for key, value in sessions.items()
         if value.get("expires_at") and value["expires_at"] <= now
     ]
     for key in expired:
-        process_state().MEMORY_SESSIONS.pop(key, None)
+        sessions.pop(key, None)
 
 
 def generate_token() -> str:
@@ -113,10 +200,11 @@ async def create_session(
 
     if _use_memory_store():
         _prune_expired_memory_sessions()
-        process_state().MEMORY_SESSIONS[token_hash] = {
+        _memory_sessions()[token_hash] = {
             "payload": payload,
             "expires_at": datetime.now(timezone.utc) + timedelta(seconds=ttl),
         }
+        await _persist_memory_sessions()
         logger.info("session_created", user_id=payload["user_id"], ttl=ttl, store="memory")
         return token
 
@@ -142,12 +230,15 @@ async def validate_session(token: str) -> Optional[Dict[str, Any]]:
 
     if _use_memory_store():
         _prune_expired_memory_sessions()
-        entry = process_state().MEMORY_SESSIONS.get(token_hash)
+        entry = _memory_sessions().get(token_hash)
         if entry is None:
             return None
         # Sliding renewal uses the session's own TTL (a long "remember me" session is not truncated to the default duration)
         renew_ttl = _resolve_ttl(entry["payload"].get("ttl_seconds"))
         entry["expires_at"] = datetime.now(timezone.utc) + timedelta(seconds=renew_ttl)
+        elapsed = time.monotonic() - process_state().persisted_at
+        if elapsed >= _PERSIST_RENEWAL_INTERVAL_SECONDS:
+            await _persist_memory_sessions()
         return dict(entry["payload"])
 
     r = get_redis()
@@ -179,7 +270,7 @@ async def find_session_by_hash(token_hash: str) -> Optional[Dict[str, Any]]:
         return None
     if _use_memory_store():
         _prune_expired_memory_sessions()
-        entry = process_state().MEMORY_SESSIONS.get(token_hash)
+        entry = _memory_sessions().get(token_hash)
         return dict(entry["payload"]) if entry else None
     raw = await get_redis().get(f"{SESSION_KEY_PREFIX}{token_hash}")
     if raw is None:
@@ -200,7 +291,9 @@ async def revoke_session(token: str) -> bool:
     token_hash = _hash_token(token)
     data = await find_session_by_hash(token_hash)
     if _use_memory_store():
-        deleted = process_state().MEMORY_SESSIONS.pop(token_hash, None) is not None
+        deleted = _memory_sessions().pop(token_hash, None) is not None
+        if deleted:
+            await _persist_memory_sessions()
     else:
         deleted = bool(await get_redis().delete(f"{SESSION_KEY_PREFIX}{token_hash}"))
     if deleted:
@@ -247,6 +340,10 @@ def expires_at_iso(ttl_seconds: Optional[int] = None) -> str:
 @dataclass
 class SessionState:
     MEMORY_SESSIONS: dict[str, dict[str, Any]] = field(default_factory=lambda: {})
+    persist_loaded: bool = False
+    persisted_at: float = 0.0
+    persist_generation: int = 0
+    persist_written_generation: int = 0
 
 
 _STATE = SessionState()

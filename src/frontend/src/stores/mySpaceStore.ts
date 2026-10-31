@@ -157,6 +157,9 @@ interface MySpaceState {
   favHasMore: boolean;
   assetScope: 'personal' | 'team';
   selectedScope: PersonalScope;
+  pendingFolder: { space: string; path: string } | null;
+  openSpaceFolder: (space: string, path: string) => void;
+  clearPendingFolder: () => void;
   personalFolderTree: PersonalFolderNode[];
   personalChildFolders: PersonalFolderNode[];
   notifications: AutomationNotification[];
@@ -220,6 +223,7 @@ export const useMySpaceStore = create<MySpaceState>((set, get) => ({
   favHasMore: false,
   assetScope: 'personal',
   selectedScope: { kind: 'personal', folderId: null },
+  pendingFolder: null,
   personalFolderTree: [],
   personalChildFolders: [],
   notifications: [],
@@ -255,6 +259,14 @@ export const useMySpaceStore = create<MySpaceState>((set, get) => ({
     }
     return { railCollapsed: next };
   }),
+  openSpaceFolder: (space, path) => {
+    if (space !== 'personal') throw new Error('Personal space is required');
+    set({ pendingFolder: { space, path } });
+    get().setAssetScope('personal');
+    get().setTab('assets');
+  },
+  clearPendingFolder: () => set({ pendingFolder: null }),
+
   setAssetScope: () => {
     set({ assetScope: 'personal' });
     void get().fetchResources(true);

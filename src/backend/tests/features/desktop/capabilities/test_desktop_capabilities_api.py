@@ -129,7 +129,7 @@ def client(tmp_path, monkeypatch, index_db, cloud):
     monkeypatch.setattr(skill_account, 'current_local_user_id', lambda: USER)
     monkeypatch.setattr(bridge_identity, 'get_state', lambda: dict(STATE, expires_at=time.time() + 60))
     monkeypatch.setattr('core.capabilities.skills.cache_refresh.refresh_skill_caches', lambda: None)
-    monkeypatch.setattr("httpx.get", cloud.get)
+    monkeypatch.setattr("features.desktop.bridge.cloud_http.get", cloud.get)
 
     app = FastAPI()
     app.include_router(router)
@@ -272,11 +272,11 @@ def test_network_or_invalid_manifest_is_unknown(client, cloud, monkeypatch):
     original = cloud.get
     def offline(*args, **kwargs):
         raise RuntimeError("sensitive upstream detail")
-    monkeypatch.setattr("httpx.get", offline)
+    monkeypatch.setattr("features.desktop.bridge.cloud_http.get", offline)
     response = client.get(CHECK)
     assert response.json()["data"]["changed"] is None
     assert "sensitive" not in response.text
-    monkeypatch.setattr("httpx.get", original)
+    monkeypatch.setattr("features.desktop.bridge.cloud_http.get", original)
     cloud.manifest = {"version": 99}
     assert client.get(CHECK).json()["data"]["changed"] is None
 
@@ -300,7 +300,7 @@ def test_check_rejects_an_account_switch_during_request(client, cloud, monkeypat
         result = original(*args, **kwargs)
         monkeypatch.setattr(bridge_identity, 'get_state', lambda: {**STATE, "token": _token("u-2")})
         return result
-    monkeypatch.setattr("httpx.get", switched)
+    monkeypatch.setattr("features.desktop.bridge.cloud_http.get", switched)
     response = client.get(CHECK)
     assert response.status_code == 409
     assert "changed" not in response.json().get("data", {})

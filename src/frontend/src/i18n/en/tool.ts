@@ -97,12 +97,10 @@ export const TOOL_DICT: Record<string, string> = {
   '{n} 个步骤': '{n} steps',
   '{n}秒': '{n}s',
   '{m}分{s}秒': '{m}m {s}s',
-  // ToolProgressInline.tsx
+  // toolActionLabel.ts
   '正在调用工具': 'Calling tools…',
-  '工具调用完成': 'Tools completed',
   '正在调用 {label}': 'Calling {label}',
   '已调用 {label}': 'Called {label}',
-  '等{n}项': ' +{n} more',
   // ThinkingStepRow.tsx
   '思考': 'Thinking',
   // CodeView.tsx (line count — same key as in ToolOutputRenderer.tsx above)

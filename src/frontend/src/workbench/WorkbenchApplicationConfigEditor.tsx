@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
+import { Modal } from 'antd';
 import { t, getLang } from '../i18n';
 import { ApiResponseError } from '../utils/apiError';
 import {
   applicationConfigPath, applicationConfigRequest, configurableApplications, configurationValues,
   type ConfigurableApplication,
 } from './applicationConfigApi';
+import {HostButton, HostCheckbox, HostField, HostFieldset, HostHint, HostInput, HostNotice, HostSection, HostSelect, HostToolbar} from './ui';
+import {SkeletonLines} from '../components/common/LoadState';
 
 function itemTitle(item: ConfigurableApplication) {
   if (typeof item.title === 'string') return item.title;
@@ -63,37 +66,42 @@ function InstalledConfiguration({ token, item }: { token: string; item: Configur
       if (!controller.signal.aborted) setError(configError(reason, true));
     } finally { if (!controller.signal.aborted) setBusy(false); }
   }
-  return <form aria-label={t('工作台应用配置表单')} onSubmit={event => void save(event)}>
-    {loading && <p role="status">{t('正在加载…')}</p>}
-    {error && <p role="alert">{error}</p>}
-    {saved && <p role="status">{t('工作台应用配置已保存')}</p>}
-    <button type="button" disabled={busy} onClick={() => {
-      setLoading(true); setConfig(null); setError(''); setValues({}); setClearKeys([]); setSaved(false);
-      setGeneration(value => value + 1);
-    }}>
-      {t('重新加载应用配置')}</button>
-    <fieldset disabled={loading || busy || !config} style={{ display: 'grid', gap: 12, marginTop: 12 }}>
-      <legend>{itemTitle(item)}</legend>
-      {config?.fields.map(field => <div key={field.key}>
-        <label style={{ display: 'grid', gap: 4 }}>{field.label || field.key}
-          <input aria-label={field.label || field.key} type={field.secret ? 'password' : 'text'}
+  function toggleClear(key: string, name: string, checked: boolean) {
+    const apply = () => {
+      setClearKeys(previous => checked ? [...previous, key] : previous.filter(value => value !== key));
+      setSaved(false);
+    };
+    if (!checked) {apply(); return;}
+    Modal.confirm({
+      title: t('确认清除配置项：{name}？保存后生效。', { name }), okText: t('清除'), cancelText: t('取消'),
+      okButtonProps: { danger: true }, onOk: apply,
+    });
+  }
+  return <form aria-label={t('工作台应用配置表单')} onSubmit={event => void save(event)} className="jx-hostSection">
+    {loading && <SkeletonLines rows={3}/>}
+    {error && <HostNotice tone="error">{error}</HostNotice>}
+    {saved && <HostNotice tone="success">{t('工作台应用配置已保存')}</HostNotice>}
+    <HostFieldset disabled={loading || busy || !config} legend={itemTitle(item)}>
+      {config?.fields.map(field => <div key={field.key} className="jx-hostFieldGroup">
+        <HostField label={field.label || field.key} hint={field.description}>
+          <HostInput aria-label={field.label || field.key} type={field.secret ? 'password' : 'text'}
             autoComplete={field.secret ? 'new-password' : 'off'} disabled={clearKeys.includes(field.key)}
             value={values[field.key] || ''} onChange={event => {
               setValues(previous => ({ ...previous, [field.key]: event.target.value })); setSaved(false);
             }} placeholder={field.secret && field.is_set ? t('已配置，留空则保留不变') : ''} />
-        </label>
-        {field.description && <p>{field.description}</p>}
-        {field.is_set && <label><input type="checkbox" checked={clearKeys.includes(field.key)}
-          onChange={event => {
-            const checked = event.target.checked;
-            if (checked && !window.confirm(t('确认清除配置项：{name}？保存后生效。', { name: field.label || field.key }))) return;
-            setClearKeys(previous => checked ? [...previous, field.key] : previous.filter(key => key !== field.key));
-            setSaved(false);
-          }} />{t('清除此配置项')}</label>}
+        </HostField>
+        {field.is_set && <HostCheckbox checked={clearKeys.includes(field.key)}
+          onChange={event => toggleClear(field.key, field.label || field.key, event.target.checked)}>{t('清除此配置项')}</HostCheckbox>}
       </div>)}
-      <button type="submit">{busy ? t('正在保存…') : t('保存应用配置')}</button>
-    </fieldset>
-    <p>{t('凭据仅用于当前安装的应用；密钥留空保留原值。清除操作在保存后生效。')}</p>
+      <HostToolbar>
+        <HostButton tone="primary" submit>{busy ? t('正在保存…') : t('保存应用配置')}</HostButton>
+        <HostButton tone="text" disabled={busy} onClick={() => {
+          setLoading(true); setConfig(null); setError(''); setValues({}); setClearKeys([]); setSaved(false);
+          setGeneration(value => value + 1);
+        }}>{t('重新加载应用配置')}</HostButton>
+      </HostToolbar>
+    </HostFieldset>
+    <HostHint>{t('凭据仅用于当前安装的应用；密钥留空保留原值。清除操作在保存后生效。')}</HostHint>
   </form>;
 }
 function ConfigurationManager({ token }: { token: string }) {
@@ -111,27 +119,25 @@ function ConfigurationManager({ token }: { token: string }) {
     return () => controller.abort();
   }, [token, generation]);
   const item = items.find(value => value.applicationKey === selected);
-  return <section aria-label={t('工作台应用配置')} style={{ marginTop: 24 }}>
-    <h3>{t('工作台应用配置')}</h3>
-    <p>{t('选择已安装的应用，配置此服务器上的连接与凭据。')}</p>
-    {error && <p role="alert">{error}</p>}
-    <button type="button" onClick={() => {
+  return <HostSection title={t('工作台应用配置')} description={t('选择已安装的应用，配置此服务器上的连接与凭据。')}
+    actions={<HostButton tone="text" onClick={() => {
       setLoading(true); setItems([]); setSelected(''); setError(''); setGeneration(value => value + 1);
-    }}>{t('刷新已安装应用')}</button>
-    <label style={{ display: 'grid', gap: 8, margin: '12px 0' }}>{t('已安装的工作台应用')}
-      <select aria-label={t('已安装的工作台应用')} disabled={loading} value={selected}
+    }}>{t('刷新已安装应用')}</HostButton>}>
+    {error && <HostNotice tone="error">{error}</HostNotice>}
+    <HostField label={t('已安装的工作台应用')}>
+      <HostSelect aria-label={t('已安装的工作台应用')} disabled={loading} value={selected}
         onChange={event => setSelected(event.target.value)}>
         <option value="">{t('请选择应用')}</option>
         {items.map(value => <option key={value.applicationKey} value={value.applicationKey}>
           {itemTitle(value)} · {t(value.origin.kind === 'local' ? '本机' : '云端')} ·
           {t('所有者：{name}', { name: value.ownerUserId || t('全局安装') })}
         </option>)}
-      </select>
-    </label>
-    {loading && <p role="status">{t('正在加载…')}</p>}
-    {!loading && !error && !items.length && <p>{t('没有可配置的工作台应用')}</p>}
+      </HostSelect>
+    </HostField>
+    {loading && <SkeletonLines rows={3}/>}
+    {!loading && !error && !items.length && <HostNotice>{t('没有可配置的工作台应用')}</HostNotice>}
     {item && <InstalledConfiguration key={token + ':' + item.applicationKey + ':' + item.revision} token={token} item={item} />}
-  </section>;
+  </HostSection>;
 }
 
 export function WorkbenchApplicationConfigEditor({ token }: { token: string }) {

@@ -29,8 +29,7 @@ glob 模式（相对仓库根），命中即不拷贝。覆盖：
 - **后端 EE 模块**：完整的 `edition_ee/**` 实现根（团队/RBAC、SSO、License 验签与闸门、EE ORM、Dify 集成），以及云存储（`core/files/storage/s3.py`、`oss.py`）、Cube 沙箱 provider、记忆审计、技能蒸馏等 EE 服务；
 - **EE 路由**：`api/routes/v1/admin_*.py`、`config_*.py`、`audit.py`、`auth.py`、`team_files.py`、`service_configs.py`、`data_sources.py`、`db_metadata.py`、`gateway_*.py`；
 - **行业 MCP**：`extensions/mcp_servers/query_database_mcp/**`、`ai_chain_information_mcp/**`；
-- **行业专属前端与种子**：产业链 Canvas、资讯 / 企业画像渲染器、行业 API 客户端、图标资源，
-  以及依赖企业画像工具的内置本体示例包；
+- **行业专属前端与种子**：产业链 Canvas、资讯 / 企业画像渲染器、行业 API 客户端、图标资源；
 - **主仓 alembic 链整体**（`alembic/versions/**`，CE 用 overlay 的独立链，见下文）；
 - **10 个行业 / 品牌技能**（`extensions/skills/marketplace/` 下，前 5 个硬依赖 EE 行业 MCP，后 5 个含品牌域文案）；
 - **EE 强耦合测试**、`tests/licensing/**`；
@@ -118,7 +117,7 @@ CE 前端不按工具名猜测远程 MCP 的业务结构。用户接入的远程
               测试目录只允许保存“不得出现”的负向契约断言
 [4/7] 二进制门禁 PNG/PDF/DOCX 必须匹配经人工/OCR 审阅后的 path + SHA-256 白名单
 [5/7] 品牌门禁 文本逐行正则 0 命中 + 全量文件「路径」扫描（含二进制资产文件名；
-              另有路径专用模式拦商业字体文件本体）
+              另有路径专用模式拦商业字体文件）
 [6/7] LICENSE 闸门  overlay LICENSE 仍是占位文本（含 NOTE TO MAINTAINERS 标记）时拒绝生成
 [7/7] 自检     --import-check / --pytest-check / --frontend-check（可选）
 [8/8] 清残留   自检留下的 __pycache__ / .pytest_cache / ce_selfcheck.db / node_modules / dist / 再生 lock

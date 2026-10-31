@@ -15,8 +15,7 @@ import "antd/dist/reset.css";
 createRoot(document.getElementById("root")).render(<MySpaceImportModal open onClose={() => {}} />);
 `, resolveDir: process.cwd(), loader: "tsx" }, outfile: resolve(output, "fixture.js"),
   bundle: true, format: "esm", jsx: "automatic", define: { "import.meta.env": "{\"VITE_DEFAULT_LANGUAGE\":\"zh-CN\"}" },
-  loader: { ".svg": "dataurl", ".png": "dataurl", ".md": "text", ".woff": "dataurl", ".woff2": "dataurl", ".ttf": "dataurl" },
-  external: ["/loader.gif", "/loader-done.png"] });
+  loader: { ".svg": "dataurl", ".png": "dataurl", ".md": "text", ".woff": "dataurl", ".woff2": "dataurl", ".ttf": "dataurl" } });
 const server = createServer(async (req, res) => {
   if (req.url === "/fixture.js" || req.url === "/fixture.css") {
     res.setHeader("Content-Type", req.url.endsWith("js") ? "text/javascript" : "text/css");

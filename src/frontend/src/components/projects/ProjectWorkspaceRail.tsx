@@ -4,10 +4,12 @@ import { CloseOutlined, FolderOutlined } from '@ant-design/icons';
 import { useProjectStore } from '../../stores/projectStore';
 import { t } from '../../i18n';
 import ProjectRightRail from './ProjectRightRail';
+import { ProjectRailSkeleton } from './ProjectSkeletons';
+import { LoadError } from '../common/LoadState';
 
 export default function ProjectWorkspaceRail({ projectId }: { projectId: string }) {
-  const project = useProjectStore(s => s.currentProject);
-  const loading = useProjectStore(s => s.detailLoading);
+  const loaded = useProjectStore(s => s.currentProject?.project_id === projectId);
+  const error = useProjectStore(s => s.detailError);
   const [expanded, setExpanded] = useState(false);
   return <aside className={`jx-projectWorkspaceRail${expanded ? ' is-expanded' : ''}`} aria-label={t('项目资料')}>
     <Button className="jx-projectWorkspaceRail-toggle" icon={expanded ? <CloseOutlined /> : <FolderOutlined />}
@@ -15,9 +17,10 @@ export default function ProjectWorkspaceRail({ projectId }: { projectId: string 
       {t('项目资料')}
     </Button>
     <div id="project-resources" className="jx-projectWorkspaceRail-body">
-      {project?.project_id === projectId ? <ProjectRightRail /> : loading
-        ? <div role="status">{t('加载中…')}</div>
-        : <div role="alert">{t('项目不存在或你无权访问')}<Button onClick={() => void useProjectStore.getState().reloadProject(projectId)}>{t('重试')}</Button></div>}
+      {loaded ? <ProjectRightRail /> : error ? (
+        <LoadError className="jx-projectRail-card" title={t('项目资料加载失败')} reason={error}
+          onRetry={() => void useProjectStore.getState().reloadProject(projectId)} />
+      ) : <ProjectRailSkeleton />}
     </div>
   </aside>;
 }

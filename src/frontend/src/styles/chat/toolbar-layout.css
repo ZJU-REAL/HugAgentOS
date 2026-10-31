@@ -51,6 +51,9 @@
 .jx-composerBar[data-compact] .jx-modeArrow,
 .jx-composerBar[data-compact] .jx-voiceStatus { display:none; }
 .jx-composerBar[data-compact] .jx-modelEffortCompactIcon { display:inline-flex; }
+.jx-composerBar[data-compact] .jx-modelEffortBtn { gap:2px; padding-inline:7px 5px; }
+/* 只剩图标时保留小箭头，让它一眼读作「可展开的选择器」而不是一个孤立的按钮 */
+.jx-composerBar[data-compact] .jx-modelEffortBtn .jx-modeArrow { display:inline-flex; width:10px; height:10px; opacity:.7; }
 .jx-composerBar[data-compact] .jx-composerChip { justify-content:center; padding-inline:6px; }
 .jx-composerBar[data-compact] { padding-inline:8px; gap:4px; }
 .jx-composerBar[data-compact] .jx-modeChip { padding:0; gap:0; flex:none; }

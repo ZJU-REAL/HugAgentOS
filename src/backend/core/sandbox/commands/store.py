@@ -173,7 +173,8 @@ def list_owned(user_id, chat_id):
         rows = query.filter(CommandTask.status.in_(LIVE)).all()
         rows += query.filter(CommandTask.status.in_(TERMINAL)).limit(50).all()
         return [{"task_id": r.task_id, "command": r.command[:200], "status": r.status,
-                 "exit_code": r.exit_code, "notice_run_id": r.notice_run_id, "created_at": r.created_at.isoformat()} for r in rows]
+                 "exit_code": r.exit_code, "notice_run_id": r.notice_run_id, "created_at": r.created_at.isoformat(),
+                 "background": bool(r.background)} for r in rows]
 
 def pending_notices(chat_id=None, after=None):
     with SessionLocal() as db:

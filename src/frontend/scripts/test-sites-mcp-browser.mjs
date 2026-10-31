@@ -20,7 +20,6 @@ function SessionStatus(){ const chat=useChatStore(s=>s.store.chats[s.currentChat
 createRoot(document.getElementById('root')).render(window.location.pathname === '/unscoped' ? <ApplicationDataPanel initialTab="mcp" /> : <><SitesPanel/><SessionStatus/></>);
 `, resolveDir: process.cwd(), loader: 'tsx' }, outfile: resolve(output, 'fixture.js'),
  bundle: true, format: 'esm', jsx: 'automatic', define: { 'import.meta.env': '{}' },
- external: ['/loader.gif', '/loader-done.png'],
  loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl' } });
 const origin = 'http://127.0.0.1:18479';
 const appId = 'a'.repeat(32);

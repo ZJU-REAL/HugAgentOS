@@ -196,7 +196,12 @@
         document.getElementById('visual').classList.add('ready');
         document.getElementById('message').innerHTML='<span class="ready">本机服务已就绪</span>';
         document.getElementById('install').style.display='none';
-        if(s.active_local && !manage){ setTimeout(function(){location.replace('/__desktop/login')},450);return; }
+        if(s.active_local && !manage){
+          // 启动时壳正在校验已保存的会话：结论由壳导航（有效进应用，失效转登录卡片）。
+          if(s.session_restoring){ document.getElementById('message').textContent='本机服务已就绪，正在恢复登录…'; return; }
+          if(s.has_session){ location.replace('/'); return; }
+          setTimeout(function(){location.replace('/__desktop/login')},450);return;
+        }
         if(!s.active_local && !manage){
           if(dual){
             document.getElementById('message').textContent='本机服务已就绪，正在返回…';

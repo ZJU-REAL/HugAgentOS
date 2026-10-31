@@ -103,7 +103,6 @@ SSE 流式不走 `api.ts` 的 JSON 通道，由 `hooks/useStreaming.ts` 直接�
 | `useChatInit` | 应用启动时的会话初始化与活动 run 恢复 |
 | `usePlanMode` | 计划模式 SSE 消费器（首次执行与续播共用） |
 | `usePageConfig` | 按 dot-path 读取页面配置（如 `branding.product_name`） |
-| `useStallDetector` | 流静默超时检测（卡顿提示） |
 | `useDelayedFlag` | 防闪烁的延迟布尔量（延迟显示 + 最短保持） |
 
 ## 流式正文显示

@@ -100,3 +100,17 @@
     transition: none;
   }
 }
+
+/* Phones: the jump rail has no room beside a full-width column, and the 44px
+   gutter above (0,3,0) outranks the mobile shell's `padding:0`, which left the
+   message column at ~70% of a 390px screen. Drop both below the mobile breakpoint. */
+@media (max-width: 960px) {
+  .jx-content .jx-panel:has(.jx-chatWrap) {
+    --jx-chat-panel-inline-gutter: 0px;
+    padding-inline: 0;
+  }
+
+  .jx-conversationNav {
+    display: none;
+  }
+}

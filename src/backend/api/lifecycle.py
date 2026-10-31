@@ -32,6 +32,7 @@ from api.startup.bootstrap import (
 )
 from api.startup.runtime import (
     _startup_thread_budget,
+    _startup_validate_space_transport,
     _startup_watch_capability_changes,
     _startup_recover_chat_runs,
     _startup_resume_loops,
@@ -126,6 +127,7 @@ def _startup_steps():
     return (
         # (step, stop, gate, roles, scope)
         (_startup_thread_budget, None, True, _ALL_ROLES, _PER_WORKER),
+        (_startup_validate_space_transport, None, True, _ALL_ROLES, _PER_WORKER),
         (_startup_ensure_tables, None, True, _ALL_ROLES, _SINGLETON),
         (_startup_watch_capability_changes, None, True, _ALL_ROLES, _PER_WORKER),
         (_startup_desktop_observability, None, True, _ALL_ROLES, _PER_WORKER),

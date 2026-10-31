@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Dropdown } from 'antd';
 import '../../styles/model-effort-popup.css';
-import { RobotOutlined, RightOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { RightOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { useChatStore, useChatModeStore, useModelCapabilitiesStore } from '../../stores';
 import { projectOverviewId, type ThinkingEffort } from '../../stores/chatStore';
 import { useModelMenuBounds } from './useModelMenuBounds';
@@ -141,7 +141,14 @@ export default function ModelEffortChip() {
       aria-label={t('切换模型与思考强度')}
       aria-description={triggerLabel + (triggerAside ? ' · ' + triggerAside : '')}
     >
-      <RobotOutlined className="jx-modelEffortCompactIcon" aria-hidden="true" />
+      {/* 收起态的模型位图标：四角星「AI」记号，线性描边与工具条其他图标同一笔画粗细 */}
+      <svg className="jx-modelEffortCompactIcon" width="16" height="16" viewBox="0 0 16 16"
+        fill="none" aria-hidden="true" focusable="false">
+        <path d="M8 2.25c.36 2.9 1.85 4.39 4.75 4.75-2.9.36-4.39 1.85-4.75 4.75C7.64 8.85 6.15 7.36 3.25 7 6.15 6.64 7.64 5.15 8 2.25Z"
+          stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+        <path d="M12.5 10.75c.12.95.6 1.43 1.55 1.55-.95.12-1.43.6-1.55 1.55-.12-.95-.6-1.43-1.55-1.55.95-.12 1.43-.6 1.55-1.55Z"
+          fill="currentColor" />
+      </svg>
       <span className="jx-composerChip-label">{triggerLabel}</span>
       {triggerAside && <span className="jx-modelEffortAside">{triggerAside}</span>}
       <ChipChevron />

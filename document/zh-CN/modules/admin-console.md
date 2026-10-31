@@ -26,7 +26,6 @@ HugAgentOS 提供**两个相互独立的管理入口**，分别面向内容运�
 | 待审草稿 | `SkillDraftsPanel` | `admin_skill_drafts.py` |
 | 沙盒依赖 | `SandboxDepsManager` | `admin_sandbox.py` |
 | 知识库管理 | `KnowledgeBaseManager` | `admin_kb.py` |
-| 本体治理 | `OntologyManager` | `ontologies.py` |
 | 提示词中心 | `PromptHubEditor` | `content.py`（`prompt_hub` 内容块） |
 | 子智能体 | `AdminAgentManager` | `admin_agents.py` |
 | 操作手册 | `ManualEditor` | `content.py`（manual PDF 上传） |
@@ -136,7 +135,7 @@ GitHub 绑定默认在此面板维护，也可用 `FEEDBACK_GITHUB_*` 环境变�
 
 | 路由组 | 文件 | 凭证 | 版本 | 说明 |
 |---|---|---|---|---|
-| `/v1/config/users` | `config_users.py` | `CONFIG_TOKEN` | 商业版 EE（multi_tenancy） | 用户列表 / 详情 / 状态、重置密码、删除，以及应用可见范围、本体校验等功能权限位，见 [认证与权限](auth.md) |
+| `/v1/config/users` | `config_users.py` | `CONFIG_TOKEN` | 商业版 EE（multi_tenancy） | 用户列表 / 详情 / 状态、重置密码、删除，以及应用可见范围等功能权限位，见 [认证与权限](auth.md) |
 | `/v1/config/teams` | `config_teams.py` | `CONFIG_TOKEN` | 商业版 EE（multi_tenancy） | 团队 CRUD、成员增删、角色设置 |
 | `/v1/config/invites` | `config_invites.py` | `CONFIG_TOKEN` | 商业版 EE（multi_tenancy） | 注册码批量生成 / 列表 / 吊销 / 删除 |
 | `/v1/config/security` | `config_security.py` | `CONFIG_TOKEN` | 商业版 EE（system_config） | 安全管理台（只读）：沙盒、审计日志、系统健康快照 |
@@ -152,7 +151,7 @@ GitHub 绑定默认在此面板维护，也可用 `FEEDBACK_GITHUB_*` 环境变�
 按《开源与商业化产品方案》第四章与路由注册表对齐：
 
 - **社区版（CE）保留**：`content.py` 内容块管理（品牌可定制）、`models.py` 模型管理、登录基础设施（`auth.py` 会话端点、mock SSO）。
-- **商业版（EE）**：完整内容管理台（问题反馈处置 / 技能 / 插件 / 草稿 / 市场 / 知识库 / 本体 / 子智能体 / 提示词 / MCP / 沙盒依赖，`content_admin`）、系统管理台（服务配置 + 安全台，`system_config`）、审计与会话审查（`audit`）、团队计费与用量（`billing`）、用户 / 团队 / 注册码（`multi_tenancy`）。
+- **商业版（EE）**：完整内容管理台（问题反馈处置 / 技能 / 插件 / 草稿 / 市场 / 知识库 / 子智能体 / 提示词 / MCP / 沙盒依赖，`content_admin`）、系统管理台（服务配置 + 安全台，`system_config`）、审计与会话审查（`audit`）、团队计费与用量（`billing`）、用户 / 团队 / 注册码（`multi_tenancy`）。
 - `config_license`、`config_verify`、`auth` 显式豁免 License 守卫，保证「402 → 换证」的逃生通道始终可达。
 
 ## 相关源码

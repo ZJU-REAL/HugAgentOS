@@ -104,8 +104,8 @@ Figures inside documents are no longer discarded. Indexing runs through
    protocols with structured-output degradation, and the hard constraint that only a
    multimodal provider can be assigned to that role. Mapping: `summary` → `caption`,
    `ocr.full_text` merges into `text_content` (alongside the document's own caption), and
-   entities / relations / uncertainty are kept in `metadata.vision` for the ontology layer
-   and human review. **Leaving `vision` unassigned (with a text-only main model) is a
+   entities / relations / uncertainty are kept in `metadata.vision` for human
+   review. **Leaving `vision` unassigned (with a text-only main model) is a
    normal state**: images stay retrievable through their caption text, and configuring the
    role later backfills descriptions without re-parsing any document.
 3. **Indexing** — each asset becomes one `row_type="image"` row whose `parent_chunk_id`

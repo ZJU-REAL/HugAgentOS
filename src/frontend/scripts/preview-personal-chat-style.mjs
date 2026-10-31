@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 const out = resolve('node_modules/.tmp/personal-chat-style');
 await mkdir(out, { recursive: true });
 await build({ entryPoints: ['scripts/personal-chat-style-fixture.tsx'], outfile: resolve(out, 'fixture.js'),
-  external: ['/loader.gif', '/loader-done.png'], bundle: true, format: 'esm', jsx: 'automatic', define: { 'import.meta.env': '{}' },
+  bundle: true, format: 'esm', jsx: 'automatic', define: { 'import.meta.env': '{}' },
   loader: { '.woff2': 'file', '.woff': 'file', '.ttf': 'file', '.png': 'file', '.svg': 'file' },
   alias: { '@hugagent/workbench-protocol': resolve('../../packages/workbench-protocol/dist/index.js') } });
 if (!process.argv.includes('--build-only')) createServer(async (req, res) => {

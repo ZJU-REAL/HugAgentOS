@@ -197,6 +197,13 @@ impl LocalServerManager {
         }
     }
 
+    /// Ready as reported by this process's own start routine. Unlike a bare
+    /// `/health` probe it is never true for a leftover server that
+    /// `start_server` is about to reclaim.
+    pub async fn reported_ready(&self) -> bool {
+        self.status.read().await.ready
+    }
+
     pub async fn snapshot(&self) -> LocalServerStatus {
         let mut value = self.status.read().await.clone();
         if !self.install_running.load(Ordering::SeqCst) && value.installed && self.is_ready().await

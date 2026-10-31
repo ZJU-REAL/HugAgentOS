@@ -4,7 +4,6 @@ import { motion } from 'motion/react';
 import { FileAttachmentCard } from '../file';
 import { ToolMessageContext } from '../tool/ToolMessageContext';
 import { EvolutionCard } from './EvolutionCard';
-import { OntologyReviewTrigger } from './OntologyReviewTrigger';
 import { MessageBody } from './MessageBody';
 import { MessageActions } from './MessageActions';
 import { MessageArtifacts } from './MessageArtifacts';
@@ -131,16 +130,6 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
             chatId={currentChatId}
             messageId={m.messageId}
           />
-        )}
-
-        {m.role === 'assistant' && m.ontologyGovernance && !inherited && (
-          <div className="jx-ontologyReviewInline">
-            <OntologyReviewTrigger
-              governance={m.ontologyGovernance}
-              chatId={currentChatId}
-              messageUid={m.uid}
-            />
-          </div>
         )}
 
         {inherited && <MessageInheritedCards m={m} />}

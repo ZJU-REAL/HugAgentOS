@@ -410,7 +410,7 @@ async def probe_mcp_connectivity(
                 )
                 if not report.valid:
                     messages = "; ".join(item.message for item in report.errors)
-                    raise RuntimeError(f"Domain Pack 构建校验失败：{messages}")
+                    raise RuntimeError(f"构建校验失败：{messages}")
         finally:
             await resource.close()
 

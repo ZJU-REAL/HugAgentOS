@@ -7,7 +7,8 @@ export type AbilityTabKey = 'agents' | 'skills' | 'mcp' | 'plugins';
 
 // ─── Projects (Claude-style workspaces) ─────────────────────────────────────
 
-export type ProjectKind = 'personal' | EditionProjectKind;
+/** ``local`` projects are desktop folders on this machine. */
+export type ProjectKind = 'personal' | 'local' | EditionProjectKind;
 
 export type ProjectPermission = 'admin' | 'edit' | 'view' | 'none';
 
@@ -23,6 +24,8 @@ export interface ProjectItem extends EditionProjectFields {
   linked_folder_id: string | null;
   /** Linked folder name (for frontend display) */
   folder_name: string | null;
+  /** Absolute folder path on this machine; local projects only. */
+  local_path?: string | null;
   instructions: string;
   instructions_source?: 'AGENTS.md' | 'legacy' | 'missing';
   instructions_revision?: string;

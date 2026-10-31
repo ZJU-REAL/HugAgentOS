@@ -19,8 +19,8 @@ const message: ChatMessage = {
 };
 const [updated] = mergeCompactionProgress([message], 'c1', [running]);
 assert.deepEqual(updated.segments!.map(s => s.type), ['tool', 'compaction', 'text']);
-for (const visible of [true, false]) {
-  const { runs } = groupExecutionRuns(updated, visible);
+{
+  const { runs } = groupExecutionRuns(updated);
   assert.equal(runs.length, 1);
   assert.equal(runs[0].tools.length, 1);
   assert.deepEqual(runs[0].steps.map(s => s.kind), ['tool', 'compaction']);
@@ -34,7 +34,7 @@ assert.equal(settled.length, updated.segments!.length);
 assert.equal(upsertCompactionSegment(settled, running)[1].compaction!.status, 'completed');
 assert.equal(compactionLabel(completed), '上下文已压缩');
 const failed = { ...running, status: 'failed' as const };
-const [{ steps }] = groupExecutionRuns({ ...updated, segments: upsertCompactionSegment(updated.segments!, failed) }, false).runs;
+const [{ steps }] = groupExecutionRuns({ ...updated, segments: upsertCompactionSegment(updated.segments!, failed) }).runs;
 assert.ok(renderToStaticMarkup(<ToolRunShell steps={steps} />).includes(t('上下文压缩失败')));
 assert.deepEqual(mergeCompactionProgress([message], 'other', [running])[0], message);
 assert.deepEqual(mergeCompactionProgress([message], 'c1', [{ ...running, message_id: 'other' }])[0], message);

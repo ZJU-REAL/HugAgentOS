@@ -29,7 +29,7 @@ teams ─────────┬── team_members（role: owner/admin/memb
 | `Project` | `projects` | `kind`（personal/team）、`instructions`、`linked_folder_id` / `linked_team_folder_id` 互斥挂钩、`pinned`、`metadata`（含项目级记忆开关）；CHECK 约束保证 kind 与 team_id 匹配 |
 | `ProjectFavorite` | `project_favorites` | 每人独立 star，不影响他人视图 |
 | `UserFolder` | `user_folders` | 个人文件夹树；命名安全约束（禁 `/`、`.`、`..`） |
-| `Artifact` | `artifacts` | 文件本体：`storage_key`（对象存储）、`user_folder_id` 与 `team_folder_id` 互斥、`parsed_text` / `summary` 跨轮读取缓存、软删 `deleted_at` |
+| `Artifact` | `artifacts` | 文件实体：`storage_key`（对象存储）、`user_folder_id` 与 `team_folder_id` 互斥、`parsed_text` / `summary` 跨轮读取缓存、软删 `deleted_at` |
 | `Team` / `TeamMember` | `teams` / `team_members` | 团队与成员（商业版 EE）；可由外部 SSO 部门自动建立（`source=sso_auto`） |
 | `TeamFolder` | `team_folders` | 团队文件夹树（商业版 EE） |
 
@@ -51,7 +51,7 @@ teams ─────────┬── team_members（role: owner/admin/memb
 | GET | `/v1/projects/{id}/chats` | 项目内会话列表（团队项目可见共享会话） |
 
 ### 页面加载
-项目列表在页面代码加载时显示标题、操作栏、搜索框和项目卡片骨架。首次请求项目数据时复用卡片骨架；已有列表刷新时保留原内容。选择项目后进入统一会话界面，项目资料单独加载。骨架适配窄屏和深色主题，并在系统启用减弱动态效果时停止微光动画。
+项目列表在页面代码加载时显示标题、操作栏、搜索框和项目卡片骨架。首次请求项目数据时复用卡片骨架；已有列表刷新时保留原内容。选择项目后进入统一会话界面，项目资料单独加载：加载期间项目标题和右侧资料栏显示与正式布局一致的骨架，指令、文件、记忆、定时任务卡片各自加载时用行骨架占位；加载失败时资料栏显示原因和重试。骨架适配窄屏和深色主题，并在系统启用减弱动态效果时停止微光动画。
 
 ### 项目会话与定时任务
 

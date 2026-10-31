@@ -6,6 +6,7 @@ import { applicationText } from './externalApi';
 import { useApplicationDirectory } from './catalog';
 import { activityPath, activityRequest } from './activityApi';
 import { reloadActivity, useActivity } from './activityStore';
+import { HostButton, HostNotice } from './ui';
 
 /** All notification content is plain text. Open actions are resolved by the host. */
 export function ActivityPanel({onOpen}: {onOpen: (applicationKey: string) => void}) {
@@ -32,21 +33,21 @@ export function ActivityPanel({onOpen}: {onOpen: (applicationKey: string) => voi
   if (!value.notifications.length && !value.background.length && !error) return null;
   return <aside aria-label={t('应用活动')} className="jx-activityPanel">
     <div aria-live="polite" aria-atomic="false">
-      {value.notifications.map(n => <article key={n.id} aria-label={title(n.applicationKey) + ' · ' + n.title}>
-        <strong>{title(n.applicationKey)} · {n.title}</strong><p>{n.body}</p>
-        <button type="button" onClick={() => onOpen(n.applicationKey)}>{t('打开应用')}</button>
-        <button type="button" disabled={busy === n.id}
+      {value.notifications.map(n => <article key={n.id} aria-label={title(n.applicationKey) + ' · ' + n.title} className="jx-activityPanel-item">
+        <div className="jx-activityPanel-text"><strong>{title(n.applicationKey)} · {n.title}</strong><p>{n.body}</p></div>
+        <HostButton size="small" onClick={() => onOpen(n.applicationKey)}>{t('打开应用')}</HostButton>
+        <HostButton size="small" tone="text" disabled={busy === n.id}
           onClick={() => void remove(n.id, '/v1/workbench/me/activity/notifications/' + encodeURIComponent(n.id), n.source)}>
-          {t('忽略通知')}</button>
+          {t('忽略通知')}</HostButton>
       </article>)}
     </div>
-    {value.background.map(row => <div key={row.resourceId}>
-      <span>{title(row.applicationKey)} · {t('后台运行中')}</span>
-      <button type="button" disabled={busy === row.resourceId}
-        onClick={() => void renew(row.applicationKey, row.instanceId, row.resourceId, row.source)}>{t('续期后台租约')}</button>
-      <button type="button" disabled={busy === row.resourceId} onClick={() => void remove(row.resourceId,
-        activityPath(row) + '/background/' + encodeURIComponent(row.resourceId), row.source)}>{t('停止后台运行')}</button>
+    {value.background.map(row => <div key={row.resourceId} className="jx-activityPanel-item">
+      <span className="jx-activityPanel-text">{title(row.applicationKey)} · {t('后台运行中')}</span>
+      <HostButton size="small" disabled={busy === row.resourceId}
+        onClick={() => void renew(row.applicationKey, row.instanceId, row.resourceId, row.source)}>{t('续期后台租约')}</HostButton>
+      <HostButton size="small" tone="danger" disabled={busy === row.resourceId} onClick={() => void remove(row.resourceId,
+        activityPath(row) + '/background/' + encodeURIComponent(row.resourceId), row.source)}>{t('停止后台运行')}</HostButton>
     </div>)}
-    {error && <p role="alert">{error}</p>}
+    {error && <HostNotice tone="error">{error}</HostNotice>}
   </aside>;
 }

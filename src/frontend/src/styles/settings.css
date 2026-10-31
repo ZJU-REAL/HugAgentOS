@@ -684,10 +684,41 @@
   .jx-settings-nav .jx-settings-navTitle {
     display: none;
   }
+  .jx-settings-nav {
+    scrollbar-width: none;
+  }
+  .jx-settings-nav::-webkit-scrollbar {
+    display: none;
+  }
   .jx-settings-navItem {
     flex-shrink: 0;
+    min-height: 44px;
   }
   .jx-settings-navIndicator { display: none; }
+
+  /* v2：不用描边按钮；退出登录是破坏性操作，走浅灰填充 + 红色文字。
+     antd 的 :hover / :active 规则是 (0,4,0)，直接写颜色压不住（触屏点按后 :hover 常驻，
+     会变回蓝色描边），所以改它读取的按钮变量；变量本身由
+     .ant-btn.ant-btn-color-default.ant-btn-variant-outlined (0,3,0) 定义，这里要压过它。 */
+  body .jx-settings-logoutBtn.ant-btn.ant-btn-variant-outlined {
+    --ant-btn-border-color: transparent;
+    --ant-btn-border-color-hover: transparent;
+    --ant-btn-border-color-active: transparent;
+    --ant-btn-bg-color: var(--color-bg-gray);
+    --ant-btn-bg-color-hover: var(--color-bg-gray);
+    --ant-btn-bg-color-active: var(--color-fill-hover);
+    --ant-btn-text-color: var(--color-error-text);
+    --ant-btn-text-color-hover: var(--color-error-text);
+    --ant-btn-text-color-active: var(--color-error-text);
+    border-color: transparent;
+    background: var(--color-bg-gray);
+    color: var(--color-error-text);
+  }
+  body .jx-settings-logoutBtn.ant-btn:hover {
+    border-color: transparent;
+    background: var(--color-bg-gray);
+    color: var(--color-error-text);
+  }
 
   .jx-settings-shell .jx-settings-page {
     width: 100%;

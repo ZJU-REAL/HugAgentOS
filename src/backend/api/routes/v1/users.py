@@ -181,7 +181,7 @@ def complete_my_onboarding(
 ):
     """Complete the CE bootstrap-owner setup after a usable main model exists.
 
-    Language, service endpoints, memory, and ontology preferences are saved by
+    Language, service endpoints, and memory preferences are saved by
     their existing APIs as each wizard step advances. This endpoint is the
     final, idempotent checkpoint that unlocks the normal application shell.
     """

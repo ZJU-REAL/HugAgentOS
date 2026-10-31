@@ -16,11 +16,12 @@ import {identityKey,createSessionRegistration} from './invalidation';
 import {createWorkspaceResourceExtension} from './resourceApi';
 import {ActivityWorkspace} from './ActivityWorkspace';
 import {applicationText} from './externalApi';
-import {SourceStatus} from './SourceStatus';
 import {sourceLabel} from './sourceIdentity';
 import {combineExtensions} from './combineExtensions';
 import {WorkspaceRouteHeader} from './WorkspaceRouteHeader';
 import {selectedWorkspaceView} from './workspaceView';
+import {HostButton} from './ui';
+import './workspace.css';
 
 interface RuntimeDocument {launch:WorkspaceLaunch;item:CatalogItem}
 /** Mounted beside the keyed business panel, across all builtin and application routes. */
@@ -49,7 +50,7 @@ export function WorkspaceRuntime(){
   if(launch.applicationKey!==identity.applicationKey||launch.context.applicationKey!==identity.applicationKey||launch.binding.installId!==identity.installId||launch.binding.packageRevision!==identity.packageRevision||launch.binding.origin.id!==identity.origin||launch.binding.executionScope!==identity.executionScope||launch.module.id!==moduleId||launch.module.surface!=='workspace')throw new Error('installation_binding_invalid');
   return {launch:{...launch,context:{...launch.context,instanceId}},item};
  },[catalog.items]);
- return <><SourceStatus failures={catalog.sourceErrors}/><WorkspaceInstances active={active} ownerScope={ownerScope} load={load}
+ return <><WorkspaceInstances active={active} ownerScope={ownerScope} load={load}
   validate={entry=>catalog.loading||!!catalog.items.find(value=>value.applicationKey===entry.identity.applicationKey&&value.availability.available&&value.binding?.installId===entry.identity.installId&&value.binding.origin.id===entry.identity.origin)}
   register={register} onDispose={()=>{}} onBlocked={current=>{
    if(current)openWorkspaceApplication(current.applicationKey,routes.current.get(current.applicationKey)?.path??'/');
@@ -76,11 +77,13 @@ function RuntimeFrame({entry,state,actions,route,ownerScope,active,hostNavigatio
   openWorkspaceApplication(item.applicationKey,path,value.replace===true,value.requestId);return {path,requestId:value.requestId};
  }}}),[entry,item.applicationKey,route]);
  const title=applicationText(item.declaration.title)+' · '+t(sourceLabel(launch.binding.origin));
- return <section aria-label={title} style={{height:'100%'}}>
-  <button type="button" onClick={()=>void actions.close().then(ok=>{if(ok)navigateTo(pathForPanel('app_center'));})}>{t('关闭')}</button>
-  <WorkspaceRouteHeader active={active} hostNavigation={hostNavigation} title={title} path={route.path}
-   views={(item.declaration.views??[]).map(view=>({...view,title:applicationText(view.title)}))}
-   label={t('应用二级导航')} onNavigate={path=>openWorkspaceApplication(item.applicationKey,path)}/>
+ return <section aria-label={title} className="jx-workspaceFrame">
+  <header className="jx-workspaceFrame-header">
+   <WorkspaceRouteHeader active={active} hostNavigation={hostNavigation} title={title} path={route.path}
+    views={(item.declaration.views??[]).map(view=>({...view,title:applicationText(view.title)}))}
+    label={t('应用二级导航')} onNavigate={path=>openWorkspaceApplication(item.applicationKey,path)}/>
+   <HostButton tone="text" size="small" onClick={()=>void actions.close().then(ok=>{if(ok)navigateTo(pathForPanel('app_center'));})}>{t('关闭')}</HostButton>
+  </header>
   <ActivityWorkspace context={activity} declared={[...(item.declaration.permissions??[])]} resourceId={resourceId} render={activityExtension=><PluginWorkspaceFrame
    launch={launch} instanceId={entry.instanceId} signal={entry.signal} ownerScope={ownerScope} route={route} onReady={actions.ready} onLoading={actions.loading} onFailed={actions.failed} onRetry={actions.retry}
    theme={themeMode==='dark'||(themeMode==='system'&&systemPrefersDark())?'dark':'light'} locale={getLang()}

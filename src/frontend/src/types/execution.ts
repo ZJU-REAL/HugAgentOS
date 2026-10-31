@@ -66,6 +66,17 @@ export interface JobBrief {
   completed_at?: string | null;
 }
 
+/** A sandbox command task of a chat (GET /v1/commands). */
+export interface CommandTaskBrief {
+  task_id: string;
+  command: string;
+  status: 'starting' | 'running' | 'completed' | 'failed' | 'cancelled' | 'unknown';
+  exit_code?: number | null;
+  created_at?: string | null;
+  /** Handed to the background (run_in_background, or still running when the foreground wait ended). */
+  background?: boolean;
+}
+
 // ── Autonomous Loop (long-running autonomous operation) ─────────────────────
 export interface LoopGoalSpec {
   objective: string;

@@ -49,6 +49,6 @@ export function PersonalTaskDialog({ task, onClose, onChange }: { task: Personal
     {error && <Alert type="error" message={error} />}
     <div className="pa-task-dialog-actions"><TaskActions task={task} onDone={onChange} onError={exc => setError(errorText(exc))} /></div>
     {hasOlder && <Button onClick={() => void history()}>{t('查看更早的消息')}</Button>}
-    <div ref={setViewport} className="pa-task-conversation" data-testid="task-conversation" data-chat-id={thread?.chat_id}>{rows.map((row, index) => <div className={'jx-msg ' + (row.role === 'user' ? 'user' : 'assistant')} key={row.uid}><div className="jx-msgInner"><div className="jx-msgContent"><ToolMessageContext.Provider value={{ chatId: thread?.chat_id || '', messageId: row.messageId, messageUid: row.uid, readOnly: true }}><MessageBody m={row} showProcess messageIndex={index} currentChatId={thread?.chat_id || ''} send={() => undefined} /></ToolMessageContext.Provider></div></div></div>)}</div>
+    <div ref={setViewport} className="pa-task-conversation" data-testid="task-conversation" data-chat-id={thread?.chat_id}>{rows.map((row, index) => <div className={'jx-msg ' + (row.role === 'user' ? 'user' : 'assistant')} key={row.uid}><div className="jx-msgInner"><div className="jx-msgContent"><ToolMessageContext.Provider value={{ chatId: thread?.chat_id || '', messageId: row.messageId, messageUid: row.uid, readOnly: true }}><MessageBody m={row} messageIndex={index} currentChatId={thread?.chat_id || ''} send={() => undefined} /></ToolMessageContext.Provider></div></div></div>)}</div>
   </Modal>;
 }

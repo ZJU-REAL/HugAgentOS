@@ -16,3 +16,13 @@
   .jx-projects-skHeading { flex-basis: 100%; }
   .jx-projects-skeletonContent .jx-projects-grid { grid-template-columns: minmax(0, 1fr); }
 }
+.jx-projectHeader-skBack { width: 88px; height: 16px; margin: 8px 0 16px; }
+.jx-projectHeader-skTitle { width: 200px; max-width: 60%; height: 28px; }
+.jx-projectHeader-skAction { width: 24px; height: 24px; }
+.jx-projectRail-skTitle { width: 72px; height: 16px; }
+.jx-projectRail-skAction { width: 24px; height: 24px; }
+.jx-projectConversationHistory-item--skeleton { cursor: default; pointer-events: none; }
+.jx-projectConversationHistory-skIcon { width: 16px; height: 16px; flex-shrink: 0; }
+.jx-projectConversationHistory-skTitle { width: 48%; height: 16px; }
+.jx-projectConversationHistory-skMeta { width: 32%; height: 12px; }
+.jx-projectEnvironment-skMode { width: 100%; height: 64px; border-radius: var(--radius-sm); }

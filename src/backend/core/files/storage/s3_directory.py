@@ -1,6 +1,17 @@
 """S3 directory operations shared by S3-compatible services."""
 from core.files.storage.entries import DirectoryPage, StorageEntry, page_limit, validate_key
 
+def error_code(exc) -> str:
+    return str(getattr(exc, "response", {}).get("Error", {}).get("Code"))
+
+def is_not_found(exc) -> bool:
+    return error_code(exc) in ("404", "NoSuchKey", "NotFound")
+
+def is_precondition_failed(exc) -> bool:
+    status = getattr(exc, "response", {}).get("ResponseMetadata", {}).get("HTTPStatusCode")
+    return error_code(exc) in ("412", "PreconditionFailed", "ConditionalRequestConflict") \
+        or status in (409, 412)
+
 class S3DirectoryOperations:
     def list_directory(self, prefix, *, cursor=None, limit=200):
         prefix = validate_key(prefix, directory=True)
@@ -26,7 +37,7 @@ class S3DirectoryOperations:
         try:
             result = self.s3_client.head_object(Bucket=self.bucket, Key=key)
         except self.ClientError as exc:
-            if str(exc.response.get("Error", {}).get("Code")) in ("404", "NoSuchKey", "NotFound"):
+            if is_not_found(exc):
                 return None
             raise
         return StorageEntry(key.rstrip("/").rsplit("/", 1)[-1], key, key.endswith("/"),

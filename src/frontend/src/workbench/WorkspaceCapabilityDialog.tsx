@@ -1,5 +1,6 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {Modal} from 'antd';
+import {HostButton,HostField,HostSelect} from './ui';
 import {t} from '../i18n';
 import type {HostConfirm,HostPrompt} from './capabilityHost';
 interface Pending {prompt:HostPrompt;resolve:(id:string)=>void;reject:(error:Error)=>void;clear:()=>void}
@@ -24,13 +25,17 @@ export function useWorkspaceConfirmation(){
   active.current=null;p.clear();setPending(null);p.resolve(selection);
  };
  const dialog=pending?<Modal open title={t(TITLES[pending.prompt.kind])} footer={null} onCancel={cancel}>
-  <p>{pending.prompt.detail}</p>
-  {pending.prompt.files && <label>{t('文件')}<select value={selection} onChange={e=>setSelection(e.target.value)}>
-   <option value="">{t('请选择文件')}</option>
-   {pending.prompt.files.map(f=><option key={f.fileId} value={f.fileId}>{f.name}</option>)}
-  </select></label>}
-  <button type="button" onClick={cancel}>{t('取消')}</button>
-  <button type="button" onClick={allow} disabled={pending.prompt.kind==='file'&&!selection}>{t('允许')}</button>
+  <div className="jx-hostDialog">
+   <p>{pending.prompt.detail}</p>
+   {pending.prompt.files && <HostField label={t('文件')}><HostSelect value={selection} onChange={e=>setSelection(e.target.value)}>
+    <option value="">{t('请选择文件')}</option>
+    {pending.prompt.files.map(f=><option key={f.fileId} value={f.fileId}>{f.name}</option>)}
+   </HostSelect></HostField>}
+   <div className="jx-hostDialog-actions">
+    <HostButton onClick={cancel}>{t('取消')}</HostButton>
+    <HostButton tone="primary" onClick={allow} disabled={pending.prompt.kind==='file'&&!selection}>{t('允许')}</HostButton>
+   </div>
+  </div>
  </Modal>:null;
  return {confirm,dialog};
 }

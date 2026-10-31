@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import './CanvasTabBar.css';
 import { useCanvasGuard } from './useCanvasGuard';
 import { t } from '../../i18n';
+import { useIsMobileViewport } from '../../hooks/useIsMobileViewport';
 import { useAgentStore } from '../../stores/agentStore';
 import { AgentIcon } from '../agent/AgentIcon';
 
@@ -25,6 +26,8 @@ export function CanvasTabBar({ controlsOnly = false, onWidthChange }: {
 } = {}) {
   const pane = useCanvasPaneId();
   const isSplit = useCanvasPane(s => s.isSplit);
+  // 手机上画布是盖住对话的全屏层：「收起」实际是回到对话，用关闭图标让人认得出来。
+  const isMobile = useIsMobileViewport();
   const toggleSplit = useCanvasPane(s => s.toggleSplit);
   const explicitLauncher = useCanvasLauncherStore(s => s.open && s.pane === pane);
   const showLauncher = useCanvasLauncherStore(s => s.show);
@@ -189,10 +192,10 @@ export function CanvasTabBar({ controlsOnly = false, onWidthChange }: {
           type="button"
           className="jx-canvasTabs-action"
           onClick={handleCollapse}
-          aria-label={t('收起右侧面板')}
-          title={t('收起右侧面板')}
+          aria-label={isMobile ? t('返回对话') : t('收起右侧面板')}
+          title={isMobile ? t('返回对话') : t('收起右侧面板')}
         >
-          <PanelToggleGlyph />
+          {isMobile ? <CloseOutlined /> : <PanelToggleGlyph />}
         </button></>}
       </div>
     </div>

@@ -1,7 +1,5 @@
-"""Ontology harness: Domain Pack validation, runtime selection, and gates."""
+"""Community edition has no domain ontology governance.
 
-from core.ontology.schemas import OntologyPackDocument
-from core.ontology.validator import DomainPackValidator
-from core.ontology.validation_models import OntologyGateDecision
-
-__all__ = ["DomainPackValidator", "OntologyGateDecision", "OntologyPackDocument"]
+The shared runtime still imports these module names; every function here is
+the "governance off" answer, so no pack, review, gate or prompt section exists.
+"""

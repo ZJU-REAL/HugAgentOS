@@ -259,7 +259,7 @@ def test_stale_mcp_error_does_not_replace_current_account_status(index_db, caps_
         bridge_client_state.manifest_error = None
         raise RuntimeError("old account offline")
 
-    monkeypatch.setattr("httpx.get", fetch)
+    monkeypatch.setattr("features.desktop.bridge.cloud_http.get", fetch)
     bridge_client.fetch_manifest_blocking(a)
     assert bridge_client_state.manifest_error is None
 

@@ -31,7 +31,6 @@ CE_DEFAULT_ADMIN_CAPABILITIES: Dict[str, Any] = {
     "can_create_public_kb": False,
     "can_create_channel_bot": True,
     "can_switch_model": True,
-    "can_use_ontology_validation": True,
     "can_run_autonomous_loop": True,
     "can_manage_chat_modes": False,
     "can_system_config": True,

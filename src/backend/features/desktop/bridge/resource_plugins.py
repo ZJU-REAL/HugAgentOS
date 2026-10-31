@@ -74,7 +74,11 @@ def local_config(server, user_id, profile):
             "components", {}
         ).get("mcp", []):
             continue
-        comp = store.get("plugin", profile, inst.key, inst.resolved_revision)
+        comp = (
+            store.get("plugin", profile, inst.key, inst.resolved_revision)
+            if inst.resolved_revision
+            else None
+        )
         if comp is None:
             raise HTTPException(409, "plugin_package_missing")
         definition = load_manifest(comp)

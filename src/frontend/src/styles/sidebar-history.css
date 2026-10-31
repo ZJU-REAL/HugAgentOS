@@ -295,6 +295,12 @@
 .jx-historyItem:hover .jx-historyActions,
 .jx-historyItem.active .jx-historyActions{ opacity:1; pointer-events:auto; }
 .jx-historyItem.editing .jx-historyActions{ display:none; }
+/* 触屏没有悬停：只在当前对话上显示会让其余对话无法重命名 / 删除，这里常显。 */
+@media (hover: none){
+  .jx-historyActions{ opacity:1; pointer-events:auto; }
+  .jx-historyItem .jx-historyMain{ padding-right:36px; }
+  .jx-historyActions .jx-historyMoreBtn{ width:32px; height:32px; }
+}
 .jx-historyItem:hover .jx-historyMain,
 .jx-historyItem.active .jx-historyMain{ padding-right:28px; }
 .jx-historyMoreBtn{
@@ -320,7 +326,21 @@
   transform-origin:left center;
   animation:jx-kf-renameIn var(--motion-duration-fast) var(--motion-ease-standard) both;
 }
-.jx-historyEditInput.ant-input{ border-radius:8px; border-color:var(--color-border); }
+/* 原地编辑：不再套一层白色输入框，整行转为灰底，文字与标题同位同字号 */
+.jx-historyItem.editing,
+.jx-historyItem.editing:hover{ background:var(--color-fill); cursor:text; }
+.jx-historyEditInput.ant-input,
+.jx-historyEditInput.ant-input:hover,
+.jx-historyEditInput.ant-input:focus{
+  padding:0; border:none; border-radius:0; box-shadow:none;
+  background:transparent;
+  font-size:14px; font-weight:500; line-height:20px;
+  color:var(--color-text);
+}
+.jx-historyEditInput.ant-input::selection{
+  background:color-mix(in srgb, var(--color-primary) 32%, transparent);
+  color:var(--color-text);
+}
 
 /* 关键词高亮：被 utils/highlight.ts 用于侧栏 + 搜索弹窗的高亮 span */
 .jx-searchHighlight{ color:var(--color-primary); font-weight:600; }

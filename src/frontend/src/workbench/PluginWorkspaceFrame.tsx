@@ -11,6 +11,8 @@ import {workspaceCapabilities} from './workspaceCapabilities';
 import {usePlatformExtension} from './usePlatformExtension';
 import {useRevisionLease} from './useRevisionLease';
 import {DiagnosticFailure} from './DiagnosticFailure';
+import {HostNotice} from './ui';
+import './workspace.css';
 import {applicationText} from './externalApi';
 import {packageAssetPath,sourceLabel,type WorkbenchOrigin,type WorkbenchSource} from './sourceIdentity';
 export interface WorkspaceLaunch {
@@ -85,11 +87,11 @@ export function PluginWorkspaceFrame({launch,theme,locale,onRetry,extension,onRe
  const prefix=(import.meta.env.VITE_API_BASE_URL||'/api').replace(/\/$/,'');
  const src=prefix+packageAssetPath(launch.assetPath,launch.applicationKey)+'&instanceId='+encodeURIComponent(instanceId);
  if(status==='failed')return <DiagnosticFailure applicationKey={launch.applicationKey} code={failureCode} onRetry={onRetry}/>;
- return <section aria-label={t('插件工作区')} style={{height:'100%',minHeight:400}}>
+ return <section aria-label={t('插件工作区')} className="jx-workspacePlugin">
   {dialog}{platform.dialog}
-  {lease.status==='recovering'&&<p role="status">{t('连接中断，正在恢复。应用操作已暂停。')}</p>}
-  {status==='loading'&&<p role="status">{t('正在加载插件模块…')}</p>}
+  {lease.status==='recovering'&&<HostNotice tone="warning">{t('连接中断，正在恢复。应用操作已暂停。')}</HostNotice>}
+  {status==='loading'&&<div className="jx-workspacePlugin-loading"><HostNotice tone="loading" placement="page">{t('正在加载插件模块…')}</HostNotice></div>}
   {lease.ready&&<iframe ref={frame} src={src} title={applicationText(launch.module.title)+' · '+t(sourceLabel(launch.binding.origin))}
-   sandbox="allow-scripts" referrerPolicy="no-referrer" style={{border:0,width:'100%',height:'100%',minHeight:400}}/>}
+   sandbox="allow-scripts" referrerPolicy="no-referrer" className="jx-workspacePlugin-frame"/>}
  </section>;
 }

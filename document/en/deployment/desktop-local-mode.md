@@ -25,6 +25,16 @@ selected by the run. Skills do not prescribe deployment directories: scripts run
 and leave outputs in the working directory. Windows drive letters, Unicode and spaces are handled as command
 arguments. Container sandboxes retain separate mount and My Space policies.
 
+## Hybrid mode: connecting to the cloud
+
+In hybrid mode the local backend shares one connection pool for fetching cloud capability
+manifests, downloading skill and plugin bundles, and syncing work copies, so consecutive requests
+reuse an established TLS connection. TCP connect plus the TLS handshake get 15 seconds by default,
+adjustable with `HUGAGENT_CLOUD_CONNECT_TIMEOUT_S`. A connect or handshake timeout is retried once
+(nothing has been sent yet, so repeating is safe); a read timeout is not. If it still fails, the
+sync status shows a readable message such as "connection to the cloud timed out, check your network
+or proxy", and the raw exception goes only to the local backend log.
+
 ## Verification
 
 Validate installation and upgrades on each supported native platform. Workspace regression checks cover

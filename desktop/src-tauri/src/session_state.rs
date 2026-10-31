@@ -1,5 +1,6 @@
 //! Owns the in-memory account and bridge state. Callers never receive write locks.
 use crate::{auth::SessionEpoch, hybrid::BridgeSync};
+use std::sync::atomic::AtomicBool;
 use tokio::sync::RwLock;
 
 #[derive(Default, Clone)]
@@ -11,6 +12,9 @@ pub(crate) struct Snapshot {
 
 pub(crate) struct SessionState {
     pub epoch: SessionEpoch,
+    /// LocalOnly startup: the saved token is still being checked against the
+    /// local server, so the setup page waits instead of routing on its own.
+    pub restoring: AtomicBool,
     state: RwLock<Snapshot>,
 }
 
@@ -18,6 +22,7 @@ impl SessionState {
     pub fn new(token: Option<String>) -> Self {
         Self {
             epoch: SessionEpoch::default(),
+            restoring: AtomicBool::new(false),
             state: RwLock::new(Snapshot {
                 token,
                 ..Default::default()

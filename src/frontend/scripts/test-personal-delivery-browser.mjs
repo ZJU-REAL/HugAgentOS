@@ -16,7 +16,6 @@ execFileSync(resolve(root, '.venv/bin/python'), ['-m', 'pytest',
   } });
 const fixture = JSON.parse(await readFile(fixturePath, 'utf8'));
 await build({ entryPoints: ['scripts/personal-delivery-fixture.tsx'], outfile: resolve(output, 'fixture.js'),
-  external: ['/loader.gif', '/loader-done.png'],
   loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl', '.png': 'dataurl' },
   bundle: true, format: 'esm', jsx: 'automatic', define: { 'import.meta.env': '{}' },
   alias: { '@hugagent/workbench-protocol': resolve('../../packages/workbench-protocol/dist/index.js') } });

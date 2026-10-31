@@ -25,7 +25,7 @@ The scheduled-task setup template is inserted only when its conversation is crea
 
 User messages use rounded bubbles. Only newly sent messages play the entrance animation. History loading and returning to a conversation do not replay it. Message actions remain available on hover, keyboard focus, and touch devices.
 
-Standalone reasoning retains its original inline summary. Reasoning within tool steps retains the timeline style. Click the summary or press Enter / Space while focused to expand or collapse it. Streaming updates preserve this choice.
+Reasoning and tool calls appear in a collapsible execution card. Reasoning inside it keeps the timeline style. Click the card header or press Enter / Space while focused to expand or collapse it. Streaming updates preserve this choice.
 
 Composer attachments use compact cards that retain filename extensions and omit the bottom file-type label. Failed uploads keep an inline error and a Retry action. Removing an attachment or switching drafts during an upload cannot place the result in another draft. Completed attachments retain preview and download actions. The document/image filter in My Space supports arrow keys, Home / End, and selected-state feedback.
 
@@ -176,7 +176,6 @@ Trusted unattended entry points (channel bots, scheduled automation) take the `d
 |---|---|---|
 | `thinking` | Reasoning (delta or stage hint) | `delta` / `message` |
 | `content` | Answer text delta | `event: "ai_message"`, `delta`, `chat_id` |
-| `content_replace` | Replaces the streamed draft in place when ontology review revises the final answer | `content`, `reason: "ontology_review"`, `chat_id` |
 | `tool_call_start` | Tool-call construction starts; the frontend opens one card by stable ID | `tool_name`, `tool_display_name`, `tool_id` |
 | `tool_call_delta` | Incremental argument JSON appended to the same card | `tool_name`, `tool_id`, `arguments_delta` |
 | `tool_call` | Arguments are complete and execution is about to start | `tool_name`, `tool_display_name`, `tool_args`, `tool_id`, plus `subagent_name` for sub-agent calls |
@@ -184,14 +183,13 @@ Trusted unattended entry points (channel bots, scheduled automation) take the `d
 | `steer_applied` | A mid-run instruction entered the ReAct context | `steer_id`, `message`, `message_id`, `chat_id` |
 | `queued_run_started` | A transactionally committed `followUp` / `nextRun`, or a `steer` that missed the final safe boundary, starts as a child and the frontend follows it immediately | `run_id`, `message_id`, `user_message_id`, `message`, `queue_id`, `steer_id`, `delivery_mode` |
 | `subagent_event` | Child execution details nested under the parent `call_subagent` card | `parent_tool_id`, `sub_type`, `agent_name`, plus child tool or content fields |
-| `ontology_activation` / `ontology_gate` / `ontology_review` | Ontology-governance state, separate from model reasoning | workflow activation, gate decision, and committee status or verdict |
 | `tool_pending` | Waiting fallback when the provider exposes no parseable argument deltas | `reason` |
 | `file_confirm` | A tool is suspended awaiting confirmation of a MySpace write | confirmation context; the tool resumes in place after an out-of-band `POST /v1/chats/{chat_id}/file-confirm` |
 | `user_question` | `ask_user_question` is suspended awaiting the chat owner's answer | `request_id`, `questions[]`, `created_at`, `expires_at`, `chat_id` |
 | `user_question_resolved` | The server settled an answer, cancellation, or timeout | `request_id`, `outcome`, `chat_id` |
 | `context_usage` | Context snapshot for the latest primary-model call; the total is measured when the provider returns usage | `source`, `exact`, `prompt_tokens`, `completion_tokens`, `used_tokens`, `context_window`, `breakdown` |
 | `compaction_notice` | A new context-compaction checkpoint was created after the previous turn | `chat_id`, `context_compaction` (coverage boundary and replacement-summary token count) |
-| `meta` | End-of-turn metadata | `route`, `citations[]`, `sources`, `artifacts`, `workspace_files`, `ontology_governance`, `warnings`, `is_markdown`, `message_id`, `usage`, `context_usage`, `compaction_pending` |
+| `meta` | End-of-turn metadata | `route`, `citations[]`, `sources`, `artifacts`, `workspace_files`, `warnings`, `is_markdown`, `message_id`, `usage`, `context_usage`, `compaction_pending` |
 | `error` | Failure (mapped to a user-friendly message) | `error`, `chat_id` |
 | `heartbeat` | Heartbeat (event-level; a `: heartbeat` comment line also exists) | — |
 
@@ -221,13 +219,7 @@ After `meta`, `chat_run_executor.py` persists the assistant message, backfills a
 and launches a background follow-up-question generator
 (`core/chat/followups.py`; results land in the message's
 `extra_data.follow_up_questions` and are fetched through
-`GET /v1/chats/{chat_id}/messages/{message_id}/followups`). The frontend
-collects ontology events in a standalone **Domain Ontology Governance** module
-instead of model reasoning. The model draft continues to stream token by token.
-If the committee changes the answer, the backend sends one `content_replace`
-event, the frontend replaces the body in place, and the database stores only
-the reviewed final answer. It persists `ontology_governance` with the assistant
-message so the module remains available after a history refresh.
+`GET /v1/chats/{chat_id}/messages/{message_id}/followups`).
 
 `usage` is cumulative billing data across all model calls in the turn.
 The context gauge instead consumes `context_usage`: `prompt_tokens +
@@ -568,7 +560,7 @@ receiver reconciles bindings about every three seconds. Adding, disabling or del
 
 Subagent invocation rows show a status indicator, the agent avatar, its name and elapsed time. Clicking the row opens that invocation in a dedicated right-side Canvas tab instead of expanding its process beneath the message. The running animation is separate from the avatar. Ordinary tools retain their existing expand/collapse behavior.
 
-The detail view reuses the main transcript’s tool batches, thinking and answer UI, including the same process visibility setting and collapsed defaults. It adds no separate parameter or execution-process sections. Completed invocation rows have no checkmark. It follows live updates until the reader scrolls up. Repeated invocations remain separate and coexist with file, ontology and plugin tabs. History uses saved data: at most 200 sub-steps and approximately 16,000 characters per string tool output; already truncated data cannot be recovered.
+The detail view reuses the main transcript’s tool batches, thinking and answer UI, including the same process visibility setting and collapsed defaults. It adds no separate parameter or execution-process sections. Completed invocation rows have no checkmark. It follows live updates until the reader scrolls up. Repeated invocations remain separate and coexist with file and plugin tabs. History uses saved data: at most 200 sub-steps and approximately 16,000 characters per string tool output; already truncated data cannot be recovered.
 
 Skill loading, plugin loading and tools with an unambiguous connector owner display the corresponding capability-center logo. Plugin-contributed tool icons take precedence. The running indicator remains separate from the logo, with existing click and collapse behavior unchanged. Ordinary tools retain their category icons.
 

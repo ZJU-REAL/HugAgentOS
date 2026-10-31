@@ -43,7 +43,6 @@ takeover and is meant for trials only.
 | Sandbox execution | OpenSandbox sessions with environment reuse and snapshot recovery, or a local subprocess sandbox; workflow jobs run as managed processes that can be taken over by lease | CE (CubeSandbox and team mounts are EE) |
 | Memory and personal evolution | L1 profile, L2 procedural memory (Milvus, optional), L3 relationship graph (Neo4j, optional); durable outbox writes; evolution proposals approved one by one | CE (memory auditing is EE) |
 | Knowledge base | Document chunking, hybrid vector and keyword retrieval, private knowledge bases, knowledge-base wiki | CE (public KB administration and Dify integration are EE) |
-| Domain ontology governance | Domain Pack import and versioned publishing, rule checks before tool execution, independent review of high-risk answers, human review of evolution drafts | CE |
 | Automation | Scheduled tasks in natural language, cron scheduling, retries on failure | CE |
 | Sites and application hosting | Build a site in chat and publish it in one click; separate application databases and MCP hosting | CE (site collaboration after project conversion is EE) |
 | Data canvas and artifacts | Univer spreadsheets, charts, reports, Office files, web pages and an artifact center | CE personal editing; real-time collaboration is EE |
@@ -78,7 +77,7 @@ takeover and is meant for trials only.
                          │
                          ▼
  Agent execution (core/agent_runtime · core/llm)
-   ReActAgent · per-step context assembly and compaction · memory / ontology / evolution integration
+   ReActAgent · per-step context assembly and compaction · memory / evolution integration
    Outer orchestration (orchestration/): Plan Mode · autonomous loop · automation
                          │
         ┌────────────────┼──────────────────┐
@@ -116,7 +115,6 @@ a task queue, scheduling, channels, device links and workspace files. See the
 | Plan Mode, autonomous loop, automation | `src/backend/orchestration/plans/`, `orchestration/loops/`, `orchestration/automations/` |
 | Personal Agent | `src/backend/personal_agent/` |
 | Memory and evolution | `src/backend/core/memory/`, `src/backend/core/evolution/` |
-| Domain ontology | `src/backend/core/ontology/` |
 | Sandbox | `src/backend/core/sandbox/` |
 | Built-in MCP, skills, plugins and agents | `src/backend/extensions/` |
 | Frontend entry | `src/frontend/src/main.tsx`, `App.tsx` |

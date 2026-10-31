@@ -1,5 +1,6 @@
 import {useEffect,useRef} from 'react';
 import {selectedWorkspaceView} from './workspaceView';
+import {HostButton} from './ui';
 interface HeaderView {id:string;path:string;title:string}
 interface Props {
  active:boolean;hostNavigation:boolean;title:string;path:string;views:readonly HeaderView[];
@@ -36,10 +37,10 @@ export function WorkspaceRouteHeader({active,hostNavigation,title,path,views,lab
    && !current.closest('button,a,[role="button"]')))return;
   target.focus({preventScroll:true});
  },[active,pathname,hostNavigation]);
- return <>
-  <h1 ref={heading} tabIndex={-1}>{caption}</h1>
-  {!!views.length&&<nav aria-label={label}>{views.map(value=><button type="button" key={value.id}
-   aria-current={view?.id===value.id?'page':undefined}
-   onClick={()=>onNavigate('/'+value.path.replace(/^\/+/,'') )}>{value.title}</button>)}</nav>}
- </>;
+ return <div className="jx-workspaceHeader">
+  <h1 ref={heading} tabIndex={-1} className="jx-workspaceHeader-title">{caption}</h1>
+  {!!views.length&&<nav aria-label={label} className="jx-workspaceHeader-views">{views.map(value=><HostButton key={value.id}
+   tone="text" size="small" className="jx-workspaceHeader-view" aria-current={view?.id===value.id?'page':undefined}
+   onClick={()=>onNavigate('/'+value.path.replace(/^\/+/,'') )}>{value.title}</HostButton>)}</nav>}
+ </div>;
 }

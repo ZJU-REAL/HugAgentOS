@@ -71,13 +71,19 @@
   color:var(--color-text-secondary, var(--color-text-secondary));
 }
 
+/* Floats over the bottom of the full-height history viewport. The solid
+   background runs to the pane's bottom edge so no message text shows beneath. */
 .jx-chatFooter{
-  position:relative;
-  flex-shrink:0;
+  position:absolute;
+  left:0;
+  right:0;
+  bottom:0;
   max-width:760px;
   margin:0 auto;
+  /* 12px chat-wrap gap + 18px page-panel bottom padding it replaces. */
+  padding-bottom:30px;
   z-index:10;
-  width:100%;
+  width:auto;
   display:flex;
   flex-direction:column;
   /* 实色背景防止滚动内容从底部透出；顶部渐变见 ::before */
@@ -170,7 +176,7 @@
 
 .jx-scrollToBottomBtn{
   position:absolute;
-  bottom:12px;
+  bottom:calc(12px + var(--jx-chat-footer-h, 0px));
   left:calc(50% - 18px);
   z-index:11;
   width:36px;
@@ -311,6 +317,22 @@
 
 .jx-followUpBtn:hover .jx-followUpArrow{
   color:var(--color-primary);
+}
+
+/* 触屏点按后 :hover 会一直粘在按钮上，看起来像被选中 */
+@media (hover:none){
+  .jx-followUpBtn:hover{
+    border-color:var(--color-border);
+    color:var(--color-text);
+    background:var(--color-bg-container);
+  }
+  .jx-followUpBtn:hover .jx-followUpArrow{
+    color:var(--color-text-placeholder);
+  }
+  /* 按下时 :hover 与 :active 同时成立，上面的重置不能吞掉按压反馈 */
+  .jx-followUpBtn:active{
+    background:var(--color-primary-bg);
+  }
 }
 
 /* 移动端延伸问题全宽 */

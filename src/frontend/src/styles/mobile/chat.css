@@ -19,6 +19,9 @@
   .jx-emptyPage--main .jx-heroBg{
     order:1;
     flex:none;
+    /* 桌面首页是靠左排的（welcome.css 的 align-items:flex-start）；手机上模式选择、
+       输入框、推荐问题都居中，hero 不跟着居中就会整页歪向左边。 */
+    align-items:center;
     padding:0;
     margin-top:clamp(24px, 8dvh, 68px);
     overflow:visible;

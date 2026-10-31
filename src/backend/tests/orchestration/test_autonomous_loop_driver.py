@@ -107,8 +107,6 @@ class Harness:
         monkeypatch.setattr(al, "asyncio", SimpleNamespace(
             sleep=self._fast_sleep, gather=asyncio.gather,
             CancelledError=asyncio.CancelledError))
-        # ontology 解析不碰 DB
-        import core.ontology.service as osvc
 
         monkeypatch.setattr(runtime_policy, 'build_user_ontology_runtime',
                             lambda **kw: (False, {"enabled": False, "packs": [],

@@ -263,7 +263,6 @@ curl http://localhost:3000/api/v1/chat-runs/run_9f8e7d/steers \
 | 个人空间 | `myspace_folders.py` | `/v1/myspace/folders` | `GET/POST /`、`POST /move-artifact` | 用户 |
 | 个人空间 | `artifacts.py` | `/v1/artifacts` | `GET /`、`GET /favorites`、`DELETE /{artifact_id}` | 用户 |
 | 记忆 | `memories.py` | `/v1/memories` | `GET /`、`DELETE /{memory_id}`、`GET/PATCH /settings`、`GET /profile`、`GET /graph` | 用户 |
-| 领域本体 | `ontologies.py` | `/v1/ontologies`、`/v1/admin/ontologies` | 用户设置/运行时预览；Domain Pack 版本、构建预检、门禁/评审证据、闭环指标和演进草案治理 | 用户 / ADMIN |
 | 能力目录 | `catalog.py` | `/v1/catalog` | `GET /`（能力目录）、`PATCH /{kind}/{id}` | 用户 |
 | 能力目录 | `kb.py` | `/v1/catalog/kb` | `POST /`、`POST /{kb_id}/documents`、`GET /{kb_id}/chunks`（个人知识库） | 用户 |
 | 能力目录 | `marketplace.py` | `/v1/marketplace` | `GET /skills`、`POST /install`、`POST /submissions`（技能市场） | 用户 |

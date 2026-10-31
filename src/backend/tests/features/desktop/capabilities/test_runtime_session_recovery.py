@@ -194,7 +194,7 @@ def test_authorization_check_makes_no_network_call(index_db, caps_root, monkeypa
     def forbidden(*args, **kwargs):
         raise AssertionError("authorization must not probe the cloud")
 
-    monkeypatch.setattr("httpx.get", forbidden)
+    monkeypatch.setattr("features.desktop.bridge.cloud_http.get", forbidden)
     for _ in range(3):
         bridge_identity.ensure_current_authorization()
     assert current[0] is not None

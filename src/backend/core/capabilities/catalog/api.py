@@ -41,13 +41,14 @@ __all__ = [
 
 # ── Public API ─────────────────────────────────────────────────────────────
 
-def get_catalog(*, include_runtime_details: bool = True) -> Dict[str, Any]:
+def get_catalog(*, include_runtime_details: bool = True, fresh: bool = False) -> Dict[str, Any]:
     """Load catalog.json; if missing or invalid, recreate defaults.
 
     Results are cached in-memory with a short TTL to avoid repeated
-    disk I/O and dynamic source loading on every request.
+    disk I/O and dynamic source loading on every request; ``fresh`` reads
+    the latest state (and refreshes the cache) instead.
     """
-    return load_catalog(include_runtime_details=include_runtime_details)
+    return load_catalog(include_runtime_details=include_runtime_details, fresh=fresh)
 
 
 def is_enabled(kind: str, item_id: str) -> bool:

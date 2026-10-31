@@ -11,7 +11,7 @@ src/backend/
 ├── api/             # FastAPI 应用、中间件与 CE 路由
 ├── edition_ee/      # 商业版路由、License、Team/RBAC、ORM、Dify 与服务实现
 ├── orchestration/   # 对话编排：Run 执行器、工作流、策略、引用、调度器
-├── core/            # 领域核心：17 个子模块（auth/llm/db/ontology/services/...）
+├── core/            # 领域核心：17 个子模块（auth/llm/db/services/...）
 ├── prompts/         # 提示词装配运行时 + 文件兜底文本
 ├── extensions/       # 随包扩展能力
 │   ├── skills/       # default / marketplace
@@ -90,8 +90,6 @@ src/backend/
 用户域：`user_service`、`local_user_service`（注册 / 登录 / 改密）、`api_key_service`（个人 API-Key）、`user_folder_service`、`project_service` + `project_file_service` + `project_scope`（项目工作空间）。
 
 配置域：`model_config`（DB 化模型配置，带缓存）、`system_config`（服务配置）、`mcp_service`（MCP 服务器配置）、`log_service`（可观测性日志异步落库）。
-
-本体域：`ontology_service`（用户开关、版本与运行时裁剪）、`ontology_evolution_service`（证据预筛、脱敏、人审草案与未激活版本物化）；`core/ontology/` 收口四层 Schema、构建校验、确定性门禁、工具过滤和提示词渲染。
 
 商业版 EE：`team_service` / `team_folder_service` / `sso_sync`（团队与 SSO 同步）、`distillation_service`（技能蒸馏）、`sandbox_rebuild_service` + `cube_template_builder`（持久沙箱模板重建）、`security_service`（安全管理台只读聚合）。
 
@@ -188,7 +186,7 @@ CE 路由位于 `api/routes/v1/`；已物理拆分的商业路由位于 `edition
 |---|---|
 | 会话与流式 | `chats.py`（流式 SSE 主入口）、`chat_runs.py`、`chat_shares.py`、`summary.py`、`classify.py`、`memories.py` |
 | 内容与文件 | `content.py`、`file_upload.py`、`file_parse.py`、`artifacts.py`、`myspace_folders.py`、`kb.py`（+ `kb_models.py` 纯 Pydantic 模型）、`projects.py` |
-| 能力与配置 | `catalog.py`、`models.py`、`config.py`、`marketplace.py`、`me_capabilities.py`（能力中心自助）、`ontologies.py`（用户开关、版本治理与证据闭环）、`agents.py`、`plans.py`、`automations.py`、`meta.py`（版本 / 能力位探针，无鉴权） |
+| 能力与配置 | `catalog.py`、`models.py`、`config.py`、`marketplace.py`、`me_capabilities.py`（能力中心自助）、`agents.py`、`plans.py`、`automations.py`、`meta.py`（版本 / 能力位探针，无鉴权） |
 | 用户与认证 | `users.py`、`me.py`、`api_keys.py`、`mock_sso.py`（开发态） |
 | 内容管理台（商业版 EE，`/admin` 后端） | `admin_skills.py`、`admin_prompts.py`、`admin_kb.py`、`admin_agents.py`、`admin_mcp_servers.py`、`admin_marketplace.py`、`admin_skill_drafts.py`、`admin_sandbox.py`、`admin_logs.py`、`admin_usage_logs.py`、`admin_billing.py`、`admin_chat_history.py` |
 | 系统管理台（商业版 EE，`/config` 后端） | `config_users.py`、`config_teams.py`、`config_invites.py`、`config_security.py`、`config_verify.py`、`config_license.py`、`service_configs.py` |

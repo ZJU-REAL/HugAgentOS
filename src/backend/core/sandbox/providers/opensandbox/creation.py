@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from datetime import timedelta
 from typing import Any, Optional
@@ -17,6 +18,7 @@ from core.sandbox.providers.opensandbox.models import SandboxSessionRecord as _S
 # deferred to runtime to avoid cross-module circular dependencies at startup
 # (models.py also imports core.db.engine).
 from core.sandbox.providers.opensandbox.runtime import (
+    _EXECD_ENVS,
     _INIT_ENTRYPOINT,
     _SETUP_ENTRYPOINT,
     logger,
@@ -51,6 +53,16 @@ class _OpenSandboxCreationMixin:
         # selected skill packages are staged explicitly into this container.
         if str(user_id or "").startswith("api_ak_"):
             volumes = []
+        elif os.getenv("DEPLOY_PROFILE") == "kubernetes":
+            # Pod workers cannot bind directories from the API container's host.
+            # Skills are delivered explicitly at execution time; spaces remain
+            # real authorized object-storage mounts.
+            credentials = credential_mounts(user_id)
+            if any(getattr(volume, "host", None) is not None for volume in credentials):
+                raise SandboxConnectError(
+                    "Kubernetes does not support host credential mounts; configure a native credential provider"
+                )
+            volumes = extra_volumes + credentials
         else:
             skills_vols = _make_skills_volumes(user_id)
             volumes = skills_vols + extra_volumes + credential_mounts(user_id)
@@ -61,7 +73,7 @@ class _OpenSandboxCreationMixin:
         # skip_health_check=True: execd's own readiness suffices, no waiting for Jupyter.
         # The metadata tag is for cross-process adopt (backend restart reclaiming its own sandboxes, see _adopt_existing_sandboxes).
         # 目录约定（scratch + /myspace 软链）随容器启动一起做完，首条命令不必再花一次
-        # execd 往返（实测 ~1s）。uid 走环境变量，entrypoint 保持常量。
+        # execd 往返。uid 走环境变量，entrypoint 保持常量。
         setup_uid = safe_user_id(user_id) if user_id else ""
         common_kwargs = dict(
             timeout=timedelta(seconds=self._session_expiry_s()),
@@ -70,9 +82,16 @@ class _OpenSandboxCreationMixin:
             skip_health_check=True,
             volumes=volumes or None,
             metadata={**_pool_metadata("jupyter", user_id=user_id), **extra_metadata},
+            env=dict(_EXECD_ENVS),
         )
+        if os.getenv("DEPLOY_PROFILE") == "kubernetes":
+            if not settings.sandbox.cpu or not settings.sandbox.memory:
+                raise SandboxConnectError(
+                    "Kubernetes sandboxes require SANDBOX_CPU and SANDBOX_MEMORY resource limits"
+                )
+            common_kwargs["resource"] = {"cpu": settings.sandbox.cpu, "memory": settings.sandbox.memory}
         if setup_uid:
-            common_kwargs["env"] = {"JX_MYSPACE_UID": setup_uid}
+            common_kwargs["env"]["JX_MYSPACE_UID"] = setup_uid
         try:
             if from_snapshot_id:
                 sbx = await self._create_owned_sandbox(snapshot_id=from_snapshot_id, **common_kwargs)
@@ -109,7 +128,7 @@ class _OpenSandboxCreationMixin:
         non-compose deployments, zero functionality loss). Returns whether we
         switched to direct connection.
         """
-        if not settings.sandbox.opensandbox_direct_execd_enabled:
+        if os.getenv("DEPLOY_PROFILE") == "kubernetes" or not settings.sandbox.opensandbox_direct_execd_enabled:
             return False
         # This process has already determined direct connection is unreachable → skip probing; don't let every sandbox burn another 6s probe budget.
         if getattr(self, "_direct_execd_unreachable", False):

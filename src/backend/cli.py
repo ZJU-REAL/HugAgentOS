@@ -132,6 +132,12 @@ def apply_local_env(port: int) -> dict:
         # orchestration.run_event_stream, selected by this being empty.
         "REDIS_URL": "",
         "SESSION_STORE": "memory",
+        # The desktop app restarts this process on every launch; keep logins in a
+        # file so the user is not sent back through browser confirmation each time.
+        # One local user on their own machine: sessions last as long as the
+        # default "remember me" window instead of a shared server's 8 hours.
+        "SESSION_PERSIST_PATH": str(dd / "sessions.json"),
+        "SESSION_TTL_HOURS": "720",
         "AUTH_MODE": "session",
         "SSO_LOGIN_MODE": "local",
         "LOCAL_AUTH_ENABLED": "true",

@@ -112,8 +112,6 @@ export const PANELS_DICT: Record<string, string> = {
   '右侧面板': 'Right panel',
   '文件预览与本体校验': 'File previews and ontology validation',
   '暂无可展示内容': 'Nothing to show yet',
-  '预览文件或运行本体校验后，内容会显示在这里。':
-    'Preview a file or run ontology validation to show content here.',
   // ── Sidebar / items ──────────────────────────────────────────────────
   '新建本地项目失败': 'Could not create local project',
   '下载更新': 'Download update',
@@ -338,6 +336,7 @@ export const PANELS_DICT: Record<string, string> = {
   '查看并管理已生成的分享链接与有效状态，查看浏览量': 'View and manage share links, validity, and view counts',
   '搜索标题关键词/分享ID': 'Search by title or share ID',
   '刷新': 'Refresh',
+  '新建或上传': 'New or upload',
   '暂无分享记录': 'No share records',
   '没有匹配的分享记录': 'No matching share records',
   '未命名分享': 'Untitled share',
@@ -461,7 +460,7 @@ export const PANELS_DICT: Record<string, string> = {
   '暂无长期记忆': 'No long-term memory yet',
   '清空全部记忆': 'Clear all memories',
 
-  // ── BrandLoader ──────────────────────────────────────────────────────
+  // ── Loading ──────────────────────────────────────────────────────────
   '加载中': 'Loading',
 
   // ── ImagePreview ─────────────────────────────────────────────────────

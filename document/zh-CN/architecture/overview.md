@@ -4,7 +4,7 @@
 
 HugAgentOS 是一个开源、可自托管的 Agent Harness，提供 HugAgentOS Cloud（全容器化服务端）与 HugAgentOS Local（桌面本机）两种运行形态。前端为 React 单页应用，后端为 FastAPI 异步服务，智能体底座为 AgentScope 2.0 的 ReActAgent，工具生态通过 MCP（Model Context Protocol）以独立进程提供，代码执行落在可插拔的沙箱驱动上。平台以「开源社区版（CE）+ 商业版（EE）」双形态发行，两版共用一套代码，通过路由注册表、建表边界与 license 能力位三道接缝裁剪（详见 [版本与授权](../editions/overview.md)）。
 
-本文从五个视角描述系统：分层架构、本体驱动的企业可信控制平面、一次对话请求的完整生命周期、容器拓扑、关键设计决策。更深入的模块拆解见 [后端架构](./backend.md)、[前端架构](./frontend.md) 与 [数据模型](./data-model.md)。
+本文从四个视角描述系统：分层架构、一次对话请求的完整生命周期、容器拓扑、关键设计决策。更深入的模块拆解见 [后端架构](./backend.md)、[前端架构](./frontend.md) 与 [数据模型](./data-model.md)。
 
 ## 技术栈一览
 
@@ -40,7 +40,7 @@ HugAgentOS 是一个开源、可自托管的 Agent Harness，提供 HugAgentOS C
 ┌──────────────────────────────▼─────────────────────────────────────┐
 │  智能体执行                                                          │
 │  core/agent_runtime：runner.astream_chat_workflow、路由策略、         │
-│    记忆 / 本体 / 进化集成                                            │
+│    记忆 / 进化集成                                                   │
 │  core/llm：factory/build → AgentScope ReActAgent、工具、上下文、引用 │
 │  orchestration/：plans 计划模式 · loops 自主循环 · automations 自动化 │
 │  personal_agent/：身份、任务队列、调度、渠道、设备连接、工作区        │
@@ -55,66 +55,6 @@ HugAgentOS 是一个开源、可自托管的 Agent Harness，提供 HugAgentOS C
 ```
 
 依赖方向自上而下单向：`api → features / orchestration / personal_agent → core`；`core` 不依赖上层，`integrations/` 承载钉钉、飞书、邮箱等外部系统接入。MCP 服务器是独立进程，与后端只通过 HTTP 通信，崩溃互不影响。
-
-## 领域本体驱动的企业可信控制平面
-
-HugAgentOS 将领域本体作为可执行的控制平面，而不只是一个知识库，
-从而把智能体运行时扩展为面向企业的可信 AgentOS。版本化的领域包
-（Domain Pack）可从受控概念和关系，逐步延伸到不变式、Action 契约、
-工作流、角色、权限和证据要求，让技能、编排和记忆三个引擎使用同一套
-业务语义。
-
-下图是在当前 Harness 基础上渐进集成的目标企业架构。现有的确认门、
-结构化审查结论、审计记录与版本管理构成底座，本体资产和执行约束则逐步
-接入；这一机制用于增强合规与证据驱动审查，不宣称能消除所有自由文本幻觉。
-
-```mermaid
-flowchart TB
-    U[企业用户与多端渠道] --> API[Web / 桌面端 / API]
-    API --> RUN[ChatRun 与流式工作流]
-
-    ONTO[领域本体控制平面<br/>概念 · 关系 · 不变式<br/>Action 契约 · 角色 · 权限]
-    ONTO --> BUILD[构建时校验<br/>技能 · 工具 · 子智能体]
-    ONTO --> BOOT[领域启动注入<br/>语义对齐 · 相关规则]
-
-    subgraph HARNESS[三引擎 Agent Harness]
-        direction LR
-        SKILL[技能引擎] <--> ORCH[编排引擎]
-        ORCH <--> MEMORY[记忆引擎]
-    end
-
-    RUN --> ORCH
-    BUILD --> SKILL
-    BOOT --> ORCH
-    BOOT --> MEMORY
-    ORCH --> PLAN[候选计划或 Action]
-
-    PLAN --> RULE[确定性本体规则门]
-    ONTO --> RULE
-    RULE -->|低风险且合规| EXEC[受控执行]
-    RULE -->|检查点或高风险| REVIEW[证据驱动复核]
-    REVIEW -->|通过| EXEC
-    RULE -->|违规| REVISE[拒绝并返回证据与修复指引]
-    REVIEW -->|修订或升级| REVISE
-    REVISE --> ORCH
-
-    EXEC --> CAP[MCP · Skills · 沙箱 · RAG]
-    EXEC --> AUDIT[可追溯审计与回放]
-    REVISE --> AUDIT
-    AUDIT --> EVOLVE[受治理的本体演进提案]
-    EVOLVE -. 人工审批 · 版本化 · 可回滚 .-> ONTO
-```
-
-可信控制平面遵循三项原则，避免把每一步都变成高成本的委员会审查：
-
-1. **确定性优先。** 先执行可机械判定的不变式、权限和 Action 契约。
-2. **按风险复核。** 仅检查点、高风险动作或证据不确定时进入深度复核；
-   合规的低风险动作可直接通过执行门。
-3. **有证据再演进。** 违规、审批和执行结果进入审计链；本体变更提案必须经过
-   人工批准、生成新版本并保留回滚路径。
-
-本体与 RAG 相互补充：本体规定智能体可以做什么、需要满足哪些约束，
-RAG 则提供支撑决策所需的文档与证据。
 
 ## 一次对话请求的完整生命周期
 

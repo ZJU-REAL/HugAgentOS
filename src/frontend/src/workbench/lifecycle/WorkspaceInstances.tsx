@@ -1,7 +1,10 @@
+import {Modal} from 'antd';
 import {DiagnosticFailure} from '../DiagnosticFailure';
 import {workspaceFailureCode} from '../workspaceFailureCode';
 import {Component,useEffect,useMemo,type ReactNode} from 'react';
 import {t} from '../../i18n';
+import {HostNotice} from '../ui';
+import '../workspace.css';
 import {createStateExtension,type StateExtension} from '../stateExtension';
 import {InstancePool,instanceKey,type ApplicationInstance,type InstanceIdentity} from './instancePool';
 
@@ -22,6 +25,12 @@ interface Props<T> {
  validate:(instance:ApplicationInstance<T>)=>boolean;
  register?:(instance:ApplicationInstance<T>,revoke:()=>void)=>()=>void;
 }
+function confirmDiscard(){
+ return new Promise<boolean>(resolve=>Modal.confirm({
+  title:t('此页面有未保存内容。是否放弃更改并离开？'),okText:t('放弃更改'),cancelText:t('留在此页'),
+  okButtonProps:{danger:true},onOk:()=>resolve(true),onCancel:()=>resolve(false),
+ }));
+}
 export function WorkspaceInstances<T>(props:Props<T>){
  return <OwnedWorkspaceInstances key={props.ownerScope} {...props}/>;
 }
@@ -32,7 +41,7 @@ class OwnedWorkspaceInstances<T> extends Component<Props<T>,{entries:readonly Ap
  private mounted=false;
  private unsubscribe:(()=>void)|undefined;
  private pool=new InstancePool<T>({
-  confirmDiscard:entry=>this.props.confirmDiscard?.(entry)??window.confirm(t('此页面有未保存内容。是否放弃更改并离开？')),
+  confirmDiscard:entry=>this.props.confirmDiscard?.(entry)??confirmDiscard(),
   dispose:entry=>this.props.onDispose(entry),
  });
  private beforeUnload=(event:BeforeUnloadEvent)=>{
@@ -87,9 +96,9 @@ function RetainedInstance<T>({entry,pool,schemaVersion,render,register}:{
   close:()=>pool.close(entry.id),
  };
  return <section hidden={entry.id!==pool.currentId} aria-label={entry.identity.applicationKey}
-  data-instance-id={entry.instanceId} data-instance-status={entry.status} style={{height:'100%'}}>
+  data-instance-id={entry.instanceId} data-instance-status={entry.status} className="jx-workspaceInstance">
   {entry.error!==undefined && entry.status!=='closed' && <DiagnosticFailure applicationKey={entry.identity.applicationKey} error={entry.error} code={workspaceFailureCode(entry.error)} onRetry={actions.retry}/>}
-  {entry.error===undefined && entry.value===undefined && <p role="status">{t('正在加载插件模块…')}</p>}
+  {entry.error===undefined && entry.value===undefined && <HostNotice tone="loading" placement="page">{t('正在加载插件模块…')}</HostNotice>}
   {entry.value!==undefined && entry.error===undefined && render(entry,extension,actions)}
  </section>;
 }

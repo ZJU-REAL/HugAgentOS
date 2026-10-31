@@ -1,6 +1,6 @@
 //! Assemble configured services and the initial window; runtime event wiring lives in app.
 use crate::display::sanitize_zoom;
-use crate::session::{handle_deep_link, spawn_startup_probe};
+use crate::session::{handle_deep_link, spawn_local_session_restore, spawn_startup_probe};
 use crate::tray::build_tray;
 use crate::windows::build_window;
 use crate::{
@@ -248,6 +248,9 @@ pub(crate) fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error:
         format!("http://127.0.0.1:{}/__desktop/login", port)
     };
     build_window(&handle, "main", &start)?;
+    if !needs_initialization && cfg.uses_local_server() {
+        spawn_local_session_restore(handle.clone());
+    }
     if !needs_initialization && !cfg.uses_local_server() {
         spawn_startup_probe(
             handle.clone(),

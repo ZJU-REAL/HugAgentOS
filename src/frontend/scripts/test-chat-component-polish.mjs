@@ -16,7 +16,6 @@ import { ThinkingStepRow } from './src/components/tool/ThinkingStepRow';
 import { useComposerFiles } from './src/hooks/useComposerFiles';
 import { useComposerStore } from './src/stores/composerStore';
 import { useChatStore } from './src/stores/chatStore';
-import { useUIStore } from './src/stores/uiStore';
 import { processChatStream } from './src/hooks/chatStream';
 import { newMessageUid } from './src/utils/messageIdentity';
 import './src/styles/variables.css';
@@ -27,7 +26,6 @@ useChatStore.setState({currentChatId:'a',currentUserId:'component-test',store:{o
  a:{id:'a',title:'test',messages:[],createdAt:1,updatedAt:1},
  b:{id:'b',title:'other',messages:[],createdAt:1,updatedAt:1}
 }}});
-useUIStore.setState({dispatchProcessVisible:false});
 useComposerStore.getState().resetForUser('component-test');
 useComposerStore.getState().activate('chat:a');
 function Fixture() {
@@ -66,7 +64,7 @@ function Fixture() {
 createRoot(document.getElementById('root')).render(<Fixture/>);
 `;
 const bundle=await build({stdin:{contents:fixture,resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,
- format:'esm',jsx:'automatic',outfile:'fixture.js',external:['/loader.gif','/loader-done.png'],define:{'import.meta.env':'{}'},
+ format:'esm',jsx:'automatic',outfile:'fixture.js',define:{'import.meta.env':'{}'},
  loader:{'.css':'css','.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl','.svg':'dataurl'}});
 const js=bundle.outputFiles.find(f=>f.path.endsWith('.js')).text;
 const css=(bundle.outputFiles.find(f=>f.path.endsWith('.css'))?.text||'')+' html,body{height:auto;overflow:auto;}';
@@ -116,23 +114,23 @@ try {
  assert.equal(await group.getByRole('radio',{name:'文档'}).getAttribute('aria-checked'),'true');
  check('分段筛选方向键、Home、焦点和选中状态');
  await page.getByRole('button',{name:'开始流式回复',exact:true}).click();
- const thinking=page.locator('.jx-msg.assistant .jx-inlineFold').first();
- const summary=thinking.getByRole('button');
+ const thinking=page.locator('.jx-msg.assistant .jx-trs').first();
+ const summary=thinking.locator('.jx-trs-head');
  await summary.waitFor();
- await thinking.locator(".jx-inlineSummaryArrow").waitFor();
  assert.equal(await summary.getAttribute('aria-expanded'),'false');
- assert.equal(await thinking.locator('.jx-collapse--open').count(),0);
+ assert.equal(await thinking.locator('.jx-trs-bodyWrap--open').count(),0);
  await summary.focus();await page.keyboard.press('Enter');
- await thinking.locator('.jx-collapse--open').waitFor();
+ await thinking.locator('.jx-trs-bodyWrap--open').waitFor();
+ await thinking.locator('.jx-tcr-header').click();
  await page.getByText('先检查附件格式。然后核对数据和结论。',{exact:true}).waitFor();
  assert.equal(await summary.getAttribute('aria-expanded'),'true');
  await page.screenshot({path:resolve(evidence,'01-stream-thinking.png'),fullPage:true});
  await page.getByText('流式结束',{exact:true}).waitFor();
  assert.equal(await summary.getAttribute('aria-expanded'),'true');
- assert.equal(await summary.innerText(),'思考过程');
+ assert.equal(await thinking.locator('.jx-trs-title').innerText(),'思考完成');
  await page.getByText('附件内容已核对。',{exact:true}).waitFor();
  await summary.focus();await page.keyboard.press('Space');
- assert.equal(await thinking.locator('.jx-collapse--open').count(),0);
+ assert.equal(await thinking.locator('.jx-trs-bodyWrap--open').count(),0);
  check('真实 SSE 解析、思考流式更新、展开保持、完成态及键盘折叠');
  const step=page.locator('.jx-tcr').last();
  await step.getByRole('button').click();

@@ -26,7 +26,6 @@ createRoot(document.getElementById('root')).render(<div style={{width:'min(440px
 `, resolveDir: process.cwd(), loader: 'tsx' },
   outfile: resolve(output, 'fixture.js'), bundle: true, format: 'esm', jsx: 'automatic',
   define: { 'import.meta.env': '{}' }, loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl' },
-  external: ['/loader.gif', '/loader-done.png'],
   plugins: [{
     name: 'preview-boundary',
     setup(build) {

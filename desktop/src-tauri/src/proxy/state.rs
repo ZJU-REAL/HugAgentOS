@@ -23,6 +23,10 @@ pub(super) struct SetupStatus {
     /// 避免把随启动变化的反代随机端口写进可分享的 URL。
     local_server_base: String,
     provision_mode: ProvisionMode,
+    /// 本机模式：壳持有已保存的会话，就绪后直接进入应用，不跳登录卡片。
+    has_session: bool,
+    /// 启动时壳还在向本机服务校验这份会话；结论由壳导航，进度页只等待。
+    session_restoring: bool,
     /// 双模式：云端身份 / 模型拓扑是否已推到本机执行面。
     bridge: crate::hybrid::BridgeSync,
     update: crate::update::UpdateStatus,
@@ -35,6 +39,11 @@ pub(super) async fn setup_status_value(state: &ProxyState) -> SetupStatus {
         current_server_base: state.server_base.clone(),
         local_server_base: state.local_base.clone(),
         provision_mode: state.provision_mode.clone(),
+        has_session: state.session.token().await.is_some(),
+        session_restoring: state
+            .session
+            .restoring
+            .load(std::sync::atomic::Ordering::SeqCst),
         bridge: state.session.snapshot().await.bridge,
         update: crate::update::status(),
     }

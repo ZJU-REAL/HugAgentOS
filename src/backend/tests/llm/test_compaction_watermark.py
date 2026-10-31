@@ -331,59 +331,6 @@ def test_history_rewrite_invalidates_lineage_and_fences_inflight_summary(db_sess
     assert rebuilt.base_covered_seq == 0
     assert rebuilt.source_message_ids == ("m1", "m2")
 
-def test_accepting_covered_revision_invalidates_checkpoint_and_inflight_snapshot(
-    db_session,
-):
-    svc = _session(db_session)
-    _message(svc, "m1", "user", "question")
-    answer = svc.message_repo.create(
-        {
-            "message_id": "m2",
-            "chat_id": CHAT_ID,
-            "role": "assistant",
-            "content": "old answer",
-            "extra_data": {
-                "ontology_governance": {
-                    "review": {"candidate_answer": "accepted revised answer"}
-                }
-            },
-        }
-    )
-    svc.add_compaction_checkpoint(
-        CHAT_ID,
-        summary_text=C.format_summary_text("old summary"),
-        replacement_history=[
-            {"role": "user", "content": C.format_summary_text("old summary")}
-        ],
-        covered_seq=answer.chat_seq,
-    )
-    _message(svc, "m3", "user", "tail")
-    stale = svc.acquire_compaction_snapshot(CHAT_ID, owner="stale", lease_seconds=60)
-    assert stale is not None
-
-    updated = svc.accept_ontology_revision("m2")
-    assert updated is not None and updated.content == "accepted revised answer"
-    assert svc.get_latest_compaction_checkpoint(CHAT_ID) is None
-    try:
-        svc.commit_compaction_checkpoint(
-            stale,
-            owner="stale",
-            summary_text=C.format_summary_text("stale summary"),
-            replacement_history=[],
-            replacement_manifest={},
-        )
-    except CompactionCASConflict:
-        pass
-    else:
-        raise AssertionError("accepted revision must fence the in-flight summary")
-
-    rendered = "\n".join(
-        C.render_content_for_summary(item["content"])
-        for item in S._load_history(svc, CHAT_ID)
-    )
-    assert "accepted revised answer" in rendered
-    assert "old summary" not in rendered
-
 def test_checkpoint_write_failure_is_explicit_and_emits_no_fake_notice(
     db_session, monkeypatch
 ):

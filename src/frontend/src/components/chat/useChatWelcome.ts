@@ -83,7 +83,7 @@ export function useChatWelcome(chat: ChatItem | undefined) {
     ? t('描述你想要的网站，例如：一个展示咖啡馆菜单与营业时间的单页网站')
     : isAgentChat
       ? t('向{name}提问...', { name: chat.agentName || t('智能体') })
-      : isProjectChat ? t('在「{name}」内开始新对话，Enter 发送，Shift+Enter 换行', { name: chat.projectName || t('项目') }) : cfgInputPlaceholder;
+      : isProjectChat ? t('在「{name}」内开始新对话', { name: chat.projectName || t('项目') }) : cfgInputPlaceholder;
 
   if (publicChat) return {
     overviewProjectId: undefined, isAgentChat: true, isSiteChat: false, isProjectChat: publicChat.kind === 'projects',

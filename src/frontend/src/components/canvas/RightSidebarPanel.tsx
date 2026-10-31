@@ -6,7 +6,6 @@ import { useCanvasPaneId } from './useCanvasPane';
 import './CanvasSplit.css';
 import { CanvasLauncher } from './CanvasLauncher';
 import { useCanvasLauncherStore } from './canvasLauncherStore';
-import { InsertRowRightOutlined } from '@ant-design/icons';
 
 import { t } from '../../i18n';
 
@@ -14,12 +13,12 @@ import { ContentErrorBoundary } from '../common';
 import { SubagentSidebarPanel } from './SubagentSidebarPanel';
 import { CanvasPanel } from './CanvasPanel';
 import { CanvasTabBar } from './CanvasTabBar';
-import { OntologySidebarPanel } from './OntologySidebarPanel';
 import { PluginCanvasPanel } from './PluginCanvasPanel';
 import { canvasRenderer } from './customCanvasRegistry';
 
 export function RightSidebarPanel() {
-  const isSplit = useCanvasStore(s => s.isSplit);
+  // 走 useCanvasPane：退出动画期间保持分屏形态，不在收起时先塌成单栏
+  const isSplit = useCanvasPane(s => s.isSplit);
   const focusPane = useCanvasStore(s => s.focusPane);
   const root = useRef<HTMLDivElement>(null);
   const cleanup = useRef<(() => void) | null>(null);
@@ -99,7 +98,6 @@ function SidebarContent() {
   const activeView = useCanvasPane((state) => state.activeView);
   const artifact = useCanvasPane((state) => state.artifact);
   const activeTabId = useCanvasPane((state) => state.activeTabId);
-  const ontologyTarget = useCanvasPane((state) => state.ontologyTarget);
 
   // key=页签 id：切换页签必须换一份面板实例，否则上一份的预览状态（xlsx 编辑缓冲、
   // 画布视口、加载中的 blob）会漏到新页签上。
@@ -123,37 +121,8 @@ function SidebarContent() {
   if (activeView === 'custom') return <CustomCanvasPanel key={activeTabId} />;
   // No evolution view: what a turn learned is now shown, and edited, inline on
   // the card itself. A side panel could only restate it one click further away.
-  if (activeView === 'ontology') {
-    return (
-      <ContentErrorBoundary
-        resetKey={`ontology:${ontologyTarget?.chatId ?? ''}:${ontologyTarget?.messageUid ?? ''}`}
-        fallback={(
-          <aside className="jx-rightSidebar jx-rightSidebar--ontology" role="alert">
-            <CanvasTabBar />
-            <div className="jx-rightSidebar-empty">
-              <strong>{t('本体校验结果暂时无法显示')}</strong>
-              <span>{t('当前会话仍可继续使用，请稍后重新打开结果。')}</span>
-            </div>
-          </aside>
-        )}
-      >
-        <OntologySidebarPanel />
-      </ContentErrorBoundary>
-    );
-  }
-
-  return (
-    <aside className="jx-rightSidebar jx-rightSidebar--blank" aria-label={t('右侧面板')}>
-      <CanvasTabBar />
-      <div className="jx-rightSidebar-body">
-        <div className="jx-rightSidebar-empty">
-          <InsertRowRightOutlined />
-          <strong>{t('暂无可展示内容')}</strong>
-          <span>{t('预览文件或运行本体校验后，内容会显示在这里。')}</span>
-        </div>
-      </div>
-    </aside>
-  );
+  // 没有页签（activeView === 'empty'）时 CanvasPane 一定盖着启动页，这里无需兜底内容
+  return null;
 }
 
 function CustomCanvasPanel() {

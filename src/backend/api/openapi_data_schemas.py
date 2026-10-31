@@ -262,7 +262,6 @@ DATA_COMPONENTS: Dict[str, Dict[str, Any]] = {
             "allowed_apps": {"type": "array", "items": {"type": "string"}},
             "lab_enabled": {"type": "boolean"},
             "can_use_voice": {"type": "boolean", "default": False},
-            "can_use_ontology_validation": {"type": "boolean"},
         },
     },
     "CurrentUserInfo": {

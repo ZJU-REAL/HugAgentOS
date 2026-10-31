@@ -6,7 +6,7 @@ import {resolve} from 'node:path';
 import {chromium} from 'playwright';
 const output=resolve('node_modules/.tmp/voice-input-browser');
 await mkdir(output,{recursive:true});
-await build({entryPoints:['scripts/voice-browser-fixture.tsx'],outfile:resolve(output,'fixture.js'),bundle:true,alias:{'@hugagent/workbench-protocol':resolve('../../packages/workbench-protocol/dist/index.js')},format:'esm',jsx:'automatic',define:{'import.meta.env':'{}'},external:['/loader.gif','/loader-done.png'],loader:{'.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl'},
+await build({entryPoints:['scripts/voice-browser-fixture.tsx'],outfile:resolve(output,'fixture.js'),bundle:true,alias:{'@hugagent/workbench-protocol':resolve('../../packages/workbench-protocol/dist/index.js')},format:'esm',jsx:'automatic',define:{'import.meta.env':'{}'},loader:{'.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl'},
  plugins:[{name:'worklet-url',setup(b){b.onResolve({filter:/\?url$/},()=>({path:'worklet',namespace:'voice'}));b.onLoad({filter:/.*/,namespace:'voice'},()=>({contents:'export default "/capture.worklet.js"',loader:'js'}));}}]});
 // Chromium synthetic device. This fixture never opens a physical microphone.
 const server=createServer(async(req,res)=>{

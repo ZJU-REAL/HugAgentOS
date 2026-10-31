@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Alert, Button, Modal, Spin, message } from 'antd';
+import { Modal, message } from 'antd';
 import {
   defaultProjectEnvironment, getProjectEnvironment, saveProjectEnvironment,
   type ProjectEnvironment,
 } from '../../api/projectEnvironment';
 import ProjectEnvironmentEditor from './ProjectEnvironmentEditor';
 import { t } from '../../i18n';
+import { LoadError } from '../common/LoadState';
 
 export default function ProjectEnvironmentModal({ projectId, open, onClose }: {
   projectId: string; open: boolean; onClose: () => void;
@@ -24,7 +25,7 @@ export default function ProjectEnvironmentModal({ projectId, open, onClose }: {
     void getProjectEnvironment(projectId).then(detail => {
       if (active) setConfig(detail.config);
     }).catch(err => {
-      if (active) setError(err.message || t('加载项目环境失败'));
+      if (active) setError(err.message || t('加载失败'));
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [projectId, open, retry]);
@@ -46,9 +47,12 @@ export default function ProjectEnvironmentModal({ projectId, open, onClose }: {
     <p style={{ color: 'var(--color-text-secondary)' }}>
       {t('所有项目对话共用此环境。正在执行的对话保持原环境，项目外对话不受影响。')}
     </p>
-    {error ? <Alert type="error" message={error}
-      action={<Button onClick={() => setRetry(v => v + 1)}>{t('重试')}</Button>} /> :
-      loading ? <Spin /> : <ProjectEnvironmentEditor value={config} onChange={setConfig}
+    {error ? <LoadError title={t('项目环境加载失败')} reason={error} onRetry={() => setRetry(v => v + 1)} /> :
+      loading ? (
+        <div className="jx-projectEnvironment-modes" role="status" aria-label={t('加载中…')} aria-busy="true">
+          {Array.from({ length: 2 }, (_, index) => <div className="jx-skeletonBlock jx-projectEnvironment-skMode" key={index} aria-hidden="true" />)}
+        </div>
+      ) : <ProjectEnvironmentEditor value={config} onChange={setConfig}
         projectId={projectId} onReadyChange={setReady} />}
   </Modal>;
 }

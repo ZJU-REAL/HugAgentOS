@@ -1,0 +1,44 @@
+/* ══════════════════════════════════════════
+   手机：一屏只有一个滚动面（iOS 的做法）
+   - 弹窗 / 底部面板里的列表不再自己限高滚动：整张面板随内容一起滚，
+     不会出现「面板里还套着一个带滚动条的小窗」
+   - 卡片内部的局部滚动（代码块、表格、文档正文框、提问卡片）保持不变
+   - 滚动条不画出来：iOS 的滚动指示条是滚动时才浮现的，常驻的灰条在手机上只是噪音
+   页码条已在各列表组件里换成连续加载（ContinuousLoadSentinel）。
+   ══════════════════════════════════════════ */
+
+@media (max-width: 960px) {
+  .jx-mk-grid,
+  .jx-mk-detail,
+  .jx-kbChunkPreviewList {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .jx-mk-detail {
+    padding-right: 0;
+  }
+
+  .pa-settings-modal .ant-modal-body {
+    max-height: none;
+    overflow: visible;
+    margin-right: 0;
+    padding-right: 0;
+  }
+
+  .jx-mcp-marketGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .jx-continuousLoadSentinel {
+    height: 1px;
+  }
+
+  * {
+    scrollbar-width: none;
+  }
+
+  *::-webkit-scrollbar {
+    display: none;
+  }
+}

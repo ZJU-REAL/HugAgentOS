@@ -37,13 +37,10 @@ const transcript = { uid: 'test', role: 'assistant' as const, content: '', ts: 0
   toolCalls: [{ id: 't1', name: 'bash', status: 'running' as const }],
   segments: [{ type: 'thinking' as const, content: 'Reasoning' }, { type: 'tool' as const, toolIndex: 0 },
     { type: 'text' as const, content: 'Answer' }, { type: 'thinking' as const, content: 'Next phase' }] };
-const visible = groupExecutionRuns(transcript, true);
-assert.equal(visible.runs.length, 2, 'Answer text separates execution phases');
-assert.deepEqual(visible.runs[0].steps.map(step => step.kind), ['thinking', 'tool']);
-assert.equal(visible.suppressedIdx.has(2), false, 'Answer remains outside tool collapse');
-const hidden = groupExecutionRuns(transcript, false);
-assert.equal(hidden.runs[0].anchor, 1, 'Main UI off mode keeps leading thinking separate');
-assert.deepEqual(hidden.runs[0].steps.map(step => step.kind), ['tool']);
+const grouped = groupExecutionRuns(transcript);
+assert.equal(grouped.runs.length, 2, 'Answer text separates execution phases');
+assert.deepEqual(grouped.runs[0].steps.map(step => step.kind), ['thinking', 'tool']);
+assert.equal(grouped.suppressedIdx.has(2), false, 'Answer remains outside tool collapse');
 console.log('Shared main/Canvas execution grouping passed');
 
 const { subagentDisplayText } = await import('../src/utils/subagentView');

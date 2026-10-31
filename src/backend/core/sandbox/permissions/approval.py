@@ -54,20 +54,6 @@ def _preset_answers(mode: str, *, dangerous: bool) -> bool:
     return mode == APPROVAL_AUTO and not dangerous
 
 
-def preset_answers_for_user(
-    user_id: Optional[str], *, op: str = "", dangerous: bool = False
-) -> bool:
-    """执行期复查：这个用户的权限档是不是已经替他答了这次确认。
-
-    供分派中间件之外的确认调用使用。按账号读取同一权限档，
-    不依赖当前异步任务的上下文。
-    """
-    return _preset_answers(
-        resolve_approval_mode(None, user_id=user_id),
-        dangerous=dangerous or op in DESTRUCTIVE_OPS,
-    )
-
-
 async def refresh_runtime(runtime):
     """Resolve one immutable dispatch policy; a failed read is an error, never a prompt."""
     if not runtime.account_approval or not runtime.user_id or runtime.default_allow:

@@ -137,5 +137,4 @@ export PATH="$HOME/.hugagent/venv/bin:$PATH"
 - [MCP 工具](../modules/mcp-tools.md)、
   [Agent Skills](../modules/agent-skills.md)和
   [私有知识库](../modules/knowledge-base.md)；
-- [领域本体快速入门](domain-ontology-quickstart.md)：用最小 Domain Pack 构建受治理工作流；
 - [完整无 Docker 安装指南](../deployment/quick-install.md)：安装选项、能力边界和故障排查。

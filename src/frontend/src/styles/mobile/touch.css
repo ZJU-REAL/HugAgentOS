@@ -49,14 +49,17 @@
 /* ── 1. 安全区落地 ───────────────────────────────────────────────────── */
 
 @media (max-width: 960px){
-  /* Keep the safe-area inset inside the footer, leaving the sibling message
-     viewport the remaining height and the footer background under the home bar. */
+  /* Keep the safe-area inset inside the floating footer, so its background
+     reaches under the home bar and no message text shows below it. */
   .jx-chatWrap{
     padding-bottom:0;
   }
 
   .jx-chatFooter{
     padding-bottom:max(10px, var(--jx-safe-b));
+    /* Absolute footer: stay inside the chat wrap's side insets. */
+    left:var(--jx-chat-wrap-left, 12px);
+    right:var(--jx-chat-wrap-right, 12px);
   }
 
   /* 横屏时刘海在左/右侧，贴边的正文与输入区都要让开 */
@@ -138,6 +141,9 @@
      38px 宽 + 6px 间距 = 44px 节距，命中层刚好相接不互相蚕食。 */
   .jx-msgActions{
     gap:6px;
+    /* 6 个按钮 + 耗时小字在 360px 级屏幕上排不下，耗时被裁成半个字；允许折到第二行 */
+    flex-wrap:wrap;
+    row-gap:2px;
   }
 
   .jx-msgActionBtn{
@@ -152,10 +158,12 @@
     min-height:var(--jx-touch-min);
   }
 
-  /* 「思考过程 / 已调用 xxx」这排折叠开关只有 23px 高。它们是竖直堆叠的，
-     命中层撑到 44 会互相蚕食，所以给真实高度而不是命中层。 */
-  .jx-inlineSummary{
-    min-height:34px;
+  /* 追问在手机上一行只放得下十几个字，省略号会把问题本身吃掉：放开到两行 */
+  .jx-followUpText{
+    white-space:normal;
+    display:-webkit-box;
+    -webkit-box-orient:vertical;
+    -webkit-line-clamp:2;
   }
 
   /* 侧栏抽屉：导航项与历史项是主要触摸目标，直接给足高度而不是靠命中层——
@@ -211,6 +219,26 @@
    不受影响，iPad 这类宽屏触摸设备也能覆盖到。 */
 
 @media (hover: none){
+  /* 悬停才浮现的行内操作在触屏上永远点不到（卡片尾部操作、代码块复制、工具结果里的
+     下载 / 预览、团队目录「更多」等）。这些都是功能入口而非装饰，触屏一律常显。
+     各自的隐藏规则特异性不一（单类到三级后代都有），这里用 !important 统一压住，
+     只限 hover:none，不影响鼠标设备。图片悬停遮罩、头像编辑遮罩会盖住内容，不在此列。 */
+  .jx-automation-card-actions,
+  .jx-cardTailActions,
+  .jx-ce-cardActionBtn,
+  .jx-ce-codeBarActions,
+  .jx-ce-fileDlIcon,
+  .jx-ce-filePreviewBtn,
+  .jx-chunkQuestionDel,
+  .jx-mySpace-notifCard-deleteBtn,
+  .jx-sites-cardActions,
+  .jx-team-tree-more,
+  .pa-output-action{
+    opacity:1 !important;
+    pointer-events:auto !important;
+    visibility:visible !important;
+  }
+
   /* 系统默认的灰色点击方块与本站自研的 :active 缩放反馈重复，且会在圆角控件外
      画出直角色块。关掉它，交互反馈全部交给 :active。 */
   a,

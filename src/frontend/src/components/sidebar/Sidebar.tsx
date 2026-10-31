@@ -53,7 +53,7 @@ function ModernSidebar(actions: SidebarProps) {
   };
   return <Layout.Sider width={344} collapsedWidth={64} collapsed={collapsed || !hasSecondary} theme="light" className="jx-sider jx-moduleShell">
     <nav onKeyDown={navigationKeyboard} className="jx-moduleRail" aria-label={t('导航')}>
-      <Tooltip title={t('对话')} placement="right"><button className={`jx-moduleButton${chatModule ? ' active' : ''}`} aria-label={t('对话')} aria-pressed={chatModule} onClick={() => select('chat')}><img className="jx-moduleLogo" src={logo} alt="" /></button></Tooltip>
+      <Tooltip title={t('对话')} placement="right"><button className={`jx-moduleButton${chatModule ? ' active' : ''}`} aria-label={t('对话')} aria-pressed={chatModule} onClick={() => select('chat')}><img className="jx-moduleLogo" src={logo} alt="" /><span className="jx-moduleButtonLabel" aria-hidden="true">{t('对话')}</span></button></Tooltip>
       {primary.map(entry => <ModuleButton key={entry.id} entry={entry} active={panel === entry.meta.targetPanel}
         className="jx-moduleButton" onSelect={select} count={entry.id === 'my_space' ? count : 0} />)}
       <MoreModules entries={more} panel={panel} onSelect={select} />

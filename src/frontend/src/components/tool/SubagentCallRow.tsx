@@ -1,11 +1,10 @@
 import { ExclamationCircleOutlined, LoadingOutlined, PauseCircleOutlined } from '@ant-design/icons';
-import { Modal } from 'antd';
 import { t } from '../../i18n';
 import { useSubagentIdentity } from '../../hooks/useSubagentIdentity';
-import { useCanvasStore } from '../../stores/canvasStore';
 import type { ToolCall } from '../../types';
 import { subagentStatus } from '../../utils/subagentView';
 import { AgentIcon } from '../agent/AgentIcon';
+import { openSubagentTab } from './openSubagentTab';
 import type { ToolMessageIdentity } from './ToolMessageContext';
 
 export function SubagentStatus({ tool, isStreaming }: { tool: ToolCall; isStreaming?: boolean }) {
@@ -23,18 +22,7 @@ export function SubagentCallRow({ tool, isStreaming, identity }: {
 }) {
   const agent = useSubagentIdentity(tool);
   const running = subagentStatus(tool, isStreaming) === 'running';
-  const open = () => {
-    const state = useCanvasStore.getState();
-    const action = () => state.openSubagent({
-      chatId: identity.chatId, messageUid: identity.messageUid, toolId: tool.id!,
-      agent: { agent_id: agent.agent_id, name: agent.name, avatar: agent.avatar },
-    });
-    const active = state.tabs.find((tab) => tab.id === state.activeTabId);
-    if (active?.kind === 'file' && active.dirty) {
-      Modal.confirm({ title: t('有未保存的修改'), content: t('离开后编辑内容将丢失，确定继续？'),
-        okText: t('放弃修改'), cancelText: t('取消'), okButtonProps: { danger: true }, onOk: action });
-    } else action();
-  };
+  const open = () => openSubagentTab(tool, agent, identity);
   return (
     <div className="jx-tcr">
       <button type="button" className="jx-tcr-header jx-subagentCall" onClick={open}

@@ -141,4 +141,7 @@ export const WORKBENCH_DICT: Record<string, string> = {
   '选择设备文件并上传到': 'Select a device file and upload it to',
   '选择设备文件并上传': 'Select and upload a device file',
   '打开外部链接': 'Open external link',
+  '清除': 'Clear',
+  '放弃更改': 'Discard changes',
+  '留在此页': 'Stay on page',
 };

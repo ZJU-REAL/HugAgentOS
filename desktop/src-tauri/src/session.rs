@@ -1,5 +1,6 @@
 use crate::windows::{navigate_session_windows, show_main_window};
 use crate::{auth, device_login, hybrid, local_server, Shared};
+use std::sync::atomic::Ordering;
 use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
 /// Only the authenticated host proxy calls this; no custom IPC command is registered.
@@ -103,6 +104,79 @@ pub(crate) fn spawn_startup_probe(app: tauri::AppHandle, server_base: String, co
             return;
         }
         navigate_session_windows(&app, &shared.login_idle_url());
+    });
+}
+
+/// LocalOnly: the backend is the local server this process is still starting,
+/// so the saved session can only be checked once it is up. A valid session goes
+/// straight to the app; a rejected one is cleared and lands on the login card.
+pub(crate) fn spawn_local_session_restore(app: tauri::AppHandle) {
+    /// The setup page waits while this is set; clearing it wakes the page to route itself.
+    struct Restoring(tauri::AppHandle);
+    impl Drop for Restoring {
+        fn drop(&mut self) {
+            let shared = self.0.state::<Shared>();
+            shared.session.restoring.store(false, Ordering::SeqCst);
+            shared.local_server.notify_changed();
+        }
+    }
+    if !app.state::<Shared>().session.has_token() {
+        return;
+    }
+    app.state::<Shared>()
+        .session
+        .restoring
+        .store(true, Ordering::SeqCst);
+    tauri::async_runtime::spawn(async move {
+        let _restoring = Restoring(app.clone());
+        let shared = app.state::<Shared>();
+        let epoch = shared.session.epoch.current();
+        let Some(token) = shared.session.token().await else {
+            return;
+        };
+        let mut changes = shared.local_server.subscribe();
+        while !shared.local_server.reported_ready().await {
+            if !shared.session.epoch.matches(epoch) || changes.changed().await.is_err() {
+                return;
+            }
+        }
+        // A server that has only just come up may still be slow to answer; only an
+        // explicit rejection costs the user their login.
+        let mut verdict = None;
+        for attempt in 0..3 {
+            if attempt > 0 {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            }
+            verdict = auth::check(
+                &shared.http,
+                &shared.server_base,
+                &shared.cookie_name,
+                &token,
+            )
+            .await;
+            if verdict.is_some() || !shared.session.epoch.matches(epoch) {
+                break;
+            }
+        }
+        if !shared.session.epoch.matches(epoch) {
+            return;
+        }
+        match verdict {
+            Some(true) => navigate_session_windows(&app, &shared.home_url()),
+            // Undecided: keep the token, so the next launch can try again.
+            None => navigate_session_windows(&app, &shared.login_idle_url()),
+            Some(false) => {
+                let Some(expected) = shared.session.epoch.advance_if_current(epoch) else {
+                    return;
+                };
+                cancel_device_login(&shared);
+                clear_invalidated_session(&shared, expected).await;
+                if !shared.session.epoch.matches(expected) {
+                    return;
+                }
+                navigate_session_windows(&app, &shared.login_idle_url());
+            }
+        }
     });
 }
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AppstoreOutlined, KeyOutlined } from '@ant-design/icons';
-import { Button, Empty, Form, Input, Modal, Spin, Tag, message } from 'antd';
+import { Button, Empty, Form, Input, Modal, Tag, message } from 'antd';
 import { installPlugin, listPlugins } from '../../api';
 import type {
   PluginInstallResult,
@@ -8,6 +8,7 @@ import type {
   PluginRequiredSecret,
 } from '../../types';
 import { t } from '../../i18n';
+import { LoadError } from '../common/LoadState';
 
 interface PluginMarketplaceModalProps {
   open: boolean;
@@ -35,19 +36,19 @@ export function PluginMarketplaceModal({
   excludedSlugs,
 }: PluginMarketplaceModalProps) {
   const [items, setItems] = useState<PluginListItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [busySlug, setBusySlug] = useState<string | null>(null);
   const [secretPlugin, setSecretPlugin] = useState<PluginListItem | null>(null);
   const [secretForm] = Form.useForm();
 
   const load = useCallback(async () => {
-    setLoading(true);
+    setLoadError('');
     try {
       setItems(await listPlugins());
+      setLoaded(true);
     } catch (error) {
-      message.error((error as Error).message || t('加载插件失败'));
-    } finally {
-      setLoading(false);
+      setLoadError((error as Error).message || t('加载失败'));
     }
   }, []);
 
@@ -118,10 +119,25 @@ export function PluginMarketplaceModal({
             {scopeLabel}
           </div>
         )}
-        <Spin spinning={loading}>
-          {availableItems.length === 0 ? (
+        {loadError && !loaded ? (
+          <LoadError title={t('插件市场加载失败')} reason={loadError} onRetry={() => void load()} />
+        ) : !loaded ? (
+          <div className="jx-mcp-grid" role="status" aria-label={t('加载中…')} aria-busy="true">
+            {Array.from({ length: 4 }, (_, index) => (
+              <div key={index} className="jx-mcp-card jx-mcp-card--skeleton" aria-hidden="true">
+                <div className="jx-mcp-cardTop">
+                  <div className="jx-skeletonBlock jx-mcp-skIcon" />
+                  <div className="jx-skeletonBlock jx-mcp-skName" />
+                  <div className="jx-skeletonBlock jx-mcp-skButton" />
+                </div>
+                <div className="jx-skeletonBlock jx-mcp-skDesc" />
+                <div className="jx-skeletonBlock jx-mcp-skDescShort" />
+              </div>
+            ))}
+          </div>
+        ) : availableItems.length === 0 ? (
             <Empty
-              description={loading ? t('加载中…') : t('插件市场暂无可安装的插件')}
+              description={t('插件市场暂无可安装的插件')}
               image={Empty.PRESENTED_IMAGE_SIMPLE}
             />
           ) : (
@@ -157,7 +173,6 @@ export function PluginMarketplaceModal({
               ))}
             </div>
           )}
-        </Spin>
       </Modal>
 
       <Modal

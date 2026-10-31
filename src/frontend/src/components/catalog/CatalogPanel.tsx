@@ -30,6 +30,7 @@ getKBChunkChildren,
 getKBChunks,
 getKBDocumentDetail,
 getKBDocuments,
+getKBDocumentsWindow,
 getKBWikiStatus,
 getWikiCapability,
 getWikiStats,
@@ -41,6 +42,7 @@ updateKBSpace,
 uploadKBDocument,
 } from '../../api';
 import { useChunkChildrenExpander } from '../../hooks/useChunkChildrenExpander';
+import { useIsMobileViewport } from '../../hooks/useIsMobileViewport';
 import { useStatusFlash } from '../../hooks/useFlash';
 import { t } from '../../i18n';
 import { useKbTab } from '../../routing/subPages';
@@ -54,6 +56,7 @@ import { EASE,staggerStyle } from '../../utils/motionTokens';
 import { parseSeparators } from '../../utils/separators';
 import { KBChunkImages,WikiPanel } from '../kb';
 import IndexModePicker from '../kb/IndexModePicker';
+import { ContinuousLoadSentinel } from '../common';
 
 type KBTabKey = 'public' | 'private';
 
@@ -304,6 +307,15 @@ export function CatalogPanel() {
     return () => window.clearTimeout(timer);
   }, [kbDocQuery]);
   const [kbDocTotal, setKbDocTotal] = useState(0);
+  // 手机上文档列表不分页：kbDocPage 表示「已加载几批」，每次取前 kbDocPage × 20 条，
+  // 滚到底再加一批；5 秒轮询也按同一个窗口刷新，状态变化不会丢在已滚过的部分。
+  const isMobile = useIsMobileViewport();
+  const fetchKbDocuments = useCallback(
+    (kbId: string, page: number, keyword?: string) => (isMobile
+      ? getKBDocumentsWindow(kbId, page * KB_DOC_PAGE_SIZE, KB_DOC_PAGE_SIZE, keyword)
+      : getKBDocuments(kbId, page, KB_DOC_PAGE_SIZE, keyword)),
+    [isMobile],
+  );
   const [kbDocStatusCounts, setKbDocStatusCounts] = useState<KBDocumentStatusCounts>(EMPTY_DOC_STATUS_COUNTS);
   const [docStatusFilter, setDocStatusFilter] = useState<DocStatusFilter>('all');
   const [kbEditorOpen, setKbEditorOpen] = useState(false);
@@ -504,10 +516,12 @@ export function CatalogPanel() {
   useEffect(() => {
     if (!selectedId) return;
     const kbId = selectedId;
-    setKbDocsLoadingId(kbId);
+    // 手机上追加下一批时保留已显示的列表，不切回加载态（否则滚动位置会被重置）
+    const appending = isMobile && kbDocPage > 1;
+    if (!appending) setKbDocsLoadingId(kbId);
     void (async () => {
       try {
-        const result: KBDocumentsResponse = await getKBDocuments(kbId, kbDocPage, KB_DOC_PAGE_SIZE, kbDocSearch);
+        const result: KBDocumentsResponse = await fetchKbDocuments(kbId, kbDocPage, kbDocSearch);
         const totalPages = result.total > 0 ? Math.ceil(result.total / result.page_size) : 0;
         if (result.total > 0 && totalPages > 0 && kbDocPage > totalPages) {
           setKbDocPage(totalPages);
@@ -517,10 +531,10 @@ export function CatalogPanel() {
       } catch {
         applyDocumentsResult(kbId, [], 0, EMPTY_DOC_STATUS_COUNTS);
       } finally {
-        setKbDocsLoadingId(null);
+        if (!appending) setKbDocsLoadingId(null);
       }
     })();
-  }, [selectedId, kbDocPage, kbDocSearch, applyDocumentsResult, setKbDocsLoadingId]);
+  }, [selectedId, kbDocPage, kbDocSearch, applyDocumentsResult, setKbDocsLoadingId, isMobile, fetchKbDocuments]);
 
   const filteredLibraries = useMemo(() => {
     const query = manageQuery.trim().toLowerCase();
@@ -564,14 +578,14 @@ export function CatalogPanel() {
     const currentPage = kbDocPage;
     const timer = window.setInterval(async () => {
       try {
-        const result = await getKBDocuments(kbId, currentPage, KB_DOC_PAGE_SIZE, kbDocSearch);
+        const result = await fetchKbDocuments(kbId, currentPage, kbDocSearch);
         applyDocumentsResult(kbId, result.items, result.total, result.status_counts);
       } catch (err) {
         console.warn('KB 文档轮询失败', err);
       }
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [selectedId, kbDocPage, kbDocSearch, hasProcessingDoc, applyDocumentsResult]);
+  }, [selectedId, kbDocPage, kbDocSearch, hasProcessingDoc, applyDocumentsResult, fetchKbDocuments]);
 
   const filteredDocuments = useMemo(() => {
     const query = kbDocQuery.trim().toLowerCase();
@@ -732,7 +746,7 @@ export function CatalogPanel() {
     if (!selectedItem || kbDocsLoadingId === selectedItem.id) return;
     setKbDocsLoadingId(selectedItem.id);
     try {
-      const result = await getKBDocuments(selectedItem.id, kbDocPage, KB_DOC_PAGE_SIZE);
+      const result = await fetchKbDocuments(selectedItem.id, kbDocPage);
       applyDocumentsResult(selectedItem.id, result.items, result.total, result.status_counts);
       await refreshCatalog();
     } catch (err: any) {
@@ -1329,7 +1343,10 @@ export function CatalogPanel() {
                   </div>
                 )}
               </div>
-              {!kbDocsLoadingId && currentDocCount > 0 && (
+              {isMobile ? (
+                <ContinuousLoadSentinel hasMore={documents.length < currentDocCount && documents.length >= kbDocPage * KB_DOC_PAGE_SIZE}
+                  count={documents.length} onMore={() => setKbDocPage((current) => current + 1)} />
+              ) : !kbDocsLoadingId && currentDocCount > 0 && (
                 <div className="jx-kbDocPagination">
                   <Pagination
                     className="jx-kbPager"

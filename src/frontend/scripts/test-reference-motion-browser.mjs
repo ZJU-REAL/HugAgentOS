@@ -12,7 +12,6 @@ import React,{useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {MessageBubble} from './src/components/chat/MessageBubble';
 import {TurnStatusIndicator} from './src/components/chat/TurnStatusIndicator';
-import {ThinkingInline} from './src/components/chat/ThinkingInline';
 import {ToolRunShell} from './src/components/tool/ToolRunShell';
 import PanelLoadingSkeleton from './src/components/common/PanelLoadingSkeleton';
 import {newMessageUid} from './src/utils/messageIdentity';
@@ -33,7 +32,6 @@ function Fixture(){
  <button onClick={()=>setDone(true)}>完成</button>
  <section>{messages.map((m,i)=><MessageBubble key={m.uid} m={m} messageIndex={i} currentChatId='motion-fixture' send={()=>{}} exportChatRecord={async()=>{}}/>)}</section>
  {!done&&<TurnStatusIndicator startTs={ts}/>}
- <ThinkingInline content='理解问题，整理线索。' isActive={!done}/>
  <ToolRunShell steps={steps} isStreaming={!done}/>
  <PanelLoadingSkeleton/>
  </main>;
@@ -41,15 +39,13 @@ function Fixture(){
 createRoot(document.getElementById('root')).render(<Fixture/>);
 `;
 const result=await build({stdin:{contents:fixture,resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,
- format:'esm',jsx:'automatic',outfile:'fixture.js',define:{'import.meta.env':'{}'},external:['/loader.gif','/loader-done.png'],
- loader:{'.css':'css','.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl','.svg':'dataurl'}});
+ format:'esm',jsx:'automatic',outfile:'fixture.js',define:{'import.meta.env':'{}'},loader:{'.css':'css','.woff':'dataurl','.woff2':'dataurl','.ttf':'dataurl','.svg':'dataurl'}});
 const js=result.outputFiles.find(f=>f.path.endsWith('.js')).text;
 const css=result.outputFiles.find(f=>f.path.endsWith('.css')).text;
 const server=createServer((req,res)=>{
  if(req.url==='/fixture.js'){res.setHeader('Content-Type','text/javascript');res.end(js);return;}
  if(req.url==='/fixture.css'){res.setHeader('Content-Type','text/css');res.end(css);return;}
  if(req.url.startsWith('/api/')){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({code:20000,data:[]}));return;}
- if(req.url==='/loader.gif'||req.url==='/loader-done.png'){res.statusCode=204;res.end();return;}
  res.setHeader('Content-Type','text/html');res.end('<link rel="stylesheet" href="/fixture.css"><style>html,body{height:auto;overflow:auto}main{max-width:736px;margin:24px auto;padding:16px;display:grid;gap:24px}section{display:grid;gap:12px}</style><div id="root"></div><script type="module" src="/fixture.js"></script>');
 });
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
@@ -71,9 +67,9 @@ try{
   if(user)assert.equal(user.frames[0].transform,'scale(0.92) translateY(6px)');
   if(assistant)assert.equal(assistant.frames[0].transform,'translateY(10px)');
   await page.locator('.jx-trs-head').click();
-  const labels=page.locator('.jx-rollText-text.is-shimmer,.jx-inlineSummaryText--live,.jx-tcr-prefix--shimmer');
+  const labels=page.locator('.jx-rollText-text.is-shimmer,.jx-tcr-prefix--shimmer');
   const live=await labels.evaluateAll(els=>els.map(el=>{const s=getComputedStyle(el);return {name:s.animationName,duration:s.animationDuration,size:s.backgroundSize,clip:s.backgroundClip,gradient:s.backgroundImage};}));
-  assert.ok(live.length>=5,'startup, inline thinking, execution title, tool and thinking step labels participate');
+  assert.ok(live.length>=4,'startup, execution title, tool and thinking step labels participate');
   assert.ok(live.every(s=>s.name==='jxTurnStatusShine'&&s.duration==='2.8s'&&s.size==='250% 100%'&&s.clip==='text'),'all running labels use the same reference scan');
   assert.equal(new Set(live.map(s=>s.gradient)).size,1,'tool.css must not override the shared gradient');
   const summary=page.locator('.jx-trs-summary');

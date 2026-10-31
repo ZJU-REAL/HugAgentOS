@@ -162,11 +162,13 @@ export function ChatSidebarItem({ item, groupItems, scopeKey, dragScopeRef, acti
         <Input size="small" value={editingTitle} autoFocus
           onChange={(e) => setEditingTitle(e.target.value)}
           onPressEnter={() => void onCommitRename(item.id)}
+          onFocus={(e) => e.target.select()}
           onBlur={() => void onCommitRename(item.id)}
           onClick={(e) => e.stopPropagation()}
           maxLength={30} className="jx-historyEditInput" />
       ) : (
-        <div className="jx-historyMain">
+        // 双击标题区直接进入重命名，与菜单里的「重命名」同一入口
+        <div className="jx-historyMain" onDoubleClick={(e) => { e.stopPropagation(); onStartRename(item); }}>
           {inProjectGroup && <span className="jx-historyStatusSlot"><TaskStatusDot {...indicator} /></span>}
           {item.pinned ? (
             <Tooltip title={t('已置顶')}>

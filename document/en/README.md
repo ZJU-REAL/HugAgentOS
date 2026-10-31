@@ -14,7 +14,6 @@ product documentation for operators, users, and integrators.
 |------|------|
 | [Introduction](getting-started/introduction.md) | The durable agent, runtime forms, feature overview, tech stack and architecture |
 | [Quick Start](getting-started/quick-start.md) | Choose HugAgentOS Cloud, the desktop client or the one-command installer, and enable Personal Agent |
-| [Build a Domain Ontology Quickly](getting-started/domain-ontology-quickstart.md) | Validate, publish, test, and bind tools with a minimal Domain Pack |
 
 ## Deployment
 
@@ -37,7 +36,7 @@ Start with the [Deployment Guide (choosing a method)](deployment/README.md), the
 
 | Document | Description |
 |------|------|
-| [Overview](architecture/overview.md) | Layered architecture, ontology control plane, full request lifecycle, container topology |
+| [Overview](architecture/overview.md) | Layered architecture, full request lifecycle, container topology |
 | [Backend](architecture/backend.md) | `src/backend/` walkthrough and router registry |
 | [Frontend](architecture/frontend.md) | App entries, component groups, Zustand stores, module pages and the app center |
 | [Data Model](architecture/data-model.md) | Tables by domain, migration chains, CE/EE table boundary |
@@ -71,7 +70,6 @@ Start with the [Deployment Guide (choosing a method)](deployment/README.md), the
 | Document | Description |
 |------|------|
 | [Memory System](modules/memory.md) | L1/L2/L3 layered memory, durable outbox, procedural learning, sanitization and audit |
-| [Domain Ontology Governance and Validation](modules/ontology-harness.md) | Domain Packs, tool gates, pre-delivery review, human review of evolution drafts |
 | [Knowledge Base](modules/knowledge-base.md) | Self-hosted knowledge bases (hybrid retrieval) and external sources |
 | [Knowledge Base Wiki](modules/knowledge-base-wiki.md) | Extracted entities and concepts as interlinked pages and a concept graph |
 

@@ -122,6 +122,7 @@ User returns → restore the session snapshot first → declare mounts again →
 ```
 
 - A conversation reuses container files. Each Python/JS command starts a separate process and retains no variables.
+- Every container is created with `EXECD_API_GRACE_SHUTDOWN=0s`. execd's default of 1 s holds a foreground command's stream open after it completes, which made each file write (its `chown`) and each setup command wait a full second. Events are flushed as they are written, so nothing is lost. Background status reads that get `command not found` within 2 s of launch are treated as "not started yet": execd before v1.0.22 replies before it registers the command.
 - A user-bound container can only be reused by the same user, after it is reset: leftover processes of the sandbox user are killed and everything outside mount points under `/workspace`, `$HOME`, `/tmp`, `/var/tmp` and `/dev/shm` is deleted, including execd's old command output; `scratch` and the home skeleton are rebuilt. Mount points (My Space, team spaces, skills, account credentials under `$HOME`) are detected from `/proc/self/mountinfo` and never entered. If the reset fails the container is destroyed instead.
 - The base runtime preserves personal and skill mounts. EE adds team mounts and permission checks.
 - Nothing is prewarmed. A user's container is created on the first tool call that needs one, then reused for that user's later chats once reset. Historical jupyter setting names refer to the user-session pool; no Jupyter server starts.

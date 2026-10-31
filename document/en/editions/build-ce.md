@@ -30,8 +30,7 @@ Glob patterns (relative to the repo root); a match means the file is never copie
 - **EE routes**: `api/routes/v1/admin_*.py`, `config_*.py`, `audit.py`, `auth.py`, `team_files.py`, `service_configs.py`, `data_sources.py`, `db_metadata.py`, `gateway_*.py`;
 - **Industry MCP servers**: `extensions/mcp_servers/query_database_mcp/**`, `ai_chain_information_mcp/**`;
 - **Industry-specific frontend code and seeds**: the industry-chain Canvas,
-  news and company-profile renderers, industry API client, icon assets, and the
-  bundled ontology example that depends on company-profile tools;
+  news and company-profile renderers, industry API client, and icon assets;
 - **The entire main-repo alembic chain** (`alembic/versions/**` — CE uses an independent chain from the overlay, see below);
 - **10 industry/branded skills** (under `extensions/skills/marketplace/`; the first 5 hard-depend on EE industry MCPs, the other 5 contain branded domain copy);
 - **EE-coupled tests** and `tests/licensing/**`;

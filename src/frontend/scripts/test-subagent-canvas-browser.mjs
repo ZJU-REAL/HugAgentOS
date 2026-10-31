@@ -16,7 +16,6 @@ import { useChatStore } from './src/stores/chatStore';
 import { useAgentStore } from './src/stores/agentStore';
 import { useCatalogStore } from './src/stores/catalogStore';
 import { usePluginStore } from './src/stores/pluginStore';
-import { useUIStore } from './src/stores/uiStore';
 import './src/styles/variables.css';
 import './src/styles/chat.css';
 import './src/styles/tool.css';
@@ -27,7 +26,6 @@ const tool = { id: 'call-a', name: 'call_subagent', subagentName: 'Research agen
 const msg = { uid: 'message-a', messageId: 'persisted-a', role: 'assistant', content: '', ts: Date.now(), isStreaming: true, toolCalls: [tool, { ...tool, id: 'call-b', status: 'success', output: 'Other invocation', subSteps: [] }] };
 useChatStore.setState(s => ({ store: { ...s.store, chats: { ...s.store.chats, 'chat-a': { id: 'chat-a', messages: [msg] } } } }));
 useAgentStore.setState({ agents: [] });
-useUIStore.setState({ dispatchProcessVisible: true });
 useCatalogStore.setState(s => ({ catalog: { ...s.catalog,
  skills: [{ id: 'writer', name: 'Writing', icon: '/skill.svg' }],
  mcp: [{ id: 'search', name: 'Search', icon: '/connector.svg', tools: ['search_web'] }],
@@ -48,7 +46,7 @@ function Fixture() {
 }
 import { MemoryRouter } from 'react-router';
 createRoot(document.getElementById('root')).render(<MemoryRouter initialEntries={['/ability-center']}><Fixture /></MemoryRouter>);
-`, resolveDir: process.cwd(), loader: 'tsx' }, outfile: resolve(output, 'fixture.js'), external: ['/loader.gif', '/loader-done.png'], bundle: true, format: 'esm', jsx: 'automatic', define: { 'import.meta.env': '{}' }, loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl' } });
+`, resolveDir: process.cwd(), loader: 'tsx' }, outfile: resolve(output, 'fixture.js'), bundle: true, format: 'esm', jsx: 'automatic', define: { 'import.meta.env': '{}' }, loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl' } });
 const browser = await chromium.launch({ headless: true });
 try {
  const page = await browser.newPage({ viewport: { width: 1360, height: 900 } });

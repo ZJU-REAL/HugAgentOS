@@ -24,7 +24,6 @@ import './plan.css';
 import './config.css';
 import './projects.css';
 import './admin.css';
-import './ontology.css';
 import './evolution.css';
 import './memory-graph.css';
 import './onboarding.css';

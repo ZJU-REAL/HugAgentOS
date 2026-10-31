@@ -146,12 +146,12 @@ def _write_record_local(item: Dict[str, Any]) -> str:
 
 def _write_record(item: Dict[str, Any]) -> None:
     file_id = str(item["file_id"])
-    text = _write_record_local(item)
     if _storage_type() in ("s3", "oss", "obs"):
-        try:
-            _get_oss_storage().upload_bytes(text.encode("utf-8"), _record_oss_key(file_id))
-        except Exception as exc:  # noqa: BLE001 — the local record is authoritative
-            logger.warning("Failed to mirror artifact record %s to OSS: %s", file_id, exc)
+        # The object record is durable; a local cache must never acknowledge a
+        # failed remote write. Leave an existing cached record unchanged on error.
+        text = json.dumps(item, ensure_ascii=False)
+        _get_oss_storage().upload_bytes(text.encode("utf-8"), _record_oss_key(file_id))
+    _write_record_local(item)
 
 
 def migrate_legacy_index() -> int:
@@ -405,7 +405,18 @@ def get_artifact(file_id: str) -> Optional[Dict[str, Any]]:
     """Look up artifact metadata by file_id."""
     if not file_id:
         return None
+    # IDs form object keys and local filenames; do not allow path traversal.
+    if any(c in file_id for c in ("/", "\\", "\x00")) or file_id in (".", ".."):
+        return None
     item = _read_record(file_id)
+    if item is None and _storage_type() in ("s3", "oss", "obs"):
+        storage = _get_oss_storage()
+        key = _record_oss_key(file_id)
+        if storage.exists(key):
+            item = json.loads(storage.download_bytes(key).decode("utf-8"))
+            if not isinstance(item, dict) or item.get("file_id") != file_id:
+                raise ValueError("Invalid persisted artifact record")
+            _write_record_local(item)
     if item is None:
         return None
 

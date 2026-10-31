@@ -129,7 +129,12 @@ def plugin_detail(install_id_or_slug: str, user_id=None) -> Optional[Dict[str, A
     from core.capabilities.plugins.connections import manifest_connection
     from features.desktop.capabilities import plugins, store
 
-    comp = store.get("plugin", inst.profile_id, inst.key, inst.resolved_revision)
+    # 包还没下载好（同步中、失败或已移除）时没有修订号，详情照样给登记表那份。
+    comp = (
+        store.get("plugin", inst.profile_id, inst.key, inst.resolved_revision)
+        if inst.resolved_revision
+        else None
+    )
     manifest = plugins.load_manifest(comp) if comp else {}
     profile = inst.profile_id
     components = dict(inst.payload.get("components") or {})

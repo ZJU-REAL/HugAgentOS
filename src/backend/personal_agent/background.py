@@ -106,7 +106,7 @@ class BackgroundServices:
         bindings = await run_in_session(_computer_bindings)
         if not bindings:
             return
-        from personal_agent.computer.sandbox import get_personal_sandbox_provider
+        from personal_agent.computer.sandbox import ProvisionInProgress, get_personal_sandbox_provider
 
         for ident, box, uid in bindings:
             try:
@@ -114,7 +114,11 @@ class BackgroundServices:
                     provider = get_personal_sandbox_provider()
                     await provider.ensure_user_workspace(box, uid)
                     await provider.touch_session(box)
-            except Exception:
+            except ProvisionInProgress:
+                # Another worker is creating it and records the outcome.
+                continue
+            except Exception as exc:
+                log.warning("Personal computer %s maintenance failed: %s: %s", ident, type(exc).__name__, exc)
                 def _mark_degraded(db):
                     row = db.get(PersonalAgent, ident)
                     if row:

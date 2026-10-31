@@ -282,7 +282,6 @@ Auth column legend: "User" = session cookie or personal API key (`get_current_us
 | Personal space | `myspace_folders.py` | `/v1/myspace/folders` | `GET/POST /`, `POST /move-artifact` | User |
 | Personal space | `artifacts.py` | `/v1/artifacts` | `GET /`, `GET /favorites`, `DELETE /{artifact_id}` | User |
 | Memory | `memories.py` | `/v1/memories` | `GET /`, `DELETE /{memory_id}`, `GET/PATCH /settings`, `GET /profile`, `GET /graph` | User |
-| Domain ontology | `ontologies.py` | `/v1/ontologies`, `/v1/admin/ontologies` | User setting/runtime preview; Domain Pack versions, build preflight, gate/review evidence, metrics, and evolution-draft governance | User / ADMIN |
 | Capability catalog | `catalog.py` | `/v1/catalog` | `GET /` (capability catalog), `PATCH /{kind}/{id}` | User |
 | Capability catalog | `kb.py` | `/v1/catalog/kb` | `POST /`, `POST /{kb_id}/documents`, `GET /{kb_id}/chunks` (personal knowledge bases) | User |
 | Capability catalog | `marketplace.py` | `/v1/marketplace` | `GET /skills`, `POST /install`, `POST /submissions` (skill marketplace) | User |

@@ -34,7 +34,7 @@ edition_ee ──► core / features                      （CE 派生树中不�
 
 | 子包 | 职责 |
 |---|---|
-| `agent_runtime/` | 一次普通智能体回合：`runner.astream_chat_workflow` 选主智能体 / 直连路径；`prepare_*`（建 agent、组装输入）、`stream_*`（模型与工具事件 → 既有事件协议）、`*_state`（单轮有类型状态）、`integrations/`（记忆、压缩、本体证据/修复、演化） |
+| `agent_runtime/` | 一次普通智能体回合：`runner.astream_chat_workflow` 选主智能体 / 直连路径；`prepare_*`（建 agent、组装输入）、`stream_*`（模型与工具事件 → 既有事件协议）、`*_state`（单轮有类型状态）、`integrations/`（记忆、压缩、演化） |
 | `runs/` | 持久化执行所有权：租约 / 心跳、取消、事件日志与续播（`events/`）、看门狗、工具副作用账本（`tool_effects/`）、恢复 |
 | `chat/` | 会话与消息读写、模式（modes）、分叉、引用、追问、压缩；`runtime/`（聊天 worker：消费回合事件、在 runs 租约下持久化输出、排队 / 插话 / 暂停 / 恢复）；`operations/`、`projection/` |
 | `llm/` | AgentScope 适配与智能体装配：`factory/`（build / assembly / tools / prompts）、`runtime/`（流式循环、钩子适配、工具执行、人机交互）、`citations/`（锚点发号）、`mcp/`、`subagents/`、`tools/`、`tool_permissions/`、提示词版本池 |
@@ -48,7 +48,6 @@ edition_ee ──► core / features                      （CE 派生树中不�
 | `files/` | 产物（artifacts）、内容解析（content）、空间文件（spaces）、存储协议（storage：local / s3 / oss） |
 | `projects/` | 项目、项目环境、指令、本地工作区、个人项目作用域 |
 | `memory/` | 分层记忆（L1 画像 / L2 向量 / L3 图谱）、抽取流水线、outbox、脱敏、TTL |
-| `ontology/` | 本体治理：schema、校验、运行时闸门、输出评审、修订 |
 | `evolution/` | 协同进化共享契约与证据（控制面在 EE） |
 | `jobs/` | 后台作业运行时（作业 SDK、监督、通知、文件） |
 | `sandbox/` | 沙箱协议 / 工厂 / providers（script_runner、opensandbox、cube[EE]）、runner 进程服务、进程 / 会话 / 工作区 / 权限 / OS 隔离 |
@@ -118,7 +117,7 @@ POST /v1/agents/responses                       api/routes/v1/agent_responses.py
         → core/llm/factory/build.py              AgentScope agent：模型选择、工具集、MCP（core/llm/mcp）、技能、提示词
       → stream_main / stream_direct              模型与工具事件 → 事件协议（core/llm/runtime/streaming.py、stream_events.py）
         → core/llm/citations/                    引用锚点发号（e1/e2…）
-      → 结束后：本体评审、记忆 / 演化结算、追问（core/chat/runtime/followups.py）
+      → 结束后：记忆 / 演化结算、追问（core/chat/runtime/followups.py）
   → SSE 输出                                     api/transports/run_sse.py（跟随事件日志；续播 GET /v1/chats/stream/{run_id}/subscription）
 ```
 
@@ -150,7 +149,7 @@ POST /v1/agents/responses                       api/routes/v1/agent_responses.py
 |---|---|
 | 应用组装 | `api/app.py`、`api/lifecycle.py`、`api/startup/` |
 | 路由注册表 | `api/routes/v1/__init__.py`（CE）、`edition_ee/routes/registry.py`（EE）、`core/harness/registry`（模块路由） |
-| 依赖注入 | `api/deps.py`（require_admin / require_config / require_admin_or_config / require_system_settings / require_ontology_governance / require_super_admin / console_actor） |
+| 依赖注入 | `api/deps.py`（require_admin / require_config / require_admin_or_config / require_system_settings / require_super_admin / console_actor） |
 | 认证 | `core/auth/backend.py`（get_current_user / UserContext）、`core/auth/bearer.py` |
 | DB | `core/db/engine.py`（get_db）、`core/db/threads.py`、`core/db/models/`、`core/db/repository/` |
 | 信封 / 异常 | `core/infra/responses.py`、`core/infra/exceptions.py`、`api/middleware/error_handler.py` |

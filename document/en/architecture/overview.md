@@ -4,7 +4,7 @@
 
 HugAgentOS is an open-source, self-hosted agent harness that runs as HugAgentOS Cloud (a fully containerized server) or HugAgentOS Local (on the desktop). A React single-page application provides the user experience, an async FastAPI service runs the backend, AgentScope 2.0's ReActAgent supplies the agent runtime, independent MCP (Model Context Protocol) processes expose tools, and pluggable sandbox providers isolate code execution. The platform ships in two editions — an open-source Community Edition (CE) and a commercial Enterprise Edition (EE) — built from a single codebase and separated by three runtime seams: the router registry, the table-creation boundary, and license feature gates (see [Editions](../editions/overview.md)).
 
-This page describes the system from five angles: the layered architecture, the ontology-grounded enterprise trust plane, the full lifecycle of one chat request, the container topology, and the key design decisions. For deeper dives, see [Backend Architecture](./backend.md), [Frontend Architecture](./frontend.md), and the [Data Model](./data-model.md).
+This page describes the system from four angles: the layered architecture, the full lifecycle of one chat request, the container topology, and the key design decisions. For deeper dives, see [Backend Architecture](./backend.md), [Frontend Architecture](./frontend.md), and the [Data Model](./data-model.md).
 
 ## Technology Stack
 
@@ -44,7 +44,7 @@ This page describes the system from five angles: the layered architecture, the o
 ┌──────────────────────────────▼─────────────────────────────────────┐
 │  Agent execution                                                    │
 │  core/agent_runtime: runner.astream_chat_workflow, routing,         │
-│    memory / ontology / evolution integration                        │
+│    memory / evolution integration                                   │
 │  core/llm: factory/build → AgentScope ReActAgent, tools, context    │
 │  orchestration/: plans · loops (autonomous loop) · automations      │
 │  personal_agent/: identity, task queue, scheduling, channels,       │
@@ -60,74 +60,6 @@ This page describes the system from five angles: the layered architecture, the o
 ```
 
 Dependencies point strictly downward: `api → features / orchestration / personal_agent → core`; `core` never depends on upper layers, and `integrations/` holds connectors to external systems such as DingTalk, Feishu and email. MCP servers are independent processes that talk to the backend exclusively over HTTP, so a crash on either side never takes down the other.
-
-## Ontology-Grounded Enterprise Trust Plane
-
-HugAgentOS extends the runtime into a trustworthy enterprise AgentOS by treating
-domain ontology as an executable control plane rather than only a knowledge
-store. A versioned Domain Pack can progress from controlled concepts and
-relationships to invariants, Action contracts, workflows, roles, permissions,
-and evidence requirements. The skill, orchestration, and memory engines
-therefore reason against the same business semantics.
-
-The diagram below is the target enterprise architecture being integrated
-incrementally on top of the current Harness. Existing confirmation gates,
-structured review verdicts, audit records, and versioning provide the base;
-ontology-specific assets and enforcement are added without claiming that every
-free-text hallucination can be eliminated.
-
-```mermaid
-flowchart TB
-    U[Enterprise users and channels] --> API[Web / Desktop / API]
-    API --> RUN[ChatRun and streaming workflow]
-
-    ONTO[Domain ontology control plane<br/>Concepts · Relationships · Invariants<br/>Action contracts · Roles · Permissions]
-    ONTO --> BUILD[Build-time validation<br/>Skills · Tools · Sub-agents]
-    ONTO --> BOOT[Domain bootstrap<br/>Semantic alignment · Relevant rules]
-
-    subgraph HARNESS[Three-engine Agent Harness]
-        direction LR
-        SKILL[Skill engine] <--> ORCH[Orchestration engine]
-        ORCH <--> MEMORY[Memory engine]
-    end
-
-    RUN --> ORCH
-    BUILD --> SKILL
-    BOOT --> ORCH
-    BOOT --> MEMORY
-    ORCH --> PLAN[Candidate plan or action]
-
-    PLAN --> RULE[Deterministic ontology rule gate]
-    ONTO --> RULE
-    RULE -->|Low risk and compliant| EXEC[Gated execution]
-    RULE -->|Checkpoint or high risk| REVIEW[Evidence-backed review]
-    REVIEW -->|Approved| EXEC
-    RULE -->|Violation| REVISE[Reject with evidence and repair guidance]
-    REVIEW -->|Revise or escalate| REVISE
-    REVISE --> ORCH
-
-    EXEC --> CAP[MCP · Skills · Sandbox · RAG]
-    EXEC --> AUDIT[Traceable audit and replay]
-    REVISE --> AUDIT
-    AUDIT --> EVOLVE[Governed ontology proposals]
-    EVOLVE -. Human review · Versioning · Rollback .-> ONTO
-```
-
-Three principles keep the trust plane useful without turning every step into
-an expensive committee review:
-
-1. **Deterministic before probabilistic.** Machine-checkable invariants,
-   permissions, and Action contracts run first.
-2. **Review according to risk.** Only checkpoints, high-risk actions, or
-   uncertain evidence invoke deeper review; compliant low-risk actions proceed
-   through the execution gate.
-3. **Evidence before evolution.** Violations, approvals, and outcomes enter the
-   audit trail. Proposed ontology changes require human approval, a new
-   version, and a rollback path.
-
-Ontology and RAG remain complementary: ontology governs what an agent may do
-and which constraints apply, while RAG supplies the documents and evidence
-used to support a decision.
 
 ## Lifecycle of a Chat Request
 

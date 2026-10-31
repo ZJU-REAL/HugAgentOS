@@ -1,0 +1,114 @@
+/* Workbench host UI layer (v2). Components in HostUI.tsx own the control and
+   notice classes; the list/stats/dialog/layout classes at the end are shared
+   layout helpers applied by className. Nothing styles bare elements, so a
+   surface without these classes stays visibly unfinished in review instead of
+   silently inheriting a parent's rules. */
+
+.jx-hostButton { max-width: 100%; }
+
+/* ── Notice: one line of state, colour + shape ── */
+.jx-hostNotice {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+  color: var(--color-text-secondary); font-size: .8125rem; line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.jx-hostNotice-body { min-width: 0; flex: 1 1 240px; }
+.jx-hostNotice-body > p { margin: 0; }
+.jx-hostNotice-body > p + p { margin-top: 4px; }
+.jx-hostNotice--inline { padding: 8px 12px; border-radius: var(--radius-xs); background: var(--color-bg-layout); }
+.jx-hostNotice--inline.jx-hostNotice--loading { padding: 0; background: none; color: var(--color-text-tertiary); }
+.jx-hostNotice--inline.jx-hostNotice--success { background: var(--color-success-light); color: var(--color-success-text); }
+.jx-hostNotice--inline.jx-hostNotice--warning { background: var(--color-warning-light); color: var(--color-warning-text); }
+.jx-hostNotice--inline.jx-hostNotice--error { background: var(--color-error-light); color: var(--color-error-text); }
+.jx-hostNotice--inline::before {
+  content: ''; flex: none; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--color-fill-deep);
+}
+.jx-hostNotice--loading::before { display: none; }
+.jx-hostNotice--success::before { background: var(--color-success); }
+.jx-hostNotice--warning::before { background: var(--color-warning); }
+.jx-hostNotice--error::before { border-radius: 1px; background: var(--color-error); }
+
+/* page: the surface itself is the state. Centred, readable width, no card. */
+.jx-hostNotice--page {
+  flex-direction: column; justify-content: center; gap: 16px;
+  box-sizing: border-box; min-height: 240px; padding: 48px 24px;
+  text-align: center; font-size: .875rem;
+}
+.jx-hostNotice--page .jx-hostNotice-body { flex: none; max-width: 480px; }
+.jx-hostNotice--page.jx-hostNotice--error .jx-hostNotice-body > p:first-child { color: var(--color-text); font-weight: 500; }
+.jx-hostNotice--page.jx-hostNotice--loading { color: var(--color-text-tertiary); }
+.jx-hostNotice--page .jx-hostToolbar { justify-content: center; }
+.jx-hostNotice code {
+  padding: 1px 6px; border-radius: var(--radius-xs); background: var(--color-fill-hover);
+  color: var(--color-text); font-family: var(--font-family-mono); font-size: .75rem;
+}
+
+.jx-hostToolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+/* ── Section / form ── */
+.jx-hostSection { display: grid; gap: 16px; min-width: 0; }
+.jx-hostSection + .jx-hostSection { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--color-border); }
+.jx-hostSection-header { display: grid; gap: 4px; }
+.jx-hostSection-title { margin: 0; color: var(--color-text); font-size: .9375rem; font-weight: 600; line-height: 1.4; }
+.jx-hostSection-description { margin: 0; color: var(--color-text-secondary); font-size: .8125rem; line-height: 1.6; }
+
+.jx-hostFieldset {
+  display: grid; gap: 16px; min-width: 0; margin: 0; padding: 16px;
+  border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+}
+.jx-hostFieldset-legend { padding: 0 4px; color: var(--color-text); font-size: .875rem; font-weight: 500; }
+.jx-hostFieldset .jx-hostFieldset { padding: 12px; border-radius: var(--radius-xs); }
+
+.jx-hostField { display: grid; gap: 4px; min-width: 0; }
+.jx-hostField-control { display: grid; gap: 4px; min-width: 0; }
+.jx-hostField-label { color: var(--color-text); font-size: .8125rem; font-weight: 500; }
+.jx-hostField-hint, .jx-hostHint { margin: 0; color: var(--color-text-tertiary); font-size: .75rem; line-height: 1.5; }
+
+.jx-hostSelect {
+  box-sizing: border-box; width: 100%; min-width: 0; height: 32px; padding: 0 32px 0 11px;
+  border: 1px solid var(--color-border); border-radius: var(--radius-xs);
+  background-color: var(--color-bg-container); color: var(--color-text);
+  font: inherit; font-size: .875rem; cursor: pointer;
+  appearance: none;
+  /* Chevron drawn from currentColor so it follows the theme. */
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 16px) 50%, calc(100% - 12px) 50%;
+  background-size: 4px 4px; background-repeat: no-repeat;
+  transition: border-color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.jx-hostSelect:hover:not(:disabled) { border-color: var(--color-primary-hover); }
+.jx-hostSelect:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+.jx-hostSelect:disabled { opacity: .4; cursor: not-allowed; }
+
+.jx-hostMeta { color: var(--color-text-tertiary); font-size: .75rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+/* ── List rows (admin catalogues, diagnostics) ── */
+.jx-hostList { display: grid; margin: 0; padding: 0; list-style: none; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.jx-hostList:empty { display: none; }
+.jx-hostList-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0;
+  padding: 8px 12px; overflow-wrap: anywhere;
+}
+.jx-hostList-row + .jx-hostList-row { border-top: 1px solid var(--color-border); }
+.jx-hostList-title { flex: 1 1 200px; min-width: 0; color: var(--color-text); font-size: .875rem; }
+.jx-hostList-row code { font-family: var(--font-family-mono); font-size: .75rem; }
+
+/* ── Metrics ── */
+.jx-hostStats { display: grid; grid-template-columns: repeat(auto-fill, minmax(136px, 1fr)); gap: 8px; margin: 0; }
+.jx-hostStats > div { padding: 12px; border-radius: var(--radius-xs); background: var(--color-bg-layout); }
+.jx-hostStats dt { color: var(--color-text-tertiary); font-size: .75rem; }
+.jx-hostStats dd {
+  margin: 4px 0 0; color: var(--color-text); font-family: var(--font-family-number);
+  font-size: 1.125rem; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
+}
+
+/* ── Dialog actions (modal bodies rendered by the host) ── */
+.jx-hostDialog { display: grid; gap: 16px; }
+.jx-hostDialog > p { margin: 0; color: var(--color-text-secondary); overflow-wrap: anywhere; }
+.jx-hostDialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+.jx-hostSections { display: grid; min-width: 0; }
+.jx-hostFieldGroup { display: grid; gap: 8px; min-width: 0; }
+.jx-hostInlineForm { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.jx-hostInlineForm > .jx-hostField { flex: 1 1 240px; }

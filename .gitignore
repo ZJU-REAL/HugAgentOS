@@ -164,7 +164,11 @@ docker/dbhub/dbhub.toml
 docker/dbhub/es.env
 
 license-keys/
-deploy_kit/
+deploy_kit/*
+!deploy_kit/kubernetes/
+deploy_kit/kubernetes/*
+!deploy_kit/kubernetes/space_mounts.py
+!deploy_kit/kubernetes/patch_upstream.py
 node_modules/
 
 # 建站模板必须完整入库（覆盖上面的 lib/ 与 AGENTS.md 规则），但依赖树除外

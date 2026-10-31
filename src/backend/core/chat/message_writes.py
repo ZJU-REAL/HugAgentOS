@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional
 from core.db.models import ChatCompactionState, ChatMessage, ChatRun, ChatSession
 from core.db.repository.chat import _strip_nul
 from sqlalchemy import update
-from core.ontology.revision import is_substantive_revision, normalize_revision_candidate
 from core.chat import limits
 
 def add_message(
@@ -260,40 +259,3 @@ def update_message_extra_data(
 ) -> bool:
     """Merge *patch* into a message's extra_data. Returns True on success."""
     return self.message_repo.update_extra_data(message_id, patch) is not None
-
-
-def accept_ontology_revision(self, message_id: str) -> Optional[ChatMessage]:
-    """Replace an assistant message with its persisted ontology revision candidate."""
-    message = self.message_repo.get_by_id(message_id)
-    if not message or message.role != "assistant":
-        return None
-    extra_data = dict(message.extra_data or {})
-    governance = extra_data.get("ontology_governance")
-    if not isinstance(governance, dict):
-        return None
-    review = governance.get("review")
-    if not isinstance(review, dict):
-        return None
-    candidate = normalize_revision_candidate(review.get("candidate_answer"))
-    if not is_substantive_revision(candidate):
-        return None
-    updated_review = {**review, "candidate_answer": candidate, "accepted": True}
-    extra_data["ontology_governance"] = {**governance, "review": updated_review}
-    # Some pure unit adapters exercise this method without a database.
-    if not hasattr(self, "db"):
-        return self.message_repo.update(
-            message_id,
-            {"content": candidate, "extra_data": extra_data},
-        )
-
-    updated = self.message_repo.update(
-        message_id,
-        {"content": candidate, "extra_data": extra_data},
-        commit=False,
-    )
-    self._invalidate_compaction_lineage_for_rewrite(
-        message.chat_id,
-        rewritten_seq=int(message.chat_seq),
-    )
-    self.db.commit()
-    return updated

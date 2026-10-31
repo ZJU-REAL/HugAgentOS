@@ -157,7 +157,8 @@
   max-width:none;
   margin:0 auto;
   width:100%;
-  padding-bottom:12px;
+  /* Bottom spacing lives inside the floating footer, so nothing shows below it. */
+  padding-bottom:0;
 }
 
 /* The content column excludes tool results, prompts and project rails.
@@ -174,6 +175,8 @@
   max-width:none;
   height:100%;
   min-height:0;
+  /* The scroller runs to the bottom edge; the footer carries this spacing. */
+  padding-bottom:0;
   overflow:hidden;
   scrollbar-gutter:stable both-edges;
 }
@@ -201,7 +204,7 @@
   .jx-content--messageSurface > .jx-panel{scrollbar-gutter:auto;}
 }
 
-.jx-chatList{min-height:100%; width:100%; max-width:760px; margin:0 auto; padding:4px 0 6px;}
+.jx-chatList{min-height:100%; width:100%; max-width:760px; margin:0 auto; padding:4px 0 calc(6px + var(--jx-chat-footer-h, 0px));}
 
 .jx-shareSelectionBar{
   position:sticky;

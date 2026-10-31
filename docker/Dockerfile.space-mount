@@ -1,0 +1,4 @@
+FROM python:3.12-slim-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends s3fs fuse ca-certificates && rm -rf /var/lib/apt/lists/* && echo user_allow_other >> /etc/fuse.conf
+COPY docker/space-mount.py /opt/space-mount.py
+ENTRYPOINT ["python3", "/opt/space-mount.py"]

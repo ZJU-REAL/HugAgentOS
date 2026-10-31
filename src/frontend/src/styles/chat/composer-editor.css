@@ -204,9 +204,10 @@
   padding: 16px 16px 12px;
   font-size: 16px;
   line-height: 1.5715;
-  white-space: pre-wrap;
-  word-wrap: break-word;
+  /* 单行显示，窄宽度/缩放时以省略号截断，避免换行后被裁成半行 */
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--color-text-placeholder);
   pointer-events: none;
 }
@@ -367,6 +368,27 @@
   color: color-mix(in srgb, var(--color-text) 50%, transparent);
 }
 
+/* 手机：子菜单在同一浮层里逐层进入（ComposerAttachmentMenu），行高对齐触屏 44px，
+   长列表（技能 / 连接器）在浮层内滚动而不是顶出屏幕。 */
+.jx-attachMenu--mobile .ant-dropdown-menu {
+  min-width: min(280px, calc(100vw - 32px));
+  max-height: min(60dvh, 480px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.jx-attachMenu--mobile .ant-dropdown-menu-item {
+  min-height: 44px;
+}
+
+.jx-attachMenu--mobile .jx-attachMenu-back {
+  font-weight: 600;
+}
+
+.jx-attachMenu .ant-dropdown-menu-item .jx-attachMenu-drill.anticon {
+  font-size: 12px;
+}
+
 /* 「自主循环」菜单项：名称在左、开关贴右 */
 
 /* 子菜单浮层（技能 / 添加到项目）单独挂载，不继承 overlayClassName。
@@ -378,7 +400,9 @@
   min-width: 180px;
 }
 
-/* Capability submenus render in separate portals; share typography across all four lists. */
+/* Capability submenus render in separate portals; share typography across all four lists.
+   On phones the same lists render inline in the attach menu (.jx-attachMenu--mobile). */
+.jx-attachMenu--mobile .ant-dropdown-menu-item,
 .jx-capabilityMenu .ant-dropdown-menu-item {
   font-family: inherit;
   font-size: 14px;
@@ -393,6 +417,7 @@
   font-weight: inherit;
 }
 
+.jx-attachMenu--mobile .jx-capabilityMenuIcon,
 .jx-capabilityMenu .jx-capabilityMenuIcon {
   width: 20px;
   height: 20px;
@@ -403,6 +428,7 @@
 }
 
 /* Match connector glyphs inside the shared 20px avatar frame. */
+.jx-attachMenu--mobile .jx-skillAvatar > svg,
 .jx-capabilityMenu .jx-skillAvatar > svg {
   width: 16px;
   height: 16px;

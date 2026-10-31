@@ -103,7 +103,6 @@ SSE streams bypass the JSON channel of `api.ts`; they are consumed directly from
 | `useChatInit` | Session initialization and active-run recovery on app start |
 | `usePlanMode` | Plan-mode SSE consumer (shared by first execution and resume) |
 | `usePageConfig` | Reads page config by dot-path (e.g. `branding.product_name`) |
-| `useStallDetector` | Detects a stream gone silent past a threshold (stall hint) |
 | `useDelayedFlag` | Anti-flicker delayed boolean (delayed show + minimum hold) |
 
 ## Styles and Other Directories

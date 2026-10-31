@@ -3,6 +3,7 @@ import {workbenchRequest as apiRequest} from './sourceRequest';
 import {ApiResponseError} from '../utils/apiError';
 import {getLang} from '../i18n';
 import {useApplicationDirectory} from './catalog';
+import {HostButton, HostNotice} from './ui';
 
 function diagnosticId(error: unknown): string | null {
   if (!(error instanceof ApiResponseError)) return null;
@@ -42,11 +43,11 @@ function FailureReceipt({seed,applicationKey,code,message,onRetry}:{
     try {await navigator.clipboard.writeText(id);setCopied(true);}
     catch {setCopied(false);}
   }
-  return <div role="alert">
+  return <HostNotice tone="error" placement="page"
+    actions={<HostButton tone="primary" onClick={onRetry}>{english?'Retry':'重试'}</HostButton>}>
     <p>{message ?? (english?'Application could not load. Retry checks current access.':'应用未能加载。重试会重新检查当前访问权限。')}</p>
     {id && <p>{english?'Diagnostic ID:':'诊断编号：'} <code tabIndex={0}>{id}</code>{' '}
-      <button type="button" onClick={()=>void copy()}>{english?'Copy ID':'复制编号'}</button></p>}
+      <HostButton tone="text" size="small" onClick={()=>void copy()}>{english?'Copy ID':'复制编号'}</HostButton></p>}
     {copied && <p role="status">{english?'Copied':'已复制'}</p>}
-    <button type="button" onClick={onRetry}>{english?'Retry':'重试'}</button>
-  </div>;
+  </HostNotice>;
 }

@@ -25,7 +25,7 @@
 
 用户消息使用统一圆角气泡。只有本次新发送的消息播放入场动画，加载历史或返回会话不会重播。消息操作在鼠标悬停、键盘聚焦和触屏场景下可见。
 
-独立思考沿用原有行内摘要，工具步骤中的思考保留时间线样式。点击摘要，或聚焦后按 Enter / Space，可展开和收起；流式更新保留展开选择。
+思考和工具调用统一显示在可折叠的执行卡中，其中的思考保留时间线样式。点击执行卡标题，或聚焦后按 Enter / Space，可展开和收起；流式更新保留展开选择。
 
 输入区附件使用紧凑卡片，保留文件名扩展名，不显示底部文件类型文字。上传失败会在卡片中持续显示，并可点击“重试”；上传期间移除或切换草稿不会把异步结果写入其他草稿。已完成的附件仍可预览和下载。“我的空间”的文档/图片筛选支持方向键、Home / End 和选中状态提示。
 
@@ -159,7 +159,6 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 |---|---|---|
 | `thinking` | 思考过程（增量或阶段提示） | `delta` / `message` |
 | `content` | 回答正文增量 | `event: "ai_message"`, `delta`, `chat_id` |
-| `content_replace` | 本体评审修订了已流式展示的草稿时，原位替换最终答案 | `content`, `reason: "ontology_review"`, `chat_id` |
 | `tool_call_start` | 开始构造一次工具调用；前端按稳定 ID 创建一张卡片 | `tool_name`, `tool_display_name`, `tool_id` |
 | `tool_call_delta` | 工具参数 JSON 增量；前端在同一卡片中追加 | `tool_name`, `tool_id`, `arguments_delta` |
 | `tool_call` | 工具参数已完整、即将执行 | `tool_name`, `tool_display_name`, `tool_args`, `tool_id`，调子智能体时附 `subagent_name` |
@@ -167,14 +166,13 @@ SSE follower：chat_run_executor.follow_run_as_sse()
 | `steer_applied` | 运行中追加指令已注入 ReAct 上下文 | `steer_id`, `message`, `message_id`, `chat_id` |
 | `queued_run_started` | 已原子提交的 `followUp` / `nextRun`，或错过最后安全边界的 `steer` 子运行开始，前端立即接力续播 | `run_id`, `message_id`, `user_message_id`, `message`, `queue_id`, `steer_id`, `delivery_mode` |
 | `subagent_event` | 子智能体内部过程，挂在父 `call_subagent` 卡片下 | `parent_tool_id`, `sub_type`, `agent_name`，以及内部工具或内容字段 |
-| `ontology_activation` / `ontology_gate` / `ontology_review` | 本体治理状态，不属于模型思考 | 工作流、门禁决策、委员会状态与结论 |
 | `tool_pending` | 提供商没有暴露可解析参数增量时的等待兜底 | `reason` |
 | `file_confirm` | 工具挂起等待用户确认「我的空间」写操作 | 确认上下文；用户带外 `POST /v1/chats/{chat_id}/file-confirm` 后工具原地续跑 |
 | `user_question` | `ask_user_question` 已挂起并等待会话属主回答 | `request_id`, `questions[]`, `created_at`, `expires_at`, `chat_id` |
 | `user_question_resolved` | 回答、取消或超时已由服务端裁决 | `request_id`, `outcome`, `chat_id` |
 | `context_usage` | 最近一次主模型调用的上下文占用快照；供应商返回 usage 时总数为实测值 | `source`, `exact`, `prompt_tokens`, `completion_tokens`, `used_tokens`, `context_window`, `breakdown` |
 | `compaction_notice` | 上一轮结束后已生成新的上下文压缩检查点 | `chat_id`, `context_compaction`（覆盖边界、摘要基线 token 数） |
-| `meta` | 回合收尾元数据 | `route`, `citations[]`, `sources`, `artifacts`, `workspace_files`, `ontology_governance`, `warnings`, `is_markdown`, `message_id`, `usage`, `context_usage`, `compaction_pending` |
+| `meta` | 回合收尾元数据 | `route`, `citations[]`, `sources`, `artifacts`, `workspace_files`, `warnings`, `is_markdown`, `message_id`, `usage`, `context_usage`, `compaction_pending` |
 | `error` | 出错（已映射为用户友好中文文案） | `error`, `chat_id` |
 | `heartbeat` | 心跳（事件级；另有 `: heartbeat` 注释行） | — |
 
@@ -200,7 +198,7 @@ data: {"type":"meta","route":"main","citations":[...],"usage":{"prompt_tokens":3
 data: [DONE]
 ```
 
-`meta` 之后，`chat_run_executor.py` 持久化助手消息、回填 artifact，并起后台任务生成追问问题（`core/chat/followups.py`，结果写进消息 `extra_data.follow_up_questions`，前端经 `GET /v1/chats/{chat_id}/messages/{message_id}/followups` 拉取）。本体事件在前端汇总为独立的“领域本体治理”模块，不再写入或显示在“思考过程”中。模型草稿保持逐 token 流式展示；委员会仅在实际修订答案时发送一次 `content_replace`，前端原位替换正文，数据库只保存评审后的最终答案。`ontology_governance` 随助手消息持久化，刷新历史会话后仍可回显。
+`meta` 之后，`chat_run_executor.py` 持久化助手消息、回填 artifact，并起后台任务生成追问问题（`core/chat/followups.py`，结果写进消息 `extra_data.follow_up_questions`，前端经 `GET /v1/chats/{chat_id}/messages/{message_id}/followups` 拉取）。
 
 `usage` 是本轮所有模型调用的累计计费数据；上下文仪表使用的是
 `context_usage`，即最近一次主模型调用的 `prompt_tokens + completion_tokens`，
@@ -444,7 +442,7 @@ MCP 一样，使用当前账号授权的云端绑定，不再设按工具名称�
 
 主对话中的子智能体调用行展示运行状态、智能体 Logo、名称与耗时。点击整行会在右侧 Canvas 打开本次调用的独立页签；内部过程不再在消息下方展开。运行状态动画与 Logo 分开显示。普通工具保持原来的折叠交互。
 
-详情直接复用主对话的工具批次、思考和正文 UI，遵循相同的过程显示设置与默认折叠交互，不额外增加参数或执行过程分组。完成后调用行不显示对勾。面板实时跟随当前调用；向上滚动阅读时暂停自动跟随。同一智能体的多次调用分别定位，并可与文件、本体、插件页签共存。历史详情使用已保存的数据：子步骤最多 200 项，单条字符串工具输出约 16,000 字符，已截断内容无法恢复。
+详情直接复用主对话的工具批次、思考和正文 UI，遵循相同的过程显示设置与默认折叠交互，不额外增加参数或执行过程分组。完成后调用行不显示对勾。面板实时跟随当前调用；向上滚动阅读时暂停自动跟随。同一智能体的多次调用分别定位，并可与文件、插件页签共存。历史详情使用已保存的数据：子步骤最多 200 项，单条字符串工具输出约 16,000 字符，已截断内容无法恢复。
 
 技能加载、插件加载以及可唯一确定所属连接器的工具调用行，展示能力中心中对应的 Logo。插件声明的工具专属图标优先使用。运行动画与 Logo 分开显示，点击行为和折叠布局保持不变；普通工具保留原分类图标。
 

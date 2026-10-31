@@ -141,6 +141,8 @@ def test_list_never_hides_live_tasks_behind_display_limit(command_db):
     rows = store.list_owned("u", "c")
     assert len(rows) == 51
     assert all(row["status"] == "starting" for row in rows)
+    # The run monitor lists only commands that were handed to the background.
+    assert all(row["background"] is False for row in rows)
 
 async def test_slow_launch_keeps_lease_without_execution_deadline(command_db, monkeypatch):
     import core.sandbox.commands.runtime as module

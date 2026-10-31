@@ -1,14 +1,12 @@
-import { CheckCircleFilled, SafetyCertificateOutlined } from '@ant-design/icons';
+import { CheckCircleFilled } from '@ant-design/icons';
 import { t } from '../../i18n';
 import type { ChatMessage } from '../../types';
-import { DataView } from '../tool/renderers/DataView';
 
 interface MessageInheritedCardsProps { m: ChatMessage }
 
 /** Forked cards describe past decisions; they must not poll or mutate source jobs. */
 export function MessageInheritedCards({ m }: MessageInheritedCardsProps) {
   const entries = m.evolution?.state === 'settled' ? m.evolution.entries ?? [] : [];
-  const governance = m.ontologyGovernance;
   return <>
     {entries.length > 0 && (
       <section className="jx-evolutionCard">
@@ -28,12 +26,6 @@ export function MessageInheritedCards({ m }: MessageInheritedCardsProps) {
           </li>)}
         </ul>
       </section>
-    )}
-    {governance && (
-      <details className="jx-ontologyReviewInline">
-        <summary><SafetyCertificateOutlined /> {t('历史本体校验（只读）')}</summary>
-        <DataView value={governance} maxHeight={520} />
-      </details>
     )}
   </>;
 }

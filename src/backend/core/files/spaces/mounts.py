@@ -1,10 +1,8 @@
 """Create provider volumes from authorized space grants."""
 import os
 import base64
-from pathlib import Path
 from fastapi import HTTPException
 from core.files.spaces.access import fingerprint, resolve_grants
-from core.files.storage.entries import validate_key
 
 MOUNT_REVISION_TAG = "hugagent-space-revision"
 
@@ -20,6 +18,9 @@ def mount_revision(grants):
         prefix + "_ACCESS_KEY_ID", prefix + "_ACCESS_KEY_SECRET",
         "OSS_KEY_PREFIX",
     )}
+    if os.getenv("DEPLOY_PROFILE") == "kubernetes":
+        config["mount_mode"] = os.getenv("HUGAGENT_SPACE_MOUNT_MODE", "csi")
+        config["claim"] = os.getenv("HUGAGENT_SPACE_CLAIM", "")
     if backend == "local":
         config["path"] = str(settings.storage.root.resolve())
         config["host_path"] = settings.sandbox.opensandbox_host_storage_path
@@ -29,53 +30,16 @@ def mount_revision(grants):
 
 
 def provider_volume(grant):
-    from opensandbox.models.sandboxes import Host, OSSFS, Volume
-    from core.config.settings import settings
-
-    backend = os.getenv("STORAGE_TYPE", "local").lower()
-    name = "space-" + fingerprint((grant,))[:24]
-    if backend == "local":
-        root = settings.storage.root.resolve()
-        path = root / grant.prefix
-        if path.is_symlink() or not path.resolve().is_relative_to(root):
-            raise HTTPException(503, "Invalid local space root")
-        host_root = settings.sandbox.opensandbox_host_storage_path
-        if not host_root:
-            raise HTTPException(503, "HOST_STORAGE_PATH is required for space volumes")
-        return Volume(name=name, host=Host(path=str(Path(host_root) / grant.prefix)),
-            mount_path=grant.mount_path, read_only=not grant.writable)
-    if backend not in ("s3", "oss", "obs"):
-        raise HTTPException(503, "Unsupported storage provider")
-    prefix = backend.upper()
-    endpoint = os.getenv(prefix + "_ENDPOINT", "")
-    bucket = os.getenv(prefix + "_BUCKET", "")
-    access = os.getenv(prefix + ("_ACCESS_KEY_ID" if backend == "oss" else "_ACCESS_KEY"), "")
-    secret = os.getenv(prefix + ("_ACCESS_KEY_SECRET" if backend == "oss" else "_SECRET_KEY"), "")
-    if not all((endpoint, bucket, access, secret)):
-        raise HTTPException(503, "Object mount configuration is incomplete")
-    key_prefix = os.getenv("OSS_KEY_PREFIX", "").strip("/") if backend == "oss" else ""
-    path = "/".join(part for part in (key_prefix, grant.prefix.rstrip("/")) if part)
-    validate_key(path)
-    options = ["hugagent_driver=s3fs", "allow_other", "uid=1000", "gid=1000",
-        "umask=0022", "stat_cache_expire=0", "attr_timeout=0", "entry_timeout=0",
-        "negative_timeout=0"]
-    if backend == "oss":
-        options.append("sigv2")
-    else:
-        options.extend(["sigv4", "endpoint=" + os.getenv(prefix + "_REGION", "us-east-1")])
-        if backend == "s3":
-            options.append("use_path_request_style")
-    if not grant.writable:
-        options.append("ro")
-    return Volume(name=name, mount_path=grant.mount_path, read_only=not grant.writable,
-        sub_path=path, ossfs=OSSFS(bucket=bucket, endpoint=endpoint, version="1.0",
-            access_key_id=access, access_key_secret=secret, options=options))
+    """The provider volume for one grant, or None when the transport copies files."""
+    from core.files.spaces.transport import get_space_transport
+    return get_space_transport().volume(grant)
 
 def prepare_volumes(actor):
     from core.db.engine import SessionLocal
     with SessionLocal() as db:
         grants = resolve_grants(db, actor)
-        return [provider_volume(grant) for grant in grants], {MOUNT_REVISION_TAG: mount_revision(grants)}
+        volumes = [provider_volume(grant) for grant in grants]
+        return [v for v in volumes if v is not None], {MOUNT_REVISION_TAG: mount_revision(grants)}
 
 
 def provision_volumes(actor):

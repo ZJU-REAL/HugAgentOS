@@ -39,7 +39,7 @@ function Fixture() {
 createRoot(document.getElementById('root')).render(<Fixture/>);
 `, resolveDir: process.cwd(), loader: 'tsx' }, outfile: resolve(output, 'fixture.js'),
   bundle: true, format: 'esm', jsx: 'automatic', define: { 'import.meta.env': JSON.stringify(apiBase ? {VITE_API_BASE_URL:apiBase} : {}) },
-  external: ['/loader.gif', '/loader-done.png'], loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl' } });
+  loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl' } });
 }
 const requests = [];
 let retryCount = 0;

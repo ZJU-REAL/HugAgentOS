@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { t } from '../i18n';
 import { scopedActivityRequest, registerActivity, type ActivityContext } from './activityApi';
 import { reloadActivity } from './activityStore';
+import { HostButton, HostCheckbox, HostHint, HostNotice, HostToolbar } from './ui';
+import './workspace.css';
 
 const labels = {badge: '角标', notification: '通知', background: '后台运行'} as const;
 export function ActivityControls({context, declared, resourceId}: {
@@ -50,14 +52,16 @@ export function ActivityControls({context, declared, resourceId}: {
   }
   const permissions = Object.keys(labels).filter(key => declared.includes(key)) as (keyof typeof labels)[];
   if (!permissions.length) return null;
-  return <section aria-label={t('应用活动权限')}>
-    <p>{t('仅允许本应用已声明的能力。后台运行最多十五分钟，停止后释放资源。')}</p>
-    {permissions.map(permission => <label key={permission}><input type="checkbox" checked={selected.includes(permission)}
-      disabled={!ready || busy} onChange={event => setSelected(event.target.checked
-        ? [...selected,permission] : selected.filter(value => value !== permission))} />{t(labels[permission])}</label>)}
-    <button type="button" disabled={!ready || busy} onClick={() => void consent()}>{t('保存应用活动授权')}</button>
-    {resourceId && permissions.includes('background') && <button type="button" disabled={!ready || busy}
-      onClick={() => void start()}>{t('允许此资源后台运行')}</button>}
-    {error && <p role="alert">{error}</p>}
+  return <section aria-label={t('应用活动权限')} className="jx-workspaceActivity">
+    <HostHint>{t('仅允许本应用已声明的能力。后台运行最多十五分钟，停止后释放资源。')}</HostHint>
+    <HostToolbar>
+      {permissions.map(permission => <HostCheckbox key={permission} checked={selected.includes(permission)}
+        disabled={!ready || busy} onChange={event => setSelected(event.target.checked
+          ? [...selected,permission] : selected.filter(value => value !== permission))}>{t(labels[permission])}</HostCheckbox>)}
+      <HostButton size="small" disabled={!ready || busy} onClick={() => void consent()}>{t('保存应用活动授权')}</HostButton>
+      {resourceId && permissions.includes('background') && <HostButton size="small" tone="text" disabled={!ready || busy}
+        onClick={() => void start()}>{t('允许此资源后台运行')}</HostButton>}
+    </HostToolbar>
+    {error && <HostNotice tone="error">{error}</HostNotice>}
   </section>;
 }

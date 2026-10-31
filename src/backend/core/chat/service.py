@@ -242,8 +242,6 @@ class ChatService:
     ) -> bool:
         return message_writes.update_message_extra_data(self, message_id, patch)
 
-    def accept_ontology_revision(self, message_id: str) -> Optional[ChatMessage]:
-        return message_writes.accept_ontology_revision(self, message_id)
 
     def search_sessions(
         self,

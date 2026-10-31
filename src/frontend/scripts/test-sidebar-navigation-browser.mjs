@@ -38,7 +38,7 @@ onStartRename={noop} onCommitRename={noop} onExportChat={noop} onSelectChat={noo
 const router=createBrowserRouter([{path:'*',element:<Fixture/>}]);
 bindRouter(router);createRoot(document.getElementById('root')).render(<RouterProvider router={router}/>);
 `, resolveDir: process.cwd(), loader: 'tsx' }, outfile: resolve(output, 'fixture.js'), bundle: true,
-external: ['/loader.gif','/loader-done.png'], format: 'esm', jsx: 'automatic', define: { 'import.meta.env': '{}' },
+format: 'esm', jsx: 'automatic', define: { 'import.meta.env': '{}' },
 loader: { '.css': 'css', '.svg': 'dataurl', '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl' } });
 await writeFile(resolve(output, 'index.html'), '<html><head><style>#root{height:100%}</style><link rel="stylesheet" href="/fixture.css"></head><body style="margin:0;height:100vh"><div id="root"></div><script type="module" src="/fixture.js"></script></body></html>');
 const applications = Array.from({length: 100}, (_, n) => ({

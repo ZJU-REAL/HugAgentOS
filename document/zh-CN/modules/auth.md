@@ -39,8 +39,7 @@ HugAgentOS 的认证与权限体系覆盖三条互相独立的链路：**终端�
 ### CE 首次初始化
 
 使用默认 `admin/admin` 登录的 CE 实例在修改临时密码后，会进入全屏首次初始化向导，
-而不是直接进入工作台。向导依次设置界面语言、模型、互联网搜索、文件解析、永久记忆
-和本体核验。
+而不是直接进入工作台。向导依次设置界面语言、模型、互联网搜索、文件解析和永久记忆。
 
 - 模型步骤包含必填的主对话模型，以及可选的索引（embedding）模型和重排
   （reranker）模型。保存时后端会实测所有已填写模型的连通性，并分别指派对话、
@@ -49,10 +48,8 @@ HugAgentOS 的认证与权限体系覆盖三条互相独立的链路：**终端�
 - 配置并指派索引模型后，后续步骤会立即重新检测依赖并开放永久记忆开关；重排模型
   用于提高长期记忆与知识库检索结果的相关性。两个检索模型留空均不阻塞初始化。
 - 互联网搜索和外部文件解析均可跳过，以后可在**设置 → 系统管理**中补充。
-- 记忆和本体开关会先检查实例是否具备对应服务或已发布领域包；不可用时保持关闭，
+- 记忆开关会先检查实例是否具备对应服务；不可用时保持关闭，
   不会制造“已开启但运行时无效”的状态。
-- CE 新部署在浏览器没有保存过偏好时默认开启**显示调度过程**；用户在**设置 →
-  会话设置**中关闭后会保留该选择。
 - 完成状态存放在当前管理员的 `users_shadow.metadata` 中，并带版本号。刷新或重新登录
   后不会重复进入已完成的向导。
 
@@ -143,7 +140,6 @@ SSO 提供方响应必须是 JSON 对象，且成功码必须为有限数值 0�
 | `can_use_api_key` | 关 | `PATCH /v1/config/users/{id}/api-key-permission` | 是否可创建 / 使用个人 API-Key；关闭后已有 Key 立即失效 |
 | `can_add_skill` | 关 | `PATCH /v1/config/users/{id}/skill-permission` | 能力中心自助上传 / 手写私有技能（`api/routes/v1/me_capabilities.py`） |
 | `can_add_mcp` | 关 | `PATCH /v1/config/users/{id}/mcp-permission` | 能力中心自助添加私有远程 MCP（HTTP/SSE） |
-| `can_use_ontology_validation` | 关 | `PATCH /v1/config/users/{id}/ontology-validation-permission` | 设置中心的本体校验入口、个人开关与运行时本体校验；无权限时入口隐藏，已有个人开关也不生效 |
 | `lab_enabled` | **开** | `PATCH /v1/config/users/{id}/lab-permission` | 实验室模块入口与访问 |
 | `allowed_apps` | 无限制 | `PATCH /v1/config/users/{id}/app-permissions` | 应用可见范围；`None`=全部启用应用，列表=白名单（空列表=全屏蔽） |
 | `role: super_admin` | 无 | （直接写 metadata） | `require_super_admin` 依赖放行；可绕过团队角色检查 |

@@ -1,11 +1,12 @@
 import { EditOutlined, FileMarkdownOutlined, FileOutlined, FolderOpenOutlined, FolderOutlined, LinkOutlined, ReloadOutlined } from '@ant-design/icons';
-import { Button, Empty, Input, Spin, Tooltip, Tree, message } from 'antd';
+import { Button, Empty, Input, Tooltip, Tree, message } from 'antd';
 import type { TreeDataNode } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { t } from '../../../i18n';
 import { userMarkdownHtml } from '../../../utils/userMarkdown';
 import { useAgentNameStore } from '../shared/agentName';
 import { errorText, personalApi } from '../api';
+import { LoadError, SkeletonLines } from '../../common/LoadState';
 import type { WorkspaceEntry, WorkspaceFile, WorkspaceTree } from '../api';
 import './agent-workspace.css';
 
@@ -27,7 +28,7 @@ function formatSize(size: number | null): string {
 function entryIcon(entry: WorkspaceEntry, open: boolean) {
   if (entry.type === 'dir') return open ? <FolderOpenOutlined /> : <FolderOutlined />;
   if (entry.type === 'link') return <LinkOutlined />;
-  return entry.name.endsWith('../.md') ? <FileMarkdownOutlined /> : <FileOutlined />;
+  return entry.name.endsWith('.md') ? <FileMarkdownOutlined /> : <FileOutlined />;
 }
 
 function buildTree(entries: WorkspaceEntry[], expanded: Set<string>): TreeDataNode[] {
@@ -61,6 +62,7 @@ function buildTree(entries: WorkspaceEntry[], expanded: Set<string>): TreeDataNo
 /** My Space view of the Personal Agent's permanent workspace files. */
 export function AgentWorkspaceView() {
   const [tree, setTree] = useState<WorkspaceTree | null>(null);
+  const [treeError, setTreeError] = useState('');
   const [selected, setSelected] = useState<string>(DEFAULT_FILE);
   const [file, setFile] = useState<WorkspaceFile | null>(null);
   const [fileError, setFileError] = useState('');
@@ -69,8 +71,9 @@ export function AgentWorkspaceView() {
   const [expanded, setExpanded] = useState<string[] | null>(null);
 
   const loadTree = useCallback(async () => {
+    setTreeError('');
     try { setTree(await personalApi.workspaceTree()); }
-    catch (exc) { message.error(errorText(exc)); }
+    catch (exc) { setTreeError(errorText(exc)); }
   }, []);
 
   const loadFile = useCallback(async (path: string) => {
@@ -127,7 +130,9 @@ export function AgentWorkspaceView() {
         <aside className="pa-ws-tree">
           <div className="pa-ws-treeHead">/workspace</div>
           <div className="pa-ws-treeBody">
-            {!tree ? <Spin /> : !tree.exists ? (
+            {treeError ? <LoadError title={t('工作区文件列表加载失败')} reason={treeError} onRetry={() => void loadTree()} />
+              : !tree ? <SkeletonLines rows={6} className="pa-ws-skTree" />
+              : !tree.exists ? (
               <Empty description={t('工作区尚未创建')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
             ) : (
               <>
@@ -165,13 +170,14 @@ export function AgentWorkspaceView() {
             ))}
           </div>
           <div className="pa-ws-viewerBody">
-            {fileError ? <Empty description={fileError} image={Empty.PRESENTED_IMAGE_SIMPLE} />
-              : !file ? <Spin />
+            {fileError ? <LoadError title={t('文件加载失败')} reason={fileError} onRetry={() => void loadFile(selected)} />
+              : treeError || (tree && !tree.exists) ? null
+              : !file ? <SkeletonLines rows={8} />
               : draft !== null ? (
                 <Input.TextArea className="pa-ws-editor" value={draft} onChange={(e) => setDraft(e.target.value)} spellCheck={false} />
               ) : file.binary ? (
                 <Empty description={t('二进制文件不支持预览')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
-              ) : file.path.endsWith('../.md') ? (
+              ) : file.path.endsWith('.md') ? (
                 <div className="jx-md pa-ws-markdown" dangerouslySetInnerHTML={{ __html: userMarkdownHtml(file.content ?? '') }} />
               ) : (
                 <pre className="pa-ws-text">{file.content}</pre>

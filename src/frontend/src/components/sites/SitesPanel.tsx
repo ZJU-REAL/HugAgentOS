@@ -237,7 +237,7 @@ export function SitesPanel() {
           <div className="jx-agentPage-title">{t('站点')}</div>
           <div className="jx-agentPage-subtitle">{t('在同一处访问和管理你的站点与 MCP 服务')}</div>
         </div>
-        <Button type="primary" onClick={startSiteCreation}>{t('创建')}</Button>
+        <Button type="primary" onClick={startSiteCreation}>{t('创建新站点')}</Button>
       </div>
 
       <div className="jx-sites-body">

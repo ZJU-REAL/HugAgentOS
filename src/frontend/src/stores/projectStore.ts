@@ -48,7 +48,8 @@ interface ProjectStoreState {
   // Detail state
   currentProjectId: string | null;
   currentProject: ProjectDetail | null;
-  detailLoading: boolean;
+  /** Why the current project failed to load; while null and currentProject is not loaded yet, it is loading. */
+  detailError: string | null;
   projectFiles: ProjectFileItem[];
   filesLoading: boolean;
   filesError: string | null;
@@ -110,7 +111,7 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
 
   currentProjectId: null,
   currentProject: null,
-  detailLoading: false,
+  detailError: null,
   projectFiles: [],
   filesLoading: false,
   filesError: null,
@@ -182,7 +183,7 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     const generation = ++projectGeneration;
     const switched = get().currentProject?.project_id !== projectId;
     set({
-      currentProjectId: projectId, detailLoading: true,
+      currentProjectId: projectId, detailError: null,
       ...(switched ? {
         currentProject: null, projectFiles: [],
         capacityUsed: 0, capacityLimit: 0, filesLoading: false, filesError: null,
@@ -196,19 +197,14 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
           currentProject: proj,
           capacityUsed: proj.capacity_used ?? 0,
           capacityLimit: proj.capacity_limit ?? 0,
-          detailLoading: false,
         });
         // A file-list failure should not hide valid project details or instructions.
         await get().refreshFiles().catch(() => { /* refreshFiles exposes the error in filesError. */ });
       } catch (err) {
         if (generation !== projectGeneration) return;
-        console.warn('openProject failed', err);
-        set({ currentProject: null });
+        set({ currentProject: null, detailError: (err as Error).message || t('加载失败') });
       } finally {
-        if (generation === projectGeneration) {
-          set({ detailLoading: false });
-          pendingProject = null;
-        }
+        if (generation === projectGeneration) pendingProject = null;
       }
     })();
     pendingProject = { id: projectId, generation, promise };
@@ -221,7 +217,7 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     set({
       currentProjectId: null,
       currentProject: null,
-      detailLoading: false,
+      detailError: null,
       projectFiles: [],
       filesLoading: false,
       filesError: null,

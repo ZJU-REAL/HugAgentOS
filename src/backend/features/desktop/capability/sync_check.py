@@ -12,9 +12,8 @@ import threading
 import time
 from typing import Any
 
-import httpx
-
 from features.desktop.bridge import client as bridge
+from features.desktop.bridge import cloud_http
 from features.desktop.bridge import bundles as bundles
 from features.desktop.bridge import skills as skills
 from core.capabilities.manifest_protocol import canonical_hash, validate_manifest, validate_skill_manifest, validate_entity_manifest
@@ -51,14 +50,14 @@ def _fetch(st, kind, known):
         "agent": "agents/manifest",
         "plugin": "plugins/manifest",
     }[kind]
-    response = httpx.get(
+    response = cloud_http.get(
         f"{st['cloud_base']}/api/v1/desktop/capability/{path}",
         headers={
             **bridge_identity.cloud_headers(st),
             "Cache-Control": "no-cache",
             "If-None-Match": f'"{known["revision"]}"',
         },
-        timeout=httpx.Timeout(10.0, connect=5.0),
+        timeout=10.0,
     )
     bridge_identity.require_current_account(st)
     if response.status_code == 304:

@@ -52,6 +52,12 @@ def resolve_grants(db, actor: str) -> tuple[SpaceGrant, ...]:
     from core.files.edition import team_grants
     return (personal_grant(actor), *team_grants(db, actor))
 
+def grants_for(actor: str) -> tuple[SpaceGrant, ...]:
+    """``resolve_grants`` in its own database session."""
+    from core.db.engine import SessionLocal
+    with SessionLocal() as db:
+        return resolve_grants(db, actor)
+
 def require_grant(db, actor: str, space_id: str, *, write=False) -> SpaceGrant:
     grant = next((g for g in resolve_grants(db, actor) if g.space_id == space_id), None)
     if grant is None:

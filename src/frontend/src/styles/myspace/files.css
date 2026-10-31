@@ -294,3 +294,13 @@
   background: var(--color-fill-hover);
   color: var(--color-text);
 }
+
+/* 触屏没有悬停：文件行的「更多操作」（重命名 / 下载 / 删除）要常显，否则手机上无从操作 */
+@media (hover: none) {
+  .jx-mySpace-docRow .jx-mySpace-moreBtn {
+    width: 36px;
+    height: 36px;
+    opacity: 1;
+    pointer-events: auto;
+  }
+}

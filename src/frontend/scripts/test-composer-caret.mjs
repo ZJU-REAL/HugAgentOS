@@ -18,8 +18,7 @@ const result = await build({
          />
     );
   `, resolveDir: process.cwd(), loader: 'tsx' },
-  jsx: 'automatic', bundle: true, write: false, outdir: 'node_modules/.tmp/composer-browser', format: 'esm', external: ['/loader.gif', '/loader-done.png'],
-  define: { 'import.meta.env': '{"VITE_DEFAULT_LANGUAGE":"zh-CN"}', 'process.env.NODE_ENV': '"production"' },
+  jsx: 'automatic', bundle: true, write: false, outdir: 'node_modules/.tmp/composer-browser', format: 'esm', define: { 'import.meta.env': '{"VITE_DEFAULT_LANGUAGE":"zh-CN"}', 'process.env.NODE_ENV': '"production"' },
   loader: { '.woff2': 'dataurl', '.woff': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl', '.png': 'dataurl' },
 });
 const js = result.outputFiles.find(f => f.path.endsWith('.js')).text;
