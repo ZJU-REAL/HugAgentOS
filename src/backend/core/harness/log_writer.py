@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Dict, List, Optional
 from core.infra.background import spawn
-from core.infra.logging import get_logger
+from core.infra.logging import get_logger, run_id_var
 from core.harness import log_audit
 from core.harness import log_context
 from core.harness import log_records
@@ -51,6 +51,7 @@ async def start_subagent_log(record: Dict[str, Any]) -> str:
     record.setdefault("chat_id", ctx["chat_id"])
     record.setdefault("message_id", log_context.current_message_id.get())
     record.setdefault("parent_subagent_log_id", log_context.current_subagent_log_id())
+    record.setdefault("run_id", run_id_var.get())  # numbers the call under its run's task number
     record.setdefault("started_at", log_context.now_utc())
     try:
         await asyncio.to_thread(log_records.write_subagent_create_sync, record)

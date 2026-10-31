@@ -191,9 +191,6 @@
   "src/styles/admin.css": {
     "css-literal-color": 1
   },
-  "src/styles/automation-timeline.css": {
-    "css-literal-color": 6
-  },
   "src/styles/automation/cards.css": {
     "css-literal-color": 1
   },

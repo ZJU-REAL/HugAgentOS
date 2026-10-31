@@ -124,7 +124,7 @@ src/frontend/src/
 │   ├── variables.css          # CSS 自定义属性（颜色、阴影）
 │   ├── common.css             # 全局工具类
 │   ├── chat.css / sidebar.css / catalog.css / tool.css
-│   ├── automation.css / automation-timeline.css / batch（并入相关文件）
+│   ├── automation.css / batch（并入相关文件）
 │   ├── canvas.css / config.css / mcp.css / myspace.css / plan.css
 │   └── projects.css / search-modal.css / settings.css / skill-distill.css / team-folder.css
 ```

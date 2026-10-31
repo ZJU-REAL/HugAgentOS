@@ -115,8 +115,6 @@ async def gate(
         cid,
         p,
         timeout=timeout,
-        expire_message="等待确认超时，已自动取消。如仍需要请重新发起。",
-        cancel_message="本次运行已取消，该确认已关闭。",
         in_lock_extract=_claim_first,
     )
     if decision in (state.DECISION_ALLOW, state.DECISION_ALLOW_SESSION):
@@ -217,8 +215,6 @@ async def pick(
         cid,
         p,
         timeout=timeout,
-        expire_message="设计方案选择已超时，助手将自行选择方案继续。",
-        cancel_message="本次运行已取消，设计方案选择已关闭。",
         in_lock_extract=lambda pd, _d: pd.choice,
     )
     if decision == state.DECISION_CHOICE and choice:

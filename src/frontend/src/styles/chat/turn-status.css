@@ -56,27 +56,45 @@
 }
 
 /* Shared reference shimmer for startup, thinking, tool calls and execution.
-   Match the actual label classes with enough specificity to beat tool.css's
-   historical entrance/static rules; completed labels lose their live class.
-   Rolling labels (RollingText) scan their inner text span, so the roll's own
-   transform animation never competes with the scan for `animation`. */
-/* motion-keep: Text scanning is an activity signal while a request is running. */
+   ShimmerText lays a masked copy of the label over it: the band slides right
+   while the copy inside slides left by the same amount, so the glyphs stay put
+   and only `transform` animates (compositor-only — a `background-clip:text`
+   gradient repaints every frame and stutters while the stream is rendering).
+   The modifier classes beat tool.css's own prefix colour. */
 .jx-rollText-text.is-shimmer,
 .jx-tcr .jx-tcr-prefix.jx-tcr-prefix--shimmer{
-  background-image:linear-gradient(90deg,
-    color-mix(in srgb, var(--color-text-secondary) 80%, var(--color-primary)) 0%,
-    var(--color-text-secondary) 35%,
-    color-mix(in srgb, var(--color-text-secondary) 55%, var(--color-bg-chat)) 50%,
-    var(--color-text-secondary) 65%,
-    color-mix(in srgb, var(--color-text-secondary) 80%, var(--color-primary)) 100%);
-  background-size:250% 100%;
-  -webkit-background-clip:text;
-  background-clip:text;
-  -webkit-text-fill-color:transparent;
-  color:transparent;
-  animation:jxTurnStatusShine 2.8s linear infinite;
+  position:relative;
+  display:inline-block;
+  color:var(--color-text-secondary);
 }
-
+.jx-shimmer-band,
+.jx-shimmer-glint{
+  animation-duration:2.8s;
+  animation-timing-function:linear;
+  animation-delay:var(--jx-shimmer-delay, 0s);
+  animation-iteration-count:infinite;
+  will-change:transform;
+}
+.jx-shimmer-band{
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  /* A flat middle, not a single peak: a peak-only band blends to half strength
+     and the sweep becomes invisible. */
+  -webkit-mask-image:linear-gradient(90deg, transparent, #000 35%, #000 65%, transparent);
+  mask-image:linear-gradient(90deg, transparent, #000 35%, #000 65%, transparent);
+  /* motion-keep: Text scanning is an activity signal while a request is running. */
+  animation-name:jxShimmerBand;
+}
+.jx-shimmer-glint{
+  position:absolute;
+  top:0;
+  left:0;
+  white-space:nowrap;
+  color:color-mix(in srgb, var(--color-text-secondary) 25%, var(--color-bg-chat));
+  /* motion-keep: Text scanning is an activity signal while a request is running. */
+  animation-name:jxShimmerGlint;
+}
 .jx-turnStatus-clock{
   flex-shrink:0;
   margin-left:2px;
@@ -86,10 +104,13 @@
   color:var(--color-text-secondary);
 }
 
-@keyframes jxTurnStatusShine{
-  0%,15%{
-    background-position:83.333% 0;
-    animation-timing-function:cubic-bezier(.714,.121,.211,.888);
-  }
-  85%,100%{background-position:16.667% 0;}
+/* Constant speed across the label: an eased sweep crawls in from the left
+   and then rushes, which reads as a stall. The pause sits off-label. */
+@keyframes jxShimmerBand{
+  0%,15%{transform:translateX(-100%);}
+  85%,100%{transform:translateX(100%);}
+}
+@keyframes jxShimmerGlint{
+  0%,15%{transform:translateX(100%);}
+  85%,100%{transform:translateX(-100%);}
 }

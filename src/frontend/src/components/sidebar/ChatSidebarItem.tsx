@@ -52,14 +52,21 @@ export function ChatSidebarItem({ item, groupItems, scopeKey, dragScopeRef, acti
   const waitingForAnswer = statusIds.some(id => (pendingUserQuestions[id]?.length ?? 0) > 0);
   const running = statusIds.some(id => sendingChatIds.has(id) || remoteRunningChatIds.has(id));
   const waitingForConfirmation = statusIds.some(id => (pendingConfirm[id]?.length ?? 0) > 0 || !!pendingDesignPick[id]);
-  const indicator = taskIndicator(statusIds.flatMap(id => {
+  const groupNotices = statusIds.flatMap(id => {
     const notice = notices['chat:' + id];
     // A journal pause can outlive its interaction. Only the actionable UI
     // queues above may light the conversation's yellow reminder.
     if (notice?.status === 'waiting') return [];
     // A newly admitted run supersedes a previous verdict before the next poll arrives.
     return notice && (!(sendingChatIds.has(id) || remoteRunningChatIds.has(id)) || notice.status === 'running') ? [notice] : [];
-  }), running, waitingForAnswer || waitingForConfirmation);
+  });
+  // A scheduled task groups many runs: only the latest day's verdicts stay unread,
+  // so reading today's runs clears the dot without opening every older one.
+  const latestDay = statusChatIds && groupNotices.length
+    ? new Date(Math.max(...groupNotices.map(n => n.updatedAt))).toDateString() : null;
+  const indicator = taskIndicator(latestDay
+    ? groupNotices.map(n => n.seen || new Date(n.updatedAt).toDateString() === latestDay ? n : { ...n, seen: true })
+    : groupNotices, running, waitingForAnswer || waitingForConfirmation);
 
 
   const handleClick = async () => {

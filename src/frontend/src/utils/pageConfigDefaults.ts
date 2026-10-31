@@ -39,17 +39,13 @@ export interface PageConfig {
       content_label: string;
       config_label: string;
       apidoc_label: string;
+      /** Browser tab icon of the three admin pages; empty = follow branding.favicon_url. */
+      favicon_url: string;
     };
     sidebar_items: string[];
     menu_items: string[];
   };
   texts: Record<string, string>;
-  defaults: {
-    /** Initial mode on each user login / new conversation: turbo / fast / medium / high / max */
-    chat_mode: 'turbo' | 'fast' | 'medium' | 'high' | 'max';
-    /** Legacy field, dual-written with chat_mode for old-frontend compatibility; true=thinking mode, false=fast mode */
-    thinking_mode: boolean;
-  };
   auth: {
     /** Whether the login page shows the "register" entry (Tab + register sub-page); when disabled, only login remains */
     allow_register: boolean;
@@ -133,6 +129,7 @@ export const DEFAULT_PAGE_CONFIG: PageConfig = {
       content_label: '内容管理',
       config_label: '系统配置',
       apidoc_label: '接口文档',
+      favicon_url: '',
     },
     sidebar_items: [...DEFAULT_SIDEBAR_ITEMS],
     menu_items: [...DEFAULT_MENU_ITEMS],
@@ -150,10 +147,6 @@ export const DEFAULT_PAGE_CONFIG: PageConfig = {
     dialog_logout_confirm_content: '退出登录不会丢失任何数据，重新登录后可继续使用。',
     dialog_logout_confirm_ok: '退出登录',
     recommend_banner_text: '',
-  },
-  defaults: {
-    chat_mode: 'fast',
-    thinking_mode: false,
   },
   auth: {
     allow_register: true,
@@ -199,7 +192,6 @@ export function mergePageConfig(remote: Partial<PageConfig> | null | undefined):
       ),
     },
     texts: { ...DEFAULT_PAGE_CONFIG.texts, ...(remote.texts || {}) },
-    defaults: { ...DEFAULT_PAGE_CONFIG.defaults, ...(remote.defaults || {}) },
     auth: { ...DEFAULT_PAGE_CONFIG.auth, ...(remote.auth || {}) },
   };
 }
@@ -241,6 +233,7 @@ function mergeAdminPlatform(
     content_label: pick(r.content_label, def.content_label),
     config_label: pick(r.config_label, def.config_label),
     apidoc_label: pick(r.apidoc_label, def.apidoc_label),
+    favicon_url: pick(r.favicon_url, def.favicon_url),
   };
 }
 

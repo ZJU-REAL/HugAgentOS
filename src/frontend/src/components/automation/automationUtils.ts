@@ -23,6 +23,21 @@ export function isRunActive(run: Pick<AutomationRun, 'status'>): boolean {
   return run.status === 'running' || run.status === 'pending';
 }
 
+// First, second … tenth; above 10 use Arabic numerals
+const CN_DIGITS = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+export function formatRunOrdinal(n: number): string {
+  return `第${CN_DIGITS[n] || n}次`;
+}
+
+/** One-line result of a run: its summary, its error, or what it is waiting for. */
+export function summarizeRun(run: AutomationRun): string {
+  if (isRunActive(run)) return t('任务正在执行，结果生成后会自动更新到对话区。');
+  if (run.status === 'failed') {
+    return String(run.error_message || run.result_summary || t('执行失败，请进入详情查看错误信息。')).replace(/\s+/g, ' ').trim();
+  }
+  return String(run.result_summary || t('执行完成，可进入对话查看完整输出与附件结果。')).replace(/\s+/g, ' ').trim();
+}
+
 /** Status modifier classes for the run dot (`.jx-automation-runDot`), shared by the task
  *  detail page and the aggregated run list. The running state additionally carries the
  *  `.jx-anim-ripple` motion primitive; colour/spread live in automation.css. */

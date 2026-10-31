@@ -18,7 +18,7 @@ import core.runs.tasks as tasks
 import pytest
 from core.chat import inflight
 from core.db.engine import Base
-from core.db.models import ChatMessage, ChatRun, ChatSession
+from core.db.models import ChatMessage, ChatRun, ChatSession, TaskNumberCounter
 from core.db.models.chat import reserve_chat_sequences
 from core.chat.sequencer import ChatBusyError, ChatSequencer
 from core.chat.service import ChatService
@@ -554,7 +554,7 @@ def _concurrent_database(tmp_path):
     )
     Base.metadata.create_all(
         engine,
-        tables=[ChatSession.__table__, ChatMessage.__table__, ChatRun.__table__],
+        tables=[ChatSession.__table__, ChatMessage.__table__, ChatRun.__table__, TaskNumberCounter.__table__],
     )
     Session = sessionmaker(bind=engine)
     with Session() as db:

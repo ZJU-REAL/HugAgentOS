@@ -2,11 +2,19 @@ import { create } from 'zustand';
 import { getMainModelCapabilities, type ModelCapabilities } from '../api';
 import { writeLocal, removeLocal } from '../storage';
 import { useChatStore } from './chatStore';
-import { selectedReasoningPolicy, normalizeThinkingEffort } from '../utils/reasoningEffort';
+import { selectedReasoningPolicy, normalizeThinkingEffort, defaultThinkingEffort } from '../utils/reasoningEffort';
 
 function normalizeSelectedEffort(caps: ModelCapabilities, id: string | null) {
   const chat = useChatStore.getState();
   const next = normalizeThinkingEffort(chat.chatMode, selectedReasoningPolicy(caps, id));
+  if (next !== chat.chatMode) chat.setChatMode(next);
+}
+
+/** Jump to the model's default thinking level; locked modes (turbo) keep their own effort. */
+function applyModelDefaultEffort(caps: ModelCapabilities, id: string | null) {
+  const chat = useChatStore.getState();
+  if (chat.chatMode === 'turbo') return;
+  const next = defaultThinkingEffort(selectedReasoningPolicy(caps, id));
   if (next !== chat.chatMode) chat.setChatMode(next);
 }
 
@@ -48,7 +56,8 @@ export const useModelCapabilitiesStore = create<ModelCapabilitiesState>((set, ge
   setSelectedModelProviderId: (providerId) => {
     saveSelectedProviderId(providerId);
     set({ selectedModelProviderId: providerId });
-    normalizeSelectedEffort(get().capabilities, providerId);
+    // Switching model starts from that model's own default thinking level.
+    applyModelDefaultEffort(get().capabilities, providerId);
   },
   fetchCapabilities: async () => {
     if (get().fetching) return;
@@ -66,7 +75,12 @@ export const useModelCapabilitiesStore = create<ModelCapabilitiesState>((set, ge
         ? (stillAvailable ? current : defaultModel?.provider_id || null)
         : null;
       if (nextSelected !== current) saveSelectedProviderId(nextSelected);
-      normalizeSelectedEffort(caps, nextSelected);
+      // First load: the chat opened before capabilities arrived, so it started from the placeholder
+      // policy — move it to the model's default unless the chat already recorded its own level.
+      const chat = useChatStore.getState();
+      const savedEffort = chat.store.chats[chat.currentChatId]?.thinkingEffort;
+      if (!get().loaded && !savedEffort) applyModelDefaultEffort(caps, nextSelected);
+      else normalizeSelectedEffort(caps, nextSelected);
       set({
         capabilities: caps,
         selectedModelProviderId: nextSelected,

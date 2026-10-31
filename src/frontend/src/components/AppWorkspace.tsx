@@ -47,12 +47,11 @@ import { SlidePanel } from './common/SlidePanel';
 import { usePaneOcclusion } from '../hooks/usePaneOcclusion';
 import PanelLoadingSkeleton from './common/PanelLoadingSkeleton';
 import { ProjectHeaderSkeleton, ProjectsSkeleton, ProjectWorkspaceRailSkeleton } from './projects/ProjectSkeletons';
-const RunTimelinePanel = lazy(() => import('./automation/RunTimelinePanel').then(m => ({ default: m.RunTimelinePanel })));
 const ProjectHeader = lazy(() => import('./projects/ProjectHeader'));
 const ProjectWorkspaceRail = lazy(() => import('./projects/ProjectWorkspaceRail'));
 const { Header, Content } = Layout;
 export function AppWorkspace({ state }: { state: ReturnType<typeof useAppController> }) {
-  const { handleNewChat, handleNewProjectChat, deleteChat, toggleChatPinned, toggleChatFavorite, startRenameChat, commitRenameChat, exportChatRecord, handleSelectChat, handleSetPanel, siderCollapsed, setSiderCollapsed, handleSelectSearchResult, canvasFullscreen, canvasPanelWidth, canvasOpen, chatSurface, showChatHeader, openMobileSidebar, isEmptyChat, handleRightSidebarToggle, showHeader, title, hint, chat, chatProjectName, recommendBarVisible, recommendBannerText, handleCapabilityClick, setRecommendBarVisible, panel, overviewProjectId, toolResultPanel, promptHubOpen, isCE, automationActiveGroup, rightSidebarView, detailModal, setDetailModal, refreshCatalog } = state;
+  const { handleNewChat, handleNewProjectChat, deleteChat, toggleChatPinned, toggleChatFavorite, startRenameChat, commitRenameChat, exportChatRecord, handleSelectChat, handleSetPanel, siderCollapsed, setSiderCollapsed, handleSelectSearchResult, canvasFullscreen, canvasPanelWidth, canvasOpen, chatSurface, showChatHeader, openMobileSidebar, isEmptyChat, handleRightSidebarToggle, showHeader, title, hint, chat, chatProjectName, recommendBarVisible, recommendBannerText, handleCapabilityClick, setRecommendBarVisible, panel, overviewProjectId, toolResultPanel, promptHubOpen, isCE, rightSidebarView, detailModal, setDetailModal, refreshCatalog } = state;
   const personalAgentAvailable = usePersonalAgentAvailable();
   const authUserLoaded = useAuthStore(s => s.authUser != null);
   useEffect(() => {
@@ -267,11 +266,6 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
             <SlidePanel show={!isCE && promptHubOpen && !canvasOpen && chatSurface} panelKey="prompt-hub">
               <PromptHubPanel draftKey={chatDraftKey(useChatStore.getState().currentChatId)} />
             </SlidePanel>
-            {!canvasOpen && (
-              <SlidePanel show={!!automationActiveGroup && panel === 'automation' && chatSurface && !showProjectOverview} panelKey="run-timeline" x={24} duration={0.24}>
-                <Suspense fallback={<PanelLoadingSkeleton />}><RunTimelinePanel /></Suspense>
-              </SlidePanel>
-            )}
           </div>
         </div>
 

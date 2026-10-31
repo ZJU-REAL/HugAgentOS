@@ -3,7 +3,7 @@
 import pytest
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import Base, get_db
-from core.db.models import ChatCompactionState, ChatMessage, ChatRun, ChatSession, Project
+from core.db.models import ChatCompactionState, ChatMessage, ChatRun, ChatSession, Project, TaskNumberCounter
 from core.db.models.command import CommandTask
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -27,6 +27,7 @@ def fork_env(tmp_path, monkeypatch):
             ChatSession.__table__,
             ChatMessage.__table__,
             ChatRun.__table__,
+            TaskNumberCounter.__table__,
             ChatCompactionState.__table__,
             Project.__table__,
             CommandTask.__table__,

@@ -44,6 +44,9 @@ except ImportError:
 trace_id_var: ContextVar[str] = ContextVar("trace_id", default="")
 user_id_var: ContextVar[str] = ContextVar("user_id", default="")
 chat_id_var: ContextVar[str] = ContextVar("chat_id", default="")
+# Set for the lifetime of a run's worker task (core.runs.runtime.register_run_task), so every log
+# line a run produces can be found by its run_id; trace_id stays the id of one HTTP request.
+run_id_var: ContextVar[str] = ContextVar("run_id", default="")
 
 
 _QUIET_ACCESS_LOG = "__quiet_access_log__"
@@ -77,14 +80,11 @@ def add_trace_id(logger: Any, method_name: str, event_dict: EventDict) -> EventD
 
 
 def add_user_context(logger: Any, method_name: str, event_dict: EventDict) -> EventDict:
-    """Add user_id and chat_id to log event if available."""
-    user_id = user_id_var.get()
-    chat_id = chat_id_var.get()
-
-    if user_id:
-        event_dict["user_id"] = user_id
-    if chat_id:
-        event_dict["chat_id"] = chat_id
+    """Add user_id, chat_id and run_id to log event if available."""
+    for key, var in (("user_id", user_id_var), ("chat_id", chat_id_var), ("run_id", run_id_var)):
+        value = var.get()
+        if value:
+            event_dict.setdefault(key, value)
 
     return event_dict
 

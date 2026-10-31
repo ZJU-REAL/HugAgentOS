@@ -94,20 +94,6 @@
   color: color-mix(in srgb, var(--color-text) 65%, transparent);
   flex-shrink: 0;
 }
-/* 运行中工具行的文字流光 — 单色灰阶。 */
-/* motion-keep: 工具运行中的文字流光，定格会变成一段忽深忽浅的灰字 */
-.jx-tcr-prefix--shimmer {
-  background: linear-gradient(90deg,
-    color-mix(in srgb, var(--color-text) 40%, transparent) 0%,
-    color-mix(in srgb, var(--color-text) 88%, transparent) 50%,
-    color-mix(in srgb, var(--color-text) 40%, transparent) 100%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  animation: jx-kf-shimmer 2.2s linear infinite;
-}
 /* Argument after the action: plain tertiary text, no chip — the row stays one quiet line */
 .jx-tcr-value {
   display: inline-block;

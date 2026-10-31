@@ -4,6 +4,7 @@ import asyncio
 import uuid
 import pytest
 from core.llm.tools import confirmation as confirms
+from core.chat.tool_log import build_interaction_event
 from core.auth.users import UserService
 from tests.llm.test_shared_human_interactions import shared_store, pending_on
 from tests.storage.project_fixtures import team
@@ -76,7 +77,7 @@ async def test_full_never_publishes_new_permission_dialog(team, monkeypatch):
     signals = []
     while queue is not None and not queue.empty():
         signals.append(queue.get_nowait())
-    assert all(signal.get("resolved") for signal in signals)
+    assert all(signal.get("outcome") != "timeout" for signal in signals)
 
 
 @pytest.mark.asyncio
@@ -190,3 +191,55 @@ async def test_cancelled_waiter_does_not_claim_execution(monkeypatch):
         first.cancel()
         second.cancel()
         await asyncio.gather(first, second, return_exceptions=True)
+
+
+def _drain_relayed(chat_id):
+    queue = confirms.get_ui_queue(chat_id)
+    signals = []
+    while queue is not None and not queue.empty():
+        signals.append(build_interaction_event("file_confirm", queue.get_nowait(), chat_id))
+    return signals
+
+
+@pytest.mark.asyncio
+async def test_relayed_close_reports_decision_not_timeout(team, monkeypatch):
+    """An approved write must not reach the browser as a timeout toast."""
+    monkeypatch.setattr(confirms.state, "_confirm_enabled", lambda kind: True)
+    waiting = asyncio.create_task(
+        confirms.gate(
+            chat_id="alice",
+            op="write",
+            logical_path="/myspace/approved.txt",
+            interactive=True,
+            timeout=5,
+            approval_user_id="alice",
+        )
+    )
+    try:
+        pending = await pending_on(confirms, "alice")
+        await confirms.set_decision_shared("alice", pending[0]["confirm_id"], "allow")
+        assert await asyncio.wait_for(waiting, 2) is None
+    finally:
+        waiting.cancel()
+        await asyncio.gather(waiting, return_exceptions=True)
+    opened, closed = _drain_relayed("alice")
+    assert opened["kind"] == "myspace" and not opened.get("expired")
+    assert closed["expired"] and closed["outcome"] == "decided"
+    assert closed["confirm_id"] == opened["confirm_id"]
+    assert not any(key.startswith("_") for key in opened)
+
+
+@pytest.mark.asyncio
+async def test_relayed_close_reports_real_timeout(team, monkeypatch):
+    monkeypatch.setattr(confirms.state, "_confirm_enabled", lambda kind: True)
+    result = await confirms.gate(
+        chat_id="alice",
+        op="write",
+        logical_path="/myspace/late.txt",
+        interactive=True,
+        timeout=0.3,
+        approval_user_id="alice",
+    )
+    assert result["status"] == "confirm_timeout"
+    closed = _drain_relayed("alice")[-1]
+    assert closed["expired"] and closed["outcome"] == "timeout"

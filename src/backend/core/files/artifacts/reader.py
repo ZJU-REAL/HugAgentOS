@@ -13,12 +13,6 @@ from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# Maximum parsed-text preview injected automatically for a newly attached file.
-# Full content remains available through read_artifact and is never placed in
-# the request body by the frontend.
-ATTACHMENT_PREVIEW_MAX_CHARS = 5_000
-
-
 # Canonical source values stored in Artifact.extra_data["source"].
 SOURCE_USER_UPLOAD = "user_upload"
 SOURCE_AI_GENERATED = "ai_generated"

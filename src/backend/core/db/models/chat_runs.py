@@ -3,7 +3,9 @@ from __future__ import annotations
 from core.db.utc_datetime import UTCDateTime
 from datetime import datetime, timezone
 from core.db.engine import Base
-from sqlalchemy import BigInteger, CheckConstraint, Column, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, CheckConstraint, Column, ForeignKey, Index, Integer, String, Text, UniqueConstraint, event
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import deferred
 from core.db.models.column_types import BigIntPK, JSONType
 
@@ -18,6 +20,11 @@ class ChatRun(Base):
     __tablename__ = "chat_runs"
 
     run_id = Column(String(64), primary_key=True)
+    # The task number people see and quote: RW-YYYYMMDD-NNNN, assigned on insert (see below).
+    # run_id stays the internal key every table joins on.
+    task_no = Column(String(32), nullable=False)
+    # Last sub-task number handed out under this task (RW-…-NNNN-01, -02, …).
+    subtask_seq = Column(Integer, nullable=False, default=0, server_default="0")
     chat_id = Column(
         String(64),
         ForeignKey("chat_sessions.chat_id", ondelete="CASCADE"),
@@ -77,11 +84,60 @@ class ChatRun(Base):
             name="chat_runs_writer_slot_check",
         ),
         UniqueConstraint("chat_id", "writer_slot", name="uq_chat_runs_writer_slot"),
+        UniqueConstraint("task_no", name="uq_chat_runs_task_no"),
         Index("idx_chat_runs_chat_status", "chat_id", "status"),
         Index("idx_chat_runs_status_lease", "status", "lease_expires_at"),
         Index("idx_chat_runs_user_id", "user_id"),
         Index("idx_chat_runs_created_at", "created_at"),
     )
+
+
+class TaskNumberCounter(Base):
+    """The last task serial number handed out on each day (server local time)."""
+
+    __tablename__ = "task_number_counters"
+
+    day = Column(String(8), primary_key=True)  # YYYYMMDD
+    last_seq = Column(Integer, nullable=False)
+
+
+TASK_NUMBER_PREFIX = "RW"
+
+
+def task_number(day: str, seq: int) -> str:
+    return f"{TASK_NUMBER_PREFIX}-{day}-{seq:04d}"
+
+
+def subtask_number(parent_no: str, seq: int) -> str:
+    return f"{parent_no}-{seq:02d}"
+
+
+def reserve_task_number(connection, at: datetime) -> str:
+    """Hand out the next task number of ``at``'s day in one atomic upsert.
+
+    The counter row stays locked until the caller's transaction ends, so numbers are
+    gap-free and never collide, on PostgreSQL and SQLite alike.
+    """
+    day = f"{at.astimezone():%Y%m%d}"
+    table = TaskNumberCounter.__table__
+    insert = postgresql_insert if connection.dialect.name == "postgresql" else sqlite_insert
+    statement = (
+        insert(table)
+        .values(day=day, last_seq=1)
+        .on_conflict_do_update(index_elements=[table.c.day], set_={"last_seq": table.c.last_seq + 1})
+        .returning(table.c.last_seq)
+    )
+    return task_number(day, connection.execute(statement).scalar_one())
+
+
+@event.listens_for(ChatRun, "before_insert")
+def assign_task_number(_mapper, connection, target: ChatRun) -> None:
+    """Every run gets its task number where the row is written, whichever path admits it."""
+    if target.task_no is None:
+        at = target.created_at or datetime.now(timezone.utc)
+        if at.tzinfo is None:
+            at = at.replace(tzinfo=timezone.utc)
+        target.task_no = reserve_task_number(connection, at)
 
 
 class ChatRunOperation(Base):

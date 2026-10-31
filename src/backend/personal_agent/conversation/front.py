@@ -196,8 +196,10 @@ def history(db, ident):
         elif row.role == "assistant":
             if extra.get("model_history_display_only"):
                 continue
+            # This window truncates and merges rows, so it never matched the live
+            # request byte for byte; injected context rows would only add user turns.
             out.extend(assistant_row_replay(
-                content=row.content or "", model_steps=row.model_steps,
+                content=row.content or "", model_steps=row.model_steps, include_context=False,
             ))
             continue
         else:

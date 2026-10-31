@@ -271,3 +271,39 @@ button.jx-runMonitor-row:disabled { cursor: default; }
 }
 
 .jx-runMonitor-failed { color: var(--color-error); }
+
+/* ── Scheduled task ── */
+.jx-runMonitor-scheduleLive { color: var(--color-primary); }
+.jx-runMonitor-scheduleTask {
+  font-weight: 500;
+}
+.jx-runMonitor-scheduleRuns {
+  display: flex;
+  max-height: 320px;
+  margin-top: 4px;
+  padding-top: 4px;
+  flex-direction: column;
+  border-top: 1px solid var(--color-border);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.jx-runMonitor-scheduleRuns > .jx-runMonitor-row { flex: none; }
+.jx-runMonitor-scheduleEmpty {
+  padding: 8px;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+}
+.jx-runMonitor-runSummary { color: var(--color-text-tertiary); }
+.jx-runMonitor-runDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-success);
+}
+.jx-runMonitor-runDot[data-status='failed'] { background: var(--color-error); }
+.jx-runMonitor-runDot[data-status='running'],
+.jx-runMonitor-runDot[data-status='pending'] {
+  background: var(--color-primary);
+  --ripple-color: var(--color-primary);
+  --ripple-scale: 2.5;
+}

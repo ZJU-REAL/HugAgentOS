@@ -68,10 +68,10 @@ try{
   if(assistant)assert.equal(assistant.frames[0].transform,'translateY(10px)');
   await page.locator('.jx-trs-head').click();
   const labels=page.locator('.jx-rollText-text.is-shimmer,.jx-tcr-prefix--shimmer');
-  const live=await labels.evaluateAll(els=>els.map(el=>{const s=getComputedStyle(el);return {name:s.animationName,duration:s.animationDuration,size:s.backgroundSize,clip:s.backgroundClip,gradient:s.backgroundImage};}));
+  const live=await labels.evaluateAll(els=>els.map(el=>{const band=el.querySelector(':scope > .jx-shimmer-band'),glint=band?.querySelector('.jx-shimmer-glint');const b=band&&getComputedStyle(band),g=glint&&getComputedStyle(glint);return {band:b?.animationName,glint:g?.animationName,duration:b?.animationDuration,same:glint?.textContent===el.firstChild?.textContent,hidden:band?.getAttribute('aria-hidden'),color:g?.color,clip:getComputedStyle(el).backgroundClip};}));
   assert.ok(live.length>=4,'startup, execution title, tool and thinking step labels participate');
-  assert.ok(live.every(s=>s.name==='jxTurnStatusShine'&&s.duration==='2.8s'&&s.size==='250% 100%'&&s.clip==='text'),'all running labels use the same reference scan');
-  assert.equal(new Set(live.map(s=>s.gradient)).size,1,'tool.css must not override the shared gradient');
+  assert.ok(live.every(s=>s.band==='jxShimmerBand'&&s.glint==='jxShimmerGlint'&&s.duration==='2.8s'&&s.same&&s.hidden==='true'&&s.clip!=='text'),'all running labels use the same compositor-only scan');
+  assert.equal(new Set(live.map(s=>s.color)).size,1,'tool.css must not override the shared glint colour');
   const summary=page.locator('.jx-trs-summary');
   assert.equal(await summary.locator('.jx-trs-dur').count(),1);
   assert.equal(await page.locator('.jx-trs-steps').count(),0,'the tool-kind chips replace the step count');
@@ -81,18 +81,18 @@ try{
   assert.equal(await page.locator('.jx-trs-head .jx-agentSlot').count(),0,'a run with tools leaves no mark slot');
   assert.equal(await page.locator('.jx-trs-head .jx-kindStack .jx-kindChip.is-running').count(),1,'the lit chip carries the running state');
   const title=summary.locator('.jx-rollText-text.is-shimmer');
-  const scan=await title.evaluate(el=>{const animation=el.getAnimations()[0];window.summaryScan=animation;return {start:animation.startTime};});
+  const scan=await title.evaluate(el=>{const animation=el.querySelector('.jx-shimmer-band').getAnimations()[0];window.summaryScan=animation;return {start:animation.startTime};});
   const before=await summary.locator('.jx-trs-dur').textContent();
   await page.waitForTimeout(1100);
-  const tick=await title.evaluate(el=>({same:el.getAnimations()[0]===window.summaryScan,start:el.getAnimations()[0].startTime,fill:getComputedStyle(el).webkitTextFillColor}));
+  const tick=await title.evaluate(el=>{const a=el.querySelector('.jx-shimmer-band').getAnimations()[0];return {same:a===window.summaryScan,start:a.startTime};});
   assert.equal(tick.same,true,'timer ticks do not restart the title scan');
   assert.equal(tick.start,scan.start);
   assert.notEqual(await summary.locator('.jx-trs-dur').textContent(),before,'elapsed seconds continue to update');
-  assert.equal(tick.fill,'rgba(0, 0, 0, 0)','the running title is the scanned surface');
-  assert.notEqual(await summary.locator('.jx-trs-dur').evaluate(el=>getComputedStyle(el).webkitTextFillColor),'rgba(0, 0, 0, 0)','only the title scans; the clock stays plain');
-  const positions=await page.locator('.jx-turnStatus-label .jx-rollText-text').evaluate(el=>{const a=el.getAnimations()[0];a.pause();const d=a.effect.getTiming().delay;return [0,280,1400,2500].map(t=>{a.currentTime=t+d+2800;return getComputedStyle(el).backgroundPosition;});});
+  assert.equal(await summary.locator('.jx-shimmer-band').count(),1,'only the title scans; the clock stays plain');
+  const positions=await page.locator('.jx-turnStatus-label .jx-rollText-text').evaluate(el=>{const band=el.querySelector('.jx-shimmer-band'),glint=band.querySelector('.jx-shimmer-glint');const[a,b]=[band,glint].map(n=>n.getAnimations()[0]);a.pause();b.pause();const d=a.effect.getTiming().delay;return [0,280,1400,2500].map(t=>{a.currentTime=b.currentTime=t+d+2800;const x=new DOMMatrix(getComputedStyle(band).transform).m41,y=new DOMMatrix(getComputedStyle(glint).transform).m41;return {x,net:Math.abs(x+y)};});});
   // Labels phase-lock to a shared clock through a negative delay; sample one full cycle in.
-  assert.equal(positions[0],positions[1],'scan holds for the first 15%');assert.notEqual(positions[1],positions[2]);
+  assert.equal(positions[0].x,positions[1].x,'scan holds for the first 15%');assert.notEqual(positions[1].x,positions[2].x);
+  assert.ok(positions.every(p=>p.net<0.01),'the glint counter-moves so the glyphs stay put');
   const skeleton=await page.locator('.jx-skeletonBlock').first().evaluate(el=>{const s=getComputedStyle(el,'::after');return {name:s.animationName,duration:s.animationDuration,gradient:s.backgroundImage,pointer:s.pointerEvents};});
   assert.equal(skeleton.name,'jx-skeletonSweep');assert.equal(skeleton.duration,'1.6s');assert.ok(skeleton.gradient.includes('110deg'));assert.equal(skeleton.pointer,'none');
   await page.screenshot({path:resolve(evidence,theme+'-running.png'),fullPage:true});
@@ -105,7 +105,7 @@ try{
   await page.evaluate(theme=>{document.documentElement.dataset.theme=theme;},theme);
   const reduced=await page.locator('section').evaluate(el=>[...el.querySelectorAll('.jx-msg.assistant,.jx-bubble.user')].map(n=>({opacity:getComputedStyle(n).opacity,transform:getComputedStyle(n).transform})));
   assert.ok(reduced.every(s=>s.opacity==='1'&&['none','matrix(1, 0, 0, 1, 0, 0)'].includes(s.transform)),'reduced motion shows both message types immediately');
-  assert.equal(await page.locator('.jx-turnStatus-label .jx-rollText-text').evaluate(el=>getComputedStyle(el).animationName),'jxTurnStatusShine');
+  assert.equal(await page.locator('.jx-turnStatus-label .jx-shimmer-band').evaluate(el=>getComputedStyle(el).animationName),'jxShimmerBand');
   await page.setViewportSize({width:390,height:844});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'no narrow-screen overflow');
   await page.screenshot({path:resolve(evidence,theme+'-mobile-reduced.png'),fullPage:true});

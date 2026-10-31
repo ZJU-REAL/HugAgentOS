@@ -59,7 +59,7 @@ class AttachmentContextHook:
             text = file_context.build_historical_files_context(historical)
             if text:
                 items.append(payload(text, kind="project_material", origin="workspace:historical_files", trust="workspace"))
-        text = await asyncio.to_thread(file_context.build_file_context, uploaded, user_id=user_id) if uploaded else ""
+        text = file_context.build_file_context(uploaded) if uploaded else ""
         if text:
             items.append(payload(text, kind="attachment", origin="user:uploaded_files", trust="user"))
         images = [file for file in uploaded if artifact_bytes.is_image(file)]

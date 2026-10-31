@@ -287,6 +287,11 @@ class SubAgentCallLog(Base):
     error_message = Column(Text)
     duration_ms = Column(Integer)
     parent_subagent_log_id = Column(String(64), index=True)
+    # Sub-task number: the parent's number (the run's task number, or the calling sub-agent's
+    # own sub-task number) plus "-NN". Agents that are the run itself carry the run's number.
+    task_no = Column(String(64), index=True)
+    # Last sub-task number handed out to sub-agents this one called.
+    child_seq = Column(Integer, nullable=False, default=0, server_default="0")
     started_at = Column(UTCDateTime(timezone=True))
     completed_at = Column(UTCDateTime(timezone=True))
     created_at = Column(UTCDateTime(timezone=True), default=utc_now, nullable=False)

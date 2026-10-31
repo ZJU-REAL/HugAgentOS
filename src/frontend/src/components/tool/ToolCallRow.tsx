@@ -7,7 +7,7 @@ import type { ComponentType } from 'react';
 import { PauseCircleOutlined } from '@ant-design/icons';
 import type { ToolCall } from '../../types';
 import { useChatStore, useUIStore } from '../../stores';
-import { ElapsedTimer } from '../common';
+import { ElapsedTimer, ShimmerText } from '../common';
 import { renderToolOutputBody } from './ToolOutputRenderer';
 import { ThinkingStepRow } from './ThinkingStepRow';
 import { extractCodeFromInput, extractCodeFromStreamingArgs } from '../../utils/codeExecParser';
@@ -326,7 +326,7 @@ function StandardToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
               : <StepIcon name={tool.name} running={running} />}
         </span>
         <span className="jx-tcr-label">
-          <span className={`jx-tcr-prefix${running ? ' jx-tcr-prefix--shimmer' : ''}`}>{prefix}</span>
+          <ShimmerText text={prefix} active={running} className="jx-tcr-prefix" activeClassName="jx-tcr-prefix--shimmer" />
           {value && <span className="jx-tcr-value">{value}</span>}
           {count != null && <span className="jx-tcr-count">&nbsp;({count})</span>}
         </span>

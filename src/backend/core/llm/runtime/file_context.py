@@ -1,4 +1,4 @@
-"""Turn file attachments into context: text, images and spreadsheet previews."""
+"""Turn file attachments into context: file handles for documents, base64 for images."""
 from __future__ import annotations
 from core.files import artifact_bytes
 import base64
@@ -26,181 +26,42 @@ def fetch_image_base64(
     return base64.b64encode(raw).decode("utf-8"), mime_type
 
 
-def is_xlsx(f: Dict[str, Any]) -> bool:
-    """Detect xlsx by mime_type or filename extension.
-
-    We only special-case xlsx (not xls/csv) because:
-      - xlsx is the dominant batch-execution upload format
-      - parse_xlsx_preview uses openpyxl, same engine as the batch path
-      - xls would need a separate xlrd-based preview helper (out of scope)
-    """
-    mime = (f.get("mime_type") or "").lower()
-    if "spreadsheetml.sheet" in mime:
-        return True
-    name = (f.get("name") or f.get("filename") or "").lower()
-    return name.endswith(".xlsx")
+# Rough size of one attachment handle block, reported to the frontend so its
+# context gauge estimates what the backend actually injects for a staged file.
+ATTACHMENT_HANDLE_EST_CHARS = 300
 
 
-def build_xlsx_preview_block(
-    f: Dict[str, Any],
-    user_id: Optional[str] = None,
-) -> Optional[str]:
-    """Build the bounded preview + metadata + directive block for a single xlsx.
+def build_file_context(uploaded_files: List[Dict[str, Any]]) -> str:
+    """Describe the turn's non-image attachments as handles: name, MIME and ``file_id``.
 
-    Returns None if the file can't be read (caller falls back to the regular
-    parsed_text path, so the agent at least sees *something*).
-    """
-    from core.files.content.spreadsheet_parser import parse_xlsx_preview
-
-    file_id = f.get("file_id") or ""
-    name = f.get("name") or f.get("filename") or "未命名表格"
-    if not file_id:
-        return None
-
-    file_bytes = artifact_bytes.download_artifact_bytes(
-        file_id,
-        name,
-        "xlsx preview",
-        user_id=user_id,
-    )
-    if file_bytes is None:
-        return None
-
-    try:
-        from core.files.artifacts.reader import ATTACHMENT_PREVIEW_MAX_CHARS, fetch_parsed_text
-
-        # Reuse the bytes already downloaded for the structural preview to
-        # populate parsed_text + summary without a second storage round-trip.
-        fetch_parsed_text(file_id, user_id=user_id, prefetched_bytes=file_bytes)
-        info = parse_xlsx_preview(file_bytes, char_budget=ATTACHMENT_PREVIEW_MAX_CHARS)
-    except RuntimeError as e:
-        logger.warning(f"xlsx preview: parse failed for {file_id}: {e}")
-        return None
-    except Exception as e:
-        logger.warning(f"xlsx preview: unexpected parse error for {file_id}: {e}")
-        return None
-
-    total_rows = info["total_rows"]
-    total_cols = info["total_columns"]
-    preview_rows = info["preview_rows"]
-    omitted = max(0, total_rows - preview_rows)
-    cols_str = ", ".join(info["header"]) if info["header"] else "(无列名)"
-
-    lines: List[str] = [
-        f"[文件: {name}]",
-        f"  file_id: {file_id}",
-        f"  总规模: {total_rows} 行 × {total_cols} 列",
-        f"  列名: [{cols_str}]",
-        f"  已展示: 前 {preview_rows} 行（约 {len(info['preview_md'])} 字符，达到预览预算）",
-    ]
-    if info.get("truncated_columns"):
-        lines.append(f"  注意: 共 {total_cols} 列，预览仅含前 {len(info['header'])} 列")
-    if info.get("truncated_cells"):
-        lines.append(f"  注意: {info['truncated_cells']} 个超长单元格已截断到 500 字以内")
-    lines.append("")
-    lines.append(info["preview_md"])
-    if omitted:
-        lines.append(f"... (剩余 {omitted} 行未展示) ...")
-    lines.append("")
-    lines.append("[操作指引]")
-    lines.append(
-        f"- 需要预览之外的正文时，调用 read_artifact(file_id='{file_id}', "
-        "offset=N, limit=4000) 按需读取"
-    )
-    lines.append("- 以上只是有界预览，不要把未展示的行当作不存在，也不要推断未读取内容")
-    return "\n".join(lines)
-
-
-def build_file_context(
-    uploaded_files: List[Dict[str, Any]],
-    user_id: Optional[str] = None,
-) -> str:
-    """Assemble the text-attachment list into the context text injected into the model (non-image files only).
-
-    Files are resolved exclusively by ``file_id``. The backend lazily parses and
-    caches the artifact, then injects only metadata plus a bounded preview. The
-    request body never supplies parsed content.
-
-    ``user_id`` is used as the ownership check when fetching ``fetch_parsed_text`` /
-    the xlsx preview, preventing a forged request-body ``attachments[].file_id``
-    from reading across users — see the :func:`artifact_bytes.download_artifact_bytes` docstring
-    for the core defense point.
+    No file is downloaded or parsed here, so attaching a large PDF adds nothing
+    to time-to-first-token. The model reads content on demand through
+    ``read_artifact``, which owns parsing, the ``parsed_text`` cache and the
+    ``user_id`` ownership check.
     """
     text_files = [f for f in uploaded_files if not artifact_bytes.is_image(f)]
     if not text_files:
         return ""
 
-    file_descriptions = []
+    lines: List[str] = []
     for f in text_files:
-        name = f.get("name", "未知文件")
-        fid = f.get("file_id", "")
-        desc = f"- {name}"
-        if fid:
-            desc += f"  (file_id: {fid})"
-        file_descriptions.append(desc)
-    from core.files.artifacts.reader import ATTACHMENT_PREVIEW_MAX_CHARS, fetch_parsed_text
-
-    file_content_parts: List[str] = []
-    for f in text_files:
-        # ── xlsx: bounded preview + metadata + directive (no full content) ──
-        if is_xlsx(f):
-            block = build_xlsx_preview_block(f, user_id=user_id)
-            if block is not None:
-                file_content_parts.append(block)
-                continue
-            # Fall through to regular path on preview failure so the agent
-            # at least sees the parsed markdown (degraded but non-fatal).
-
+        name = f.get("name") or f.get("filename") or "未知文件"
         fid = (f.get("file_id") or "").strip()
-        mime_type = f.get("mime_type") or ""
+        mime_type = f.get("mime_type") or "(未知)"
         if not fid:
-            file_content_parts.append(
-                f"[文件: {f.get('name', '未知文件')}]\n"
-                "  状态: 缺少 file_id，无法读取正文"
-            )
+            lines.append(f"- {name}  (MIME: {mime_type})  [缺少 file_id，无法读取]")
             continue
-
-        logger.info("Document hook: loading preview for %s (%s)", f.get("name"), fid)
-        content = fetch_parsed_text(fid, user_id=user_id)
-        if not content:
-            file_content_parts.append(
-                f"[文件: {f.get('name', '未知文件')}]\n"
-                f"  file_id: {fid}\n"
-                f"  MIME: {mime_type or '(未知)'}\n"
-                "  状态: 文件不可访问或解析失败"
-            )
-            continue
-
-        total_chars = len(content)
-        preview = content[:ATTACHMENT_PREVIEW_MAX_CHARS]
-        truncated = total_chars > len(preview)
-        block = [
-            f"[文件: {f.get('name', '未知文件')}]",
-            f"  file_id: {fid}",
-            f"  MIME: {mime_type or '(未知)'}",
-            f"  解析文本: 共 {total_chars} 字符，本轮自动展示 {len(preview)} 字符",
-            "",
-            preview,
-        ]
-        if truncated:
-            block.append(f"... (其余 {total_chars - len(preview)} 字符未展示) ...")
-        block.extend(
-            [
-                "",
-                "[读取指引]",
-                f"- 需要未展示的正文时，调用 read_artifact(file_id='{fid}', offset=N, limit=4000)",
-                "- 不要推断尚未读取的内容",
-            ]
-        )
-        file_content_parts.append("\n".join(block))
-    file_content = "\n\n---\n\n".join(file_content_parts)
+        lines.append(f"- {name}  (file_id: {fid}, MIME: {mime_type})")
 
     return (
-        f"[file name]: {chr(10).join(file_descriptions)}\n"
-        f"[file content begin]\n"
-        f"{file_content}\n"
-        f"[file content end]\n"
-        "以上是用户附件的元数据和有界预览；需要预览之外的正文时必须按需调用 read_artifact。"
+        "[用户上传的附件]（本轮只提供文件元数据，正文尚未读取）\n"
+        + "\n".join(lines)
+        + "\n\n[读取指引]\n"
+        "- 需要文件内容时调用 read_artifact(file_id, offset=0, limit=4000) 读取解析后的文本，"
+        "按返回的 next_offset 继续分页\n"
+        "- xlsx 先看返回的 sheet_names 再用 sheet_name 读单表；pptx 用 slide_index 读单页\n"
+        "- 调用 read_artifact 之前不要声称已读过附件，也不要推断其内容；"
+        "与附件无关的问题可以不读"
     )
 
 

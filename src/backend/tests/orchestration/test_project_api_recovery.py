@@ -10,7 +10,7 @@ import core.runs.ownership as ownership
 import core.runs.runtime as runtime
 import pytest
 from core.db.engine import Base
-from core.db.models import ChatRun, ChatSession
+from core.db.models import ChatRun, ChatSession, TaskNumberCounter
 from core.runs.api_recovery import validate_recovery_context
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -19,7 +19,7 @@ from sqlalchemy.orm import sessionmaker
 @pytest.fixture
 def recovery(tmp_path, monkeypatch):
     engine = create_engine(f"sqlite:///{tmp_path / 'project-recovery.db'}")
-    Base.metadata.create_all(engine, tables=[ChatSession.__table__, ChatRun.__table__])
+    Base.metadata.create_all(engine, tables=[ChatSession.__table__, ChatRun.__table__, TaskNumberCounter.__table__])
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
     monkeypatch.setattr(db_engine, "SessionLocal", sessions)
     scope = {

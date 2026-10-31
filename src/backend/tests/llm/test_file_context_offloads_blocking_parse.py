@@ -1,16 +1,11 @@
-"""FileContextMiddleware must not parse attachments on the event loop.
+"""Attachment injection must not block the event loop.
 
 Regression pin for the "streaming stopped working" incident: attaching an 8MB PDF
-froze the entire backend for 79 seconds. ``FileContextMiddleware._inject`` is
-``async``, but it called ``_build_file_context`` inline — and on a parse-cache miss
-that helper POSTs the document to the external file-parser service with blocking
-``requests``. The single event loop that also drives every open SSE stream was
-pinned for the whole parse: no chat produced a token, queued requests all landed in
-the same millisecond once it returned, and even ``/health`` stalled.
-
-The fix hands that work to a worker thread. These tests pin the *behaviour* (the
-loop keeps running) rather than the call syntax, so they stay meaningful if the
-offload is reimplemented some other way.
+froze the entire backend for 79 seconds because the attachment hook parsed it
+inline. Document attachments are now injected as file_id handles without any
+I/O (``read_artifact`` parses on demand in a worker thread); images still need a
+download per file, so that work must stay off the loop. These tests pin the
+*behaviour* (the loop keeps running) rather than the call syntax.
 """
 
 import asyncio
@@ -70,35 +65,6 @@ async def _count_heartbeats_during(coro) -> int:
 
 
 @pytest.mark.asyncio
-async def test_text_attachment_parse_does_not_block_the_event_loop(monkeypatch):
-    """The blocking parse of a text/PDF attachment runs off the loop."""
-    called = {}
-
-    def fake_build_file_context(uploaded_files, user_id=None):
-        # Stands in for the blocking requests.post to the file-parser service.
-        called["user_id"] = user_id
-        called["n"] = len(uploaded_files)
-        time.sleep(BLOCKING_SECONDS)
-        return "[file content begin]parsed[file content end]"
-
-    monkeypatch.setattr(mw.file_context, "build_file_context", fake_build_file_context)
-
-    agent = _make_agent([{"file_id": "ua_x", "name": "a.pdf", "mime_type": "application/pdf"}])
-    ticks = await _count_heartbeats_during(inject_attachments(agent))
-
-    # The parse actually ran, with ownership still propagated.
-    assert called["n"] == 1
-    assert called["user_id"] == "user_test"
-    # ...and its result reached the model context.
-    assert any("parsed" in str(getattr(m, "content", "")) for m in agent.state.context)
-    # ...without the loop going dark. Inline, ticks would be 0.
-    assert ticks >= MIN_EXPECTED_TICKS, (
-        f"event loop stalled during attachment parse: only {ticks} heartbeat(s) in "
-        f"{BLOCKING_SECONDS}s — the blocking parse is back on the loop"
-    )
-
-
-@pytest.mark.asyncio
 async def test_native_image_injection_does_not_block_the_event_loop(monkeypatch):
     """Image download + base64 encode also runs off the loop.
 
@@ -115,7 +81,7 @@ async def test_native_image_injection_does_not_block_the_event_loop(monkeypatch)
         "native_image_content",
         fake_inject_native_images,
     )
-    monkeypatch.setattr(mw.file_context, "build_file_context", lambda files, user_id=None: "")
+    monkeypatch.setattr(mw.file_context, "build_file_context", lambda files: "")
 
     agent = _make_agent([{"file_id": "ua_img", "name": "a.png", "mime_type": "image/png"}])
     ticks = await _count_heartbeats_during(inject_attachments(agent))

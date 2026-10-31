@@ -20,17 +20,49 @@ def begin_context_turn():
 
 
 def append_hook_context(agent, invocation):
+    appended = []
     for item in invocation.data.get("context_items", ()):
         item = thaw_value(item)
         sequence = next_context_sequence(agent.state.context)
         origin = item["origin"]
-        append_state_context_item(agent.state, ContextItem.create(
+        context_item = ContextItem.create(
             item_id=f"{origin}:{sequence}", kind=item["kind"], origin=origin,
             trust=item["trust"], visibility="model", priority=item["priority"],
             token_budget=item["token_budget"], truncation_policy=item.get("truncation_policy", POLICY_HEAD_TAIL),
             content=item["content"], cache_class="dynamic", created_seq=sequence,
             render_role="user", message_group=f"{origin}:{sequence}",
-        ))
+        )
+        append_state_context_item(agent.state, context_item)
+        appended.append(context_item)
+    return appended
+
+
+# A steer is persisted as its own user row by the chat runtime; recording the
+# injection as well would replay the instruction twice.
+_NOT_RECORDED_KINDS = frozenset({"steer"})
+
+
+async def record_hook_context(agent, items, *, before_input):
+    """Keep injected blocks in the turn's step record so the next turn replays them.
+
+    Only the reply and reasoning stages call this: their blocks sit at a clear
+    position (before the user's message / before a model call). Tool-stage
+    injections can land between a call and its result and are not replayed.
+    """
+    import asyncio
+    from core.llm.runtime.model_steps import record_context_step
+
+    ledger = getattr(getattr(agent, "state", None), "pending_model_steps", None)
+    if ledger is None:
+        return
+    for item in items:
+        if item.kind in _NOT_RECORDED_KINDS:
+            continue
+        if isinstance(item.content, (list, tuple)):  # may carry media → blob table write
+            step = await asyncio.to_thread(record_context_step, item, before_input=before_input)
+        else:
+            step = record_context_step(item, before_input=before_input)
+        ledger.append(step)
 
 
 async def apply_reasoning_hooks(adapter, agent, input_kwargs, plain, restore_context):
@@ -49,7 +81,7 @@ async def apply_reasoning_hooks(adapter, agent, input_kwargs, plain, restore_con
     )
     if transformed.data.get("context") is not None:
         state.context = restore_context(state.context, transformed.data["context"])
-    append_hook_context(agent, transformed)
+    await record_hook_context(agent, append_hook_context(agent, transformed), before_input=False)
     await adapter._stage(HookStage.AFTER_CONTEXT, agent, operation_name="agent_reasoning",
                          data={"steer_delivery": transformed.data.get("steer_delivery")})
     if transformed.data.get("steer_delivery") is not None:

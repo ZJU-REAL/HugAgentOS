@@ -14,7 +14,9 @@ import math
 import time
 from urllib.parse import quote
 
+from core.harness.request_links import link_request
 from core.infra.ephemeral import get_ephemeral_state
+from core.infra.logging import run_id_var
 
 _PREFIX = "human-interaction:v1:"
 _POLL = 0.2
@@ -37,7 +39,8 @@ def _live(record):
 async def register(kind, chat_id, request_id, info, timeout):
     now = time.time()
     record = dict(
-        info=info, created_at=now, expires_at=now + timeout, lease_until=now + _LEASE, decision=None
+        info=info, created_at=now, expires_at=now + timeout, lease_until=now + _LEASE, decision=None,
+        run_id=run_id_var.get(),  # registered by the waiting tool, inside its run's worker task
     )
     await get_ephemeral_state().put(
         _key(kind, chat_id, request_id), json.dumps(record), ttl=_ttl(record)
@@ -86,6 +89,7 @@ async def decide(kind, chat_id, request_id, decision):
             return False
         record["decision"] = decision
         if await store.compare_exchange(key, raw, json.dumps(record), ttl=_ttl(record)):
+            await link_request(record.get("run_id") or "", f"answer:{kind}")
             return True
 
 

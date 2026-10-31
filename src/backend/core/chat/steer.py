@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 
 from core.db.engine import SessionLocal
 from core.db.models import ChatRun
+from core.harness.request_links import link_request
 from core.infra.ephemeral import get_ephemeral_state
 from core.chat.steer_queue import SteerQueue, SteerQueueConflict
 
@@ -65,6 +66,7 @@ async def put_pending_steer(run_id: str, payload: Dict[str, Any]) -> Dict[str, A
         delivery_mode=str(payload.get("delivery_mode") or "steer"),
         replace_latest=bool(payload.get("replace_latest", True)),
     )
+    await link_request(run_id, f"steer:{record.delivery_mode}")
     await _notify(
         run_id,
         {

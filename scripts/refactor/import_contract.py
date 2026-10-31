@@ -28,6 +28,7 @@ FEATURE_EDGES = {
     ("automation", "desktop"),  # Authorized local task dispatch; see module README.
     ("distillation", "marketplace"),  # Explicit draft publication; see module README.
     ("security_console", "sandbox_ops"),  # Read-only rebuild status; see module README.
+    ("task_monitor", "security_console"),  # Read-only health snapshot; see module README.
 }
 OUTER = ("features", "integrations", "personal_agent", "orchestration", "api")
 
