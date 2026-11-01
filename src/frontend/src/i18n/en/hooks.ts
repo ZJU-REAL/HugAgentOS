@@ -17,7 +17,6 @@ export const HOOKS_DICT: Record<string, string> = {
   // useStreaming — file confirm timeout
   '一项「我的空间」写确认已超时取消，如仍需要请重新发起。': 'A My Space write confirmation has timed out and been cancelled. Please resend if needed.',
   // useStreaming — design pick timeout
-  '设计方案选择已超时，助手将自行选择方案继续。': 'The design picker timed out; the assistant will pick an option and continue.',
   '等待回答已超时，助手将采用稳妥的默认方案继续。': 'The answer wait timed out; the assistant will continue with the safest default.',
   '连接已中断，任务状态尚未同步': 'The connection was interrupted; task status has not been synchronized.',
   // useStreaming — network / send errors

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import datetime as _datetime
 import typing as _typing
 from typing import Any, Awaitable, Callable, List, Optional, Tuple
@@ -17,7 +18,9 @@ import core.runs.settings as settings
 import core.runs.tasks as tasks
 from core.db.models import ChatRun
 from core.db.threads import run_db
-from core.infra.logging import get_logger
+from core.harness.request_links import current_request_trace, link_request
+from core.infra.background import spawn
+from core.infra.logging import get_logger, run_id_var
 
 logger = get_logger(__name__)
 
@@ -31,12 +34,20 @@ class ChatRunPermissionDenied(Exception):
 
 
 def register_run_task(run_id: str, coro: Awaitable[None], *, name: str) -> None:
-    """Spawn the worker coroutine, register it in _active_runs, auto-cleanup on done."""
+    """Spawn the worker coroutine, register it in _active_runs, auto-cleanup on done.
+
+    The task runs with ``run_id`` bound for logging. The request that started it is linked
+    off the run's path, so the link never delays the first model call.
+    """
     active = tasks.process_state().active_runs
     if run_id in active and not active[run_id].done():
         coro.close()
         return
-    task = asyncio.create_task(coro, name=name)
+    context = contextvars.copy_context()
+    context.run(run_id_var.set, run_id)
+    task = asyncio.create_task(coro, name=name, context=context)
+    if current_request_trace():
+        spawn(link_request(run_id, "start"), name=f"run_request_link:{run_id}")
     tasks.process_state().active_runs[run_id] = task
 
     def finished(worker):
@@ -166,6 +177,7 @@ async def cancel_run(
     )
     if run is None:
         return False
+    await link_request(run_id, "cancel")
 
     payload = run.request_payload if isinstance(run.request_payload, dict) else {}
     cooperative_only = payload.get("kind") in settings._COOPERATIVE_KINDS

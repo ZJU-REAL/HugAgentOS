@@ -158,7 +158,7 @@ teams ─────────┬── team_members（role: owner/admin/memb
 
 三条路径，互为补充：
 
-1. **附件注入（hooks）**：前端请求的 `attachments[]` 只携带 `file_id`、`name`、`mime_type`，不携带文件正文。`core/harness/hooks.py` 按 `file_id` 延迟下载、解析并缓存 `parsed_text` 与摘要；首轮只注入文件元数据和最多 5,000 字符的有界预览，xlsx 额外提供总行列数、表头和少量数据行。模型需要预览外的正文时通过 `read_artifact` 按需读取；图片仍走多模态注入。所有读取都校验 `user_id` 归属，防止伪造 `file_id` 跨用户访问；
+1. **附件注入（hooks）**：前端请求的 `attachments[]` 只携带 `file_id`、`name`、`mime_type`，不携带文件正文。附件钩子（`core/llm/context/attachment_hook.py`）不下载也不解析文件，只注入文件名、MIME 和 `file_id` 以及读取指引，因此附件不会拖慢首字响应。模型需要正文时调用 `read_artifact`，由它按 `file_id` 下载、解析并缓存 `parsed_text` 与摘要，再分页返回（xlsx 可按 sheet、pptx 可按页读取）；图片仍走多模态注入。所有读取都校验 `user_id` 归属，防止伪造 `file_id` 跨用户访问；
 2. **项目文件访问**：项目对话的 system prompt 提供项目指令和目录范围，不自动携带文件列表或文件总数。agent 按需使用目录、搜索和读取工具获取文件信息；
 3. **沙箱虚拟文件系统**：开启代码执行时，`/myspace/...` 路径把我的空间映射进沙箱（懒加载 + 文件系统实时登记），团队项目映射团队文件夹——见 [沙箱](./sandbox.md)。
 

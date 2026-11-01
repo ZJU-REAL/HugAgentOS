@@ -103,6 +103,8 @@ DEFAULT_PAGE_CONFIG: dict[str, Any] = {
             "content_label": "内容管理",
             "config_label": "系统配置",
             "apidoc_label": "接口文档",
+            # Browser tab icon of the admin pages; empty = follow branding.favicon_url.
+            "favicon_url": "",
         },
         # 与前端 utils/pageConfigDefaults.ts 的 DEFAULT_SIDEBAR_ITEMS / DEFAULT_MENU_ITEMS 保持一致。
         # 这只是新装环境的出厂值——已存在的部署以 DB 现有取值为准，由 backfill_navigation_entries
@@ -123,13 +125,6 @@ DEFAULT_PAGE_CONFIG: dict[str, Any] = {
         "dialog_logout_confirm_content": "退出登录不会丢失任何数据，重新登录后可继续使用。",
         "dialog_logout_confirm_ok": "退出登录",
         "recommend_banner_text": "",
-    },
-    "defaults": {
-        # Initial mode on every user login / new chat:
-        # - chat_mode: 'turbo' / 'fast' / 'medium' / 'high' / 'max' (recommended)
-        # - thinking_mode: bool (legacy field, fallback compat; true→medium, false→fast)
-        "chat_mode": "fast",
-        "thinking_mode": False,
     },
     "auth": {
         # Whether the login page shows the "register" entry (tab + register subpage).

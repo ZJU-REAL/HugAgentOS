@@ -6,13 +6,12 @@ import core.llm.runtime.model_steps as model_steps
 from core.infra.text_bounds import bound_result_for_display
 from core.chat.tool_log import (
     attach_subagent_step,
+    build_interaction_event,
     build_thinking_event,
     build_tool_call_delta_event,
     build_tool_call_event,
     build_tool_call_start_event,
     build_tool_result_event,
-    build_user_question_event,
-    build_user_question_resolved_event,
 )
 from core.infra.logging import get_logger
 
@@ -131,34 +130,8 @@ async def consume_chunk(turn, chunk):
             logger.debug("attach_subagent_step failed (ignored)", exc_info=True)
         chunk["chat_id"] = turn.chat_id
         await turn.emit(bound_result_for_display(chunk)[0])
-    elif chunk_type == "file_confirm":
-        await turn.emit(
-            {
-                "type": "file_confirm",
-                "chat_id": turn.chat_id,
-                "confirm_id": chunk.get("confirm_id"),
-                "op": chunk.get("op"),
-                "logical_path": chunk.get("logical_path"),
-                "message": chunk.get("message"),
-                "expired": chunk.get("expired", False),
-            }
-        )
-    elif chunk_type == "design_pick":
-        await turn.emit(
-            {
-                "type": "design_pick",
-                "chat_id": turn.chat_id,
-                "confirm_id": chunk.get("confirm_id"),
-                "question": chunk.get("question", ""),
-                "options": chunk.get("options", []),
-                "message": chunk.get("message"),
-                "expired": chunk.get("expired", False),
-            }
-        )
-    elif chunk_type == "user_question":
-        await turn.emit(build_user_question_event(chunk, turn.chat_id))
-    elif chunk_type == "user_question_resolved":
-        await turn.emit(build_user_question_resolved_event(chunk, turn.chat_id))
+    elif chunk_type in ("file_confirm", "design_pick", "user_question", "user_question_resolved"):
+        await turn.emit(build_interaction_event(chunk_type, chunk, turn.chat_id))
     elif chunk_type == "plan_update":
         await turn.emit(
             {

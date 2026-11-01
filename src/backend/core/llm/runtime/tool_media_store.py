@@ -169,9 +169,13 @@ def _media_blocks(rows: Iterable[Any]) -> List[Mapping[str, Any]]:
     """历史行里所有的媒体引用块。"""
     found: List[Mapping[str, Any]] = []
     for row in rows:
-        if not isinstance(row, Mapping):
+        if not isinstance(row, Mapping) or not isinstance(row.get("content"), list):
             continue
         for block in row.get("content") or []:
+            # 钩子注入在用户消息前的图片（原生视觉附件），直接挂在行内容上。
+            if is_stored(block):
+                found.append(block)
+                continue
             if not isinstance(block, Mapping) or block.get("type") != "tool_result":
                 continue
             output = block.get("output")
@@ -221,7 +225,9 @@ def hydrate_rows(rows: Sequence[Any]) -> List[Any]:
             continue
         new_blocks = []
         for block in blocks:
-            if isinstance(block, Mapping) and block.get("type") == "tool_result":
+            if is_stored(block):
+                block = resolved(block)
+            elif isinstance(block, Mapping) and block.get("type") == "tool_result":
                 output = block.get("output")
                 if isinstance(output, list):
                     block = {

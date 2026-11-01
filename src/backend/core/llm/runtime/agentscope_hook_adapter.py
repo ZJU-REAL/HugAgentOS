@@ -11,7 +11,7 @@ from core.harness.events import Event, EventSink, thaw_value
 from core.harness.hooks import HookBus, HookStage, Invocation
 from core.llm.runtime.model_steps import record_assistant_step
 from core.models.reasoning_replay import stamp_reasoning_origin
-from core.llm.runtime.context_hook_adapter import attachment_input, begin_context_turn, append_hook_context, apply_reasoning_hooks
+from core.llm.runtime.context_hook_adapter import attachment_input, begin_context_turn, append_hook_context, apply_reasoning_hooks, record_hook_context
 from core.llm.runtime.model_selection_adapter import apply_model_selection, model_selection_input
 from core.harness.ledger import DurableEventStore, HarnessUsageLedger
 
@@ -241,7 +241,9 @@ class AgentScopeHookAdapter(MiddlewareBase):
                 state.context = _restore_context(
                     getattr(state, "context", None), transformed.data["context"]
                 )
-            append_hook_context(agent, transformed)
+            await record_hook_context(
+                agent, append_hook_context(agent, transformed), before_input=True
+            )
             from core.llm.runtime.context_hook_adapter import finish_context_hooks
             while True:
                 final_output = None

@@ -76,18 +76,13 @@ if (eventType === 'meta') {
     return true;
 }
 if (eventType === 'file_confirm') {
-    // §13: some tool coroutine has suspended awaiting the user's confirmation of a
-    // /myspace write. Show the confirm bar; this SSE stream does **not** end — the user's
-    // allow/deny goes via an out-of-band POST /file-confirm, the suspended tool resumes in
-    // place, and subsequent tool_result/meta still arrive on this same stream.
+    // A suspended /myspace write awaits an out-of-band POST /file-confirm; the stream stays open.
     if (eventObj.expired) {
-        // The backend's confirmation-wait timeout reclaimed **that** pending item: remove
-        // only this one confirm_id from the queue (leave the other queued items alone),
-        // otherwise a user clicking much later would inevitably hit a dangling confirm_id error.
+        // The backend closed this one confirmation; drop only it from the queue.
         const _cid = String(eventObj.confirm_id ?? '');
         if (_cid) {
             useUIStore.getState().resolvePendingConfirm(s.chatId, _cid);
-            if (!eventObj.resolved) message.info(t('一项「我的空间」写确认已超时取消，如仍需要请重新发起。'));
+            if (eventObj.outcome === 'timeout') message.info(t('一项「我的空间」写确认已超时取消，如仍需要请重新发起。'));
         }
         return true;
     }
@@ -97,12 +92,7 @@ if (eventType === 'file_confirm') {
     return true;
 }
 if (eventType === 'design_pick') {
-    // Site-design pick-one-of-three: the choose_design tool coroutine suspends awaiting
-    // the user's pick. Same mechanism as file_confirm (suspend – out-of-band POST – resume
-    // on the original stream); the UI uses a separate pick card.
     applyDesignPickEvent(s.chatId, eventObj);
-    if (eventObj.expired)
-        message.info(t('设计方案选择已超时，助手将自行选择方案继续。'));
     return true;
 }
 if (eventType === 'user_question') {

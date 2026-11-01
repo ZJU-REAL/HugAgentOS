@@ -71,10 +71,6 @@
 .jx-anim-pulse { animation: jx-kf-pulse 1.6s var(--motion-ease-standard) infinite; }
 
 /* 6. shimmer：骨架屏流光 */
-@keyframes jx-kf-shimmer {
-  0%   { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
 /* Skeleton surfaces and their transform sweep live in skeleton.css. */
 
 /* 7. flash：跳转定位 / 保存成功的一次性高亮。

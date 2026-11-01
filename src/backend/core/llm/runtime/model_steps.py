@@ -4,7 +4,8 @@ One assistant message row keeps two projections of the same turn. The display
 columns (``content`` / ``thinking`` / ``tool_calls`` / ``metadata.segments``)
 serve the chat UI. ``model_steps`` is the record the model's own history is
 rebuilt from: one entry per model response with the exact blocks it returned,
-and one entry per tool result as it entered the context. Replaying it yields
+one entry per tool result as it entered the context, and one entry per block a
+hook injected into the context (attachment previews, reminders). Replaying it yields
 the same message sequence the agent held in memory, so a later turn — or a
 resumed one — sends the model what it actually said, step by step, instead of
 a reassembly guessed from three separate columns.
@@ -20,7 +21,10 @@ from typing import Any, Dict, Iterable, List, Mapping, Sequence
 STEP_SCHEMA = "harness.steps.v1"
 STEP_ASSISTANT = "assistant"
 STEP_TOOL_RESULT = "tool_result"
+STEP_CONTEXT = "context"
 STATE_INTERRUPTED = "interrupted"
+# Replay-only marker on a context row that preceded the user's message live.
+BEFORE_INPUT_KEY = "_before_input"
 
 _CANCELLED_TURN_MARKER = "[本轮回答被用户中断]"
 _INTERRUPTED_RESULT = "[tool call was interrupted before it returned a result]"
@@ -146,6 +150,61 @@ def record_tool_result_step(block: Any) -> Dict[str, Any]:
             }
         ],
     }
+
+
+def record_context_step(item: Any, *, before_input: bool) -> Dict[str, Any]:
+    """One hook-injected context item, as the model saw it.
+
+    Without this record the next turn rebuilds history without the block, so its
+    request diverges from the cached prefix right there and everything after it
+    is billed again. ``before_input`` marks items added in ``on_reply``, which
+    AgentScope places ahead of the user's message. Media goes to the blob table
+    like tool media, so the caller runs this off the event loop when it has any.
+    """
+    from core.infra.immutable import thaw_json
+    from core.llm.context.items import session_context_metadata
+
+    content = thaw_json(item.content)
+    if isinstance(content, Mapping):
+        content = [content]
+    blocks = (
+        [{"type": "text", "text": str(content or "")}]
+        if not isinstance(content, list)
+        else _persistable_output(content)
+    )
+    return {
+        "schema": STEP_SCHEMA,
+        "kind": STEP_CONTEXT,
+        "before_input": bool(before_input),
+        "context_item": session_context_metadata(item),
+        "blocks": blocks,
+    }
+
+
+def _context_row(step: Mapping[str, Any], blocks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    from core.llm.context.ir_constants import SESSION_CONTEXT_META_KEY
+
+    texts = [b for b in blocks if b.get("type") == "text"]
+    # A text-only item rendered live as one text block; a plain string replays to the same.
+    content: Any = texts[0]["text"] if len(blocks) == 1 and texts else blocks
+    row: Dict[str, Any] = {"role": "user", "content": content}
+    if isinstance(step.get("context_item"), Mapping):
+        row[SESSION_CONTEXT_META_KEY] = dict(step["context_item"])
+    if step.get("before_input"):
+        row[BEFORE_INPUT_KEY] = True
+    return row
+
+
+def split_before_input(
+    rows: Sequence[Mapping[str, Any]],
+) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Separate the rows that preceded the user's message live from the rest."""
+    before: List[Dict[str, Any]] = []
+    after: List[Dict[str, Any]] = []
+    for row in rows:
+        row = dict(row)
+        (before if row.pop(BEFORE_INPUT_KEY, False) else after).append(row)
+    return before, after
 
 
 def _ordered_result_steps(
@@ -287,6 +346,7 @@ def replay_rows(
     steps: Sequence[Mapping[str, Any]],
     *,
     cancelled: bool = False,
+    include_context: bool = True,
 ) -> List[Dict[str, Any]]:
     """Rebuild the model-facing rows of one assistant message from its record.
 
@@ -321,6 +381,9 @@ def replay_rows(
                 rows[-1]["content"].extend(blocks)
             else:
                 rows.append({"role": "tool", "content": blocks})
+        elif kind == STEP_CONTEXT:
+            if include_context:
+                rows.append(_context_row(step, blocks))
         else:
             raise ValueError(f"unknown model step kind {kind!r}")
     if cancelled:
@@ -335,10 +398,11 @@ def assistant_row_replay(
     content: str,
     model_steps: Any,
     cancelled: bool = False,
+    include_context: bool = True,
 ) -> List[Dict[str, Any]]:
     """Replay canonical steps, or the body of an unstructured text message."""
     if isinstance(model_steps, list) and model_steps:
-        return replay_rows(model_steps, cancelled=cancelled)
+        return replay_rows(model_steps, cancelled=cancelled, include_context=include_context)
     blocks = [{"type": "text", "text": content}] if content else []
     if cancelled:
         _append_cancel_marker(blocks)
@@ -387,15 +451,19 @@ def explode_history_rows(history: Sequence[Mapping[str, Any]]) -> List[Dict[str,
 
 
 __all__ = [
+    "BEFORE_INPUT_KEY",
     "STATE_INTERRUPTED",
     "STEP_ASSISTANT",
+    "STEP_CONTEXT",
     "STEP_SCHEMA",
     "STEP_TOOL_RESULT",
     "assistant_row_replay",
     "close_dangling_calls",
     "explode_history_rows",
     "record_assistant_step",
+    "record_context_step",
     "record_tool_result_step",
     "replace_final_text",
     "replay_rows",
+    "split_before_input",
 ]

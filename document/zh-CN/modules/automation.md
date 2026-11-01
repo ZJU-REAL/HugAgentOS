@@ -58,7 +58,7 @@ HugAgentOS 内置两种「把一句话变成可重复的生产力」机制，两
 
 定时任务是独立模块，相关组件位于 src/frontend/src/components/automation/。左侧按任务 ID 合并会话，每个定时任务只显示一条记录；同名的不同任务分别显示。新运行更新入口的最近活动时间，点击入口打开最近一次运行。右侧控制面板保留各次执行记录，选择历史运行后左侧仍选中同一个任务。创建中的会话分别显示，空白创建会话隐藏。侧边栏沿用最早会话作为稳定入口，保留该会话的排序、置顶、收藏和重命名操作。导出和删除作用于当前选中的执行会话，未打开该任务时作用于最近一次执行；删除单次会话不删除定时任务。点击“全部任务”进入内容区管理任务配置、状态和执行记录。通过对话创建时，会先保存归属于定时任务模块的会话，引用已安装的定时任务管理插件并填入可编辑模板。普通对话列表不展示任务会话。
 
-执行会话使用 /automation/:taskId/conversations/:chatId；创建会话使用任务段 new。刷新、前进后退、搜索命中及通知入口均保留任务归属；搜索执行结果直接打开命中的会话，避免误跳到最新执行。RunTimelinePanel 提供按日期分组的执行记录。automationStore 管理唯一任务列表，automationChatStore 仅管理当前执行组和任务置顶、收藏偏好。
+执行会话使用 /automation/:taskId/conversations/:chatId；创建会话使用任务段 new。刷新、前进后退、搜索命中及通知入口均保留任务归属；搜索执行结果直接打开命中的会话，避免误跳到最新执行。执行会话右侧的运行监控栏提供「定时任务」卡片，按时间倒序列出全部执行记录。automationStore 管理唯一任务列表，automationChatStore 仅管理当前执行组和任务置顶、收藏偏好。
 
 执行会话打开右侧 Canvas 时，执行记录面板暂时隐藏，为对话和 Canvas 留出空间。收起 Canvas 后恢复执行记录面板，保留当前任务、选中的执行和会话。
 
@@ -106,7 +106,7 @@ POST /v1/automations
 | 计划 REST API | `src/backend/api/routes/v1/plans.py` |
 | 计划生成 / 执行编排 | `src/backend/orchestration/plans/`、`src/backend/core/chat/plans.py` |
 | 计划 / 步骤模型 | `src/backend/core/db/models/agent.py` |
-| 前端自动化 UI | `src/frontend/src/components/automation/AutomationPanel.tsx` 等、`src/frontend/src/components/automation/RunTimelinePanel.tsx` |
+| 前端自动化 UI | `src/frontend/src/components/automation/AutomationPanel.tsx` 等、`src/frontend/src/components/monitor/ScheduledTaskCard.tsx` |
 | 前端状态 | `src/frontend/src/stores/automationStore.ts`、`automationChatStore.ts` |
 
 延伸阅读：[对话系统](chat.md) · [MCP 工具](mcp-tools.md) · [数据画布与产物](canvas-artifacts.md)

@@ -53,7 +53,7 @@ async def test_public_multimodal_request_keeps_or_drops_each_image_whole(monkeyp
     monkeypatch.setattr(
         mw.file_context,
         "build_file_context",
-        lambda files, user_id=None: "TEXT-FILE-EVIDENCE",
+        lambda files: "TEXT-FILE-EVIDENCE",
     )
     monkeypatch.setattr(mw, "supports_native_images", lambda state: True)
     monkeypatch.setattr(

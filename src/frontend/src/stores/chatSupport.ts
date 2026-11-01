@@ -1,7 +1,8 @@
 import { removeLocal, userScopedKey, writeLocal } from '../storage';
 import type { ChatItem } from '../types';
 import { normalizeChatInvocation } from '../utils/chatInvocation';
-import { usePageConfigStore } from './pageConfigStore';
+import { defaultThinkingEffort, selectedReasoningPolicy } from '../utils/reasoningEffort';
+import { useModelCapabilitiesStore } from './modelCapabilitiesStore';
 import type { StoreApi } from 'zustand';
 import type { ChatState, ChatMode, QueuedChatMessage, ThinkingEffort } from './chatState';
 
@@ -9,19 +10,15 @@ export const SITES_PLUGIN_SLUG = 'sites';
 
 export const VALID_CHAT_MODES: readonly ChatMode[] = ['turbo', 'fast', 'low', 'medium', 'high', 'xhigh', 'max'];
 
-export function adminDefaultChatMode(): ChatMode {
-  const defaults = usePageConfigStore.getState().config.defaults;
-  const raw = defaults?.chat_mode as string | undefined;
-  if (raw && (VALID_CHAT_MODES as readonly string[]).includes(raw)) {
-    return raw as ChatMode;
-  }
-  // Fallback for the legacy field
-  return defaults?.thinking_mode ? 'medium' : 'fast';
+/** New chats start at the selected model's default thinking level (Config → models → default level). */
+export function modelDefaultChatMode(): ThinkingEffort {
+  const { capabilities, selectedModelProviderId } = useModelCapabilitiesStore.getState();
+  return defaultThinkingEffort(selectedReasoningPolicy(capabilities, selectedModelProviderId));
 }
 
 export function applyDefaultChatMode(): { chatMode: ChatMode; lastStandardMode: ThinkingEffort } {
-  const mode = adminDefaultChatMode();
-  return { chatMode: mode, lastStandardMode: mode === 'turbo' ? 'fast' : mode };
+  const mode = modelDefaultChatMode();
+  return { chatMode: mode, lastStandardMode: mode };
 }
 
 export function isThinkingMode(mode: ChatMode): boolean {

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ToolIcon } from './toolIcons';
+import { ShimmerText } from '../common/ShimmerText';
 import { t } from '../../i18n';
 import { useCollapseHeight } from '../../hooks/useCollapseHeight';
 
@@ -43,9 +44,12 @@ export function ThinkingStepRow({ content, active }: ThinkingStepRowProps) {
           <ToolIcon kind="thinking" className={`jx-tcr-kind${active ? ' jx-tcr-kind--running' : ''}`} />
         </span>
         <span className="jx-tcr-label">
-          <span className={`jx-tcr-prefix${active ? ' jx-tcr-prefix--shimmer' : ''}`}>
-            {active ? t('正在思考…') : t('思考')}
-          </span>
+          <ShimmerText
+            text={active ? t('正在思考…') : t('思考')}
+            active={active}
+            className="jx-tcr-prefix"
+            activeClassName="jx-tcr-prefix--shimmer"
+          />
         </span>
         {canExpand && (
           <span className={`jx-tcr-arrow${expanded ? ' jx-tcr-arrow--open' : ''}`} />

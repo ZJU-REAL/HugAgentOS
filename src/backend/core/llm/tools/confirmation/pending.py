@@ -84,8 +84,6 @@ async def _wait_pending(
     p: state._Pending,
     *,
     timeout: float,
-    expire_message: str,
-    cancel_message: str,
     in_lock_extract=None,
 ) -> Tuple[str, Any]:
     """Resolve, claim execution and release the last waiter under one state lock.
@@ -145,8 +143,9 @@ async def _wait_pending(
                         "logical_path": p.logical_path,
                         "kind": p.kind,
                         "expired": True,
-                        "resolved": not cancelled and decision != state._DECISION_TIMEOUT,
-                        "message": cancel_message if cancelled else expire_message,
+                        "outcome": "cancelled" if cancelled else (
+                            "timeout" if decision == state._DECISION_TIMEOUT else "decided"
+                        ),
                     }
     if expire_q is not None and expire_payload is not None:
         try:

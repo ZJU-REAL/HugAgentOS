@@ -10,6 +10,7 @@ from typing import Any, Mapping, Optional
 from core.db.engine import SessionLocal
 from core.db.models import ChatRun, ChatSession
 from core.db.threads import run_db
+from core.infra.logging import run_id_var
 from core.runs.journal_domain import DurableRunBinding, RunAlreadyExists, RunJournalError, RunLeaseLost
 from sqlalchemy.orm import sessionmaker
 
@@ -139,6 +140,8 @@ async def durable_run_binding(
     heartbeat = asyncio.create_task(_heartbeat())
     from core.llm.context.safety import request_admission_scope
 
+    # The bound work runs in this very task: scope it to the run like a registered run task.
+    run_scope = run_id_var.set(run_id)
     with request_admission_scope(
         context={"run_id": run_id, "journal_owner": owner},
     ) as admission:
@@ -189,6 +192,7 @@ async def durable_run_binding(
         else:
             await run_db(journal.complete, run_id, owner=owner, status="completed")
         finally:
+            run_id_var.reset(run_scope)
             heartbeat.cancel()
             with suppress(asyncio.CancelledError):
                 await heartbeat

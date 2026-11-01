@@ -113,8 +113,10 @@ try {
   await page.goto(origin + '/');
   await page.locator('.jx-composerEditor').waitFor();
   await page.getByText('Ordinary saved chat', {exact:true}).waitFor();
+  // The scheduled-task card lives in the run monitor rail, which only shows on a wide column.
+  await page.setViewportSize({width:1920, height:900});
   await page.evaluate(() => window.__workbench.open('/automation/task-one/conversations/task-chat'));
-  await page.locator('.jx-runTimeline').waitFor();
+  await page.locator('.jx-runMonitor-schedule').waitFor();
   const selection = {taskId:'task-one',runId:'run-one',chatId:'task-chat'};
   assert.deepEqual(await page.evaluate(() => window.__workbench.automationSelection()), selection);
   for (const width of [1920, 1280]) {
@@ -122,7 +124,7 @@ try {
     for (const fullscreen of [false, true]) {
       await page.evaluate(() => window.__workbench.preview());
       await page.locator('.jx-canvas').waitFor();
-      assert.equal(await page.locator('.jx-runTimeline').count(), 0, 'Canvas must remove the timeline from layout immediately');
+      assert.equal(await page.locator('.jx-runMonitor-schedule').isVisible(), false, 'Canvas narrows the column, so the scheduled-task card leaves with the rail');
       if (fullscreen) {
         await page.getByRole('button',{name:'全屏',exact:true}).click();
         await page.getByRole('button',{name:'退出全屏',exact:true}).waitFor();
@@ -133,7 +135,7 @@ try {
       await page.screenshot({path:resolve(output,'automation-canvas-'+width+'-'+fullscreen+'.png'),animations:'disabled'});
       await page.getByRole('button',{name:'收起右侧面板',exact:true}).click();
       await page.locator('.jx-canvas').waitFor({state:'detached'});
-      await page.locator('.jx-runTimeline').waitFor();
+      await page.locator('.jx-runMonitor-schedule').waitFor({state:width >= 1920 ? 'visible' : 'attached'});
       assert.deepEqual(await page.evaluate(() => window.__workbench.automationSelection()), selection);
     }
   }
@@ -141,12 +143,14 @@ try {
   await page.locator('.jx-canvas').waitFor();
   await page.evaluate(() => window.__workbench.open('/c/ordinary'));
   await page.locator('.jx-canvas').waitFor({state:'detached'});
-  await page.locator('.jx-runTimeline').waitFor({state:'detached'});
+  await page.locator('.jx-runMonitor-schedule').waitFor({state:'detached'});
   assert.deepEqual(await page.evaluate(() => window.__workbench.automationSelection()), {taskId:undefined,runId:null,chatId:'ordinary'});
+  await page.setViewportSize({width:1920, height:900});
   await page.evaluate(() => window.__workbench.open('/automation/task-one/conversations/task-chat'));
-  await page.locator('.jx-runTimeline').waitFor();
+  await page.locator('.jx-runMonitor-schedule').waitFor();
   assert.deepEqual(await page.evaluate(() => window.__workbench.automationSelection()), selection);
-  console.log('automation Canvas: timeline hides during preview and fullscreen, then returns with selection preserved at two desktop widths');
+  await page.locator('.jx-runMonitor-schedule').screenshot({path:resolve(output,'automation-schedule-card.png'),animations:'disabled'});
+  console.log('automation Canvas: scheduled-task card hides during preview and fullscreen, then returns with selection preserved at two desktop widths');
   if (!process.argv.includes('--scroll-only')) {
   await page.evaluate(() => window.__workbench.open('/app-center'));
   const center = page.locator('.jx-agentPage');

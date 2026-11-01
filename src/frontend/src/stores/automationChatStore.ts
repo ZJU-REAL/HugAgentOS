@@ -38,7 +38,7 @@ interface AutomationChatState {
   /** Owner of the in-memory state. Null until hydrated by login. */
   currentUserId: string | null;
   /** Currently active automation chat group (null = normal chat mode).
-   * The "last frame" render during the exit animation is backed by derived state inside the RunTimelinePanel component; the store keeps no snapshot. */
+   * Drives the scheduled-task card in the run monitor rail. */
   activeGroup: AutomationChatGroup | null;
   /** Currently selected run ID within the group */
   selectedRunId: string | null;

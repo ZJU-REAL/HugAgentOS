@@ -370,14 +370,11 @@ def _build_plan_generation_messages(
     return messages
 
 
-def _build_file_context(
-    uploaded_files: List[Dict[str, Any]],
-    user_id: Optional[str] = None,
-) -> str:
-    """Reuse the main-chat file_id-based lazy preview pipeline."""
-    from core.llm.runtime.file_context import build_file_context as build_lazy_file_context
+def _build_file_context(uploaded_files: List[Dict[str, Any]]) -> str:
+    """Reuse the main-chat file_id handle pipeline; content is read via read_artifact."""
+    from core.llm.runtime.file_context import build_file_context as build_handle_context
 
-    return build_lazy_file_context(uploaded_files, user_id=user_id)
+    return build_handle_context(uploaded_files)
 
 
 def _generation_inputs(
@@ -466,12 +463,7 @@ async def astream_generate_plan(
             ontology_runtime=ontology_runtime,
         )
 
-        # Worker thread: building the context parses attachments, which on a cache miss
-        # is a blocking POST to the external file-parser service. Inline it would pin the
-        # event loop and silence every open SSE stream on the instance.
-        file_context = await asyncio.to_thread(
-            _build_file_context, uploaded_files or [], user_id=user_id
-        )
+        file_context = _build_file_context(uploaded_files or [])
         # Prepare history from chat session. Plan rules, attachment evidence,
         # and the actual user task remain separate canonical candidates.
         history = await _prepare_history(session_messages or [], model_name)
@@ -944,10 +936,7 @@ async def astream_execute_plan(
                 agent.state.context.extend(session_to_msgs(prepared_history))
 
                 # Inject file context (content must be a list of blocks).
-                # Worker thread for the same reason as the plan-generation path above.
-                file_context = await asyncio.to_thread(
-                    _build_file_context, uploaded_files or [], user_id=user_id
-                )
+                file_context = _build_file_context(uploaded_files or [])
                 if file_context:
                     append_context_text(
                         agent,

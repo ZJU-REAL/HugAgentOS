@@ -1,9 +1,11 @@
 """Synchronous writers for tool, sub-agent and skill call logs."""
 from __future__ import annotations
-from typing import Any, Dict
+from typing import Any, Dict, Optional
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 from core.db.engine import SessionLocal
-from core.db.models import SkillCallLog, SubAgentCallLog, ToolCallLog, ToolEffectLedger
+from core.db.models import ChatRun, SkillCallLog, SubAgentCallLog, ToolCallLog, ToolEffectLedger
+from core.db.models.chat_runs import subtask_number
 from core.infra.data_masking import mask_sensitive_data
 from core.infra.logging import get_logger
 from core.harness import log_context
@@ -87,6 +89,42 @@ def write_tool_call_sync(record: Dict[str, Any]) -> None:
         db.close()
 
 
+# Agents that are the run itself (a plan's coordinator, a dedicated agent chat), not a sub-task.
+RUN_AGENT_TYPES = frozenset({"plan_mode", "user_agent_direct"})
+
+
+def _reserve_subtask_no(db: Session, record: Dict[str, Any]) -> Optional[str]:
+    """Number a sub-agent call under whoever dispatched it, in one atomic UPDATE.
+
+    A sub-agent called by another sub-agent is numbered under that sub-agent; otherwise it is
+    numbered under the run. Agents that are the run itself carry the run's own number.
+    """
+    run_id = record.get("run_id")
+    if record.get("subagent_type") in RUN_AGENT_TYPES:
+        if not run_id:
+            return None
+        return db.execute(select(ChatRun.task_no).where(ChatRun.run_id == run_id)).scalar_one_or_none()
+    row = None
+    parent_id = record.get("parent_subagent_log_id")
+    if parent_id:
+        logs = SubAgentCallLog.__table__
+        row = db.execute(
+            update(logs)
+            .where(logs.c.id == parent_id, logs.c.task_no.is_not(None))
+            .values(child_seq=logs.c.child_seq + 1)
+            .returning(logs.c.task_no, logs.c.child_seq)
+        ).first()
+    if row is None and run_id:
+        runs = ChatRun.__table__
+        row = db.execute(
+            update(runs)
+            .where(runs.c.run_id == run_id)
+            .values(subtask_seq=runs.c.subtask_seq + 1)
+            .returning(runs.c.task_no, runs.c.subtask_seq)
+        ).first()
+    return subtask_number(row[0], row[1]) if row else None
+
+
 def write_subagent_create_sync(record: Dict[str, Any]) -> None:
     if not log_writer_constants.SUBAGENT_LOG_ENABLED:
         return
@@ -112,6 +150,7 @@ def write_subagent_create_sync(record: Dict[str, Any]) -> None:
             input_messages=input_safe,
             status="running",
             parent_subagent_log_id=record.get("parent_subagent_log_id"),
+            task_no=_reserve_subtask_no(db, record),
             started_at=record.get("started_at") or log_context.now_utc(),
             created_at=log_context.now_utc(),
         )

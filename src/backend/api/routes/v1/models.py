@@ -532,7 +532,7 @@ def get_main_capabilities(
     # context-usage gauge reflects the model's true window instead of a guess.
     # 0 when unconfigured — the frontend falls back to a heuristic/default.
     main_context_length = int(cfg.context_length) if cfg and cfg.context_length else 0
-    from core.files.artifacts.reader import ATTACHMENT_PREVIEW_MAX_CHARS
+    from core.llm.runtime.file_context import ATTACHMENT_HANDLE_EST_CHARS
     # Image reading: either the main model is natively multimodal, or a `vision` role
     # model is assigned and the vision bridge transcribes images into text evidence.
     # The frontend uses `can_read_image` alone to decide whether to offer image upload;
@@ -547,7 +547,7 @@ def get_main_capabilities(
                 **effort_caps,
                 "supports_vision": main_native_vision,
                 "context_length": main_context_length,
-                "attachment_preview_chars": ATTACHMENT_PREVIEW_MAX_CHARS,
+                "attachment_preview_chars": ATTACHMENT_HANDLE_EST_CHARS,
             },
             "vision": {
                 "can_read_image": vision_cfg is not None,

@@ -1,5 +1,5 @@
-import { useMemo, useState, type ReactNode } from 'react';
-import { CaretDownFilled, CloudOutlined, CodeOutlined, FolderOutlined, LaptopOutlined, LoadingOutlined, SettingOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { useMemo, useState } from 'react';
+import { CloudOutlined, CodeOutlined, FolderOutlined, LaptopOutlined, LoadingOutlined, SettingOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { message, Tooltip } from 'antd';
 import { t } from '../../i18n';
 import { useChatStore } from '../../stores/chatStore';
@@ -16,6 +16,8 @@ import { CONTEXT_CATEGORIES, useContextUsageView } from '../chat/useContextUsage
 import { DeliveryFileIcon } from '../chat/DeliveryFileIcon';
 import { SubagentStatus } from '../tool/SubagentCallRow';
 import { openSubagentTab } from '../tool/openSubagentTab';
+import { MonitorCard } from './MonitorCard';
+import { ScheduledTaskCard } from './ScheduledTaskCard';
 import { collectFiles, collectSubagents, countToolCalls, type MonitorSubagent } from './runMonitorData';
 import { isLiveCommand, isLiveJob, useBackgroundTasks } from './useBackgroundTasks';
 import { useChatProject } from './useChatProject';
@@ -25,28 +27,6 @@ import { useMySpaceStore } from '../../stores/mySpaceStore';
 // DeliveryFileIcon takes its per-type colours from the delivery card styles.
 import '../chat/DeliveredFiles.css';
 import './RunMonitorRail.css';
-
-interface MonitorCardProps {
-  title: string;
-  /** Right side of the header: a count, a percentage, a short state. */
-  summary?: ReactNode;
-  defaultOpen?: boolean;
-  children: ReactNode;
-}
-
-function MonitorCard({ title, summary, defaultOpen = true, children }: MonitorCardProps) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <section className="jx-runMonitor-card" data-open={open || undefined}>
-      <button type="button" className="jx-runMonitor-cardHead" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <span className="jx-runMonitor-cardTitle">{title}</span>
-        <CaretDownFilled className="jx-runMonitor-caret" aria-hidden />
-        {summary != null && <span className="jx-runMonitor-summary">{summary}</span>}
-      </button>
-      {open && <div className="jx-runMonitor-cardBody">{children}</div>}
-    </section>
-  );
-}
 
 function SubagentRow({ item, chatId, active }: { item: MonitorSubagent; chatId: string; active: boolean }) {
   const { tool, messageUid, isStreaming } = item;
@@ -271,7 +251,7 @@ function EnvironmentCard({ projectId }: { projectId: string }) {
 
 /**
  * Run monitor inside the conversation pane, right of the messages: one card per
- * concern (project environment, context, sub-agents, output and input files,
+ * concern (scheduled task runs, project environment, context, sub-agents, output and input files,
  * background tasks).
  * Cards with nothing to show stay hidden. Rows open their sub-agent session or
  * file in the canvas; the rail hides when the pane is too narrow for both.
@@ -280,6 +260,7 @@ export function RunMonitorRail() {
   const chatId = useChatStore((s) => s.currentChatId);
   const projectId = useChatStore((s) => (s.currentChatId ? s.store.chats[s.currentChatId]?.projectId : undefined));
   const messages = useChatStore((s) => (s.currentChatId ? s.store.chats[s.currentChatId]?.messages : undefined));
+  const automationTaskId = useChatStore((s) => (s.currentChatId ? s.store.chats[s.currentChatId]?.automationTaskId : undefined));
   const activeTabId = useCanvasStore((s) => (s.isOpen ? s.activeTabId : null));
 
   const subagents = useMemo(() => collectSubagents(messages), [messages]);
@@ -290,6 +271,8 @@ export function RunMonitorRail() {
 
   return (
     <aside className="jx-runMonitor" aria-label={t('运行监控')}>
+      {automationTaskId && <ScheduledTaskCard key={automationTaskId} taskId={automationTaskId} chatId={chatId} />}
+
       {projectId && <EnvironmentCard key={projectId} projectId={projectId} />}
 
       <ContextCard toolCalls={toolStats.calls} toolFailed={toolStats.failed} />

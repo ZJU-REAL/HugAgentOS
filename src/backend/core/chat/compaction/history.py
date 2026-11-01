@@ -8,7 +8,11 @@ from core.chat import inflight
 from core.chat.context import build_effective_user_message
 from core.llm.context import compaction as C
 from core.llm.context.ir_constants import SESSION_CONTEXT_META_KEY
-from core.llm.runtime.model_steps import assistant_row_replay, record_assistant_step
+from core.llm.runtime.model_steps import (
+    assistant_row_replay,
+    record_assistant_step,
+    split_before_input,
+)
 from core.chat.references import render_reference_block
 
 
@@ -56,6 +60,9 @@ def normalize_rows(rows: List[Any], live_run_ids: frozenset = frozenset()) -> Li
     definition and would show the model a truncated version of its own reply.
     """
     out: List[Dict[str, Any]] = []
+    # Where the latest user row starts: blocks the run injected ahead of the
+    # user's message (attachment previews) go back in front of it.
+    turn_start = 0
     for msg in rows:
         role = getattr(msg, "role", None)
         extra = getattr(msg, "extra_data", None) or {}
@@ -79,9 +86,10 @@ def normalize_rows(rows: List[Any], live_run_ids: frozenset = frozenset()) -> Li
             }
             if isinstance(extra.get(SESSION_CONTEXT_META_KEY), dict):
                 row[SESSION_CONTEXT_META_KEY] = dict(extra[SESSION_CONTEXT_META_KEY])
+            turn_start = len(out)
             out.append(row)
         elif role == "assistant":
-            out.extend(
+            before, after = split_before_input(
                 assistant_row_replay(
                     content=content or "",
                     model_steps=(
@@ -92,6 +100,8 @@ def normalize_rows(rows: List[Any], live_run_ids: frozenset = frozenset()) -> Li
                     cancelled=bool(extra.get("cancelled")),
                 )
             )
+            out[turn_start:turn_start] = before
+            out.extend(after)
         else:
             row = {"role": role or "user", "content": content}
             if isinstance(extra.get(SESSION_CONTEXT_META_KEY), dict):

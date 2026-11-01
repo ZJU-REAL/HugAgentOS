@@ -5,12 +5,11 @@ import { useAuthStore, useChatStore, useEditionStore, useModelCapabilitiesStore,
 import { useAutomationChatStore } from '../stores/automationChatStore';
 import { useAutomationStore } from '../stores/automationStore';
 import { useCanvasStore } from '../stores/canvasStore';
-import type { ChatMode } from '../stores/chatStore';
 import { useDeploymentModeStore } from '../stores/deploymentModeStore';
 import { useMySpaceStore } from '../stores/mySpaceStore';
-import { usePageConfigStore } from '../stores/pageConfigStore';
 import { useAutomationConversations } from './useAutomationConversations';
 import { usePageConfigAll } from './usePageConfig';
+import { useDocumentFavicon } from './useDocumentFavicon';
 export function useAppBootstrap(chatSurface: boolean) {
   const { pathname } = useLocation();
   const pageConfig = usePageConfigAll();
@@ -63,34 +62,7 @@ export function useAppBootstrap(chatSurface: boolean) {
     if (pt && typeof document !== 'undefined') document.title = pt;
   }, [pageConfig.branding.page_title]);
 
-  useEffect(() => {
-    const fav = pageConfig.branding.favicon_url;
-    if (!fav || typeof document === 'undefined') return;
-    let link = document.querySelector<HTMLLinkElement>("link[rel~='icon']");
-    if (!link) {
-      link = document.createElement('link');
-      link.rel = 'icon';
-      document.head.appendChild(link);
-    }
-    if (link.href !== fav) link.href = fav;
-  }, [pageConfig.branding.favicon_url]);
-
-  // Once pageConfig finishes its first load, sync chatStore.chatMode to the admin-side
-  // "default chat mode". Runs only once, when loaded first flips, so remote config changes
-  // during the subsequent 15s polling never override the user's manual switch.
-  const pageConfigLoaded = usePageConfigStore((s) => s.loaded);
-  const setChatMode = useChatStore((s) => s.setChatMode);
-  const defaultChatModeApplied = useRef(false);
-  useEffect(() => {
-    if (!pageConfigLoaded || defaultChatModeApplied.current) return;
-    defaultChatModeApplied.current = true;
-    const VALID: readonly ChatMode[] = ['turbo', 'fast', 'low', 'medium', 'high', 'xhigh', 'max'];
-    const raw = pageConfig.defaults?.chat_mode as string | undefined;
-    const next: ChatMode = (raw && (VALID as readonly string[]).includes(raw))
-      ? (raw as ChatMode)
-      : (pageConfig.defaults?.thinking_mode ? 'medium' : 'fast');
-    setChatMode(next);
-  }, [pageConfigLoaded, pageConfig.defaults?.chat_mode, pageConfig.defaults?.thinking_mode, setChatMode]);
+  useDocumentFavicon(pageConfig.branding.favicon_url);
 
   // Fetch main-model capabilities at startup (decides whether the dropdown shows "Thinking: high/max")
   const fetchCapabilities = useModelCapabilitiesStore((s) => s.fetchCapabilities);

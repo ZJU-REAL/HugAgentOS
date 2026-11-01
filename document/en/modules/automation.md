@@ -58,7 +58,7 @@ Scheduled prompts and ordinary conversations share admission, capability resolut
 
 Scheduled Tasks is a dedicated module under src/frontend/src/components/automation/. Its sidebar groups conversations by task ID and shows one entry per scheduled task, keeping distinct tasks separate even when their names match. New executions update the entry's latest activity time; clicking it opens the newest execution. The right control panel retains individual executions, and choosing a historical run keeps the same task selected in the sidebar. Setup conversations remain separate, and empty setup conversations are hidden. The oldest conversation anchors each entry, preserving its ordering, pin, favorite, and rename actions. Export and delete apply to the selected execution, or the newest execution when the task is not open; deleting one conversation does not delete the scheduled task. All Tasks opens configuration, status, and run history in the content area. Creating through chat first persists a conversation owned by Scheduled Tasks, references the installed task-management plugin, and prefills an editable template. Task conversations are excluded from the ordinary chat sidebar.
 
-Execution conversations use /automation/:taskId/conversations/:chatId, with new as the task segment for setup conversations. Reloads, browser history, search hits, and notifications preserve task ownership. Search opens the exact matching conversation instead of the latest run. RunTimelinePanel groups executions by date. automationStore owns the single task list; automationChatStore owns the current run group and task pin/favorite preferences.
+Execution conversations use /automation/:taskId/conversations/:chatId, with new as the task segment for setup conversations. Reloads, browser history, search hits, and notifications preserve task ownership. Search opens the exact matching conversation instead of the latest run. The run monitor rail beside an execution conversation shows a scheduled-task card listing every run, newest first. automationStore owns the single task list; automationChatStore owns the current run group and task pin/favorite preferences.
 
 Opening the right-side Canvas in an execution conversation temporarily hides the run timeline to make room for the conversation and Canvas. Collapsing Canvas restores the timeline and preserves the current task, selected execution, and conversation.
 
@@ -106,7 +106,7 @@ Every morning an Industry morning brief execution conversation is created. The s
 | Plan REST API | `src/backend/api/routes/v1/plans.py` |
 | Plan generation / execution orchestration | `src/backend/orchestration/plans/`, `src/backend/core/chat/plans.py` |
 | Plan / step models | `src/backend/core/db/models/agent.py` |
-| Frontend automation UI | `src/frontend/src/components/automation/AutomationPanel.tsx` etc., `src/frontend/src/components/automation/RunTimelinePanel.tsx` |
+| Frontend automation UI | `src/frontend/src/components/automation/AutomationPanel.tsx` etc., `src/frontend/src/components/monitor/ScheduledTaskCard.tsx` |
 | Frontend state | `src/frontend/src/stores/automationStore.ts`, `automationChatStore.ts` |
 
 Further reading: [Chat System](chat.md) · [MCP Tools](mcp-tools.md) · [Canvas & Artifacts](canvas-artifacts.md)

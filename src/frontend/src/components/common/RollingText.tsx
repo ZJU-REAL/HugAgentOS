@@ -1,9 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Ref } from 'react';
 import { DUR } from '../../utils/motionTokens';
-
-/** Matches `jxTurnStatusShine` in styles/chat/turn-status.css. */
-const SHIMMER_MS = 2800;
+import { ShimmerText } from './ShimmerText';
 /** The outgoing label is dropped once its exit (--motion-duration-fast) has played. */
 const EXIT_MS = DUR.fast * 1000;
 
@@ -87,19 +85,11 @@ function RollItem({ text, shimmer, entering, ref }: {
   entering: boolean;
   ref: Ref<HTMLSpanElement>;
 }) {
-  // Phase-lock every scan to one wall clock, so a label that mounts mid-scan
-  // continues the sweep instead of restarting it on every hand-over.
-  const [delay] = useState(() => `-${Math.round(performance.now() % SHIMMER_MS)}ms`);
   // The roll moves the outer span and the scan paints the inner one: one
   // element per animation, so neither overrides the other's `animation`.
   return (
     <span ref={ref} className={`jx-rollText-item${entering ? ' jx-rollText-item--in' : ''}`}>
-      <span
-        className={`jx-rollText-text${shimmer ? ' is-shimmer' : ''}`}
-        style={shimmer ? { animationDelay: delay } : undefined}
-      >
-        {text}
-      </span>
+      <ShimmerText text={text} active={shimmer} className="jx-rollText-text" activeClassName="is-shimmer" />
     </span>
   );
 }

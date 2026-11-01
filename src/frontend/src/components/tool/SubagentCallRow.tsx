@@ -1,5 +1,6 @@
 import { ExclamationCircleOutlined, LoadingOutlined, PauseCircleOutlined } from '@ant-design/icons';
 import { t } from '../../i18n';
+import { ShimmerText } from '../common/ShimmerText';
 import { useSubagentIdentity } from '../../hooks/useSubagentIdentity';
 import type { ToolCall } from '../../types';
 import { subagentStatus } from '../../utils/subagentView';
@@ -29,7 +30,7 @@ export function SubagentCallRow({ tool, isStreaming, identity }: {
         aria-label={t('查看智能体「{name}」的执行过程', { name: agent.name })}>
         <span className="jx-tcr-status"><SubagentStatus tool={tool} isStreaming={isStreaming} /></span>
         <AgentIcon agent={agent} size={22} />
-        <span className="jx-tcr-label"><span className={running ? 'jx-tcr-prefix jx-tcr-prefix--shimmer' : 'jx-tcr-prefix'}>{agent.name}</span></span>
+        <span className="jx-tcr-label"><ShimmerText text={agent.name} active={running} className="jx-tcr-prefix" activeClassName="jx-tcr-prefix--shimmer" /></span>
         <span className="jx-tcr-arrow" aria-hidden="true" />
       </button>
     </div>

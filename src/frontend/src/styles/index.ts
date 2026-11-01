@@ -22,6 +22,7 @@ import './canvas.css';
 import '../plugin-ui/styles.css';
 import './plan.css';
 import './config.css';
+import './task-monitor.css';
 import './projects.css';
 import './admin.css';
 import './evolution.css';

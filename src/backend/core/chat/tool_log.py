@@ -164,28 +164,11 @@ def build_tool_call_event(chunk: dict, chat_id: str, tool_calls_log: list) -> Di
     return {"type": "tool_call", **tc, "chat_id": chat_id}
 
 
-def build_user_question_event(chunk: dict, chat_id: str) -> Dict[str, Any]:
-    """Build the authoritative pending-question request sent to the composer."""
+def build_interaction_event(event_type: str, chunk: dict, chat_id: str) -> Dict[str, Any]:
+    """Relay a confirm / design-pick / question signal; its producer owns the fields."""
 
-    return {
-        "type": "user_question",
-        "chat_id": chat_id,
-        "request_id": chunk.get("request_id"),
-        "questions": chunk.get("questions", []),
-        "created_at": chunk.get("created_at"),
-        "expires_at": chunk.get("expires_at"),
-    }
-
-
-def build_user_question_resolved_event(chunk: dict, chat_id: str) -> Dict[str, Any]:
-    """Build the server-owned event that removes a composer request."""
-
-    return {
-        "type": "user_question_resolved",
-        "chat_id": chat_id,
-        "request_id": chunk.get("request_id"),
-        "outcome": chunk.get("outcome"),
-    }
+    public = {k: v for k, v in chunk.items() if not k.startswith("_") and k != "event"}
+    return bound_result_for_display({**public, "type": event_type, "chat_id": chat_id})[0]
 
 
 def _payload_carries_error(res: Any) -> bool:

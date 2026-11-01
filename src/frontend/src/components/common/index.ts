@@ -1,6 +1,7 @@
 export { default as ImagePreview } from './ImagePreview';
 export { default as AuthExpiredModal } from './AuthExpiredModal';
 export { ElapsedTimer } from './ElapsedTimer';
+export { ShimmerText } from './ShimmerText';
 export { default as AppLoadingSkeleton } from './AppLoadingSkeleton';
 export { default as AppErrorBoundary } from './AppErrorBoundary';
 export { default as ContentErrorBoundary } from './ContentErrorBoundary';

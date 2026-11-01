@@ -1,6 +1,6 @@
 import { CloseOutlined, MinusOutlined } from '@ant-design/icons';
 import { ToolIcon } from './toolIcons';
-import { ElapsedTimer } from '../common';
+import { ElapsedTimer, ShimmerText } from '../common';
 import { t } from '../../i18n';
 import { compactionLabel, type CompactionProgress } from '../../utils/compactionProgress';
 
@@ -16,7 +16,7 @@ export function CompactionStepRow({ progress }: { progress: CompactionProgress }
           {settledIcon ?? <ToolIcon kind="compress" className={`jx-tcr-kind${running ? ' jx-tcr-kind--running' : ''}`} />}
         </span>
         <span className="jx-tcr-label">
-          <span className={`jx-tcr-prefix${running ? ' jx-tcr-prefix--shimmer' : ''}`}>{t(compactionLabel(progress))}</span>
+          <ShimmerText text={t(compactionLabel(progress))} active={running} className="jx-tcr-prefix" activeClassName="jx-tcr-prefix--shimmer" />
         </span>
         {running && <ElapsedTimer startTs={progress.started_at} className="jx-tcr-timer" />}
       </div>

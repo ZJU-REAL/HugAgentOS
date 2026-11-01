@@ -22,7 +22,7 @@ from api.routes.v1.agent_responses import agent_response
 from core.auth.backend import UserContext
 from core.chat.schemas import ChatRequest
 from core.db.engine import Base
-from core.db.models import ChatMessage, ChatRun, ChatSession
+from core.db.models import ChatMessage, ChatRun, ChatSession, TaskNumberCounter
 from core.chat.sequencer import ChatSequencer
 from fastapi import HTTPException
 from sqlalchemy import create_engine
@@ -36,7 +36,7 @@ def _route_database(tmp_path, name="route.db"):
     )
     Base.metadata.create_all(
         engine,
-        tables=[ChatSession.__table__, ChatMessage.__table__, ChatRun.__table__],
+        tables=[ChatSession.__table__, ChatMessage.__table__, ChatRun.__table__, TaskNumberCounter.__table__],
     )
     Session = sessionmaker(bind=engine)
     with Session() as db:
@@ -93,7 +93,7 @@ def test_concurrent_requests_have_one_durable_winner(monkeypatch, tmp_path, tran
     )
     Base.metadata.create_all(
         engine,
-        tables=[ChatSession.__table__, ChatMessage.__table__, ChatRun.__table__],
+        tables=[ChatSession.__table__, ChatMessage.__table__, ChatRun.__table__, TaskNumberCounter.__table__],
     )
     Session = sessionmaker(bind=engine)
     with Session() as db:

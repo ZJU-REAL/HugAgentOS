@@ -305,6 +305,6 @@
    由 `components/lab/AutomationPanel.tsx` 自己 import，打包后它排在 mobile.css
    **之后**。实测现象是页头的两级选择器规则生效、单类规则（如 presetsNav 的
    display:none）被 automation.css 原样盖回。`body ` 把特异性抬到 0,1,1 即可稳赢。
-   同样由组件自行 import 的还有 sites.css / skill-distill.css / automation-timeline.css，
+   同样由组件自行 import 的还有 sites.css / skill-distill.css，
    以后给这几页写移动端规则要一并注意。
    ══════════════════════════════════════════════════════════════════════ */

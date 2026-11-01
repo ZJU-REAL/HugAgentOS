@@ -40,6 +40,12 @@ export function normalizeThinkingEffort(effort: ThinkingEffort | 'turbo', policy
   return levels.find((level) => level.key === policy.default_reasoning_effort)?.key ?? levels[0]?.key ?? 'medium';
 }
 
+/** Starting level for a new chat: the model's configured default level; models without levels start at fast. */
+export function defaultThinkingEffort(policy: ReasoningPolicy): ThinkingEffort {
+  if (!policy.supports_reasoning_effort) return 'fast';
+  return normalizeThinkingEffort(policy.default_reasoning_effort ?? 'medium', policy) as ThinkingEffort;
+}
+
 export function selectedReasoningPolicy(
   caps: ReasoningPolicy & { user_model_switch_enabled: boolean; user_selectable_models: (ReasoningPolicy & { provider_id: string; is_default: boolean })[] },
   providerId: string | null,

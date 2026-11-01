@@ -5,6 +5,7 @@ import {
 } from '@ant-design/icons';
 import { ApiDocPanel } from './components/apidoc';
 import { usePageConfig, usePageConfigPolling } from './hooks/usePageConfig';
+import { useAdminPlatformFavicon } from './hooks/useDocumentFavicon';
 import { t } from './i18n';
 
 const { Title, Text } = Typography;
@@ -18,6 +19,7 @@ export default function ApiDocApp() {
   const docTitle = `${platformName} — ${apidocLabel}`;
   // The browser tab title follows the admin-platform branding (index.html's static <title> is only a first-frame fallback).
   useEffect(() => { if (typeof document !== 'undefined') document.title = docTitle; }, [docTitle]);
+  useAdminPlatformFavicon();
   const reloadRef = useRef<(() => void) | null>(null);
 
   return (
