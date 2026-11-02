@@ -1,33 +1,36 @@
-<!--
-  Thanks for contributing to HugAgentOS! 感谢贡献！
+<!-- Community mirror: generated application changes belong upstream and return through CE derivation.
+Documentation, examples and repository metadata may be proposed here; follow CONTRIBUTING.md.
+社区镜像：生成应用代码请在上游修复。文档、示例和仓库配置按贡献指南提交。 -->
 
-  ⚠️ IMPORTANT — this is a GENERATED community mirror. 重要说明：本仓库是生成镜像。
-  PRs are accepted ONLY for:  document/**, examples/**, README*.md, and other
-  non-generated docs. Changes to src/**, extensions/mcp_servers/**, or other generated code
-  CANNOT be merged here — please open an Issue instead so they can be fixed
-  upstream and flow back in the next release.
-  仅接受 document/**、examples/**、README 等非生成内容的 PR；src/** 等生成代码
-  请改提 Issue，由上游修复后回流。
--->
+<!-- Explain the change for a maintainer who has not read the chat.
+Keep these exact headings and field labels for the PR review context check.
+Replace every instruction with facts. Do not paste private operations details.
+A field may say "Not applicable" only with a specific reason. -->
 
-## Summary / 概述
+## Purpose and behavior
+- Before: <!-- Previous behavior or missing capability. -->
+- After: <!-- Observable result this PR intends to provide. -->
 
-<!-- What does this PR change and why? 本次 PR 改了什么，为什么？ -->
+## Change walkthrough
+- Flow: <!-- Real paths: entry -> modules -> state/data -> consumers; or documentation reading flow. -->
+- Decisions: <!-- Why this approach; alternatives and constraints. -->
 
-## Related issue / 关联 Issue
+## Risk and compatibility
+- Risk: <!-- low / medium / high -->
+- Boundaries: <!-- Affected auth, data, protocol, edition, platform and CI boundaries; explain exclusions. -->
+- Human review: <!-- Who must assess sensitive changes and what decision is required; do not claim approval before it occurs. -->
 
-<!-- e.g. Closes #123 -->
+## Verification
+- Evidence: <!-- Exact checks actually run and their results; identify tested commits when available. -->
+- Limits: <!-- Untested cases/platforms and why. -->
 
-## Type of change / 变更类型
+## Recovery
+- Steps: <!-- How to stop/revert; include data/side-effect limitations. -->
 
-- [ ] 📖 Documentation (`document/**`, `README*.md`)
-- [ ] 🧩 Example / sample (`examples/**`)
-- [ ] 🔧 Repo meta (CI, templates, `.github/**`)
-- [ ] Other (please describe / 请说明):
+## Review follow-up
+- Disposition: <!-- Current findings/fixes, or state that the initial review is pending. -->
 
-## Checklist / 检查项
-
-- [ ] My change only touches non-generated paths (docs / examples / repo meta). 仅改动非生成路径。
-- [ ] Links and code snippets were verified. 链接与代码片段已验证。
-- [ ] For bilingual docs, I updated both `document/en/**` and `document/zh-CN/**` where applicable. 双语文档已同步更新（如适用）。
-- [ ] I read [CONTRIBUTING.md](../CONTRIBUTING.md). 我已阅读贡献指南。
+## Community checklist
+- [ ] This is an allowed contribution or a maintainer-reviewed generated sync.
+- [ ] Public bilingual documentation is updated in both languages where applicable.
+- [ ] Links/code snippets were checked and CONTRIBUTING.md was read.

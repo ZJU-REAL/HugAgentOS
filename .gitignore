@@ -136,6 +136,11 @@ ossfs2.conf
 # claude file
 CLAUDE.md
 AGENTS.md
+# Shared sanitized instructions are versioned; private overrides/runbooks stay local.
+!/AGENTS.md
+!/ce/overlay/AGENTS.md
+/AGENTS.override.md
+/.agent-local/
 
 # images
 img/
