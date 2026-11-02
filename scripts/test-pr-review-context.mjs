@@ -79,3 +79,39 @@ test('summary escapes author HTML and clearly attributes claims', () => {
 test('requires a PR event instead of reporting success for other events', () => {
   assert.throws(() => checkEvent({}, [], []), /pull_request event/);
 });
+
+test('preserves multiline evidence, flow and recovery in the walkthrough summary', () => {
+  const values = { ...validValues,
+    Flow: 'Entry -> checker.\n  Then publish the complete walkthrough.',
+    Evidence: 'The following checks passed:\n  node --test scripts/test-pr-review-context.mjs\n  All tests passed.',
+    Steps: 'Revert this metadata commit.\n  Keep the ignored private runbook.'
+  };
+  const result = inspectBody(body(values));
+  assert.deepEqual(result.errors, []);
+  assert.ok(result.values.Evidence.includes('All tests passed.'));
+  const summary = renderSummary(event().pull_request, ['REVIEW.md'], result);
+  assert.ok(summary.includes('Then publish the complete walkthrough.'));
+  assert.ok(summary.includes('Keep the ignored private runbook.'));
+  assert.ok(summary.includes('node --test'));
+});
+test('accepts a field whose evidence starts on the continuation line', () => {
+  const result = inspectBody(body({ ...validValues, Evidence: '\n  node --test: 14 tests passed.' }));
+  assert.deepEqual(result.errors, []);
+  assert.ok(result.values.Evidence.includes('14 tests passed.'));
+});
+test('preserves fenced command results without treating examples as real fields', () => {
+  const value = 'Observed commands:\n\n```text\n## Verification\n- Risk: low\nnode --test: passed\n```';
+  const result = inspectBody(body({ ...validValues, Evidence: value }));
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.values.Risk, 'high');
+  assert.ok(result.values.Evidence.includes('node --test: passed'));
+});
+test('an empty fenced block is not verification evidence', () => {
+  const result = inspectBody(body({ ...validValues, Evidence: '\n```text\n```' }));
+  assert.ok(result.errors.some(error => error.includes('Evidence')));
+});
+
+test('ignores optional headings that match Object prototype properties', () => {
+  const result = inspectBody(body() + '\n## constructor\nOptional explanation\n## toString\nMore context');
+  assert.deepEqual(result.errors, []);
+});

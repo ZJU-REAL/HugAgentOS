@@ -11,34 +11,54 @@ export const fields = {
   'Review follow-up': ['Disposition'],
 };
 
-function visibleMarkdown(body) {
-  return body.replace(/<!--[\s\S]*?-->/g, '').replace(/^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[^\n]*$/gm, '');
-}
-
 export function inspectBody(body) {
   const errors = [];
-  const sections = {};
+  const sections = new Set();
+  const collected = new Map();
   let current;
-  for (const line of visibleMarkdown(body ?? '').split(/\r?\n/)) {
+  let active;
+  let fence;
+  // Keep fenced examples as field content, but never interpret their headings/labels.
+  for (const line of (body ?? '').replace(/<!--[\s\S]*?-->/g, '').split(/\r?\n/)) {
+    if (fence) {
+      if (active) active.push(line);
+      const closing = /^\s*(`+|~+)\s*$/.exec(line);
+      if (closing && closing[1][0] === fence.char && closing[1].length >= fence.length) fence = undefined;
+      continue;
+    }
+    const opening = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (opening) {
+      fence = { char: opening[1][0], length: opening[1].length };
+      if (active) active.push(line);
+      continue;
+    }
     const heading = /^##\s+(.+?)\s*#*\s*$/.exec(line);
     if (heading) {
       current = heading[1];
-      if (Object.hasOwn(sections, current)) errors.push('Duplicate section: ' + current);
-      else sections[current] = [];
-    } else if (current) sections[current].push(line);
+      active = undefined;
+      if (sections.has(current)) errors.push('Duplicate section: ' + current);
+      sections.add(current);
+      continue;
+    }
+    const label = (Object.hasOwn(fields, current) ? fields[current] : [])?.find(name => line.startsWith('- ' + name + ':'));
+    if (label) {
+      const values = collected.get(label) ?? [];
+      active = [line.slice(('- ' + label + ':').length).trim()];
+      values.push(active);
+      collected.set(label, values);
+    } else if (active) active.push(line);
   }
   const values = {};
   for (const [section, labels] of Object.entries(fields)) {
-    const lines = sections[section] ?? [];
-    if (!sections[section]) errors.push('Missing section: ' + section);
+    if (!sections.has(section)) errors.push('Missing section: ' + section);
     for (const label of labels) {
-      const prefix = '- ' + label + ':';
-      const matches = lines.filter(line => line.startsWith(prefix));
-      const value = matches[0]?.slice(prefix.length).trim() ?? '';
+      const matches = collected.get(label) ?? [];
+      const value = matches[0]?.join('\n').trim() ?? '';
       values[label] = value;
       if (matches.length > 1) errors.push('Duplicate field: ' + label);
-      if (!value || /\b(?:TODO|TBD)\b|待填写|请填写/i.test(value) ||
-          /^(?:n\/?a|none|not applicable|无|不适用)[.!。]?$/i.test(value)) {
+      const substantive = value.replace(/^\s*(?:`{3,}|~{3,})[^\n]*$/gm, '').trim();
+      if (!substantive || /\b(?:TODO|TBD)\b|待填写|请填写/i.test(value) ||
+          /^(?:n\/?a|none|not applicable|无|不适用)[.!。]?$/i.test(substantive)) {
         errors.push('Explain field: ' + label + ' (an inapplicable field needs a reason)');
       }
     }
