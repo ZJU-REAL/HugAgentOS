@@ -9,7 +9,7 @@ import { useDeploymentModeStore } from '../stores/deploymentModeStore';
 import { useMySpaceStore } from '../stores/mySpaceStore';
 import { useAutomationConversations } from './useAutomationConversations';
 import { usePageConfigAll } from './usePageConfig';
-import { useDocumentFavicon } from './useDocumentFavicon';
+import { resolveDocumentFavicon, useDocumentFavicon } from './useDocumentFavicon';
 export function useAppBootstrap(chatSurface: boolean) {
   const { pathname } = useLocation();
   const pageConfig = usePageConfigAll();
@@ -62,7 +62,7 @@ export function useAppBootstrap(chatSurface: boolean) {
     if (pt && typeof document !== 'undefined') document.title = pt;
   }, [pageConfig.branding.page_title]);
 
-  useDocumentFavicon(pageConfig.branding.favicon_url);
+  useDocumentFavicon(resolveDocumentFavicon(pageConfig, false));
 
   // Fetch main-model capabilities at startup (decides whether the dropdown shows "Thinking: high/max")
   const fetchCapabilities = useModelCapabilitiesStore((s) => s.fetchCapabilities);

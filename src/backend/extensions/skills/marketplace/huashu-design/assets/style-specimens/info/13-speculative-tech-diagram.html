@@ -1,0 +1,43 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>13 东方思辨科技图</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400&family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=Noto+Serif+SC:wght@200;300;400&family=Noto+Sans+SC:wght@300;400&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+body{background:#e8e3d6;font-family:'Inter','Noto Sans SC',sans-serif;font-weight:300;color:#4a4a44;position:relative}
+.t{position:absolute;left:84px;top:92px;width:330px}
+.t .k{font-size:12px;letter-spacing:.32em;text-transform:uppercase;color:#6d6b60}
+h1{font-family:'Cormorant Garamond','Noto Serif SC',serif;font-weight:300;font-size:46px;line-height:1.3;margin:22px 0 0;letter-spacing:.06em;color:#3b3b36}
+h1 em{display:block;font-size:22px;font-style:italic;letter-spacing:.08em;margin-top:14px;color:#6d6b60}
+.p{margin-top:56px;font-size:16px;line-height:2.1;letter-spacing:.12em;color:#55544c;font-family:'Noto Sans SC',sans-serif;font-weight:300}
+.leg{position:absolute;left:84px;bottom:70px;font-size:13px;letter-spacing:.14em;line-height:2.2;color:#5c5b52}
+.leg i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:12px;vertical-align:-1px}
+svg{position:absolute;left:450px;top:0}
+.fn{position:absolute;right:70px;bottom:40px;font-size:12px;letter-spacing:.28em;color:#6d6b60}
+</style></head><body>
+<div class="t"><div class="k">Observatory · Night 214</div>
+<h1>夜的厚度<em>an instrument for looking up</em></h1>
+<div class="p">十二个小时里，天空是否愿意被看见，取决于三层薄薄的东西：月光、云、与空气的透明。</div></div>
+<div class="leg"><i style="background:#7c8f6e"></i>透明度 transparency<br><i style="background:#b0694c"></i>月照度 moonlight<br><i style="border:1px solid #6d6b60;box-sizing:border-box"></i>云量 cloud cover</div>
+<svg width="750" height="750" id="s"></svg>
+<div class="fn">18:00 — 06:00 · 观星台 海拔 1,120 m</div>
+<script>
+const NS='http://www.w3.org/2000/svg',s=document.getElementById('s');
+function el(t,a,p){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);(p||s).appendChild(e);return e}
+const cx=380,cy=375,rs=[70,120,170,220,270];
+const ang=h=>((h-18)/12)*300-150;
+const P=(r,a)=>[cx+r*Math.sin(a*Math.PI/180),cy-r*Math.cos(a*Math.PI/180)];
+function arc(r,a0,a1){const p=P(r,a0),q=P(r,a1);return `M${p[0]},${p[1]}A${r},${r} 0 ${a1-a0>180?1:0} 1 ${q[0]},${q[1]}`}
+rs.forEach(r=>el('path',{d:arc(r,-150,150),fill:'none',stroke:'#8a877a','stroke-width':.5}));
+for(let h=18;h<=30;h++){const a=ang(h),p=P(rs[0]-16,a),q=P(rs[4]+(h%3==0?22:12),a);
+ el('line',{x1:p[0],y1:p[1],x2:q[0],y2:q[1],stroke:'#8a877a','stroke-width':.5});
+ if(h%3==0){const l=P(rs[4]+42,a),t=el('text',{x:l[0],y:l[1]+4,'text-anchor':'middle','font-size':12,'letter-spacing':'.1em',fill:'#6d6b60'});t.textContent=String(h%24).padStart(2,'0')+':00'}}
+const tr=[.5,.6,.78,.9,.95,.9,.8,.7,.82,.9,.7,.5,.4];
+tr.forEach((v,i)=>{const p=P(rs[1],ang(18+i));el('circle',{cx:p[0],cy:p[1],r:2+v*8,fill:'#7c8f6e',opacity:.85})});
+const mp=[0,0,0,0,0,.1,.3,.5,.7,.85,.95,1,1];
+mp.forEach((v,i)=>{if(i<12){const a0=ang(18+i),a1=ang(19+i);el('path',{d:arc(rs[3],a0+.8,a1-.8),fill:'none',stroke:'#b0694c','stroke-width':.8+v*5,opacity:v>0?1:0})}});
+const cl=[.8,.6,.3,.1,0,0,.1,.2,.5,.7,.3,.1,0];
+cl.forEach((v,i)=>{const p=P(rs[2],ang(18+i));el('circle',{cx:p[0],cy:p[1],r:3+v*14,fill:'none',stroke:'#6d6b60','stroke-width':.6})});
+el('path',{d:arc(rs[4]+8,ang(21.5),ang(25.5)),fill:'none',stroke:'#3b3b36','stroke-width':1.2});
+el('circle',{cx,cy,r:3,fill:'#3b3b36'});el('circle',{cx,cy,r:rs[0]-30,fill:'none',stroke:'#8a877a','stroke-width':.5,'stroke-dasharray':'1 5'});
+const t1=el('text',{x:cx,y:cy+34,'text-anchor':'middle','font-size':12,'letter-spacing':'.28em',fill:'#6d6b60'});t1.textContent='N 40°';
+const w=el('text',{x:cx,y:30,'font-size':13,'letter-spacing':'.2em',fill:'#3b3b36','text-anchor':'middle'});w.textContent='最佳窗口 23:30 – 01:30';
+</script></body></html>

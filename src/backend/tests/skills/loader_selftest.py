@@ -77,7 +77,7 @@ def test_loader_builtin_skills():
 
     skill_ids = set(metadata_map.keys())
     assert "capability-guide-brief" in skill_ids
-    assert "quick-material-analysis" in skill_ids
+    assert "officecli-docx" in skill_ids
 
     # Check metadata structure
     guide_meta = metadata_map["capability-guide-brief"]

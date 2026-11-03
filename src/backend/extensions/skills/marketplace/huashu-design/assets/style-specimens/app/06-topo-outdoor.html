@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>06 户外地形工具</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}*{box-sizing:border-box}
+body{background:#2F3B2C;font-family:"Noto Sans SC","Barlow Condensed",sans-serif;color:#2A2A22;position:relative}
+.bg{position:absolute;inset:0;opacity:.5}
+.ph{position:absolute;width:360px;height:760px;transform-origin:0 0;border-radius:52px;overflow:hidden;background:#EFEBDA;box-shadow:0 0 0 9px #121512,0 0 0 11px #4B5547,0 28px 60px rgba(0,0,0,.5)}
+.ph:before{content:"";position:absolute;top:11px;left:130px;width:100px;height:28px;border-radius:20px;background:#000;z-index:20}
+.sb{height:50px;padding:14px 30px 0;display:flex;justify-content:space-between;font-weight:700;font-size:15px;position:relative;z-index:5}
+.map{position:absolute;inset:0}
+.pan{position:absolute;left:12px;right:12px;background:#FBFAF2;border-radius:22px;padding:16px 18px;box-shadow:0 8px 24px rgba(30,40,20,.3);z-index:6}
+.n{font-family:"Barlow Condensed";font-weight:700;letter-spacing:.01em}
+.lbl{font-size:13px;color:#6B6A58;font-weight:700;letter-spacing:.06em}
+.stats{display:flex;justify-content:space-between}
+.stats div{text-align:left}.stats .n{font-size:40px;line-height:1}
+.chip{position:absolute;z-index:6;background:#FBFAF2;border-radius:12px;padding:8px 12px;font-weight:700;font-size:14px;box-shadow:0 4px 10px rgba(0,0,0,.25)}
+.card{display:flex;gap:14px;background:#FBFAF2;border-radius:18px;padding:14px;margin:0 16px 12px;align-items:center;box-shadow:0 2px 0 #D9D4BE}
+.mini{width:96px;height:72px;border-radius:12px;background:#E8E3CE;position:relative;overflow:hidden;flex:none}
+.card b{font-size:17px}.card .m{font-size:14px;color:#6B6A58;margin-top:2px}
+.dif{display:inline-block;font-size:13px;font-weight:700;padding:2px 8px;border-radius:8px;margin-top:6px}
+</style></head><body>
+<svg class="bg" viewBox="0 0 1200 750" preserveAspectRatio="none"><g fill="none" stroke="#6E8A62" stroke-width="1.4">
+<path d="M-20 120 C150 60 300 160 460 90 S800 20 1220 110"/><path d="M-20 170 C150 110 300 210 460 140 S800 70 1220 160"/><path d="M-20 220 C150 160 300 260 460 190 S800 120 1220 210"/>
+<path d="M-20 560 C200 520 380 640 600 580 S980 500 1220 590"/><path d="M-20 610 C200 570 380 690 600 630 S980 550 1220 640"/><path d="M-20 660 C200 620 380 740 600 680 S980 600 1220 690"/>
+<ellipse cx="610" cy="60" rx="120" ry="40"/><ellipse cx="610" cy="60" rx="80" ry="24"/><ellipse cx="610" cy="60" rx="40" ry="10"/></g></svg>
+
+<!-- 主屏：地形图 -->
+<div class="ph" style="left:70px;top:46px">
+ <div class="sb"><span>9:41</span><span>●●●</span></div>
+ <svg class="map" viewBox="0 0 360 760">
+  <rect width="360" height="760" fill="#EFEBDA"/>
+  <path d="M0 150 C60 120 120 170 160 240 C190 300 140 380 60 430 L0 470Z" fill="#D8E4C4"/>
+  <path d="M230 80 C300 90 360 150 360 210 L360 520 C320 470 270 440 250 380 C230 300 190 200 230 80Z" fill="#D8E4C4"/>
+  <path d="M-10 560 C60 540 120 600 200 590 C280 580 330 620 380 600 L380 700 L-10 700Z" fill="#BFDDE6"/>
+  <g fill="none" stroke="#C09A68" stroke-width="1.3">
+   <path d="M60 300 C80 220 170 190 240 230 C300 270 310 360 250 420 C190 480 80 470 60 380 C52 350 55 325 60 300Z"/>
+   <path d="M85 305 C100 245 170 220 225 250 C275 282 282 350 238 396 C190 440 108 436 90 372 C84 348 84 326 85 305Z"/>
+   <path d="M110 310 C120 265 170 248 210 272 C245 296 250 342 218 372 C182 404 128 396 116 360 C110 342 108 326 110 310Z" stroke-width="2.4"/>
+   <path d="M138 318 C145 290 175 280 196 295 C214 310 214 338 195 352 C172 368 146 360 140 340 C136 332 136 325 138 318Z"/>
+   <path d="M40 520 C100 470 200 500 260 470 C300 450 340 460 380 440"/><path d="M30 550 C100 500 200 530 260 505 C300 488 340 495 380 478"/>
+   <path d="M-10 200 C40 170 100 200 130 250"/><path d="M-10 230 C40 200 90 225 110 262"/>
+  </g>
+  <path d="M60 640 C90 600 120 560 118 520 C116 470 150 440 188 420 C230 400 262 360 250 320 C240 285 205 262 176 276 C150 288 150 320 168 330" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M60 640 C90 600 120 560 118 520 C116 470 150 440 188 420 C230 400 262 360 250 320 C240 285 205 262 176 276 C150 288 150 320 168 330" fill="none" stroke="#E4572E" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="1 0"/>
+  <circle cx="60" cy="640" r="11" fill="#2D7A46" stroke="#fff" stroke-width="3"/><circle cx="168" cy="330" r="11" fill="#1F2A24" stroke="#fff" stroke-width="3"/>
+  <circle cx="188" cy="420" r="8" fill="#2B6CB0" stroke="#fff" stroke-width="3"/>
+ </svg>
+ <div class="chip" style="left:24px;top:62px">栖云岭 · 1,184 米</div>
+ <div class="chip" style="right:22px;top:62px;font-size:16px">图层</div>
+ <div class="chip" style="left:206px;top:386px;background:#1F2A24;color:#fff">山脊垭口 960 m</div>
+ <div class="pan" style="bottom:20px">
+  <div class="lbl">南坡环线 · 记录中</div>
+  <div class="stats" style="margin-top:6px"><div><div class="n">5.82</div><div class="lbl">公里</div></div><div><div class="n">+486</div><div class="lbl">米爬升</div></div><div><div class="n">2:14</div><div class="lbl">用时</div></div></div>
+  <svg viewBox="0 0 320 60" style="width:100%;margin-top:10px"><path d="M0 52 L40 46 L80 38 L120 30 L160 16 L200 8 L240 20 L280 36 L320 44 L320 60 L0 60Z" fill="#E4572E" opacity=".25"/><path d="M0 52 L40 46 L80 38 L120 30 L160 16 L200 8 L240 20 L280 36 L320 44" fill="none" stroke="#E4572E" stroke-width="3"/><circle cx="200" cy="8" r="5" fill="#E4572E"/></svg>
+ </div>
+</div>
+
+<!-- 路线列表 -->
+<div class="ph" style="left:470px;top:110px;transform:scale(.94)">
+ <div class="sb"><span>9:41</span><span>●●●</span></div>
+ <div style="padding:6px 22px 14px"><div class="lbl">附近 · 12 条</div><div style="font-size:28px;font-weight:700">徒步路线</div></div>
+ <div class="card"><div class="mini"><svg viewBox="0 0 96 72"><g fill="none" stroke="#C09A68" stroke-width="1"><ellipse cx="48" cy="38" rx="40" ry="26"/><ellipse cx="48" cy="38" rx="28" ry="17"/><ellipse cx="48" cy="38" rx="14" ry="8"/></g><path d="M10 64 C30 50 40 30 58 34 S80 20 90 12" fill="none" stroke="#E4572E" stroke-width="3"/></svg></div><div><b>南坡环线</b><div class="m">8.4 公里 · 爬升 520 米</div><span class="dif" style="background:#FDE6B8;color:#7A4A00">中等</span></div></div>
+ <div class="card"><div class="mini"><svg viewBox="0 0 96 72"><g fill="none" stroke="#C09A68" stroke-width="1"><ellipse cx="40" cy="36" rx="34" ry="22"/><ellipse cx="40" cy="36" rx="20" ry="12"/></g><path d="M8 60 C28 56 46 40 62 44 S84 30 90 20" fill="none" stroke="#E4572E" stroke-width="3"/></svg></div><div><b>溪谷步道</b><div class="m">4.1 公里 · 爬升 140 米</div><span class="dif" style="background:#CFE8CF;color:#1F5A2A">轻松</span></div></div>
+ <div class="card"><div class="mini"><svg viewBox="0 0 96 72"><g fill="none" stroke="#C09A68" stroke-width="1"><ellipse cx="56" cy="34" rx="36" ry="28"/><ellipse cx="56" cy="34" rx="24" ry="19"/><ellipse cx="56" cy="34" rx="12" ry="9"/></g><path d="M6 66 C30 58 40 28 60 30 S82 12 92 8" fill="none" stroke="#E4572E" stroke-width="3"/></svg></div><div><b>云顶山脊线</b><div class="m">12.6 公里 · 爬升 980 米</div><span class="dif" style="background:#F6C9C0;color:#8A2410">困难</span></div></div>
+</div>
+
+<!-- 放大：爬升剖面 -->
+<div class="ph" style="left:850px;top:208px;transform:scale(.9)">
+ <div class="sb"><span>9:41</span><span>●●●</span></div>
+ <div style="padding:6px 22px 0"><div class="lbl">海拔剖面</div><div style="font-size:26px;font-weight:700">云顶山脊线</div></div>
+ <div style="margin:14px 14px 0;background:#FBFAF2;border-radius:22px;padding:14px">
+  <svg viewBox="0 0 300 200" style="width:100%"><g stroke="#E3DEC8" stroke-width="1"><path d="M0 40H300M0 90H300M0 140H300"/></g>
+   <path d="M0 170 L30 160 L70 130 L110 120 L150 70 L190 40 L225 55 L260 100 L300 120 L300 200 L0 200Z" fill="#E4572E" opacity=".22"/>
+   <path d="M0 170 L30 160 L70 130 L110 120 L150 70 L190 40 L225 55 L260 100 L300 120" fill="none" stroke="#E4572E" stroke-width="3.5" stroke-linejoin="round"/>
+   <circle cx="190" cy="40" r="6" fill="#1F2A24"/><text x="198" y="30" font-family="Barlow Condensed" font-weight="700" font-size="18" fill="#1F2A24">1,184</text>
+   <text x="2" y="38" font-size="13" fill="#6B6A58">1200</text><text x="2" y="88" font-size="13" fill="#6B6A58">900</text><text x="2" y="138" font-size="13" fill="#6B6A58">600</text></svg>
+  <div class="stats" style="margin-top:8px"><div><div class="n">12.6</div><div class="lbl">公里</div></div><div><div class="n">980</div><div class="lbl">爬升</div></div><div><div class="n">22%</div><div class="lbl">最陡坡度</div></div></div>
+ </div>
+ <div style="margin:14px 14px 0;background:#1F2A24;color:#fff;border-radius:22px;padding:18px;font-size:17px;line-height:1.5">第 7 公里起连续上坡，建议在垭口补水。</div>
+</div>
+</body></html>

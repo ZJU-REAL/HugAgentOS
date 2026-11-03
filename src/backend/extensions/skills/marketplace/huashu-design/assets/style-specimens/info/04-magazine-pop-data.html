@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>04 杂志撞色数据页</title>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=IBM+Plex+Sans:wght@400;500;600&family=ZCOOL+QingKe+HuangYou&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+:root{--y:#F6EE00;--k:#0E0E0E;--p:#F5F2EA}
+body{background:var(--p);color:var(--k);position:relative;font-family:"IBM Plex Sans","Noto Sans SC",sans-serif}
+.left{position:absolute;left:0;top:0;width:520px;height:750px;background:var(--y)}
+h1{position:absolute;left:30px;top:20px;margin:0;font:400 126px/1.02 "ZCOOL QingKe HuangYou","Noto Sans SC",sans-serif;letter-spacing:-.02em;width:600px}
+h1 span{display:block}
+.dek{position:absolute;left:34px;top:568px;width:380px;font:500 16px/1.5 "IBM Plex Sans","Noto Sans SC"}
+.col{position:absolute;left:34px;bottom:20px;font:600 12px/1.4 "IBM Plex Sans","Noto Sans SC";letter-spacing:.14em}
+.big{position:absolute;left:556px;top:-14px;font:400 252px/1 Anton,sans-serif;letter-spacing:-.02em}
+.big small{font:400 100px Anton;vertical-align:top;position:relative;top:34px;margin-left:4px}
+.cap{position:absolute;left:560px;top:232px;width:360px;font:400 12px/1.45 "IBM Plex Sans","Noto Sans SC"}
+.cap b{font-weight:600}
+.bars div.b{position:absolute;bottom:0;background:var(--k);color:#fff}
+.b .v{position:absolute;left:10px;top:8px;font:400 44px/1 Anton;color:var(--y)}
+.b .yr{position:absolute;left:10px;top:60px;font:500 14px/1 "IBM Plex Sans";color:#fff;letter-spacing:.06em}
+.b.hot{background:var(--k)}
+.b.hot .v{font-size:62px}.b.hot .yr{top:76px}
+.rule{position:absolute;bottom:0;width:0;border-left:3px dashed var(--k)}
+.rt{position:absolute;font:600 12px/1.3 "IBM Plex Sans","Noto Sans SC";width:130px}
+</style></head><body>
+<div class="left"></div>
+<h1><span>休渔</span><span>三年，</span><span>带鱼</span><span>回来了</span></h1>
+<div class="dek">浙江近海带鱼年渔获量，从休渔前最后一年的 13.4 万吨，涨到 18.9 万吨。渔民的船没有变多，网也没有变密。</div>
+<div class="col">海洋保护年报 2025 · 第 3 页</div>
+<div class="big">+41<small>%</small></div>
+<div class="cap"><b>浙江近海带鱼年渔获量，万吨。</b>2022 年起每年 5–9 月全面休渔；网目放宽到 54 毫米。虚构数据，仅作风格样张。</div>
+<div class="bars" id="bars"></div>
+<script>
+const d=[[2019,14.0],[2020,12.6],[2021,13.4],[2022,14.8],[2023,16.9],[2024,18.9]];
+// use 2022 as the baseline year? keep sequence 2019..2025
+const data=[[2019,14.0],[2020,12.6],[2021,13.4],[2022,14.1],[2023,15.9],[2024,17.2],[2025,18.9]];
+const host=document.getElementById('bars');const x0=548,w=80,gap=8,sc=25;
+data.forEach((r,i)=>{const b=document.createElement('div');b.className='b'+(i==6?' hot':'');b.style.cssText=`position:absolute;bottom:0;left:${x0+i*(w+gap)}px;width:${i==6?w+160:w}px;height:${r[1]*sc}px;background:#0E0E0E`;
+ b.innerHTML=`<div class="v">${r[1].toFixed(1)}</div><div class="yr">${r[0]}</div>`;host.appendChild(b);});
+const rx=x0+3*(w+gap)-gap/2-1;
+const rl=document.createElement('div');rl.className='rule';rl.style.cssText=`left:${rx}px;height:448px;border-left:3px dashed #0E0E0E`;
+rl.style.zIndex=2;host.appendChild(rl);
+const t=document.createElement('div');t.className='rt';t.style.cssText=`left:${rx-100}px;top:${750-448-24}px;text-align:right;width:92px`;t.textContent='休渔前';
+const t2=t.cloneNode();t2.style.cssText=`position:absolute;left:${rx+10}px;top:${750-448-24}px;width:120px`;t2.textContent='休渔起 →';host.appendChild(t2);
+host.appendChild(t);
+</script></body></html>

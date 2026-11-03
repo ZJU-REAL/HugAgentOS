@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>06 数据人文主义手绘图谱</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700;900&family=Noto+Sans+SC:wght@400;500;700&family=Long+Cang&family=Inter:wght@500;600&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+:root{--paper:#F5EEDD;--ink:#2B2620;--coral:#E4604A;--pine:#2E6A58;--mustard:#DFA22B;--violet:#5A4080}
+body{background:var(--paper);color:var(--ink);font-family:"Noto Sans SC",sans-serif;position:relative}
+body:before{content:"";position:absolute;inset:0;background-image:radial-gradient(#2b262014 1px,transparent 1px);background-size:22px 22px}
+svg{position:absolute;left:0;top:0}
+.panel{position:absolute;left:40px;top:34px;width:290px}
+h1{margin:0;font:900 32px/1.25 "Noto Serif SC",serif}
+.dek{margin:12px 0 0;font:400 16px/1.65 "Noto Sans SC"}
+.leg{position:absolute;left:40px;top:262px;width:300px}
+.leg h2{margin:0 0 6px;font:700 16px "Noto Serif SC";letter-spacing:.06em;border-bottom:1.5px solid var(--ink);padding-bottom:6px}
+.k{display:flex;align-items:center;gap:10px;font:500 16px/1.3 "Noto Sans SC";margin:7px 0}
+.k i{width:14px;height:14px;border-radius:50%;flex:none}
+.hw{position:absolute;font:400 22px/1.2 "Long Cang","Noto Sans SC",cursive;color:var(--ink)}
+.src{position:absolute;left:40px;bottom:18px;font:400 13px/1.4 "Noto Sans SC";color:#6b6256}
+</style></head><body>
+<svg width="1200" height="750" viewBox="0 0 1200 750" id="s"></svg>
+<div class="panel"><h1>茶馆里，<br>七个夜晚的谈话</h1>
+<p class="dek">「半盏」茶馆，十一月某一周，每晚 8 点到打烊。我坐在靠窗的位置，记下了二十二场谈话：谁在谈、谈什么、吵没吵、谈了多久。</p></div>
+<div class="leg" id="leg"><h2>怎么读这张图</h2>
+<div id="legsvg" style="height:170px"></div>
+<div class="k"><i style="background:var(--coral)"></i>创作与手艺　5 场</div>
+<div class="k"><i style="background:var(--pine)"></i>日子与家常　8 场</div>
+<div class="k"><i style="background:var(--mustard)"></i>生意与价钱　4 场</div>
+<div class="k"><i style="background:var(--violet)"></i>感情与旧事　5 场</div></div>
+<div class="hw" style="left:790px;top:410px;transform:rotate(-2deg);width:250px">周四，为了「茶价该不该涨」，七个人吵了四十分钟</div>
+<div class="hw" style="left:972px;top:508px;transform:rotate(2deg);width:200px">周日最安静：只有一场，一个人，半壶茶</div>
+<div class="src">虚构数据，仅作风格样张。每一个符号是一场谈话，按时间顺序沿着虚线排开。</div>
+<script>
+const NS='http://www.w3.org/2000/svg',svg=document.getElementById('s');
+function e(t,a,p){const n=document.createElementNS(NS,t);for(const k in a)n.setAttribute(k,a[k]);(p||svg).appendChild(n);return n}
+const C={a:'#E4604A',b:'#2E6A58',c:'#DFA22B',d:'#5A4080'};
+function glyph(p,cx,cy,r,sp,tail,col,ang){
+ const g=e('g',{transform:`translate(${cx},${cy})`},p);
+ for(let i=0;i<sp;i++){const a=i/sp*Math.PI*2+ang*0.5;e('line',{x1:Math.cos(a)*(r+3),y1:Math.sin(a)*(r+3),x2:Math.cos(a)*(r+10),y2:Math.sin(a)*(r+10),stroke:col,'stroke-width':2.2,'stroke-linecap':'round'},g)}
+ const ca=ang,x1=Math.cos(ca)*r,y1=Math.sin(ca)*r,x2=Math.cos(ca)*(r+tail),y2=Math.sin(ca)*(r+tail);
+ const nx=-Math.sin(ca)*tail*.22,ny=Math.cos(ca)*tail*.22;
+ e('path',{d:`M${x1},${y1} Q${(x1+x2)/2+nx},${(y1+y2)/2+ny} ${x2},${y2}`,fill:'none',stroke:col,'stroke-width':2,'stroke-linecap':'round'},g);
+ e('circle',{cx:x2,cy:y2,r:3,fill:col},g);
+ e('circle',{cx:0,cy:0,r:r,fill:col,'fill-opacity':.92},g);
+ e('circle',{cx:0,cy:0,r:r*.36,fill:'#F5EEDD','fill-opacity':.9},g);
+}
+// path
+const d='M392,128 C620,52 900,56 1086,160 C1190,222 1100,330 900,338 C700,346 520,326 452,420 C384,512 520,612 740,604 C900,598 1040,630 1124,690';
+const path=e('path',{d,fill:'none',stroke:'#2B2620','stroke-width':1.4,'stroke-dasharray':'2 6','stroke-linecap':'round'});
+const L=path.getTotalLength();
+// 22 convs: [night,r,spikes,tail,color]
+const cv=[[0,10,0,24,'b'],[0,16,1,34,'a'],[0,12,0,18,'b'],
+[1,20,2,50,'c'],[1,9,0,14,'d'],[1,14,0,30,'b'],
+[2,22,3,56,'a'],[2,12,0,26,'b'],[2,10,1,20,'d'],
+[3,26,9,46,'c'],[3,18,5,34,'c'],[3,13,0,24,'a'],
+[4,16,1,60,'d'],[4,11,0,22,'b'],[4,19,3,36,'a'],[4,14,0,28,'c'],
+[5,24,4,64,'b'],[5,15,0,32,'a'],[5,12,0,24,'b'],[5,17,2,42,'d'],
+[6,8,0,44,'d'],[6,12,0,12,'b']];
+// night anchors along path
+const nights=['周一','周二','周三','周四','周五','周六','周日'];
+const N=cv.length;let first={};
+cv.forEach((c,i)=>{const t=(i+0.7)/(N+0.4)*L;const p=path.getPointAtLength(t),q=path.getPointAtLength(t+2);
+ const tang=Math.atan2(q.y-p.y,q.x-p.x);const side=(i%2?1:-1);const ang=tang+side*Math.PI/2+(((i*37)%10)-5)*0.04;
+ glyph(svg,p.x,p.y,c[1],c[2],c[3],C[c[4]],ang);
+ if(!(c[0] in first)){first[c[0]]=1;const a=tang-side*Math.PI/2;
+  const lx=p.x+Math.cos(a)*(c[1]+26),ly=p.y+Math.sin(a)*(c[1]+26);
+  const tt=e('text',{x:lx,y:ly+5,'text-anchor':'middle','font-family':'Noto Serif SC','font-weight':700,'font-size':17,fill:'#2B2620'});tt.textContent=nights[c[0]];}
+});
+// legend glyph
+(function(){const lg=document.getElementById('legsvg');const s=document.createElementNS(NS,'svg');s.setAttribute('width',300);s.setAttribute('height',170);s.style.cssText='position:static';lg.appendChild(s);
+ glyph(s,60,100,28,7,60,'#2E6A58',-0.45);
+ const ln=(x1,y1,x2,y2)=>e('path',{d:`M${x1},${y1} L${x2},${y2}`,stroke:'#2B2620','stroke-width':1,fill:'none'},s);
+ const tx=(x,y,t)=>{const n=e('text',{x,y,'font-family':'Noto Sans SC','font-size':16,'font-weight':500,fill:'#2B2620'},s);n.textContent=t};
+ ln(60,100,60,150);e('circle',{cx:60,cy:150,r:2.5,fill:'#2B2620'},s);tx(70,158,'半径＝在场人数');
+ ln(86,78,172,36);e('circle',{cx:86,cy:78,r:2.5,fill:'#2B2620'},s);tx(176,40,'刺＝吵了几回');
+ ln(112,60,172,84);e('circle',{cx:112,cy:60,r:2.5,fill:'#2B2620'},s);tx(176,88,'尾巴＝谈了多久');
+ tx(0,14,'一场谈话，放大看');
+})();
+</script></body></html>

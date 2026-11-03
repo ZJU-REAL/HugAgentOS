@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>15 实用主义彩虹分类文档</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+body{background:#fff;color:#334155;font-family:Inter,"Noto Sans SC",sans-serif;font-size:16px;position:relative}
+.top{position:absolute;top:0;left:0;right:0;height:64px;border-bottom:1px solid #E2E8F0;display:flex;align-items:center;padding:0 32px;gap:28px;font-size:15px;font-weight:500;color:#475569;background:#fff}
+.top b{font-size:19px;color:#0F172A;font-weight:700;display:flex;align-items:center;gap:8px;margin-right:12px}
+.top b i{width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,#2DD4BF,#38BDF8)}
+.search{margin-left:auto;width:250px;border:1px solid #E2E8F0;border-radius:8px;padding:7px 12px;color:#94A3B8;font-size:14px;display:flex;justify-content:space-between;background:#F8FAFC}
+.search kbd{font-family:"JetBrains Mono",monospace;font-size:12px;color:#64748B}
+.side{position:absolute;top:64px;left:0;width:272px;bottom:0;padding:28px 24px 0 32px;border-right:1px solid #F1F5F9;font-size:15px}
+.side h5{margin:0 0 8px;font-size:13px;letter-spacing:.6px;color:#0F172A;font-weight:700}
+.side ul{list-style:none;margin:0 0 24px;padding:0;border-left:1px solid #E2E8F0}
+.side li{padding:5px 0 5px 16px;margin-left:-1px;border-left:1px solid transparent;color:#64748B}
+.side li.on{border-left-color:#0EA5E9;color:#0284C7;font-weight:600}
+.main{position:absolute;top:64px;left:272px;width:660px;box-sizing:border-box;padding:30px 48px}
+.rb{position:absolute;top:64px;left:0;right:0;height:4px;background:linear-gradient(90deg,#2DD4BF,#22D3EE,#38BDF8 40%,#A855F7 62%,#EC4899 80%,#F59E0B)}
+table.p{width:100%;border-collapse:collapse;margin-top:22px;font-size:15px}table.p td{padding:8px 0;border-top:1px solid #E2E8F0}table.p td:first-child{font-family:"JetBrains Mono",monospace;font-size:14px;color:#0F172A;width:170px}table.p span{font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;margin-right:8px}
+.crumb{font-size:14px;font-weight:700;color:#0EA5E9;display:flex;align-items:center;gap:8px}
+.crumb i{width:10px;height:10px;border-radius:50%;background:#EC4899}
+h1{margin:8px 0 6px;font-size:36px;line-height:1.2;color:#0F172A;letter-spacing:-1px;font-weight:700}
+.lead{margin:0 0 16px;color:#475569;line-height:1.7;font-size:17px}
+h2{margin:0 0 10px;font-size:22px;color:#0F172A;font-weight:700}
+.code{background:#0F172A;border-radius:12px;overflow:hidden;box-shadow:0 0 0 1px rgba(15,23,42,.1)}
+.code .tab{display:flex;gap:18px;padding:0 18px;height:38px;align-items:center;font-size:13px;color:#94A3B8;border-bottom:1px solid #1E293B;font-family:"JetBrains Mono",monospace}
+.code .tab .a{color:#7DD3FC;border-bottom:2px solid #38BDF8;height:36px;line-height:36px}
+pre{margin:0;padding:16px 20px;font:14.5px/1.75 "JetBrains Mono",monospace;color:#E2E8F0}
+.k{color:#F472B6}.s{color:#7DD3FC}.c{color:#64748B}.n{color:#A78BFA}.g{color:#34D399}
+.note{margin-top:18px;border-radius:10px;background:#F0F9FF;border:1px solid #BAE6FD;padding:12px 16px;font-size:15.5px;color:#0C4A6E;line-height:1.65}
+.toc{position:absolute;top:64px;left:932px;width:268px;padding:34px 28px;font-size:14.5px}
+.toc h5{margin:0 0 12px;font-size:13px;letter-spacing:.6px;color:#0F172A}
+.toc div{padding:5px 0;color:#64748B}.toc div.on{color:#0284C7;font-weight:600}
+.badges{position:absolute;left:32px;bottom:22px;display:flex;gap:6px}
+</style></head><body>
+<div class="rb"></div><div class="top"><b><i></i>rollcall</b><span>文档</span><span>命令参考</span><span>示例</span><div class="search"><span>搜索文档…</span><kbd>⌘K</kbd></div></div>
+<div class="side">
+  <h5><span style="color:#38BDF8">●</span> 入门</h5><ul><li>安装</li><li>快速上手</li></ul>
+  <h5><span style="color:#EC4899">●</span> 核心命令</h5><ul><li class="on">rollcall check</li><li>rollcall sync</li><li>rollcall report</li></ul>
+  <h5><span style="color:#A855F7">●</span> 配置</h5><ul><li>rollcall.toml</li><li>环境变量</li></ul>
+  <h5><span style="color:#10B981">●</span> 进阶</h5><ul><li>CI 集成</li><li>插件</li></ul>
+</div>
+<div class="main">
+  <div class="crumb"><i></i>核心命令</div>
+  <h1>rollcall check</h1>
+  <p class="lead">逐项检查仓库里的成员名单是否与上游一致，并给出可直接执行的修复建议。</p>
+  <h2>基本用法</h2>
+  <div class="code"><div class="tab"><span class="a">终端</span><span>rollcall.toml</span></div>
+<pre><span class="c"># 检查当前目录，只看有差异的项</span>
+<span class="g">$</span> rollcall check <span class="s">--diff-only</span> <span class="s">--format</span> <span class="n">table</span>
+
+<span class="k">✗</span> 3 项不一致    <span class="k">✓</span> 41 项通过
+  <span class="s">members/lin.toml</span>   <span class="c">缺少 role 字段</span></pre></div>
+  <div class="note" style="margin-top:14px"><b>提示：</b>在 CI 中加上 <code style="font-family:'JetBrains Mono',monospace;font-size:14px;background:#E0F2FE;padding:1px 6px;border-radius:4px">--strict</code>，存在差异时会以退出码 1 终止。</div>
+<table class="p"><tr><td>--diff-only</td><td><span style="background:#FCE7F3;color:#BE185D">过滤</span>只显示有差异的项</td></tr><tr><td>--format</td><td><span style="background:#F3E8FF;color:#7E22CE">输出</span>table / json / junit</td></tr><tr><td>--strict</td><td><span style="background:#D1FAE5;color:#047857">CI</span>存在差异时退出码为 1</td></tr></table>
+</div>
+<div class="toc"><h5>本页内容</h5><div class="on">基本用法</div><div>参数一览</div><div>退出码</div><div>输出格式</div><div>常见问题</div></div>
+</body></html>

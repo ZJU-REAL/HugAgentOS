@@ -1,0 +1,22 @@
+{
+  "slug": "resume-screening",
+  "entry_name": "resume-screening",
+  "display_name": "简历批量筛选",
+  "summary": "按 JD 制定加权评分标准，批量解析 PDF/Word 简历并逐份打分；脚本核验每条证据确实出自简历原文、统一加权、硬性条件一票否决，输出排名 Excel 和面试问题。",
+  "category": "办公效率",
+  "tags": [
+    "招聘",
+    "简历筛选",
+    "人才评估"
+  ],
+  "version": "1.0.0",
+  "author": "HugAgentOS",
+  "icon_url": "",
+  "source": "builtin",
+  "source_url": "",
+  "downloads": 0,
+  "stars": 0,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

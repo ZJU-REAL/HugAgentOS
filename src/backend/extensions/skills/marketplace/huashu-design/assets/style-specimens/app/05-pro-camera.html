@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>05 专业相机工具</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}*{box-sizing:border-box}
+body{background:#121212;font-family:"JetBrains Mono","Noto Sans SC",monospace;color:#EDEDED;position:relative}
+.ph{position:absolute;width:360px;height:760px;transform-origin:0 0;border-radius:52px;overflow:hidden;background:#000;box-shadow:0 0 0 9px #1D1D1D,0 0 0 11px #444,0 30px 60px rgba(0,0,0,.7)}
+.ph:before{content:"";position:absolute;top:11px;left:130px;width:100px;height:28px;border-radius:20px;background:#000;z-index:9;border:1px solid #222}
+.Y{color:#FFCC00}
+.vf{position:absolute;left:0;right:0;top:0;height:520px;background:linear-gradient(175deg,#5B6B7A 0%,#8C8F86 38%,#C7A774 62%,#3B3A38 100%)}
+.vf .lbl{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-family:"Noto Sans SC";font-size:14px;color:rgba(255,255,255,.7);letter-spacing:.2em}
+.zeb{position:absolute;left:210px;top:120px;width:120px;height:90px;background:repeating-linear-gradient(135deg,rgba(255,204,0,.0) 0 6px,rgba(255,204,0,.85) 6px 9px);opacity:.9}
+.grid{position:absolute;inset:0}
+.grid:before,.grid:after{content:"";position:absolute;background:rgba(255,255,255,.25)}
+.grid:before{left:33.3%;right:33.3%;top:0;bottom:0;background:none;border-left:1px solid rgba(255,255,255,.25);border-right:1px solid rgba(255,255,255,.25)}
+.grid:after{top:33.3%;bottom:33.3%;left:0;right:0;background:none;border-top:1px solid rgba(255,255,255,.25);border-bottom:1px solid rgba(255,255,255,.25)}
+.sb{position:absolute;left:0;right:0;top:0;height:50px;padding:14px 30px 0;display:flex;justify-content:space-between;font-weight:700;font-size:15px;z-index:5;font-family:"Noto Sans SC"}
+.hist{position:absolute;left:18px;top:62px;width:130px;height:56px;background:rgba(0,0,0,.55);border-radius:6px;padding:6px;z-index:4}
+.hist svg{width:100%;height:100%}
+.row{position:absolute;left:0;right:0;top:520px;display:flex;justify-content:space-around;padding:12px 8px 0;text-align:center}
+.row div{font-size:13px;color:#8A8A8A;font-weight:700;letter-spacing:.08em;font-family:"Noto Sans SC"}
+.row b{display:block;font-size:20px;color:#EDEDED;font-weight:500;letter-spacing:0;margin-top:3px;font-family:"JetBrains Mono"}
+.row .on b{color:#FFCC00}.row .on{color:#FFCC00}
+.dial{position:absolute;left:0;right:0;top:600px;height:70px;overflow:hidden;
+ -webkit-mask-image:linear-gradient(90deg,transparent,#000 22%,#000 78%,transparent)}
+.dial .tk{position:absolute;left:-60px;right:-60px;top:18px;height:34px;background:repeating-linear-gradient(90deg,#9A9A9A 0 2px,transparent 2px 14px)}
+.dial .tk2{position:absolute;left:-60px;right:-60px;top:6px;height:46px;background:repeating-linear-gradient(90deg,#CFCFCF 0 2px,transparent 2px 70px);background-position:7px 0}
+.dial .mk{position:absolute;left:50%;top:0;width:3px;height:58px;margin-left:-1px;background:#FFCC00;box-shadow:0 0 10px rgba(255,204,0,.6)}
+.dial .nums{position:absolute;left:0;right:0;top:50px;display:flex;justify-content:space-between;padding:0 10px;font-size:13px;color:#9A9A9A}
+.shut{position:absolute;left:50%;top:684px;width:70px;height:70px;margin-left:-35px;border-radius:50%;border:4px solid #EDEDED}
+.shut:after{content:"";position:absolute;inset:6px;border-radius:50%;background:#EDEDED}
+.lens{position:absolute;top:462px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:4}
+.lens span{width:34px;height:34px;border-radius:50%;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700}
+.big{font-size:120px;font-weight:500;letter-spacing:-6px;line-height:1}
+.list div{display:flex;justify-content:space-between;padding:13px 0;border-bottom:1px solid #262626;font-size:16px}
+.list span:first-child{font-family:"Noto Sans SC";color:#B0B0B0}
+</style></head><body>
+
+<!-- 主屏 -->
+<div class="ph" style="left:70px;top:46px">
+ <div class="vf"><div class="lbl">照片位 · 取景</div><div class="grid"></div><div class="zeb"></div></div>
+ <div class="sb"><span>9:41</span><span class="Y">RAW</span></div>
+ <div class="hist"><svg viewBox="0 0 120 44" preserveAspectRatio="none"><path d="M0 44 L0 40 L8 30 L18 18 L30 10 L42 16 L54 24 L66 14 L78 8 L90 16 L102 6 L112 2 L120 4 L120 44Z" fill="#EDEDED" opacity=".85"/></svg></div>
+ <div style="position:absolute;right:18px;top:62px;z-index:4;font-size:14px;color:#FFCC00;font-weight:700">高光溢出</div>
+ <div class="lens"><span>.5</span><span style="background:#FFCC00;color:#000">1×</span><span>3</span></div>
+ <div class="row"><div>快门<b>1/250</b></div><div class="on">感光度<b>200</b></div><div>曝光<b>-0.3</b></div><div>白平衡<b>5200K</b></div></div>
+ <div class="dial"><div class="tk2"></div><div class="tk"></div><div class="mk"></div><div class="nums"><span>100</span><span>160</span><span class="Y">200</span><span>320</span><span>640</span></div></div>
+ <div class="shut"></div>
+</div>
+
+<!-- 次屏：手动对焦与参数 -->
+<div class="ph" style="left:470px;top:110px;transform:scale(.94)">
+ <div class="sb"><span>9:41</span><span class="Y">MF</span></div>
+ <div style="padding:70px 22px 0"><div style="font-family:'Noto Sans SC';font-size:14px;color:#8A8A8A;font-weight:700;letter-spacing:.1em">感光度</div><div class="big Y">200</div></div>
+ <div style="margin:26px 0 0;position:relative;height:90px;overflow:hidden;-webkit-mask-image:linear-gradient(90deg,transparent,#000 20%,#000 80%,transparent)">
+  <div style="position:absolute;left:-60px;right:-60px;top:8px;height:44px;background:repeating-linear-gradient(90deg,#9A9A9A 0 2px,transparent 2px 16px)"></div>
+  <div style="position:absolute;left:-60px;right:-60px;top:0;height:60px;background:repeating-linear-gradient(90deg,#DADADA 0 2px,transparent 2px 80px);background-position:8px 0"></div>
+  <div style="position:absolute;left:50%;top:0;width:3px;height:66px;background:#FFCC00;box-shadow:0 0 10px rgba(255,204,0,.6)"></div>
+  <div style="position:absolute;left:0;right:0;top:66px;display:flex;justify-content:space-around;font-size:14px;color:#9A9A9A"><span>100</span><span>160</span><span class="Y">200</span><span>320</span><span>640</span></div>
+ </div>
+ <div class="list" style="padding:36px 22px 0"><div><span>对焦</span><span>手动 · 峰值标注</span></div><div><span>格式</span><span>RAW + JPEG</span></div><div><span>构图线</span><span>三分法</span></div><div><span>直方图</span><span class="Y">亮度</span></div></div>
+</div>
+
+<!-- 局部放大：刻度条 -->
+<div class="ph" style="left:850px;top:-250px;transform:scale(1.18)">
+ <div class="vf" style="height:520px"><div class="lbl">照片位</div></div>
+ <div class="row"><div>快门<b>1/250</b></div><div class="on">感光度<b>200</b></div><div>曝光<b>-0.3</b></div><div>白平衡<b>5200K</b></div></div>
+ <div class="dial"><div class="tk2"></div><div class="tk"></div><div class="mk"></div><div class="nums"><span>100</span><span>160</span><span class="Y">200</span><span>320</span><span>640</span></div></div>
+ <div class="shut"></div>
+</div>
+</body></html>

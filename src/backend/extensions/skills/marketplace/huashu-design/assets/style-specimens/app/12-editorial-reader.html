@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>12 编辑式阅读</title>
+<link href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,400;7..72,600&family=Noto+Serif+SC:wght@400;600;700&family=Inter:wght@500;600&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}*{box-sizing:border-box}
+body{background:#DDD6C8;font-family:Literata,"Noto Serif SC",serif;color:#26221C;position:relative}
+.ph{position:absolute;width:360px;height:760px;transform-origin:0 0;border-radius:52px;overflow:hidden;background:#FBF8F1;box-shadow:0 0 0 9px #1c1b19,0 0 0 11px #55524b,0 28px 60px rgba(60,50,30,.3)}
+.ph:before{content:"";position:absolute;top:11px;left:130px;width:100px;height:28px;border-radius:20px;background:#000;z-index:9}
+.sb{height:50px;padding:14px 30px 0;display:flex;justify-content:space-between;font-family:Inter;font-weight:600;font-size:15px}
+.ui{font-family:Inter,"Noto Sans SC",sans-serif}
+.q{padding:4px 22px}.q h1{font-size:30px;margin:6px 0 14px;font-weight:600}
+.it{padding:16px 0;border-bottom:1px solid #E4DDCC}
+.it .src{font-family:Inter,"Noto Sans SC";font-size:13px;color:#8B8272;letter-spacing:.02em;font-weight:600}
+.it .ti{font-size:20px;font-weight:700;line-height:1.35;margin:5px 0 6px}
+.it .ex{font-size:16px;color:#5C5547;line-height:1.55}
+.it .pg{height:3px;background:#E4DDCC;margin-top:10px;border-radius:2px}.it .pg i{display:block;height:100%;background:#B5532A;border-radius:2px}
+.rd{padding:6px 26px}.rd .k{font-family:Inter,"Noto Sans SC";font-size:13px;color:#B5532A;font-weight:600;letter-spacing:.08em}
+.rd h1{font-size:28px;line-height:1.3;margin:8px 0 8px;font-weight:700}
+.rd .by{font-family:Inter,"Noto Sans SC";font-size:14px;color:#8B8272;margin-bottom:18px}
+.rd p{font-size:18px;line-height:1.85;margin:0 0 14px;text-align:justify}
+mark{background:linear-gradient(transparent 12%,#F4D35E 12%,#F4D35E 92%,transparent 92%);color:inherit;padding:0 1px}
+.tb{position:absolute;left:50%;transform:translateX(-50%);background:#26221C;color:#fff;border-radius:14px;display:flex;gap:2px;padding:6px;font-family:Inter,"Noto Sans SC";font-size:14px;font-weight:600;box-shadow:0 8px 20px rgba(0,0,0,.3)}
+.tb span{white-space:nowrap;padding:8px 12px;border-radius:9px}.tb span.c{display:flex;gap:6px;align-items:center}.tb i{width:14px;height:14px;border-radius:50%;display:block}
+.note{position:absolute;background:#fff;border:1px solid #E4DDCC;border-radius:6px;box-shadow:0 22px 50px rgba(60,50,30,.25);padding:22px 24px}
+.hl{font-size:22px;line-height:1.7;border-left:4px solid #F4D35E;padding-left:16px}
+.nt{margin-top:18px;font-family:Inter,"Noto Sans SC";font-size:16px;color:#4F483B;line-height:1.6;background:#F7F2E6;border-radius:8px;padding:12px 14px}
+.tag{font-family:Inter,"Noto Sans SC";font-size:13px;color:#8B8272;margin-top:14px;font-weight:600}
+</style></head><body>
+
+<div class="ph" style="left:70px;top:60px">
+ <div class="sb"><span>9:41</span><span>●●●</span></div>
+ <div class="q"><div class="ui" style="font-size:14px;color:#8B8272;font-weight:600;letter-spacing:.08em">稍后读 · 12 篇</div><h1>待读</h1>
+  <div class="it"><div class="src">茶馆夜谈 · 8 分钟</div><div class="ti">为什么老茶客从不看茶单</div><div class="ex">一间开了二十年的茶馆，菜单只剩一行字。</div><div class="pg"><i style="width:62%"></i></div></div>
+  <div class="it"><div class="src">城市观察 · 14 分钟</div><div class="ti">公交改线之后，谁在多走三百米</div><div class="ex">我们跟着三位通勤者，走了一周。</div></div>
+  <div class="it"><div class="src">声音志 · 6 分钟</div><div class="ti">唱片店里最贵的是安静</div><div class="ex">店主说，试听间比货架更重要。</div></div>
+  <div class="it"><div class="src">菜市场志 · 11 分钟</div><div class="ti">改造后的菜市场，摊主为什么没走</div><div class="ex">三十七个摊位，留下了三十一个。</div></div>
+  <div class="it"><div class="src">夜观记 · 5 分钟</div><div class="ti">天文台开放夜，最受欢迎的是等待</div><div class="ex">排队看土星的人，聊了一整晚。</div></div>
+ </div>
+</div>
+
+<div class="ph" style="left:470px;top:20px;transform:scale(1.0)">
+ <div class="sb"><span>9:41</span><span>●●●</span></div>
+ <div class="rd"><div class="k">茶馆夜谈</div><h1>为什么老茶客从不看茶单</h1><div class="by">林素 · 8 分钟 · 已读 62%</div>
+  <p>凌晨一点，老周推门进来，没有说话，掌柜已经把壶放在了靠窗的那张桌子上。</p>
+  <p><mark>菜单在这里不是用来点的，是用来确认「你没有被忘记」。</mark>新客翻到第三页，才发现价格从未涨过。</p>
+  <p>茶馆的规矩很少，其中一条是：谁先开口，谁负责续水。</p>
+  <p>这条规矩有个好处，没人会冷场。</p>
+ </div>
+ <div class="tb" style="top:236px"><span class="c"><i style="background:#F4D35E"></i>高亮</span><span>笔记</span><span>复制</span><span>···</span></div>
+</div>
+
+<div class="note" style="left:868px;top:96px;width:292px">
+ <div class="ui" style="font-size:13px;color:#8B8272;font-weight:600;letter-spacing:.08em;margin-bottom:12px">我的高亮 · 局部</div>
+ <div class="hl">菜单在这里不是用来点的，是用来确认「你没有被忘记」。</div>
+ <div class="nt">可以放进下周的选题：老店的「默认」。</div>
+ <div class="tag">3 条高亮 · 已同步到笔记</div>
+</div>
+<div class="note" style="left:896px;top:430px;width:264px;padding:18px 20px">
+ <div class="ui" style="font-size:13px;color:#8B8272;font-weight:600;letter-spacing:.08em">阅读设置</div>
+ <div style="display:flex;justify-content:space-between;margin-top:14px;font-size:22px"><span>字体</span><span style="color:#B5532A;font-weight:700">Literata</span></div>
+ <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:22px"><span>字号</span><span style="color:#B5532A;font-weight:700">18</span></div>
+</div>
+</body></html>

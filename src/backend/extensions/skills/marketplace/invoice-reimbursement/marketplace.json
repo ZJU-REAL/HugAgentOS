@@ -1,0 +1,22 @@
+{
+  "slug": "invoice-reimbursement",
+  "entry_name": "invoice-reimbursement",
+  "display_name": "发票识别与报销审核",
+  "summary": "批量读取电子发票并抽取发票号码、购销方、金额税额等字段，按公司规则检查重复报销、抬头税号不符、金额不平、超期和超标，输出报销汇总 Excel 和发票真伪查验清单。",
+  "category": "办公效率",
+  "tags": [
+    "发票",
+    "报销",
+    "财务审核"
+  ],
+  "version": "1.0.0",
+  "author": "HugAgentOS",
+  "icon_url": "",
+  "source": "builtin",
+  "source_url": "",
+  "downloads": 0,
+  "stars": 0,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

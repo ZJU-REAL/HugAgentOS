@@ -67,9 +67,9 @@ class OpenSandboxProvider(
         self._api_key = s.opensandbox_api_key
         self._image = s.opensandbox_image
         self._ttl_s = s.idle_ttl_s
-        self._snapshot_expiry_grace_s = (
-            60 + s.opensandbox_request_timeout_s + s.opensandbox_snapshot_wait_timeout_s
-        )
+        # Idle sessions, including those whose snapshot is still being created,
+        # are renewed every scan; the grace only covers one renewal round trip.
+        self._snapshot_expiry_grace_s = 60 + s.opensandbox_request_timeout_s
         self._snapshot_expiry_enabled = s.opensandbox_snapshot_enabled
         self._snapshot_capacity = max(1, s.opensandbox_pool_max_total)
         self._ready_timeout_s = s.opensandbox_ready_timeout_s
@@ -142,8 +142,6 @@ class OpenSandboxProvider(
         self._snapshot_idle_task: Optional[asyncio.Task] = None
         self._snapshot_gc_task: Optional[asyncio.Task] = None
         self._snapshot_workers_shutdown: asyncio.Event = asyncio.Event()
-        # Set of chat_ids currently being parked: prevents the same chat from being parked twice concurrently
-        self._parking_in_flight: set[str] = set()
         # Do NOT auto-kick pool warmup in __init__: the FastAPI startup hook calls
         # ``provider.warmup()``, and that path first runs ``_adopt_existing_sandboxes``
         # (reclaiming our own still-alive sandboxes left by the previous backend
@@ -413,6 +411,7 @@ class OpenSandboxProvider(
             return self._ttl_s
         capacity = max(self._snapshot_capacity, len(self._sessions) + 1)
         # One scan interval per queued session is conservative relative to the
-        # three-at-a-time parker. Recompute on creation and activity renewal.
+        # bounded number of snapshots in flight. Recompute on creation and
+        # activity renewal.
         return (self._ttl_s + capacity * self._SNAPSHOT_IDLE_LOOP_INTERVAL_S
                 + self._snapshot_expiry_grace_s)

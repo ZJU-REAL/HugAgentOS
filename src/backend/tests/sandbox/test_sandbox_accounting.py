@@ -15,19 +15,17 @@ import core.sandbox.sessions.registry as session_registry
 from core.sandbox.providers.opensandbox.models import SandboxSessionRecord as _Session
 from core.sandbox.providers.opensandbox.user_pool import _JupyterUserPool
 from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
+import core.sandbox.providers.opensandbox.snapshot_store as snapshot_store
 
 
 def _worker(monkeypatch, response):
     monkeypatch.setattr(runtime, "settings", SimpleNamespace(sandbox=SimpleNamespace(idle_ttl_s=3600)))
     worker = OpenSandboxProvider.__new__(OpenSandboxProvider)
     worker._sessions = {}
-    worker._parking_in_flight = set()
     worker._session_locks = {}
     worker._registry_lock = threading.Lock()
     worker._domain = "http://controller"
     worker._get_http_client = lambda: SimpleNamespace(post=AsyncMock(return_value=response))
-    worker._wait_snapshot_ready = AsyncMock()
-    worker._upsert_snapshot = AsyncMock(return_value=None)
     worker._destroy_sandbox = AsyncMock()
     worker._renew = AsyncMock()
     worker._jupyter_user_pool = _JupyterUserPool(
@@ -56,14 +54,14 @@ def test_missing_container_releases_reservation_and_next_acquire_succeeds(monkey
     async def scenario():
         sess = await _bind(worker)
         # The actual snapshot HTTP boundary reports the production failure.
-        await worker._park_session_via_snapshot("chat", sess)
-        await worker._park_session_via_snapshot("chat", sess)
+        await worker._start_snapshot("chat", sess)
+        await worker._start_snapshot("chat", sess)
         assert worker._sessions == {}
         assert worker._jupyter_user_pool.stats()["user"] == {"idle":0,"in_flight":0}
         await worker._jupyter_user_pool.acquire("user")
         assert worker._jupyter_user_pool.stats()["user"]["in_flight"] == 1
         worker._destroy_sandbox.assert_awaited_once()
-        worker._upsert_snapshot.assert_not_awaited()
+        assert snapshot_store.load_jobs() == {}
 
     asyncio.run(scenario())
 
@@ -75,17 +73,23 @@ def test_missing_container_releases_reservation_and_next_acquire_succeeds(monkey
     httpx.Response(500, json={"code":"DOCKER::INTERNAL_ERROR"}),
     httpx.ReadTimeout("controller busy"),
 ])
-def test_ambiguous_snapshot_failures_preserve_session_and_reservation(monkeypatch, response):
+def test_ambiguous_snapshot_failures_preserve_session_and_reservation(
+        monkeypatch, provider_database, response):
     worker = _worker(monkeypatch, response)
     if isinstance(response, Exception):
         worker._get_http_client = lambda: SimpleNamespace(post=AsyncMock(side_effect=response))
 
     async def scenario():
         sess = await _bind(worker)
-        await worker._park_session_via_snapshot("chat", sess)
+        await worker._start_snapshot("chat", sess)
         assert worker._sessions["chat"] is sess
         assert worker._jupyter_user_pool.stats()["user"]["in_flight"] == 1
         worker._destroy_sandbox.assert_not_awaited()
+        if isinstance(response, httpx.Response):
+            # A rejected request backs the chat off instead of retrying next scan.
+            job = snapshot_store.load_jobs()["chat"]
+            assert (job.state, job.snapshot_id, job.failures) == ("failed", None, 1)
+            assert job.retry_after is not None
 
     asyncio.run(scenario())
 
@@ -103,7 +107,7 @@ def test_missing_cleanup_preserves_newer_binding(monkeypatch, provider_database)
         raw = json.loads(await store.get(_KEY.format(session_id="chat")))
         raw["active_at"] -= 7200
         await store.put(_KEY.format(session_id="chat"), json.dumps(raw), ttl=7200)
-        await worker._park_session_via_snapshot("chat",sess)
+        await worker._start_snapshot("chat", sess)
         assert await session_registry.lookup("chat") == "replacement"
         assert worker._jupyter_user_pool.stats()["user"]["in_flight"] == 0
 
@@ -181,7 +185,7 @@ def test_repeated_release_during_workspace_cleanup_only_returns_one_reservation(
     asyncio.run(scenario())
 
 
-def test_scan_protects_all_idle_candidates_before_batching_and_is_fair(monkeypatch):
+def test_scan_protects_all_idle_candidates_before_batching_and_is_fair(monkeypatch, provider_database):
     worker = _worker(monkeypatch,None)
     worker._sessions = {
         f"chat-{i}":_Session(sandbox=SimpleNamespace(id=f"sbx-{i}"),
@@ -191,18 +195,17 @@ def test_scan_protects_all_idle_candidates_before_batching_and_is_fair(monkeypat
     protected, parked = [], []
     async def renew(sess):
         protected.append(sess.sandbox.id)
-    async def park(chat, sess):
+    async def start(chat, sess):
         parked.append(chat)
-        worker._parking_in_flight.discard(chat)
     worker._renew = renew
-    worker._park_session_via_snapshot = park
+    worker._start_snapshot = start
 
     async def scenario():
         from tests.sandbox.test_session_affinity import _age
         for chat, sess in worker._sessions.items():
             await session_registry.remember(chat, str(sess.sandbox.id))
             await _age(session_registry.get_ephemeral_state(), chat, 7200)
-        for _ in range(3):
+        for _ in range(4):
             await worker._snapshot_idle_sessions_once()
             await asyncio.sleep(0)
         assert set(protected) == {f"sbx-{i}" for i in range(8)}
@@ -239,17 +242,6 @@ def test_only_confirmed_missing_renewal_marks_stale(monkeypatch,response,expecte
         assert sess.stale_marked is expected_stale
     asyncio.run(scenario())
 
-
-
-def test_snapshot_readiness_timeout_bounds_a_blocked_http_request(monkeypatch):
-    from core.sandbox.errors import SandboxTimeoutError
-    worker=_worker(monkeypatch,None)
-    async def blocked(*args,**kwargs):
-        await asyncio.Event().wait()
-    worker._get_http_client=lambda:SimpleNamespace(get=blocked)
-    del worker._wait_snapshot_ready
-    with pytest.raises(SandboxTimeoutError):
-        asyncio.run(worker._wait_snapshot_ready("snap",timeout_s=0.01))
 
 
 def test_lost_shared_claim_interrupts_owner_without_deleting_another_token(monkeypatch, sandbox_session_store):

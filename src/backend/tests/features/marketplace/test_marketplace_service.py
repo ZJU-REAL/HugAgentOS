@@ -51,12 +51,12 @@ def test_list_and_detail_nonempty():
     items = skill_catalog.list_marketplace_skills()
     assert len(items) >= 5
     slugs = {it["slug"] for it in items}
-    assert "diagram-builder" in slugs
+    assert "diagram-design" in slugs
     # Built-in resident skills are prepended; featured entries lead the
     # installable marketplace portion that follows them.
     installable_items = [item for item in items if not item.get("builtin")]
     assert installable_items[0]["featured"] is True
-    detail = skill_catalog.get_marketplace_skill("diagram-builder")
+    detail = skill_catalog.get_marketplace_skill("diagram-design")
     assert detail["instructions"]
     assert any(f["path"] == "SKILL.md" for f in detail["files"]) is False  # SKILL.md is the body, not in files
     assert detail["files"]
@@ -102,7 +102,7 @@ def test_unknown_slug_404():
 
 
 def test_user_install_is_namespaced_and_private(db):
-    r = skill_installation.install_marketplace_skill(db, "diagram-builder", owner_user_id="userA", secrets={})
+    r = skill_installation.install_marketplace_skill(db, "diagram-design", owner_user_id="userA", secrets={})
     assert r["owner"] == "self" and r["action"] == "installed"
     row = db.query(AdminSkill).filter_by(skill_id=r["id"]).one()
     assert row.owner_user_id == "userA"
@@ -110,31 +110,31 @@ def test_user_install_is_namespaced_and_private(db):
     assert row.user_intro is None
     assert (
         resolve_skill_detail(row.user_intro, row.skill_content)
-        == skill_catalog.get_marketplace_skill("diagram-builder")["instructions"]
+        == skill_catalog.get_marketplace_skill("diagram-design")["instructions"]
     )
     # frontmatter name is rewritten to the install id
     assert f"name: {r['id']}" in row.skill_content.split("---")[1]
-    assert r["id"] != "diagram-builder"  # private install carries a fingerprint suffix
+    assert r["id"] != "diagram-design"  # private install carries a fingerprint suffix
 
 
 def test_two_users_get_independent_copies(db):
-    a = skill_installation.install_marketplace_skill(db, "diagram-builder", owner_user_id="userA", secrets={})
-    b = skill_installation.install_marketplace_skill(db, "diagram-builder", owner_user_id="userB", secrets={})
+    a = skill_installation.install_marketplace_skill(db, "diagram-design", owner_user_id="userA", secrets={})
+    b = skill_installation.install_marketplace_skill(db, "diagram-design", owner_user_id="userB", secrets={})
     assert a["id"] != b["id"]
     assert db.query(AdminSkill).filter(AdminSkill.skill_id.in_([a["id"], b["id"]])).count() == 2
 
 
 def test_same_user_reinstall_upserts(db):
-    a = skill_installation.install_marketplace_skill(db, "diagram-builder", owner_user_id="userA", secrets={})
-    a2 = skill_installation.install_marketplace_skill(db, "diagram-builder", owner_user_id="userA", secrets={})
+    a = skill_installation.install_marketplace_skill(db, "diagram-design", owner_user_id="userA", secrets={})
+    a2 = skill_installation.install_marketplace_skill(db, "diagram-design", owner_user_id="userA", secrets={})
     assert a2["id"] == a["id"] and a2["action"] == "updated"
     assert db.query(AdminSkill).filter_by(skill_id=a["id"]).count() == 1
 
 
 def test_admin_install_is_global(db):
-    r = skill_installation.install_marketplace_skill(db, "diagram-builder", owner_user_id=None, secrets={})
-    assert r["owner"] == "global" and r["id"] == "diagram-builder"
-    row = db.query(AdminSkill).filter_by(skill_id="diagram-builder").one()
+    r = skill_installation.install_marketplace_skill(db, "diagram-design", owner_user_id=None, secrets={})
+    assert r["owner"] == "global" and r["id"] == "diagram-design"
+    row = db.query(AdminSkill).filter_by(skill_id="diagram-design").one()
     assert row.owner_user_id is None
 
 
@@ -168,14 +168,14 @@ def test_missing_required_secret_rejected(db, monkeypatch):
 
 
 def test_annotate_installed_flags(db):
-    skill_installation.install_marketplace_skill(db, "diagram-builder", owner_user_id="userA", secrets={})
+    skill_installation.install_marketplace_skill(db, "diagram-design", owner_user_id="userA", secrets={})
     items = skill_catalog.annotate_installed(skill_catalog.list_marketplace_skills(), db, owner_user_id="userA")
     by_slug = {it["slug"]: it for it in items}
-    assert by_slug["diagram-builder"]["installed"] is True
+    assert by_slug["diagram-design"]["installed"] is True
     # another, uninstalled skill is False
     other = next(
         slug for slug, item in by_slug.items()
-        if slug != "diagram-builder" and not item.get("builtin")
+        if slug != "diagram-design" and not item.get("builtin")
     )
     assert by_slug[other]["installed"] is False
     # From userB's view all installable entries are uninstalled; resident
@@ -187,7 +187,7 @@ def test_annotate_installed_flags(db):
 
 def test_cross_owner_conflict_409(db):
     # Seed a global skill that occupies the namespace id userC's private install would use.
-    install_id = "diagram-builder-" + package_installation.owner_suffix("userC")
+    install_id = "diagram-design-" + package_installation.owner_suffix("userC")
     db.add(AdminSkill(
         skill_id=install_id, skill_content="x", display_name="x", description="x",
         version="1", tags=[], allowed_tools=[], extra_files={}, dependencies={},
@@ -195,7 +195,7 @@ def test_cross_owner_conflict_409(db):
     ))
     db.commit()
     with pytest.raises(HTTPException) as ei:
-        skill_installation.install_marketplace_skill(db, "diagram-builder", owner_user_id="userC", secrets={})
+        skill_installation.install_marketplace_skill(db, "diagram-design", owner_user_id="userC", secrets={})
     assert ei.value.status_code == 409
 
 

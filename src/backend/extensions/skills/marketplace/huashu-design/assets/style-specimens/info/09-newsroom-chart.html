@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>09 数据新闻图表规范</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+:root{--bg:#FFF1E5;--tx:#33302E;--grid:#E6D9CE;--claret:#990F3D;--blue:#0D7680;--navy:#0F5499}
+body{background:var(--bg);color:var(--tx);font-family:Inter,"Noto Sans SC",sans-serif;position:relative}
+.tag{position:absolute;left:60px;top:0;width:64px;height:10px;background:var(--claret)}
+.kick{position:absolute;left:60px;top:34px;font:700 13px Inter,"Noto Sans SC";letter-spacing:.12em;color:var(--claret)}
+h1{position:absolute;left:60px;top:58px;margin:0;width:980px;font:800 38px/1.25 Inter,"Noto Sans SC";letter-spacing:-.005em;color:#1a1817}
+.sub{position:absolute;left:60px;top:152px;font:400 20px/1.4 Inter,"Noto Sans SC";color:#66605C}
+.sub b{font-weight:600;color:var(--tx)}
+svg{position:absolute;left:0;top:0}
+svg text{font-family:Inter,"Noto Sans SC",sans-serif}
+.src{position:absolute;left:60px;bottom:30px;font:400 13px/1.5 Inter,"Noto Sans SC";color:#66605C}
+.vv{position:absolute;right:60px;bottom:30px;font:500 12px/1.5 "IBM Plex Mono";color:#8c847d;text-align:right}
+</style></head><body>
+<div class="tag"></div>
+<div class="kick">咖啡烘焙 · 成本压力</div>
+<h1>生豆采购价涨到了三倍多，<br>一杯拿铁只涨了 17%</h1>
+<div class="sub"><b>独立烘焙店</b>的生豆采购价指数与门店拿铁售价指数，2019 年 1 月 = 100</div>
+<svg width="1200" height="750" viewBox="0 0 1200 750" id="s"></svg>
+<div class="src">来源：独立咖啡烘焙协会会员店采购与零售记录（样本 64 家），2019 年 1 月至 2025 年 6 月；虚构数据，仅作风格样张</div>
+<div class="vv">VISUAL VOCABULARY<br>CHANGE OVER TIME · LINE</div>
+<script>
+const NS='http://www.w3.org/2000/svg',svg=document.getElementById('s');
+function e(t,a,txt){const n=document.createElementNS(NS,t);for(const k in a)n.setAttribute(k,a[k]);if(txt!=null)n.textContent=txt;svg.appendChild(n);return n}
+const X0=100,X1=930,Y0=640,Y1=210,vmin=80,vmax=340;
+const N=78;const X=i=>X0+i/(N-1)*(X1-X0),Y=v=>Y0-(v-vmin)/(vmax-vmin)*(Y0-Y1);
+// grid
+[100,150,200,250,300].forEach(v=>{e('line',{x1:X0,y1:Y(v),x2:X1+10,y2:Y(v),stroke:v==100?'#33302E':'#E0D2C6','stroke-width':v==100?1.4:1});
+ e('text',{x:X0-12,y:Y(v)+5,'text-anchor':'end','font-size':14,fill:'#66605C','font-family':'IBM Plex Mono'},v)});
+// x ticks
+for(let y=2019;y<=2025;y++){const i=(y-2019)*12;e('line',{x1:X(i),y1:Y0,x2:X(i),y2:Y0+6,stroke:'#33302E'});e('text',{x:X(i),y:Y0+26,'text-anchor':'middle','font-size':14,fill:'#66605C'},y)}
+// beans: anchors (month idx, value)
+const a=[[0,100],[10,104],[14,112],[22,128],[28,150],[34,205],[40,252],[46,262],[52,240],[58,246],[66,288],[72,306],[77,318]];
+function interp(i){for(let k=0;k<a.length-1;k++){if(i>=a[k][0]&&i<=a[k+1][0]){const t=(i-a[k][0])/(a[k+1][0]-a[k][0]);return a[k][1]+(a[k+1][1]-a[k][1])*t}}return a[a.length-1][1]}
+let s=11;function r(){s=(s*16807)%2147483647;return s/2147483647}
+const beans=[];for(let i=0;i<N;i++){beans.push(interp(i)+(i==0||i==N-1?0:(r()-.5)*9))}
+// latte step
+const steps=[[0,100],[26,103],[40,108],[52,112],[64,115],[72,117]];
+const latte=[];for(let i=0;i<N;i++){let v=100;steps.forEach(([m,x])=>{if(i>=m)v=x});latte.push(v)}
+// gap shade
+let d='M'+X(0)+','+Y(beans[0]);beans.forEach((v,i)=>d+=' L'+X(i)+','+Y(v));for(let i=N-1;i>=0;i--)d+=' L'+X(i)+','+Y(latte[i]);d+='Z';
+e('path',{d,fill:'#990F3D',opacity:.09});
+// lines
+let pb='M'+X(0)+','+Y(beans[0]);beans.forEach((v,i)=>pb+=' L'+X(i)+','+Y(v));e('path',{d:pb,fill:'none',stroke:'#990F3D','stroke-width':3,'stroke-linejoin':'round'});
+let pl='M'+X(0)+','+Y(latte[0]);for(let i=1;i<N;i++){pl+=' L'+X(i)+','+Y(latte[i-1])+' L'+X(i)+','+Y(latte[i])}e('path',{d:pl,fill:'none',stroke:'#0F5499','stroke-width':3,'stroke-linejoin':'round'});
+// end labels
+e('circle',{cx:X(N-1),cy:Y(318),r:5,fill:'#990F3D'});e('circle',{cx:X(N-1),cy:Y(117),r:5,fill:'#0F5499'});
+e('text',{x:X1+22,y:Y(318)-6,'font-size':24,'font-weight':800,fill:'#990F3D'},'318');
+e('text',{x:X1+22,y:Y(318)+18,'font-size':16,'font-weight':600,fill:'#990F3D'},'生豆采购价');
+e('text',{x:X1+22,y:Y(117)-6,'font-size':24,'font-weight':800,fill:'#0F5499'},'117');
+e('text',{x:X1+22,y:Y(117)+18,'font-size':16,'font-weight':600,fill:'#0F5499'},'拿铁售价');
+// gap bracket
+e('path',{d:`M${X1+8},${Y(318)+34} L${X1+8},${Y(117)-30}`,stroke:'#66605C','stroke-width':1.2,'stroke-dasharray':'3 3'});
+// annotation
+const ix=X(40);e('line',{x1:ix,y1:Y(252)-12,x2:ix,y2:Y(252)-52,stroke:'#33302E'});
+e('text',{x:ix-8,y:Y(252)-60,'text-anchor':'end','font-size':16,'font-weight':600,fill:'#33302E'},'2022 年 5 月：巴西霜冻，');
+e('text',{x:ix-8,y:Y(252)-40,'text-anchor':'end','font-size':16,'font-weight':600,fill:'#33302E'},'生豆价格一年涨了近七成');
+e('text',{x:X(60),y:Y(190),'text-anchor':'middle','font-size':16,'font-weight':500,fill:'#990F3D'},'利润被挤压的缺口');
+</script></body></html>

@@ -23,7 +23,6 @@
   "model_config": {},
   "bindings": {
     "skill_ids": [
-      "csv-pipeline",
       "officecli-xlsx"
     ],
     "mcp_server_ids": [],

@@ -20,7 +20,7 @@ def main() -> int:
     assert skills, "expected builtin skill specs"
     ids = {s.id for s in skills}
     assert "capability-guide-brief" in ids
-    assert "quick-material-analysis" in ids
+    assert "officecli-docx" in ids
     assert "process-guidance" in ids
     prompt = render_skills_prompt(skills)
     assert "Skill:" in prompt

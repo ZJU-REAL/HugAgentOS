@@ -1,0 +1,22 @@
+{
+  "slug": "canvas-design",
+  "entry_name": "canvas-design",
+  "display_name": "海报与视觉作品设计",
+  "summary": "先写一段设计理念，再据此创作单页的海报、视觉作品或封面，输出 PNG 或 PDF；内置数十款开源英文字体，中文使用沙箱中文字体。",
+  "category": "营销创意",
+  "tags": [
+    "海报",
+    "视觉设计",
+    "平面设计"
+  ],
+  "version": "1.0.0",
+  "author": "Anthropic",
+  "icon_url": "",
+  "source": "github",
+  "source_url": "https://github.com/anthropics/skills/tree/main/skills/canvas-design",
+  "downloads": 0,
+  "stars": 0,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

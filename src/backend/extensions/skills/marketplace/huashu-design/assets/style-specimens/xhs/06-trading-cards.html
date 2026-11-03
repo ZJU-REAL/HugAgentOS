@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>06 集换卡：一项一卡</title>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@500;700;800;900&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_kit/xhs.css"><script src="_kit/birds.js"></script><script src="_kit/xhs.js"></script>
+<style>
+/* 集换卡：深色桌面上的金边卡牌，卡上是名字、等级签、图窗、编号和数据条；内页 3×3 卡包按一个数排序。
+   适合「一项一卡、可收集」的清单：物种、产品、人物、工具。 */
+.desk{background:radial-gradient(120% 80% at 50% 30%,#3A342C,#1E1B17);color:#fff}
+.fig{font-family:var(--latin)}
+.card{position:absolute;border-radius:36px;padding:14px;background:linear-gradient(135deg,#F6D77A,#B98A2E 45%,#F3D27A 70%,#A8781F);box-shadow:0 30px 60px rgba(0,0,0,.45)}
+.card .in{width:100%;height:100%;border-radius:26px;background:#FBFAF6;color:var(--ink);position:relative;overflow:hidden}
+.win{position:absolute;border-radius:18px;background-color:#F1EFE8;background-image:radial-gradient(circle,#D8D6CE 2px,transparent 2.6px);background-size:28px 28px}
+.lv{position:absolute;font:800 32px/1 var(--sans);padding:8px 14px;border-radius:12px;color:#fff;background:#2E7D4F}
+.lv.EN{background:#C2462E}.lv.VU{background:#D88A1A}
+.bar{height:16px;border-radius:8px;background:#E8E5DC;margin-top:8px}.bar i{display:block;height:100%;border-radius:8px;background:var(--ink)}
+.mini{position:absolute;width:340px;height:400px;border-radius:24px;padding:8px}
+.mini .in{border-radius:18px}
+</style></head><body>
+<main class="xhs-deck two">
+<section class="xhs-page desk" data-pageno="off">
+  <div class="abs" style="left:var(--m);top:80px;font-weight:900;font-size:108px;line-height:1.12">11064张鸟卡<br><span style="color:var(--accent)">一张不缺</span></div>
+  <div class="abs" style="left:var(--m);right:var(--m);top:350px;font-size:var(--body);color:rgba(255,255,255,.78)">每张都带真实数据：体重、翼长、保护等级</div>
+  <div class="card" style="left:30px;top:540px;width:520px;height:760px;transform:rotate(-8deg)"><div class="in"><div class="abs" style="left:30px;top:26px;font-weight:900;font-size:44px">普通翠鸟</div><img src="_kit/stickers/Alcedo_atthis.webp" style="position:absolute;left:40px;top:150px;width:420px"></div></div>
+  <div class="card" style="left:300px;top:500px;width:860px;height:1080px;transform:rotate(3deg)"><div class="in" id="hero"></div></div>
+</section>
+<section class="xhs-page desk">
+  <div class="abs" style="left:var(--m);top:72px;font-weight:900;font-size:96px">鹦鹉卡包 <span class="fig" style="color:var(--accent)">392</span><span style="font-size:48px"> 张</span></div>
+  <div class="abs" style="left:var(--m);top:210px;font-size:var(--body);color:rgba(255,255,255,.78)">拆开第一包：9张，按体重从轻到重</div>
+  <div id="pack"></div>
+</section>
+</main>
+<script>
+const LV={LC:'无危',NT:'近危',VU:'易危',EN:'濒危'}, b=BIRDS.Trichoglossus_moluccanus;
+document.getElementById('hero').innerHTML=`
+  <div class="abs" style="left:44px;top:36px;font-weight:900;font-size:64px">${b.zh}</div>
+  <div class="abs" style="left:46px;top:116px;font:italic 500 32px var(--latin);color:var(--gray)">${b.sci}</div>
+  <div class="lv ${b.iucn}" style="right:40px;top:44px">${LV[b.iucn]}</div>
+  <div class="win" style="left:40px;right:40px;top:180px;height:480px"></div>
+  <img class="sticker" src="${XHS.S('Trichoglossus_moluccanus')}" style="left:130px;top:200px;width:540px">
+  <div class="abs" style="left:44px;right:44px;top:700px;display:flex;justify-content:space-between;font:800 32px var(--latin)"><span>鹦形目</span><span>#${b.seq} / 11064</span></div>
+  <div class="abs" style="left:44px;right:44px;top:780px;display:grid;grid-template-columns:1fr 1fr;gap:28px 48px;font-size:32px;font-weight:700">
+    <div>体重 <b class="fig" style="float:right">${b.mass} g</b><div class="bar"><i style="width:${b.mass/10}%"></i></div></div>
+    <div>翼长 <b class="fig" style="float:right">${b.wing} mm</b><div class="bar"><i style="width:${b.wing/4}%"></i></div></div>
+  </div>
+  <div class="abs" style="right:44px;bottom:30px;font:800 32px var(--sans);background:var(--accent);color:var(--accentText);padding:6px 16px;border-radius:10px">审核 ${b.score} · 过线</div>`;
+const ids=Object.keys(BIRDS).filter(i=>/Trichoglossus|Cacatua|Eolophus|Platycercus|Agapornis|Psephotellus|Ara_|Psittacus|Nestor|Calyptorhynchus|Vini/.test(i)).sort((a,c)=>BIRDS[a].mass-BIRDS[c].mass).slice(0,9);
+document.getElementById('pack').innerHTML=ids.map((i,k)=>{const x=84+(k%3)*367,y=300+Math.floor(k/3)*430,d=BIRDS[i];return `<div class="card mini" style="left:${x}px;top:${y}px"><div class="in">
+  <div class="abs" style="left:20px;top:16px;font-weight:900;font-size:32px;white-space:nowrap">${d.zh}</div>
+  <div class="win" style="left:16px;right:16px;top:70px;height:220px"></div>
+  <img src="${XHS.S(i)}" style="position:absolute;left:50%;top:80px;max-width:280px;max-height:200px;transform:translateX(-50%)">
+  <div class="abs" style="left:20px;bottom:22px;font:900 48px/1 var(--latin)">${Math.round(d.mass)}<span style="font-size:32px"> g</span></div>
+  <div class="lv ${d.iucn}" style="right:16px;bottom:22px">${LV[d.iucn]}</div></div></div>`}).join('');
+XHS.number(18);
+</script>
+</body></html>

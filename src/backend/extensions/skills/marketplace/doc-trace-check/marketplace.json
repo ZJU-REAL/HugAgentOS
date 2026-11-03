@@ -1,0 +1,22 @@
+{
+  "slug": "doc-trace-check",
+  "entry_name": "doc-trace-check",
+  "display_name": "公文依据溯源核验",
+  "summary": "写公文和汇报材料时先检索政策原文建立依据台账，数字、文号、文件名逐处标注出处，缺失信息写[待补]不编造；脚本逐句核验是否有依据、与原文是否一致，输出溯源核验报告和带依据清单的定稿。",
+  "category": "写作助手",
+  "tags": [
+    "公文写作",
+    "依据溯源",
+    "数据核验"
+  ],
+  "version": "1.0.0",
+  "author": "HugAgentOS",
+  "icon_url": "",
+  "source": "builtin",
+  "source_url": "",
+  "downloads": 0,
+  "stars": 0,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

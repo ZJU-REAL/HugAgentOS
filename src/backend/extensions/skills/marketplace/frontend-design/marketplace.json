@@ -1,0 +1,22 @@
+{
+  "slug": "frontend-design",
+  "entry_name": "frontend-design",
+  "display_name": "前端界面设计审美",
+  "summary": "为新建或改版的网页、应用界面确定有辨识度的视觉方向：版式、字体、配色、动效与细节，避免千篇一律的 AI 模板感。适合写前端页面或做界面原型时使用。",
+  "category": "研发效率",
+  "tags": [
+    "网页设计",
+    "界面审美",
+    "前端"
+  ],
+  "version": "1.0.0",
+  "author": "Anthropic",
+  "icon_url": "",
+  "source": "github",
+  "source_url": "https://github.com/anthropics/skills/tree/main/skills/frontend-design",
+  "downloads": 0,
+  "stars": 0,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

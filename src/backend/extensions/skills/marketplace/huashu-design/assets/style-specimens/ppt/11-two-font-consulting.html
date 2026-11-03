@@ -1,0 +1,40 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>11 双字体咨询版</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700;900&family=Noto+Sans+SC:wght@400;500;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600&display=swap">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+body{background:#EFEBE4;color:#051C2C;font-family:'Inter','Noto Sans SC',sans-serif;position:relative}
+.pat{position:absolute;right:0;top:0;width:420px;height:250px;opacity:.9}
+.kick{position:absolute;left:64px;top:46px;font-size:13px;letter-spacing:.14em;color:#00805A;font-weight:600;text-transform:uppercase}
+h1{position:absolute;left:64px;top:84px;width:700px;margin:0;font-family:'Fraunces','Noto Serif SC',serif;font-weight:700;font-size:44px;line-height:1.28;letter-spacing:-.005em}
+h1 em{font-style:normal;color:#00805A}
+.rule{position:absolute;left:64px;top:290px;width:56px;height:3px;background:#051C2C}
+.body{position:absolute;left:64px;top:318px;width:440px;font-size:19px;line-height:1.8;color:#27394A}
+.body p{margin:0 0 16px}
+.body b{color:#051C2C;font-weight:700}
+.cards{position:absolute;left:560px;top:290px;width:576px;display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.card{background:#fff;padding:30px 28px 28px;border-top:3px solid #051C2C}
+.card.hl{background:#051C2C;color:#fff;border-top-color:#00805A}
+.num{font-family:'Fraunces','Noto Serif SC',serif;font-weight:700;font-size:70px;line-height:1;letter-spacing:-.02em}
+.num small{font-size:28px;margin-left:2px}
+.hl .num{color:#5FD3A6}
+.lab{margin-top:10px;font-size:15px;line-height:1.55;color:#3C4C5B}
+.hl .lab{color:#D4DEE6}
+.card.wide{grid-column:span 2;display:flex;align-items:center;gap:22px;padding:26px 28px}
+.card.wide .num{font-size:48px;white-space:nowrap}.card.wide .num small{font-size:22px}
+.foot{position:absolute;left:64px;right:64px;bottom:30px;display:flex;justify-content:space-between;font-size:12px;color:#5A6875;border-top:1px solid #C9C2B6;padding-top:12px}
+</style></head><body>
+<svg class="pat" viewBox="0 0 420 250"><defs><pattern id="p" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(-32)"><line x1="0" y1="0" x2="0" y2="14" stroke="#051C2C" stroke-width="1"/></pattern><linearGradient id="f" x1="0" x2="1"><stop offset="0" stop-color="#EFEBE4" stop-opacity="1"/><stop offset="1" stop-color="#EFEBE4" stop-opacity="0"/></linearGradient></defs><rect width="420" height="250" fill="url(#p)" opacity=".55"/><rect width="420" height="250" fill="url(#f)"/></svg>
+<div class="kick">城市公交 · 2026 线网优化评估</div>
+<h1>合并重叠线路后，<em>通勤高峰</em>的平均候车时间可缩短四分之一</h1>
+<div class="rule"></div>
+<div class="body">
+<p>对 38 条干线的客流与到站数据复盘显示，其中 11 条在东西向走廊上重叠超过 60%，高峰期车辆成串到站，而相邻时段却出现 20 分钟以上的空档。</p>
+<p>我们建议将这 11 条整合为 5 条，<b>总车辆数不变</b>，把节省的发车间隔重新分配到换乘枢纽。</p>
+</div>
+<div class="cards">
+<div class="card hl"><div class="num">−26<small>%</small></div><div class="lab">高峰平均候车时间<br>由 11.4 分钟降至 8.4 分钟</div></div>
+<div class="card"><div class="num">11→5</div><div class="lab">重叠线路整合后的运营线路数</div></div>
+<div class="card wide" style="margin-top:2px"><div class="num">+9.8<small>万人次</small></div><div class="lab" style="margin-top:0">预计每月新增可 30 分钟内直达的出行，主要来自东部新区居民</div></div>
+</div>
+<div class="foot"><span>来源：市公交集团 2025 年 3–9 月刷卡与 GPS 到站数据；模型测算</span><span>04</span></div>
+</body></html>

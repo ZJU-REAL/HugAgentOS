@@ -123,10 +123,6 @@ class SandboxSettings:
     opensandbox_snapshot_retention_days: int = field(
         default_factory=lambda: _int(_env("OPENSANDBOX_SNAPSHOT_RETENTION_DAYS", "7"), 7)
     )
-    # Max polling time (seconds) waiting for snapshot accept→Ready. Measured ~60s; 120s gives a 1× safety margin.
-    opensandbox_snapshot_wait_timeout_s: int = field(
-        default_factory=lambda: _int(_env("OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S", "120"), 120)
-    )
     # Skill dependencies come only from the image bake (docker/sandbox/Dockerfile.opensandbox); new dependencies go through the admin-panel rebuild.
 
     # The all-modes code-execution capability switch has moved out of settings:

@@ -1,0 +1,22 @@
+{
+  "slug": "ui-ux-pro-max",
+  "entry_name": "ui-ux-pro-max",
+  "display_name": "UI/UX 设计规范库",
+  "summary": "本地可检索的 UI/UX 设计知识库：数十种界面风格、近 200 套产品配色、70 多组字体搭配、上百条交互与可用性准则；可按产品类型生成整套设计系统规范，也能对现有界面做体验评审。",
+  "category": "研发效率",
+  "tags": [
+    "UI 设计",
+    "设计系统",
+    "用户体验"
+  ],
+  "version": "1.0.0",
+  "author": "Next Level Builder",
+  "icon_url": "",
+  "source": "github",
+  "source_url": "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill",
+  "downloads": 0,
+  "stars": 144468,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

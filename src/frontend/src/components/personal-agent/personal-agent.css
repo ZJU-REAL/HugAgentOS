@@ -25,7 +25,7 @@
 .pa-messages-inner{flex:1 0 auto;width:100%;max-width:760px;margin:0 auto;padding:0 0 20px;box-sizing:border-box}
 /* Confirmations and the composer stay pinned to the bottom of the scroller while messages pass under them. */
 .pa-dock{position:sticky;bottom:0;z-index:2;display:flex;flex-direction:column;background:var(--pa-chat-bg)}
-.pa-conversation>.ant-alert,.pa-dock>.pa-attention,.pa-dock>.jx-confirmBar{width:100%;max-width:760px;margin-left:auto;margin-right:auto;box-sizing:border-box}
+.pa-conversation>.ant-alert,.pa-dock>.pa-question,.pa-dock>.jx-confirmBar{width:100%;max-width:760px;margin-left:auto;margin-right:auto;box-sizing:border-box}
 .pa-message{position:relative;margin:0 0 24px;max-width:100%;width:fit-content;overflow-wrap:anywhere;padding-right:36px;box-sizing:border-box}
 .pa-message-user{display:flex;flex-direction:column;align-items:flex-end;margin-left:auto;max-width:88%}
 .pa-message-assistant{max-width:80%}
@@ -73,17 +73,10 @@
 .pa-task-dialog-actions .jx-confirmBar{margin:0}
 
 /* ── Needs your action ──────────────────────────────────────────────── */
-.pa-attention{margin:0 0 10px;padding:10px 14px;border:1px solid color-mix(in srgb,var(--color-warning) 35%,transparent);border-radius:var(--radius-md);background:var(--color-warning-bg);max-height:38vh;overflow-y:auto}
-.pa-attention header{display:flex;gap:6px;align-items:center;font-weight:600;font-size:13px;margin-bottom:6px;color:var(--color-text)}
-.pa-attention-item{display:flex;flex-direction:column;gap:6px;padding:8px 0;border-top:1px solid color-mix(in srgb,var(--color-text) 8%,transparent);font-size:12px}
-.pa-attention-item p{margin:0;color:var(--color-text-secondary)}
-.pa-task-title{white-space:normal;height:auto;text-align:left;padding:0;justify-content:flex-start}
 .pa-task-actions{display:flex;gap:6px;flex-wrap:wrap}
-.pa-attention-label{font-weight:500;color:var(--color-text)}
-.pa-attention-question{display:flex;flex-direction:column;gap:8px}
-.pa-attention-item p.pa-attention-ask{color:var(--color-text);white-space:pre-wrap}
-.pa-attention-reply{display:flex;gap:8px;align-items:center}
-.pa-attention-reply .ant-input{flex:1;min-width:0}
+/* A task's question uses the chat's .jx-askQ card; it docks above the composer, so the gap goes below it. */
+.pa-dock>.pa-question{margin:0 auto 10px}
+.pa-question .jx-askQ-title{white-space:pre-wrap;overflow-wrap:anywhere}
 
 /* ── Search ─────────────────────────────────────────────────────────── */
 .pa-search-group{margin-top:16px}
@@ -245,16 +238,17 @@ button.pa-side-row:disabled{cursor:default}
 .pa-typing-dots i:nth-child(2){animation-delay:.2s}
 .pa-typing-dots i:nth-child(3){animation-delay:.4s}
 @media(prefers-reduced-motion:reduce){.pa-typing-dots i{animation:none}}
-.pa-activity-group{margin:8px 4px 2px;font-size:12px;font-weight:500;color:var(--color-text-tertiary)}
 .pa-activity-text{display:flex;flex:1;flex-direction:column;min-width:0}
 .pa-activity-detail{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pa-device-session-grid{display:grid;grid-template-columns:minmax(160px,220px) minmax(0,1fr);gap:16px}
 
 /* ── Canvas open: one column, the status panel becomes an overlay ───── */
-.pa-panel--canvas .pa-side{display:none}
-.pa-panel--canvas .pa-side-toggle,.pa-panel--canvas .pa-side-close{display:inline-flex}
-.pa-panel--canvas .pa-side--open{display:block;position:absolute;right:16px;top:12px;z-index:30;width:min(320px,calc(100% - 32px));max-height:calc(100% - 24px)}
-.pa-panel--canvas{--pa-scroll-extension:12px;padding:8px 12px 0}
+/* Keyed on the canvas slot being in the layout, not on the store flag: the slot keeps its
+ * width through its exit animation, and two columns in that narrow pane flash on close. */
+.jx-appMainLayout:has(>.jx-canvasPanelSlot) .pa-side{display:none}
+.jx-appMainLayout:has(>.jx-canvasPanelSlot) :is(.pa-side-toggle,.pa-side-close){display:inline-flex}
+.jx-appMainLayout:has(>.jx-canvasPanelSlot) .pa-side--open{display:block;position:absolute;right:16px;top:12px;z-index:30;width:min(320px,calc(100% - 32px));max-height:calc(100% - 24px)}
+.jx-appMainLayout:has(>.jx-canvasPanelSlot) .pa-panel{--pa-scroll-extension:12px;padding:8px 12px 0}
 .pa-conversation{min-width:0}
 
 /* ── Narrow screens: the side panel becomes an overlay ──────────────── */

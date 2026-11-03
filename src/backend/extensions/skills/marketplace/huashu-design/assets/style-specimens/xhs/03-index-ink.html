@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>03 索引：墨底黄数字</title>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@500;700;800;900&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_kit/xhs.css"><script src="_kit/birds.js"></script><script src="_kit/xhs.js"></script>
+<style>
+/* 索引：墨底封面、一个巨大的黄数字、等距网格；内页用编号行和横条。硬朗、信息密度高，适合数字结论、排行、清单。 */
+.fig{font-family:var(--latin)}
+.ink{background:var(--ink);color:#fff}
+.top{left:var(--m);right:var(--m);top:64px;display:flex;justify-content:space-between;font:700 var(--label) var(--latin);letter-spacing:4px}
+.grid{left:var(--m);right:var(--m);top:700px;display:grid;grid-template-columns:repeat(5,1fr);border-top:2px solid rgba(255,255,255,.22);border-left:2px solid rgba(255,255,255,.22)}
+.grid div{height:180px;border-right:2px solid rgba(255,255,255,.22);border-bottom:2px solid rgba(255,255,255,.22);display:flex;align-items:center;justify-content:center}
+.grid img{max-width:150px;max-height:140px}
+.r{display:grid;grid-template-columns:90px 330px 1fr;align-items:baseline;border-bottom:2px solid var(--ink);padding:24px 0}
+.r b{font:800 var(--label) var(--latin);color:var(--gray)}
+.r strong{font-size:var(--body);font-weight:900}
+.r span{font-size:var(--label);color:var(--ink2);line-height:1.4}
+</style></head><body>
+<main class="xhs-deck two">
+<section class="xhs-page ink" data-pageno="off">
+  <div class="abs top"><span>HUASHU-BIRD-STICKER</span><span>2026</span></div>
+  <div class="abs fig" style="left:64px;top:150px;font-weight:900;font-size:340px;line-height:1;letter-spacing:-14px;color:var(--accent)">11064</div>
+  <div class="abs" style="left:var(--m);top:520px;font-weight:900;font-size:72px">种鸟，一种不少。</div>
+  <div class="abs" style="right:var(--m);top:536px;font-size:var(--label);text-align:right;color:rgba(255,255,255,.7)">IOC 15.2 名录</div>
+  <div class="abs grid" id="g"></div>
+  <div class="abs" style="left:var(--m);top:1310px;font-weight:900;font-size:110px;line-height:1.15">全世界的鸟，<br>都画成了贴纸</div>
+</section>
+<section class="xhs-page">
+  <div class="abs" style="left:var(--m);right:var(--m);top:64px;display:flex;justify-content:space-between;font:700 var(--label) var(--latin);letter-spacing:3px"><span>03 — REVIEW</span><span style="font-family:var(--sans);letter-spacing:0;color:var(--ink2)">第三步：打分</span></div>
+  <div class="abs fig" style="left:60px;top:150px;font-weight:900;font-size:380px;line-height:1;letter-spacing:-16px">80</div>
+  <div class="abs" style="left:560px;top:200px;font-weight:900;font-size:96px;line-height:1.12">分以下，<br>不算过。</div>
+  <div class="abs" style="left:560px;right:var(--m);top:430px;font-size:var(--body);line-height:1.45;color:var(--ink2)">对照真实照片挑错，错一项封顶76–78分</div>
+  <div class="abs" style="left:var(--m);top:600px;width:340px;height:22px;background:var(--accent)"></div>
+  <div class="abs" style="left:var(--m);right:var(--m);top:660px;border-top:6px solid var(--ink)">
+    <div class="r"><b>01</b><strong>虹膜颜色</strong><span>最常见的错</span></div>
+    <div class="r"><b>02</b><strong>喙</strong><span>形状、弯度和长短</span></div>
+    <div class="r"><b>03</b><strong>羽色</strong><span>每一块都对照参考</span></div>
+    <div class="r"><b>04</b><strong>腿脚</strong><span>趾的数量和朝向</span></div>
+    <div class="r"><b>05</b><strong>上轮问题</strong><span>上次被打回的地方</span></div>
+  </div>
+  <div class="abs" style="left:var(--m);right:var(--m);top:1310px;display:flex;justify-content:space-between;align-items:baseline"><span class="fig" style="font-weight:900;font-size:96px">7,676</span><span class="fig" style="font-weight:900;font-size:96px;color:var(--gray)">3,388</span></div>
+  <div class="abs" style="left:var(--m);right:var(--m);top:1430px;height:34px;display:flex"><div style="flex:7676;background:var(--ink)"></div><div style="flex:3388;background:repeating-linear-gradient(45deg,var(--ink) 0 4px,transparent 4px 14px);border:3px solid var(--ink)"></div></div>
+  <div class="abs" style="left:var(--m);right:var(--m);top:1490px;display:flex;justify-content:space-between;font-size:var(--label);color:var(--ink2)"><span>过线</span><span>没过，数据里标着</span></div>
+</section>
+</main>
+<script>
+document.getElementById('g').innerHTML=Object.keys(BIRDS).slice(0,15).map(i=>`<div><img src="${XHS.S(i)}"></div>`).join('');
+XHS.number(18);
+</script>
+</body></html>

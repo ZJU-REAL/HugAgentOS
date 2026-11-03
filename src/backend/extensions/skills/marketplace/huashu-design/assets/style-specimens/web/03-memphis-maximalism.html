@@ -1,0 +1,50 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>03 孟菲斯复古拼贴最大化</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Bungee&family=Space+Mono:wght@400;700&family=Noto+Serif+SC:wght@700;900&family=Noto+Sans+SC:wght@500;900&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden;background:#EBDDBF;font-family:"Space Mono","Noto Sans SC",monospace;color:#1B1B1B}
+.pg{position:relative;width:1200px;height:750px;overflow:hidden;
+background-image:radial-gradient(rgba(60,40,10,.12) 1px,transparent 1.4px);background-size:7px 7px}
+.a{position:absolute}
+.red{background:#C8382B}.mus{background:#E9A800}.cob{background:#1F3FA8}.pur{background:#6B3FA0}.oli{background:#6B7A2A}.cr{background:#F6EEDC}
+.title{left:70px;top:96px;transform:rotate(-4deg);font:900 124px/0.95 "Noto Serif SC","DM Serif Display",serif;color:#1B1B1B;letter-spacing:-.04em;z-index:5}
+.title span{display:block}
+.title .s2{margin-left:90px;color:#C8382B;text-shadow:5px 5px 0 #1B1B1B}
+.disc{border-radius:50%;background:radial-gradient(circle,#EBDDBF 0 5%,#1B1B1B 5.5% 12%,#1B1B1B 12% 100%);box-shadow:inset 0 0 0 18px #1B1B1B}
+.grooves{border-radius:50%;background:repeating-radial-gradient(circle,#1B1B1B 0 4px,#2c2c2c 4px 5px)}
+.lab{border-radius:50%}
+.tag{font:700 16px "Space Mono";padding:6px 14px;border:3px solid #1B1B1B}
+.nav{font:700 17px "Noto Sans SC";letter-spacing:.04em}
+.card{padding:16px 20px;font:500 16px/1.5 "Noto Sans SC";box-shadow:8px 8px 0 #1B1B1B;border:3px solid #1B1B1B}
+.card b{font:400 30px/1.1 "DM Serif Display","Noto Serif SC";display:block;margin-bottom:4px}
+.big{font:400 100px/1 Bungee;color:#C8382B}
+</style></head><body><div class="pg">
+<!-- 彩蛋式导航，散落 -->
+<div class="a nav cr tag" style="left:48px;top:30px;transform:rotate(-3deg)">新到货</div>
+<div class="a nav mus tag" style="left:150px;top:44px;transform:rotate(2deg)">试听间</div>
+<div class="a nav pur tag" style="left:252px;top:28px;transform:rotate(-1deg);color:#F6EEDC">店员推荐</div>
+<div class="a" style="right:48px;top:32px;font:700 16px 'Space Mono'">VINYL ROOM № 7 / 巷口二楼</div>
+
+<!-- 色块底 -->
+<div class="a cob" style="left:620px;top:90px;width:420px;height:300px;transform:rotate(5deg)"></div>
+<div class="a mus" style="left:560px;top:380px;width:250px;height:250px;border-radius:50%;"></div>
+<div class="a oli" style="left:60px;top:470px;width:330px;height:190px;transform:rotate(-3deg)"></div>
+<div class="a red" style="left:960px;top:420px;width:0;height:0;border-left:110px solid transparent;border-right:110px solid transparent;border-bottom:190px solid #C8382B;transform:rotate(14deg)"></div>
+
+<!-- 唱片 -->
+<div class="a grooves" style="left:690px;top:120px;width:300px;height:300px;z-index:3;box-shadow:6px 6px 0 #1B1B1B"></div>
+<div class="a lab red" style="left:793px;top:223px;width:94px;height:94px;z-index:4;display:flex;align-items:center;justify-content:center;font:400 18px Bungee;color:#F6EEDC">A面</div>
+<div class="a" style="left:828px;top:268px;width:24px;height:24px;border-radius:50%;background:#EBDDBF;z-index:5;display:none"></div>
+
+<div class="a title"><span>黑胶</span><span class="s2">不退货</span></div>
+
+<!-- 卡片 -->
+<div class="a card cr" style="left:446px;top:456px;width:300px;transform:rotate(3deg);z-index:6"><b>本周一张</b>日本 city pop 名盘 1982 年版再版，限量 300 张，每人限购两张。</div>
+<div class="a card mus" style="left:90px;top:500px;width:270px;transform:rotate(-4deg);z-index:6;background:#F6EEDC"><b>周五夜听</b>21:00 关灯，只放一整面 A 面。</div>
+<div class="a big" style="left:850px;top:540px;z-index:6;transform:rotate(-6deg);color:#1F3FA8;text-shadow:5px 5px 0 #E9A800">¥168</div>
+<div class="a" style="left:800px;top:664px;z-index:6;font:700 16px 'Noto Sans SC';transform:rotate(-6deg)">新品起价 · 二手均价 ¥68</div>
+
+<!-- 波浪线 -->
+<svg class="a" style="left:40px;top:420px;z-index:2" width="300" height="40" viewBox="0 0 300 40"><path d="M0 20 q 18.75 -26 37.5 0 t 37.5 0 t 37.5 0 t 37.5 0 t 37.5 0 t 37.5 0 t 37.5 0 t 37.5 0" fill="none" stroke="#C8382B" stroke-width="6" stroke-linecap="round"/></svg>
+<svg class="a" style="left:1040px;top:300px;z-index:2" width="120" height="120"><g fill="#1B1B1B"><circle cx="10" cy="10" r="5"/><circle cx="40" cy="10" r="5"/><circle cx="70" cy="10" r="5"/><circle cx="100" cy="10" r="5"/><circle cx="10" cy="40" r="5"/><circle cx="40" cy="40" r="5"/><circle cx="70" cy="40" r="5"/><circle cx="100" cy="40" r="5"/><circle cx="10" cy="70" r="5"/><circle cx="40" cy="70" r="5"/><circle cx="70" cy="70" r="5"/><circle cx="100" cy="70" r="5"/></g></svg>
+<div class="a" style="left:150px;top:698px;font:700 16px 'Space Mono';z-index:7">周二至周日 14:00–22:00</div>
+</div></body></html>
