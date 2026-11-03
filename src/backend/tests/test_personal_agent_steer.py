@@ -1,79 +1,15 @@
-"""Personal task steering through the same safe boundaries as ordinary chat."""
-from tests.orchestration.hook_support import make_adapter
-from agentscope.message import ToolCallBlock
-
+"""Task input reaches a running Worker through core steering, once and in order."""
 import time
 from types import SimpleNamespace
+
 import pytest
-from agentscope.message import ToolResultState
-from agentscope.tool._response import ToolChunk
+
+from core.db.models import ChatSteerQueueItem
 from personal_agent.context import AgentContext
 from personal_agent.models import PersonalWorkItem
+from personal_agent.worker import inputs
 from tests.test_personal_agent import sessions, personal_agent_on  # noqa: F401
-
-
-@pytest.mark.asyncio
-async def test_steer_interrupts_old_tool_and_enters_context_without_status_poll(sessions, monkeypatch):
-    from personal_agent.tasks import steering
-    monkeypatch.setattr(steering, "SessionLocal", sessions)
-    with sessions() as db:
-        svc = AgentContext(db, "owner")
-        task = svc.tasks.submit("Browse website", "initial")
-        row = db.get(PersonalWorkItem, task["id"])
-        row.status, row.owner, row.run_id, row.lease_until = "running", "worker", "run", time.time() + 90
-        db.commit()
-        inbox = steering.TaskSteering(row.id, "owner", "run", "worker", [])
-        svc.tasks.steer(row.id, "Use a script instead", "update")
-    middleware = make_adapter(*inbox.hook_policy().specs())
-    agent = SimpleNamespace(state=SimpleNamespace(run_id="run", context=[], steer_delivery=None))
-    called = []
-    async def tool(**kwargs):
-        called.append(True)
-        yield ToolChunk(content=[], state=ToolResultState.SUCCESS)
-    results = [x async for x in middleware.on_acting(agent, {"tool_call": ToolCallBlock(id="steer-tool", name="test_tool", input="{}")}, tool)]
-    assert not called
-    assert results[-1].state == ToolResultState.INTERRUPTED
-    async def model(**kwargs):
-        assert "Use a script instead" in agent.state.context[-1].content[0].text
-        yield "continued"
-    assert [x async for x in middleware.on_reasoning(agent, {}, model)] == ["continued"]
-    results = [x async for x in middleware.on_acting(agent, {"tool_call": ToolCallBlock(id="steer-tool", name="test_tool", input="{}")}, tool)]
-    assert called == [True]
-    assert results[-1].state == ToolResultState.SUCCESS
-
-
-@pytest.mark.asyncio
-async def test_inflight_result_is_preserved_and_multiple_inputs_are_delivered_once(sessions, monkeypatch):
-    from personal_agent.tasks import steering
-    monkeypatch.setattr(steering, "SessionLocal", sessions)
-    with sessions() as db:
-        svc = AgentContext(db, "owner")
-        task = svc.tasks.submit("Fetch data", "initial")
-        row = db.get(PersonalWorkItem, task["id"])
-        row.status, row.owner, row.run_id, row.lease_until = "running", "worker", "run", time.time() + 90
-        db.commit()
-    inbox = steering.TaskSteering(task["id"], "owner", "run", "worker", [])
-    middleware = make_adapter(*inbox.hook_policy().specs())
-    agent = SimpleNamespace(state=SimpleNamespace(run_id="run", context=[], steer_delivery=None))
-    async def tool(**kwargs):
-        with sessions() as db:
-            svc = AgentContext(db, "owner")
-            svc.tasks.steer(task["id"], "Use a script", "one")
-            svc.tasks.steer(task["id"], "Include the source", "two")
-        yield ToolChunk(content=[], state=ToolResultState.SUCCESS)
-    results = [x async for x in middleware.on_acting(agent, {"tool_call": ToolCallBlock(id="steer-tool", name="test_tool", input="{}")}, tool)]
-    assert results[-1].state == ToolResultState.SUCCESS
-    async def model(**kwargs):
-        text = agent.state.context[-1].content[0].text
-        assert text.index("Use a script") < text.index("Include the source")
-        yield "answer"
-    assert [x async for x in middleware.on_reasoning(agent, {}, model)] == ["answer"]
-    assert await inbox.take("run") is None
-    with sessions() as db:
-        result = AgentContext(db, "owner").tasks.complete(
-            task["id"], "Done", {"consumed_message_ids": sorted(inbox.consumed)}, owner="worker")
-        assert result["status"] == "completed"
-        assert "revision" not in result
+from tests.test_personal_agent_worker import launched, rows, steer, world  # noqa: F401
 
 
 def test_late_steer_requeues_instead_of_publishing_outdated_final(sessions):
@@ -82,16 +18,28 @@ def test_late_steer_requeues_instead_of_publishing_outdated_final(sessions):
         task = svc.tasks.submit("Fetch data", "initial")
         row = db.get(PersonalWorkItem, task["id"])
         row.status, row.owner, row.run_id, row.lease_until = "running", "worker", "run", time.time() + 90
-        row.checkpoint = {"final_answer": {"run_id": "run", "text": "Old answer"}}
+        row.checkpoint = {"report": {"assignment": "run", "status": "ready", "summary": "Old answer"}}
         db.commit()
         svc.tasks.steer(row.id, "Use a script", "update")
-        result = svc.tasks.complete(row.id, "Old answer", {"consumed_message_ids": []}, owner="worker")
+        result = svc.tasks.complete(row.id, "Old answer", {"consumed_message_ids": [], **row.checkpoint}, owner="worker")
         assert result["status"] == "queued"
         assert result["result"] is None
-        assert "final_answer" not in row.checkpoint
+        assert "report" not in row.checkpoint
 
 
-@pytest.mark.parametrize("change", ["cancel", "owner", "run", "expired"])
+def test_delivered_input_voids_an_earlier_final_report_but_keeps_progress(sessions):
+    with sessions() as db:
+        svc = AgentContext(db, "owner")
+        row = db.get(PersonalWorkItem, svc.tasks.submit("Fetch data", "initial")["id"])
+        row.checkpoint = {"report": {"assignment": "a", "status": "ready", "summary": "Outdated"}}
+        inputs.consume(row, ["m1"])
+        assert "report" not in row.checkpoint and row.checkpoint["consumed_message_ids"] == ["m1"]
+        row.checkpoint = {**row.checkpoint, "report": {"assignment": "a", "status": "progress", "summary": "Halfway"}}
+        inputs.consume(row, ["m2"])
+        assert row.checkpoint["report"]["status"] == "progress"
+
+
+@pytest.mark.parametrize("change", ["cancel", "run", "expired"])
 def test_execution_guard_keeps_cancellation_and_ownership(sessions, monkeypatch, change):
     from personal_agent.tasks import execution, guards
     monkeypatch.setattr(guards, "SessionLocal", sessions)
@@ -106,8 +54,11 @@ def test_execution_guard_keeps_cancellation_and_ownership(sessions, monkeypatch,
             execution.bind(row)
             svc.tasks.steer(row.id, "Use a script", "update")
             assert guards.owned_task(row.id, "owner")["run_id"] == "run"
+            # Another executor taking the Assignment over does not stop its live run's tools.
+            row.owner = "other-worker"
+            db.commit()
+            assert guards.owned_task(row.id, "owner")["run_id"] == "run"
             if change == "cancel": row.status = "cancelled"
-            if change == "owner": row.owner = "other-worker"
             if change == "run": row.run_id = "other-run"
             if change == "expired": row.lease_until = time.time() - 1
             db.commit()
@@ -147,82 +98,53 @@ def test_schema_upgrade_and_downgrade_preserve_task_data(filename):
 
 
 @pytest.mark.asyncio
-async def test_steer_invalidates_an_earlier_finish_before_model_continues(sessions, monkeypatch):
-    from personal_agent.tasks import steering
-    monkeypatch.setattr(steering, "SessionLocal", sessions)
-    with sessions() as db:
-        svc = AgentContext(db, "owner")
-        task = svc.tasks.submit("Fetch data", "initial")
-        row = db.get(PersonalWorkItem, task["id"])
-        row.status, row.owner, row.run_id, row.lease_until = "running", "worker", "run", time.time() + 90
-        row.checkpoint = {"final_answer": {"run_id": "run", "text": "Outdated"}}
-        db.commit()
-        svc.tasks.steer(row.id, "Use a script", "update")
-    inbox = steering.TaskSteering(task["id"], "owner", "run", "worker", [])
-    middleware = make_adapter(*inbox.hook_policy().specs())
-    agent = SimpleNamespace(state=SimpleNamespace(run_id="run", context=[], steer_delivery=None))
-    async def model(**kwargs):
-        with sessions() as db:
-            assert "final_answer" not in db.get(PersonalWorkItem, task["id"]).checkpoint
-        yield "Revised answer"
-    assert [x async for x in middleware.on_reasoning(agent, {}, model)] == ["Revised answer"]
-
-
-@pytest.mark.asyncio
-async def test_steered_attachments_are_staged_and_cumulative_limit_is_atomic(sessions, monkeypatch):
+async def test_steered_attachments_are_staged_and_cumulative_limit_is_atomic(world, monkeypatch):
     from core.db.models import Artifact
-    from personal_agent.tasks import steering
-    monkeypatch.setattr(steering, "SessionLocal", sessions)
-    monkeypatch.setattr("core.db.engine.SessionLocal", sessions)
     staged = []
+
     class Sandbox:
         async def put_file(self, box, path, content, user_id):
             staged.append(path)
     monkeypatch.setattr("personal_agent.computer.sandbox.get_personal_sandbox_provider", lambda: Sandbox())
-    monkeypatch.setattr('core.files.storage.get_storage', lambda: SimpleNamespace(download_bytes=lambda key: b"file"))
-    with sessions() as db:
-        svc = AgentContext(db, "owner")
-        task = svc.tasks.submit("Read files", "initial")
-        row = db.get(PersonalWorkItem, task["id"])
-        row.status, row.owner, row.run_id, row.lease_until = "running", "worker", "run", time.time() + 90
+    monkeypatch.setattr("core.files.storage.get_storage", lambda: SimpleNamespace(download_bytes=lambda key: b"file"))
+    task_id, asg_id, run_id = await launched(world, "Read files", "initial")
+    with world.sessions() as db:
         for i in range(12):
             db.add(Artifact(artifact_id=f"file-{i}", user_id="owner", type="other", mime_type="text/plain",
                             title="Input", filename=f"file-{i}.txt", storage_key=f"key-{i}", size_bytes=4))
         db.commit()
-        svc.tasks.steer(row.id, "First files", "first", [f"file-{i}" for i in range(6)])
+        svc = AgentContext(db, "owner")
+        svc.tasks.steer(task_id, "First files", "first", [f"file-{i}" for i in range(6)])
         with pytest.raises(ValueError, match="ten"):
-            svc.tasks.steer(row.id, "Too many files", "overflow", [f"file-{i}" for i in range(6, 12)])
+            svc.tasks.steer(task_id, "Too many files", "overflow", [f"file-{i}" for i in range(6, 12)])
         db.rollback()
-        svc.tasks.steer(row.id, "Remaining files", "second", [f"file-{i}" for i in range(6, 10)])
-    inbox = steering.TaskSteering(task["id"], "owner", "run", "worker", [])
-    delivery = await inbox.take("run")
-    assert "Too many files" not in delivery["message"]
-    assert len(staged) == 10
-    assert all(f"/file-{i}/file-{i}.txt" in delivery["message"] for i in range(10))
-    await inbox.acknowledge(delivery)
-    assert await inbox.take("run") is None
+        svc.tasks.steer(task_id, "Remaining files", "second", [f"file-{i}" for i in range(6, 10)])
+    await world.executor.step(asg_id)
+    messages = [row.message for row in sorted(rows(world, ChatSteerQueueItem, target_run_id=run_id), key=lambda r: r.steer_seq)]
+    assert [m.split("\n")[0] for m in messages] == ["First files", "Remaining files"]
+    assert len(staged) == 10 and all(f"/file-{i}/file-{i}.txt" in messages[-1] for i in range(10))
+    await world.executor.step(asg_id)
+    assert len(staged) == 10 and len(rows(world, ChatSteerQueueItem, target_run_id=run_id)) == 2
 
 
 @pytest.mark.asyncio
-async def test_startup_backlog_does_not_acknowledge_inputs_omitted_from_initial_prompt(sessions, monkeypatch):
-    from personal_agent.tasks import steering
-    from personal_agent.conversation.associations import instruction_messages
-    monkeypatch.setattr(steering, "SessionLocal", sessions)
-    with sessions() as db:
-        svc = AgentContext(db, "owner")
-        task = svc.tasks.submit("Process instructions", "initial")
-        row = db.get(PersonalWorkItem, task["id"])
-        row.status, row.owner, row.run_id, row.lease_until = "running", "worker", "run", time.time() + 90
-        db.commit()
-        for i in range(35):
-            svc.tasks.steer(row.id, f"Instruction {i:02}", f"input-{i}")
-        messages = instruction_messages(db, svc.identity.agent().chat_id, row.id)
-    inbox = steering.TaskSteering(task["id"], "owner", "run", "worker", messages)
-    assert len(inbox.initial_messages) == 30
-    delivery = await inbox.take("run")
-    assert delivery["message"].split("\n\n") == [f"Instruction {i:02}" for i in range(30, 35)]
-    await inbox.acknowledge(delivery)
-    assert await inbox.take("run") is None
+async def test_a_backlog_larger_than_one_batch_is_delivered_in_order_without_loss(world):
+    task_id = None
+    with world.sessions() as db:
+        task_id = AgentContext(db, "owner").tasks.submit("Process instructions", "initial")["id"]
+    for i in range(35):
+        steer(world, task_id, f"Instruction {i:02}", f"input-{i}")
+    asg_id = world.executor.claim()
+    await world.executor.launch(asg_id)
+    first = world.started[-1]
+    assert first.content.split("Task updates:\n")[1].split("\n\n") == [f"Instruction {i:02}" for i in range(30)]
+    from tests.test_personal_agent_worker import running
+    running(world, first.run.run_id)
+    await world.executor.step(asg_id)
+    later = sorted(rows(world, ChatSteerQueueItem, target_run_id=first.run.run_id), key=lambda r: r.steer_seq)
+    assert [row.message for row in later] == [f"Instruction {i:02}" for i in range(30, 35)]
+    await world.executor.step(asg_id)
+    assert len(rows(world, ChatSteerQueueItem, target_run_id=first.run.run_id)) == 5
 
 
 def test_late_input_requeue_retains_consumed_message_ids(sessions):

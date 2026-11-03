@@ -24,13 +24,13 @@ def provider_with(binding):
     provider._get_session_lock = AsyncMock(return_value=asyncio.Lock())
     provider._binding = Mock(side_effect=binding)
     provider._computer_config = Mock(return_value=(SimpleNamespace(), "token"))
-    provider._check_mount_revision = AsyncMock()
+    provider._check_alive = AsyncMock()
     provider._retire = AsyncMock()
     provider._repoint_execd_direct = AsyncMock()
     return provider
 
 
-@pytest.mark.parametrize("failure", [Missing(), ComputerGone("mounts changed")])
+@pytest.mark.parametrize("failure", [Missing(), ComputerGone("retired")])
 def test_lost_or_retired_instance_is_replaced(monkeypatch, failure):
     old = SimpleNamespace(id="old", close=AsyncMock())
     fresh = SimpleNamespace(id="fresh")
@@ -38,7 +38,7 @@ def test_lost_or_retired_instance_is_replaced(monkeypatch, failure):
     provider._provision = AsyncMock(return_value=fresh)
     if isinstance(failure, ComputerGone):
         monkeypatch.setattr(opensandbox.Sandbox, "connect", AsyncMock(return_value=old))
-        provider._check_mount_revision.side_effect = failure
+        provider._check_alive.side_effect = failure
     else:
         monkeypatch.setattr(opensandbox.Sandbox, "connect", AsyncMock(side_effect=failure))
 
@@ -64,12 +64,12 @@ def test_network_error_keeps_the_binding(monkeypatch):
     provider._provision.assert_not_awaited()
 
 
-def test_cached_instance_with_changed_mounts_is_replaced(monkeypatch):
+def test_retired_cached_instance_is_replaced(monkeypatch):
     cached = SimpleNamespace(sandbox=SimpleNamespace(id="old", close=AsyncMock()))
     fresh = SimpleNamespace(id="fresh")
     provider = provider_with([("pa", "old", 1), ("pa", None, 2)])
     provider._sessions["box"] = cached
-    provider._check_mount_revision.side_effect = ComputerGone("mounts changed")
+    provider._check_alive.side_effect = ComputerGone("retired")
     provider._provision = AsyncMock(return_value=fresh)
     monkeypatch.setattr(opensandbox.Sandbox, "connect", AsyncMock(side_effect=Missing()))
 
@@ -96,7 +96,6 @@ def provisioning(monkeypatch, tmp_path, found_state, generations):
     monkeypatch.setattr(opensandbox.Sandbox, "connect", AsyncMock(return_value=adopted))
     monkeypatch.setattr("core.infra.ephemeral.get_ephemeral_state", lambda: State())
     monkeypatch.setattr("personal_agent.workspace.persona.ensure_seeded", lambda ident: None)
-    monkeypatch.setattr("core.files.spaces.mounts.provision_volumes", lambda user: ([], {}))
     monkeypatch.setenv("PERSONAL_AGENT_VOLUME_ROOT", str(tmp_path))
     monkeypatch.setenv("PERSONAL_AGENT_LOCAL_VOLUME_ROOT", str(tmp_path))
     row = SimpleNamespace(sandbox_id=None, computer_status="not_provisioned")
@@ -113,7 +112,7 @@ def provisioning(monkeypatch, tmp_path, found_state, generations):
 def test_running_orphan_of_this_generation_is_adopted(monkeypatch, tmp_path):
     provider, manager, admission, adopted, row = provisioning(monkeypatch, tmp_path, "Running", [1])
 
-    sandbox = asyncio.run(provider._provision_locked("pa", "box", "owner", 1))
+    sandbox = asyncio.run(provider._provision("pa", "box", "owner", 1))
 
     assert sandbox is adopted
     assert (row.sandbox_id, row.computer_status) == ("orphan", "ready")
@@ -125,7 +124,7 @@ def test_running_orphan_of_this_generation_is_adopted(monkeypatch, tmp_path):
 def test_stopped_orphan_starts_the_next_generation(monkeypatch, tmp_path, state):
     provider, manager, admission, _, row = provisioning(monkeypatch, tmp_path, state, [1, 2])
 
-    sandbox = asyncio.run(provider._provision_locked("pa", "box", "owner", 1))
+    sandbox = asyncio.run(provider._provision("pa", "box", "owner", 1))
 
     assert sandbox.id == "fresh"
     manager.kill_sandbox.assert_awaited_once_with("orphan")
@@ -150,3 +149,45 @@ def test_maintenance_marks_degraded_only_on_real_failures(monkeypatch, failure, 
     asyncio.run(background.BackgroundServices(None).maintain_computers())
 
     assert row.computer_status == status
+
+
+def test_computer_with_legacy_space_mounts_is_replaced():
+    from core.files.spaces.mounts import MOUNT_REVISION_TAG
+    box = SimpleNamespace(id="legacy", kill=AsyncMock(),
+                          get_info=AsyncMock(return_value=SimpleNamespace(metadata={MOUNT_REVISION_TAG: "any"})))
+    provider = object.__new__(PersonalSandboxProvider)
+    admission = SimpleNamespace(release=AsyncMock())
+    provider._sandbox_admission = Mock(return_value=admission)
+
+    with pytest.raises(ComputerGone):
+        asyncio.run(provider._check_alive(box))
+
+    box.kill.assert_awaited_once()
+    admission.release.assert_awaited_once_with("legacy")
+
+
+def test_computer_without_space_mounts_is_kept():
+    box = SimpleNamespace(id="current", kill=AsyncMock(),
+                          get_info=AsyncMock(return_value=SimpleNamespace(metadata={"hugagent-owner": "personal-agent"})))
+    provider = object.__new__(PersonalSandboxProvider)
+
+    asyncio.run(provider._check_alive(box))
+
+    box.kill.assert_not_awaited()
+
+
+def test_new_computer_mounts_no_account_spaces(monkeypatch, tmp_path):
+    provider, manager, admission, _, row = provisioning(monkeypatch, tmp_path, "Terminated", [1, 2])
+    monkeypatch.setattr("core.files.spaces.mounts.provision_volumes",
+                        Mock(side_effect=AssertionError("must not mount account spaces")))
+
+    asyncio.run(provider._provision("pa", "box", "owner", 1))
+
+    factory = admission.create.await_args.args[0]
+    created = {}
+    async def capture(*args, **kwargs):
+        created.update(kwargs)
+        return SimpleNamespace(id="fresh")
+    monkeypatch.setattr(opensandbox.Sandbox, "create", capture)
+    asyncio.run(factory({}))
+    assert [v.mount_path for v in created["volumes"]] == ["/workspace", computer.DESKTOP_HOME]

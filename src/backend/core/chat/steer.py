@@ -123,6 +123,28 @@ async def take_pending_steer(
     return claimed.as_payload() if claimed is not None else None
 
 
+async def take_pending_steers(
+    run_id: str,
+    *,
+    owner: Optional[str] = None,
+    max_items: int = 20,
+    max_chars: int = 20_000,
+    lease_seconds: int = 90,
+) -> list[Dict[str, Any]]:
+    """Lease every accepted steer for one boundary, in ``steer_seq`` order.
+
+    All items share one claim owner, so the batch is acknowledged together.
+    """
+    claimed = SteerQueue(SessionLocal).claim_batch(
+        run_id,
+        owner=owner or _claim_owner(),
+        max_items=max_items,
+        max_chars=max_chars,
+        lease_seconds=lease_seconds,
+    )
+    return [record.as_payload() for record in claimed]
+
+
 async def remove_pending_steer(run_id: str, steer_id: str) -> bool:
     """Durably cancel an accepted item; claimed/applied items cannot be retracted."""
     removed = SteerQueue(SessionLocal).cancel(run_id, steer_id)
@@ -176,4 +198,5 @@ __all__ = [
     "put_pending_steer",
     "remove_pending_steer",
     "take_pending_steer",
+    "take_pending_steers",
 ]

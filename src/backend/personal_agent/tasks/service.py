@@ -113,22 +113,26 @@ class TaskService:
         row = self.get(ident, lock=True)
         if row.status in TERMINAL: return task_view(row)
         if owner is not None and (row.owner != owner or row.status != "running" or not row.lease_until or row.lease_until < time.time()): raise ValueError("Task lease lost")
-        from personal_agent.tasks.steering import has_unread
+        from personal_agent.worker.inputs import has_unread
         consumed = checkpoint.get("consumed_message_ids")
         if consumed is not None and has_unread(self.db, row, set(consumed)):
             # Preserve acknowledged inputs so the next execution only consumes unread instructions.
             row.checkpoint = {**checkpoint, **(row.checkpoint or {}),
                               "consumed_message_ids": list(consumed)}
-            row.pop_state("final_answer")
+            row.pop_state("report")
             row.requeue()
             self.db.commit()
             return task_view(row)
         row.result = result
         row.checkpoint = {**checkpoint, **({"source_chat_id": row.checkpoint["source_chat_id"]} if (row.checkpoint or {}).get("source_chat_id") else {})}
         row.status = "completed"
-        # The agent tells the user in the conversation; the full result stays on the task.
-        from personal_agent.conversation.front import announce
-        announce(self.context, row, result)
+        if (checkpoint.get("report") or {}).get("status") == "dropped":
+            # Nothing for the user to act on: the result stays on the task and nobody is messaged.
+            row.checkpoint = {**row.checkpoint, "outcome": "dropped"}
+        else:
+            # The agent tells the user in the conversation; the full result stays on the task.
+            from personal_agent.conversation.router.triggers import announce
+            announce(self.context, row, result)
         self.db.commit()
         return task_view(row)
 
@@ -139,6 +143,7 @@ class TaskService:
         if row.unconfirmed(): raise ValueError("Check uncertain actions before continuing")
         state = dict(row.checkpoint or {})
         state.pop("task_wait_reason", None)
+        state.pop("pending_question", None)
         row.checkpoint = state
         row.requeue()
         self.db.commit()

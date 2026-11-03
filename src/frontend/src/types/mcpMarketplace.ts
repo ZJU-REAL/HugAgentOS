@@ -92,10 +92,17 @@ export interface McpMarketItem extends EditionMarketplaceItemFields {
   status_reason?: string;
   last_verified_at?: string | null;
   installed?: boolean;
+  /** An enabled system-wide copy already serves every user. */
+  system_provided?: boolean;
   deletable?: boolean;
   market_enabled?: boolean;
   created_at?: string | null;
   updated_at?: string | null;
+}
+
+export interface McpMarketInstallResult {
+  /** Global installs only: users whose private copy now gives way, and users who keep their own-credential copy. */
+  private_copies?: { replaced: string[]; kept: string[] };
 }
 
 export interface McpMarketListResult {

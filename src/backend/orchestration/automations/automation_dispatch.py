@@ -11,17 +11,9 @@ from core.db.threads import run_in_session
 logger = get_logger(__name__)
 
 
-def _run_chat_id(run_id):
-    from core.db.engine import SessionLocal
-    from features.automation.models import ScheduledTaskRun
-
-    with SessionLocal() as db:
-        run = db.get(ScheduledTaskRun, run_id)
-        return run.chat_id if run else None
-
-
 def _claimed(db, task_id, user_id, run_id, lease_token):
     """The leased run (detached) and a snapshot of its task, or None if the claim is stale."""
+    from features.automation.capabilities import TaskCapabilities
     from features.automation.models import ScheduledTaskRun
     from features.automation.service import AutomationService
 
@@ -44,14 +36,7 @@ def _claimed(db, task_id, user_id, run_id, lease_token):
         "plan_id": task.plan_id,
         "consecutive_failures": task.consecutive_failures or 0,
         "max_failures": task.max_failures or 3,
-        # Pass `None` (not `[]`) when the task wasn't configured with
-        # explicit IDs so that plan-mode falls back to plan-declared
-        # expected_* lists. An explicit empty list now means "strictly
-        # no tools/skills/agents".
-        "enabled_mcp_ids": task.enabled_mcp_ids or None,
-        "enabled_skill_ids": task.enabled_skill_ids or None,
-        "enabled_kb_ids": task.enabled_kb_ids or None,
-        "enabled_agent_ids": task.enabled_agent_ids or None,
+        "capabilities": TaskCapabilities.of(task),
         "metadata": dict(task.extra_data or {}),
     }
 
@@ -115,16 +100,19 @@ def _record_failure(
     db, run_id, task_id, *, lease_token, error_msg, duration_ms, failures, max_failures
 ):
     """Returns whether the task still exists, or None when the run was taken over."""
+    from features.automation.models import ScheduledTaskRun
     from features.automation.service import AutomationService
 
     svc = AutomationService(db)
     still_exists = svc.get_task_by_id(task_id) is not None
+    run = db.get(ScheduledTaskRun, run_id)
     completed = svc.record_run_complete(
         run_id,
         lease_token=lease_token,
         commit=False,
         status="failed",
-        chat_id=_run_chat_id(run_id),
+        # The child may already be linked; completion must not unlink it.
+        chat_id=run.chat_id if run else None,
         error_message=error_msg,
         duration_ms=duration_ms,
     )
@@ -145,8 +133,8 @@ def _record_failure(
     return still_exists
 
 
-async def execute_task(scheduler, task_id: str, user_id: str, *, run_id: str):
-    """Execute a single scheduled task."""
+async def execute_task(task_id: str, user_id: str, *, run_id: str, lease_token: str):
+    """Execute one claimed run; ``lease_token`` is the scheduler's ownership of it."""
     from features.automation.service import AutomationService
 
     from .automation_conversation import (
@@ -157,7 +145,6 @@ async def execute_task(scheduler, task_id: str, user_id: str, *, run_id: str):
     )
     from .automation_delivery import deliver_result
 
-    lease_token = scheduler._leases[task_id].token
     start = time.monotonic()
 
     claimed = await run_in_session(_claimed, task_id, user_id, run_id, lease_token)
@@ -168,10 +155,7 @@ async def execute_task(scheduler, task_id: str, user_id: str, *, run_id: str):
     task_name = task["task_name"]
     task_consecutive_failures = task["consecutive_failures"]
     task_max_failures = task["max_failures"]
-    enabled_mcp_ids = task["enabled_mcp_ids"]
-    enabled_skill_ids = task["enabled_skill_ids"]
-    enabled_kb_ids = task["enabled_kb_ids"]
-    enabled_agent_ids = task["enabled_agent_ids"]
+    capabilities = task["capabilities"]
     task_metadata = task["metadata"]  # includes optional channel delivery destinations
 
     if run.chat_id:
@@ -206,10 +190,7 @@ async def execute_task(scheduler, task_id: str, user_id: str, *, run_id: str):
                 task_id=task_id,
                 automation_run_id=run.run_id,
                 lease_token=lease_token,
-                enabled_mcp_ids=enabled_mcp_ids,
-                enabled_skill_ids=enabled_skill_ids,
-                enabled_kb_ids=enabled_kb_ids,
-                enabled_agent_ids=enabled_agent_ids,
+                capabilities=capabilities,
             )
         elif task_type == "plan":
             chat_id, result_text, usage = await execute_plan(
@@ -219,10 +200,7 @@ async def execute_task(scheduler, task_id: str, user_id: str, *, run_id: str):
                 task_id=task_id,
                 automation_run_id=run.run_id,
                 lease_token=lease_token,
-                enabled_mcp_ids=enabled_mcp_ids,
-                enabled_skill_ids=enabled_skill_ids,
-                enabled_kb_ids=enabled_kb_ids,
-                enabled_agent_ids=enabled_agent_ids,
+                capabilities=capabilities,
             )
         elif task_type == "loop":
             # Periodically advance a persistent autonomous loop (M4 scheduler integration); loop_id stored in task.extra_data
@@ -255,7 +233,6 @@ async def execute_task(scheduler, task_id: str, user_id: str, *, run_id: str):
         logger.info("[scheduler] task %s completed in %dms", task_id, duration_ms)
         if still_exists:
             await deliver_result(
-                scheduler,
                 user_id,
                 task_id,
                 task_name,
@@ -298,7 +275,7 @@ async def execute_task(scheduler, task_id: str, user_id: str, *, run_id: str):
             return
 
         if still_exists:
-            await deliver_result(scheduler, user_id, task_id, task_name, "failed", error_msg[:200])
+            await deliver_result(user_id, task_id, task_name, "failed", error_msg[:200])
         else:
             logger.info(
                 "[scheduler] task %s was deleted while running — skip failure notification",

@@ -14,6 +14,8 @@ from tests.test_personal_agent import personal_agent_on, sessions  # noqa: F401
 def channel(sessions, monkeypatch):
     monkeypatch.setattr(channel_bridge, "SessionLocal", sessions)
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
+    # Retries are due at once here; test_failed_send_backs_off covers the delay.
+    monkeypatch.setattr(channel_bridge, "RETRY_BASE_SEC", 0)
     conn = SimpleNamespace(channel_id="bot", channel_type="lark", owner_user_id="owner")
     monkeypatch.setattr(channel_bridge, "connection", lambda ident: conn)
     with sessions() as db:
@@ -194,7 +196,16 @@ async def test_artifact_deleted_after_queue_is_not_read(sessions, channel, monke
 async def test_scheduled_output_reaches_private_home_conversation(sessions, channel):
     with sessions() as db:
         svc = AgentContext(db, "owner")
-        svc.identity.agent().config = {**svc.identity.agent().config, "heartbeat": {"channel_id": "bot"}}
+        from tests.test_personal_agent_im_actions import listed_owner
+        listing = listed_owner("bot", "alice")
+        listing["channel_allowed"]["bot"][0]["added_at"] = 1  # listed before the owner's message below
+        svc.identity.agent().config = {**svc.identity.agent().config, "heartbeat": {"channel_id": "bot"}, **listing}
+        # Unprompted messages only go to a conversation a listed account wrote in.
+        from sqlalchemy import select
+        for home in db.scalars(select(ChatMessage).where(ChatMessage.role == "user")):
+            if (home.extra_data or {}).get("channel_origin"):
+                home.extra_data = {**home.extra_data, "channel_origin": {**home.extra_data["channel_origin"], "owner": True,
+                                                                "sender_keys": ["id:alice"]}}
         # An unattended result has no inbound origin of its own.
         row = svc.conversation.append(svc.identity.agent(), "assistant", "[图表](/api/files/image)", None)
         channel_bridge.mark_for_delivery(db, row, home=True)

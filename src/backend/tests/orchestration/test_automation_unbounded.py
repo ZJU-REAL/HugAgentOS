@@ -159,6 +159,7 @@ async def test_direct_execution_on_same_scheduler_cannot_share_ownership(live_en
 async def test_orphan_recovery_observes_child_without_creating_duplicate(live_env, monkeypatch):
     factory, _, task_id = live_env
     pass
+    from features.automation.capabilities import TaskCapabilities
     from orchestration.automations.automation_conversation import execute_prompt
 
     entered, release = asyncio.Event(), asyncio.Event()
@@ -180,9 +181,7 @@ async def test_orphan_recovery_observes_child_without_creating_duplicate(live_en
             task_name="Report",
             prompt="Research",
             task_id=task_id,
-            enabled_mcp_ids=None,
-            enabled_skill_ids=None,
-            enabled_kb_ids=None,
+            capabilities=TaskCapabilities(),
             automation_run_id=run_id,
         )
     )
@@ -191,7 +190,7 @@ async def test_orphan_recovery_observes_child_without_creating_duplicate(live_en
     async def noop(*args):
         pass
 
-    monkeypatch.setattr(scheduler, "_send_notification", noop)
+    monkeypatch.setattr("orchestration.automations.automation_delivery.notify_inapp", noop)
     try:
         await asyncio.wait_for(entered.wait(), 5)
         await scheduler._dispatch_pending()
@@ -218,6 +217,7 @@ async def test_recovery_delivers_original_result_before_later_user_message(live_
     factory, _, task_id = live_env
     from core.db.models import ChatMessage, ChatRun
     pass
+    from features.automation.capabilities import TaskCapabilities
     from orchestration.automations.automation_conversation import execute_prompt
 
     async def workflow(**kwargs):
@@ -232,9 +232,7 @@ async def test_recovery_delivers_original_result_before_later_user_message(live_
         task_name="Report",
         prompt="Research",
         task_id=task_id,
-        enabled_mcp_ids=None,
-        enabled_skill_ids=None,
-        enabled_kb_ids=None,
+        capabilities=TaskCapabilities(),
         automation_run_id=run_id,
     )
     with factory() as db:
@@ -265,7 +263,7 @@ async def test_recovery_delivers_original_result_before_later_user_message(live_
     async def notify(*args):
         notices.append(args)
 
-    monkeypatch.setattr(scheduler, "_send_notification", notify)
+    monkeypatch.setattr("orchestration.automations.automation_delivery.notify_inapp", notify)
     await scheduler._dispatch_pending()
     await asyncio.wait_for(asyncio.gather(*scheduler._executions), 5)
     with factory() as db:

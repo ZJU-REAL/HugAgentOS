@@ -38,10 +38,10 @@ PLUGIN_MARKET_META_BLOCK_ID = "plugin_market_meta"
 BUILTIN_PLUGIN_MARKET_META: Dict[str, Dict[str, Any]] = {
     "agent-manager": {"display_name": "智能体管理", "category": "效率工具"},
     "automation": {"display_name": "定时任务管理", "category": "效率工具"},
-    "dingtalk": {"display_name": "钉钉工作台", "category": "办公协同"},
+    "dingtalk": {"display_name": "钉钉工作台", "category": "办公协同", "icon": "/home/brands/dingtalk.png"},
     "email": {"display_name": "电子邮箱", "category": "办公协同"},
-    "feishu-cli": {"display_name": "飞书工作台", "category": "办公协同"},
-    "firecrawl": {"display_name": "Firecrawl·网页抓取检索", "category": "信息处理"},
+    "feishu-cli": {"display_name": "飞书工作台", "category": "办公协同", "icon": "/home/brands/feishu.png"},
+    "firecrawl": {"display_name": "Firecrawl·网页抓取检索", "category": "信息处理", "icon": "/home/brands/firecrawl.png"},
     "industry-knowledge-center": {"display_name": "产业知识中心", "category": "产业智能"},
     "plugin-manager": {"display_name": "插件管理", "category": "效率工具"},
     "sample-translator": {"display_name": "示例·快速翻译", "category": "办公效率"},
@@ -49,7 +49,7 @@ BUILTIN_PLUGIN_MARKET_META: Dict[str, Dict[str, Any]] = {
     "sites": {"display_name": "站点·对话建站", "category": "信息处理"},
     "skill-manager": {"display_name": "技能管理", "category": "效率工具"},
     "visualize": {"display_name": "交互可视化", "category": "信息处理"},
-    "yida": {"display_name": "宜搭低代码平台", "category": "办公协同"},
+    "yida": {"display_name": "宜搭低代码平台", "category": "办公协同", "icon": "/home/brands/yida.png"},
 }
 
 

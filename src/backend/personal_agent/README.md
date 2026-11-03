@@ -9,17 +9,24 @@ authenticated users; EE additionally applies its account capability policy.
 - api: HTTP validation, authentication dependencies and route composition.
 - identity: identity creation, settings and available capabilities.
 - conversation: foreground replies, conversation isolation and message routing.
+  attention.py: failed messages and undelivered replies for the page, with their retries,
+  and finding a message or task by an IM link, message ID or text.
+  router/: the agent's own turn. Producers enqueue Triggers (kinds.py says what each kind
+  means to a turn); the scheduler claims them into a Turn that holds the lease; turn.py runs
+  and settles it; context.py builds the prompt and history.
 - tasks: work items, approvals, execution, leases and task state transitions.
 - scheduling: schedules and heartbeat admission.
 - workspace: persona files, prompt assembly, file memory and dreaming.
 - computer: cloud sandbox, devices, live screens and human control.
 - sessions: the typed session tool, CLI authorization, operation queue and watches.
-- channels: inbound routing and channel delivery orchestration.
+- channels: inbound routing and channel delivery orchestration. im_actions.py: the
+  acknowledgement placeholder (edited into the reply or recalled), IM replies that quote
+  a task's message going straight to that task, and approvals and task questions answered in IM.
 - delivery: output resources, file publication and delivery receipts.
 - tools: model-facing tool adapters.
 - context.py: request-scoped AgentContext composed from identity, conversation and tasks.
 - background.py: lifecycle of the periodic loops, separate from task leases.
-- models.py: the seven shared tables, registered even with the runtime module off.
+- models.py: the shared tables, registered even with the runtime module off.
 
 HTTP routers call the domain services. Model tools use the same services. Session
 operations reuse core/chat/operations; neither path calls HTTP route
@@ -40,6 +47,44 @@ Compose profile and tests. CE overlay files must preserve model exports,
 authentication availability, navigation and dictionary assembly. Validate the
 physically derived CE tree as well as the full tree; setting JX_EDITION=ce inside
 the full checkout is not sufficient.
+
+## IM allowed list
+
+A bot routed to Personal Agent acts as its owner, so only the owner's IM accounts may
+instruct it (channels/owner_binding.py). The owner keeps an allowed list per bot in the
+web settings (接入频道): pick an account from the ones that recently messaged the bot
+privately, or type its ID. Nothing a message says adds an account. State lives in
+`PersonalAgent.config`: `channel_allowed[channel_id]` (a list of `sender_id`,
+`sender_name`, `keys`, `added_at`) and `channel_recent_senders[channel_id]` (the last ten
+private senders not listed: ID, name, keys, time; never the text).
+
+- Nobody listed: a private message gets a short "not on the list" reply; no conversation,
+  message, inbox row or task is created. Group messages are kept as context only.
+- Listed accounts' private and group messages reach the agent and may answer approvals.
+  Anyone else's private message is dropped without a reply; their group messages are
+  context only.
+- Alerts and scheduled results go only to a private conversation a currently listed
+  account wrote in after it was listed (`channel_origin.sender_keys`).
+- `POST /channels/{id}/allowed` (`key` of a recent sender, or `sender_id`) and
+  `DELETE /channels/{id}/allowed?key=`, for the Personal Agent's own authenticated user
+  and only for their own bots. Display names can be changed by anyone; settings show the
+  ID and time next to each recent sender.
+
+Upgrade rule: an account bound with a pairing code (`channel_owners[channel_id]` with
+`bound_at`) counts as listed until the list is first edited. Owners learned before pairing
+existed (no `bound_at`) are not trusted.
+
+A typed DingTalk ID is matched as a union or encrypted ID only, never as a userid, which
+is only unique together with its organisation; pick DingTalk accounts from recent senders.
+Matching uses `keys`, scoped identities computed when pairing. Most platforms give one
+stable sender ID per bot (`id:<sender_id>`). DingTalk gives up to three: `senderUnionId`
+(`union:`), `senderStaffId` with `senderCorpId` (`staff:<corp>:<userid>`; the userid is
+only unique inside an organisation, and DingTalk leaves it empty for org-external users
+and for bots not yet published), and the encrypted `senderId` (`sid:`). A message matches
+when any key is shared. DingTalk does not document whether `senderId` is the same in
+private and group chats for an external user; if neither the union ID nor the encrypted
+ID carries over, the owner is treated as someone else in that group (fails closed) and
+has to give instructions privately.
 
 ## Task transcript ordering
 

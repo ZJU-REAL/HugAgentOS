@@ -1,0 +1,31 @@
+{
+  "slug": "hithink-zhishu-query",
+  "entry_name": "hithink-zhishu-query",
+  "version": "1.0.0",
+  "icon_url": "/home/brands/iwencai.png",
+  "downloads": 0,
+  "stars": 0,
+  "featured": false,
+  "display_name": "问财 · 指数数据查询",
+  "summary": "查询上证指数、沪深300、创业板指、恒生指数、纳斯达克指数等指数行情数据，支持涨跌幅、成交量、点位等指标查询，返回相关指数数据结果。当用户询问指数数据、上证指数、沪深300、创业板指、恒生指数、纳斯达克指数、指数行情、指数涨跌幅、指数点位等问题时，必须使用此技能。",
+  "category": "数据分析",
+  "tags": [
+    "同花顺",
+    "问财",
+    "金融数据",
+    "指数数据查询"
+  ],
+  "author": "同花顺问财",
+  "source": "iwencai",
+  "source_url": "https://www.iwencai.com/skillhub",
+  "required_secrets": [
+    {
+      "key": "IWENCAI_API_KEY",
+      "label": "问财 API Key",
+      "required": true,
+      "placeholder": "请输入 IWENCAI_API_KEY",
+      "help": "登录 https://www.iwencai.com/skillhub ，打开任一技能详情，在「安装方式 - Agent 用户」中复制 IWENCAI_API_KEY。"
+    }
+  ],
+  "requires_api_key": true
+}

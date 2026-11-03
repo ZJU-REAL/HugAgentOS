@@ -17,7 +17,7 @@ import uuid
 from sqlalchemy import select
 from core.db.engine import SessionLocal
 from core.db.models import ChatMessage
-from personal_agent.conversation.front import reply_id
+from personal_agent.conversation.router.turn import reply_id
 from personal_agent.conversation.message_routing import admit
 from personal_agent.models import PersonalAgent, PersonalMessageInbox, PersonalWorkItem
 from personal_agent.context import AgentContext

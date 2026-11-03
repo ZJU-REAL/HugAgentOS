@@ -407,7 +407,9 @@ def _failure_outcome(exc: BaseException) -> str:
     import httpx
 
     cause: Optional[BaseException] = exc
-    while cause is not None:
+    seen: set[int] = set()
+    while cause is not None and id(cause) not in seen:
+        seen.add(id(cause))
         if isinstance(cause, (httpx.ConnectError, httpx.ConnectTimeout)):
             return "unsent"
         cause = cause.__cause__ or cause.__context__

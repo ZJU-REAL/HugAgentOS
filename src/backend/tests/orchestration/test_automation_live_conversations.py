@@ -81,7 +81,7 @@ async def test_running_scheduled_conversation_can_replay_progress_and_be_stopped
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_send_notification", noop)
+    monkeypatch.setattr("orchestration.automations.automation_delivery.notify_inapp", noop)
     executing = asyncio.create_task(execute_queued(scheduler, task_id, "owner"))
     try:
         await asyncio.wait_for(entered.wait(), 5)
@@ -140,7 +140,7 @@ async def test_scheduled_prompt_accepts_instruction_and_delivers_final_segment(
     async def notify(*args):
         notices.append(args)
 
-    monkeypatch.setattr(scheduler, "_send_notification", notify)
+    monkeypatch.setattr("orchestration.automations.automation_delivery.notify_inapp", notify)
     executing = asyncio.create_task(execute_queued(scheduler, task_id, "owner"))
     try:
         await asyncio.wait_for(entered.wait(), 5)
@@ -191,7 +191,7 @@ async def test_scheduler_waits_for_explicit_stop_without_execution_deadline(live
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_send_notification", noop)
+    monkeypatch.setattr("orchestration.automations.automation_delivery.notify_inapp", noop)
     executing = asyncio.create_task(execute_queued(scheduler, task_id, "owner"))
     try:
         await asyncio.sleep(0.6)
@@ -253,7 +253,7 @@ async def test_scheduled_plan_exposes_steps_and_preserves_background_profile(liv
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_send_notification", noop)
+    monkeypatch.setattr("orchestration.automations.automation_delivery.notify_inapp", noop)
     executing = asyncio.create_task(execute_queued(scheduler, task_id, "owner"))
     try:
         await asyncio.wait_for(entered.wait(), 5)
@@ -334,7 +334,7 @@ async def test_scheduled_plan_stop_settles_without_failure_increment(live_env, m
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_send_notification", noop)
+    monkeypatch.setattr("orchestration.automations.automation_delivery.notify_inapp", noop)
     executing = asyncio.create_task(execute_queued(scheduler, task_id, "owner"))
     await asyncio.wait_for(entered.wait(), 5)
     with factory() as db:
@@ -448,7 +448,7 @@ async def test_scheduled_tool_result_is_durable_before_next_model_round(
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_send_notification", noop)
+    monkeypatch.setattr("orchestration.automations.automation_delivery.notify_inapp", noop)
     executing = asyncio.create_task(execute_queued(scheduler, task_id, "owner"))
     try:
         await asyncio.wait_for(reached.wait(), 5)

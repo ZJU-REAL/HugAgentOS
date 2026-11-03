@@ -33,6 +33,7 @@ async def assemble_agent(request: AgentRequest):
     _caps_skill_ids = None
     (
         _api_scope,
+        _authority,
         _capability_notices,
         _capability_run_key,
         _elapsed,
@@ -182,7 +183,7 @@ async def assemble_agent(request: AgentRequest):
         toolkit,
     ) = await mcp_connections(
         request,
-        _api_scope=_api_scope,
+        _authority=_authority,
         _elapsed=_elapsed,
         _log=_log,
         _note_unavailable=_note_unavailable,
@@ -213,6 +214,7 @@ async def assemble_agent(request: AgentRequest):
     ) = await interactive_tools(
         request,
         _api_scope=_api_scope,
+        _authority=_authority,
         _elapsed=_elapsed,
         _eval_scope=_eval_scope,
         _log=_log,
@@ -333,6 +335,7 @@ async def assemble_agent(request: AgentRequest):
     ) = await middleware_stack(
         request,
         _api_scope=_api_scope,
+        _authority=_authority,
         _build_toolkit=_build_toolkit,
         _eval_scope=_eval_scope,
         _interactive=_interactive,

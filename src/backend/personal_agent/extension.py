@@ -23,7 +23,7 @@ async def _system_prompt(request) -> str:
 
 async def _front_prompt(request) -> str:
     # The agent's own turn: conversation rules and persona files. The per-turn context follows the message.
-    from personal_agent.conversation.front import system_prompt
+    from personal_agent.conversation.router.context import system_prompt
 
     return await asyncio.to_thread(system_prompt, request.profile_ref)
 
@@ -39,13 +39,31 @@ def _register_tools(toolkit, request, loader=None) -> None:
 
 def _hooks(request) -> list:
     from personal_agent.computer.screenshot_pruning import screenshot_pruning_hook
-    return [screenshot_pruning_hook()]
+    from core.db.engine import SessionLocal
+    from personal_agent.models import PersonalWorkItem
+    from personal_agent.telemetry import hooks as telemetry_hooks
+    with SessionLocal() as db:
+        task = db.get(PersonalWorkItem, request.profile_ref)
+        # Telemetry is kept per Assignment: the task's run_id while it runs.
+        assignment = task.run_id if task is not None and task.status == "running" else None
+    return [screenshot_pruning_hook(), *(telemetry_hooks(request.profile_ref, assignment) if assignment else [])]
 
 
 def _steering(request):
-    from personal_agent.tasks.steering import current_steering
-    steering = current_steering.get()
-    return steering.hook_policy() if steering else None
+    # A task's Worker: issued tool calls (a long Bash) finish; every update that arrived
+    # meanwhile enters together at the next reasoning boundary (SUPERAGENT_DESIGN §6.2).
+    from core.chat.steer_hook import SteeringHook
+    return SteeringHook(interrupt_tools=False, take_batch=True)
+
+
+# The Worker's tools: its own pa_* tools and core's managed commands.
+WORKER_TOOLS = {"Bash", "write_stdin", "list_processes"}
+
+def _front_steering(request):
+    # New input of the conversation joins the running turn between model calls (see router/steering.py).
+    from personal_agent.conversation.router.turn import current_turn
+    turn = current_turn.get()
+    return turn.steering.hook() if turn is not None and turn.id == request.profile_ref and turn.steering else None
 
 def _handles_channel(db, conn) -> bool:
     from personal_agent.channels.channel_bridge import handled_by_agent
@@ -63,12 +81,12 @@ def _sandbox_provider():
     return get_personal_sandbox_provider()
 
 async def _start() -> None:
-    from personal_agent.tasks.worker import start_worker
+    from personal_agent.worker.executor import start_worker
 
     await start_worker()
 
 async def _stop() -> None:
-    from personal_agent.tasks.worker import stop_worker
+    from personal_agent.worker.executor import stop_worker
 
     await stop_worker()
 
@@ -79,7 +97,7 @@ def setup() -> bool:
     from personal_agent.api.agent import router as agent_router
     from personal_agent.api.sessions import router as sessions_router
 
-    from personal_agent.conversation.front import PROFILE as FRONT_PROFILE
+    from personal_agent.conversation.router.turn import PROFILE as FRONT_PROFILE
     from personal_agent.workspace.constants import PROMPT_KIND
     from personal_agent.workspace.prompting import prompt_spec
 
@@ -90,7 +108,7 @@ def setup() -> bool:
             register_tools=_register_tools,
             hooks=_hooks,
             steering=_steering,
-            tool_filter=lambda name: name.startswith("pa_"),
+            tool_filter=lambda name: name.startswith("pa_") or name in WORKER_TOOLS,
             inherit_default_mcps=False,
             # Skills are listed in the platform rules and read with pa_skill_read.
             native_skill_prompt=False,
@@ -102,6 +120,7 @@ def setup() -> bool:
         AgentProfile(
             system_prompt=_front_prompt,
             register_tools=_register_front_tools,
+            steering=_front_steering,
             tool_filter=lambda name: name.startswith("pa_"),
             inherit_default_mcps=False,
         ),

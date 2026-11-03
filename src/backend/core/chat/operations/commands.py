@@ -27,6 +27,11 @@ async def steer_chat_run(run_id, body, user=None):
         raise HTTPException(status_code=403, detail="无权操作该 run")
     if run.status not in ("pending", "running"):
         raise HTTPException(status_code=409, detail="run 已结束")
+    from core.db.reserved_chats import reserved_chat_error
+    reserved = reserved_chat_error(run.chat_id)
+    if reserved:
+        # Its module delivers input itself; an ordinary steer would supersede what it queued.
+        raise HTTPException(status_code=409, detail=reserved)
     payload = run.request_payload if isinstance(run.request_payload, dict) else {}
     if payload.get("kind", "chat") != "chat":
         raise HTTPException(status_code=409, detail="当前运行模式不支持 Steer")

@@ -1,0 +1,31 @@
+{
+  "slug": "hithink-futures-query",
+  "entry_name": "hithink-futures-query",
+  "version": "1.0.0",
+  "icon_url": "/home/brands/iwencai.png",
+  "downloads": 0,
+  "stars": 0,
+  "featured": false,
+  "display_name": "问财 · 期货期权数据查询",
+  "summary": "查询期货期权的行情、波动率、产销、会员持仓、会员榜单、行权等多种数据，支持自然语言问句输入，返回相关期货期权数据结果。当用户询问期货期权的行情、波动率、产销、会员持仓、会员榜单、行权等问题时，必须使用此技能。",
+  "category": "数据分析",
+  "tags": [
+    "同花顺",
+    "问财",
+    "金融数据",
+    "期货期权数据查询"
+  ],
+  "author": "同花顺问财",
+  "source": "iwencai",
+  "source_url": "https://www.iwencai.com/skillhub",
+  "required_secrets": [
+    {
+      "key": "IWENCAI_API_KEY",
+      "label": "问财 API Key",
+      "required": true,
+      "placeholder": "请输入 IWENCAI_API_KEY",
+      "help": "登录 https://www.iwencai.com/skillhub ，打开任一技能详情，在「安装方式 - Agent 用户」中复制 IWENCAI_API_KEY。"
+    }
+  ],
+  "requires_api_key": true
+}

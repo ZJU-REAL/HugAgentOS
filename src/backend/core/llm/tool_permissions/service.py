@@ -257,7 +257,7 @@ class ToolPermissionService:
         op = confirm.OP_LOCAL_READ if intent.action == READ else confirm.OP_LOCAL_WRITE
         blocked = await confirm.gate(
             chat_id=self.runtime.chat_id,
-            approval_user_id=self.runtime.user_id if self.runtime.account_approval else None,
+            approval_user_id=self.runtime.account_approver,
             op=op,
             logical_path=intent.target,
             interactive=bool(self.runtime.approval_available and self.runtime.chat_id),
@@ -312,7 +312,7 @@ class ToolPermissionService:
 
             blocked = await confirm.gate(
                 chat_id=self.runtime.chat_id,
-                approval_user_id=self.runtime.user_id if self.runtime.account_approval else None,
+                approval_user_id=self.runtime.account_approver,
                 op=confirm.OP_LOCAL_EXEC,
                 logical_path=intent.target[:160],
                 interactive=bool(self.runtime.approval_available and self.runtime.chat_id),
@@ -474,7 +474,7 @@ class ToolPermissionService:
 
         blocked = await confirm.gate(
             chat_id=self.runtime.chat_id,
-            approval_user_id=self.runtime.user_id if self.runtime.account_approval else None,
+            approval_user_id=self.runtime.account_approver,
             op=intent.op or intent.action,
             logical_path=intent.target,
             interactive=bool(interactive and self.runtime.chat_id),

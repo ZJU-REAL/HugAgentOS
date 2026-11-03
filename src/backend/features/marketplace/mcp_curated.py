@@ -38,6 +38,7 @@ def ensure_curated_market_items(db: Session) -> List[str]:
                             "docs_url": str(definition.get("docs_url") or ""),
                         }
                     )
+                    display_name = str(definition["display_name"])
                     description = str(definition.get("description") or "")
                     user_intro = str(definition.get("user_intro") or "")
                     icon = str(definition.get("icon") or "")
@@ -45,6 +46,7 @@ def ensure_curated_market_items(db: Session) -> List[str]:
                         list(existing_version.auth_schema or []) != schema
                         or dict(existing_version.auth_config or {}) != auth_config
                         or dict(existing_version.listing_notice or {}) != notice
+                        or existing_item.display_name != display_name
                         or (existing_item.description or "") != description
                         or (existing_item.user_intro or "") != user_intro
                         or (existing_item.icon or "") != icon
@@ -53,6 +55,8 @@ def ensure_curated_market_items(db: Session) -> List[str]:
                         existing_version.auth_schema = schema
                         existing_version.auth_config = auth_config
                         existing_version.listing_notice = notice
+                        previous_name = existing_item.display_name
+                        existing_item.display_name = display_name
                         existing_item.description = description
                         existing_item.user_intro = user_intro
                         existing_item.icon = icon
@@ -68,6 +72,15 @@ def ensure_curated_market_items(db: Session) -> List[str]:
                                 db.query(AdminMcpServer)
                                 .filter(AdminMcpServer.server_id.in_(server_ids))
                                 .update({AdminMcpServer.icon: icon}, synchronize_session=False)
+                            )
+                            # Follow a market rename only where the installer kept the market name.
+                            (
+                                db.query(AdminMcpServer)
+                                .filter(
+                                    AdminMcpServer.server_id.in_(server_ids),
+                                    AdminMcpServer.display_name == previous_name,
+                                )
+                                .update({AdminMcpServer.display_name: display_name}, synchronize_session=False)
                             )
                         updated = True
             continue

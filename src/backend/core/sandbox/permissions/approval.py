@@ -56,7 +56,7 @@ def _preset_answers(mode: str, *, dangerous: bool) -> bool:
 
 async def refresh_runtime(runtime):
     """Resolve one immutable dispatch policy; a failed read is an error, never a prompt."""
-    if not runtime.account_approval or not runtime.user_id or runtime.default_allow:
+    if not runtime.account_approver or runtime.default_allow:
         return runtime
     from core.sandbox.permissions.account import read_account_mode
     from core.sandbox.permissions.dispatch_models import PermissionEnforcementError

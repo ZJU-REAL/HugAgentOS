@@ -1,0 +1,31 @@
+{
+  "slug": "hithink-fund-query",
+  "entry_name": "hithink-fund-query",
+  "version": "1.0.0",
+  "icon_url": "/home/brands/iwencai.png",
+  "downloads": 0,
+  "stars": 0,
+  "featured": false,
+  "display_name": "问财 · 基金理财查询",
+  "summary": "对基金做业绩、持仓、风险、评级、获奖、基金经理、基金公司综合分析，支持自然语言问句输入，返回相关基金理财数据结果。当用户询问基金查询、基金业绩、基金持仓、基金风险、基金评级、基金获奖、基金经理、基金公司分析等基金理财相关问题时，必须使用此技能。",
+  "category": "数据分析",
+  "tags": [
+    "同花顺",
+    "问财",
+    "金融数据",
+    "基金理财查询"
+  ],
+  "author": "同花顺问财",
+  "source": "iwencai",
+  "source_url": "https://www.iwencai.com/skillhub",
+  "required_secrets": [
+    {
+      "key": "IWENCAI_API_KEY",
+      "label": "问财 API Key",
+      "required": true,
+      "placeholder": "请输入 IWENCAI_API_KEY",
+      "help": "登录 https://www.iwencai.com/skillhub ，打开任一技能详情，在「安装方式 - Agent 用户」中复制 IWENCAI_API_KEY。"
+    }
+  ],
+  "requires_api_key": true
+}

@@ -100,6 +100,7 @@ def test_local_task_captures_project_and_revalidates_binding(local_project, monk
 @pytest.mark.asyncio
 async def test_scheduler_restores_project_into_real_run_context(local_project, monkeypatch):
     factory, path = local_project
+    from features.automation.capabilities import TaskCapabilities
     from orchestration.automations.automation_conversation import execute_prompt
     monkeypatch.setattr('core.models.selection.resolve_effective_chat_model_name', lambda: "test")
     monkeypatch.setattr('core.ontology.runtime_policy.build_user_ontology_runtime', lambda **kw: (False, {}))
@@ -121,7 +122,7 @@ async def test_scheduler_restores_project_into_real_run_context(local_project, m
         task_id = task.task_id
     chat_id, result, _ = await execute_prompt(
         user_id="owner", task_name="report", prompt="summarize project", task_id=task_id,
-        enabled_mcp_ids=[], enabled_skill_ids=[], enabled_kb_ids=[])
+        capabilities=TaskCapabilities(mcp_ids=[], skill_ids=[], kb_ids=[]))
     assert result == "report complete"
     assert captured[0]["project_id"] == "local-project"
     assert captured[0]["project_local_path"] == str(path)

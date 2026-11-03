@@ -87,7 +87,7 @@ def test_crash_after_file_commit_does_not_duplicate(workspace, sessions, monkeyp
 
 
 def test_long_term_tool_updates_are_injected_next_turn(workspace, sessions):
-    from personal_agent.conversation import front
+    from personal_agent.conversation.router import context as front
     agent, root = workspace
     with sessions() as db:
         entry = admit(AgentContext(db, "owner"), "Remember my preference and decision", "longterm")

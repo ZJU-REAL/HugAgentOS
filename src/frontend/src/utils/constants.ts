@@ -83,8 +83,6 @@ export const CHAT_REFERENCE_MIME = 'application/x-hugagent-chat';
 
 export const ROOT_FOLDER_SENTINEL = '__root__';
 
-/** OAuth 安装流程中"仍在等用户操作"的状态。回调一到后端就把状态前移，此后关闭授权窗口属于正常收尾，不能当成放弃。见 core/services/mcp_oauth_service.py。 */
-export const PENDING_USER_OAUTH_STATUSES = ['starting', 'waiting_for_user'];
 
 /** API base URL (e.g. '/api') */
 export const getApiBase = (): string =>

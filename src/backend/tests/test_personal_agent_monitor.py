@@ -12,7 +12,8 @@ from personal_agent.context import AgentContext
 from personal_agent.conversation.message_routing import admit
 from personal_agent.tasks import task_ops
 from core.db.models import ChatMessage
-from personal_agent.tasks.task_threads import history, Transcript
+from personal_agent.tasks.task_threads import history
+from personal_agent.worker import inputs
 from personal_agent.delivery.outputs import listing
 
 @pytest.fixture
@@ -34,35 +35,13 @@ def test_each_task_has_its_own_session_and_only_its_scoped_instructions(sessions
         task_ops.update_task(svc,message,a,"部署改分支");task_ops.update_task(svc,message,b,"旅行换酒店");db.commit()
         ha,hb=history(svc,a),history(svc,b)
         assert len({ha["chat_id"],hb["chat_id"],svc.identity.agent().chat_id})==3
-        assert [m["content"] for m in ha["messages"]]==["部署 A","部署改分支"]
-        assert [m["content"] for m in hb["messages"]]==["旅行 B","旅行换酒店"]
-        assert history(svc,a)==ha
+        # Each Worker receives only its own instruction; its session holds what its runs wrote.
+        assert [text for _,text in inputs.unread(db,db.get(PersonalWorkItem,a))]==["部署改分支"]
+        assert [text for _,text in inputs.unread(db,db.get(PersonalWorkItem,b))]==["旅行换酒店"]
+        assert ha["messages"]==[] and history(svc,a)==ha
         with pytest.raises(LookupError):history(AgentContext(db,"other"),a)
         from core.db.repository.chat import ChatSessionRepository
         assert ChatSessionRepository(db).list_by_user("owner")==([],0)
-
-
-def test_task_transcript_persists_normal_tools_and_thinking_without_main_chat_noise(sessions,monkeypatch):
-    from core.db import engine
-    monkeypatch.setattr(engine,"SessionLocal",sessions)
-    monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
-    with sessions() as db:
-        svc=AgentContext(db,"owner");a=svc.tasks.submit("检查文件","a")["id"]
-        row=db.get(PersonalWorkItem,a);row.status="running";row.owner="worker";row.run_id="run";row.lease_until=time.time()+100
-        db.add(ChatRun(run_id="run",chat_id=row.chat_id,user_id="owner",message_id="assistant-run",status="running"));db.commit()
-    log=Transcript(a,"owner",SimpleNamespace(run_id="run"))
-    log.record("thinking_delta","检查路径")
-    log.record("tool_call",{"id":"tool","name":"pa_bash","args":{"command":"ls"}})
-    log.record("tool_result",{"id":"tool","content":"file.txt","status":"success"})
-    log.record("text_delta","检查完成");log.flush()
-    with sessions() as db:
-        svc=AgentContext(db,"owner");svc.tasks.complete(a,"检查完成",{})
-        rows=history(svc,a)["messages"]
-        assert len(rows)==2 and rows[-1]["thinking"]==[{"content":"检查路径"}]
-        assert rows[-1]["tool_calls"][0]["result"]=="file.txt"
-        # The result reaches the user through the agent's next turn, not as a raw message.
-        assert [m["role"] for m in svc.conversation.list()]==["user"]
-        assert not any("tool_calls" in m for m in svc.conversation.list())
 
 
 def artifact(db,uid,chat,ident,mime,source="ai_generated",task=None):
@@ -136,13 +115,15 @@ def test_non_document_outputs_and_legacy_image_mime(sessions):
         assert next(row for row in page["items"] if row["id"]=="legacy.png")["mime_type"]=="image/png"
 
 
-def test_late_clarification_projects_older_instruction_once(sessions):
+def test_late_clarification_is_delivered_once_after_newer_input(sessions):
     from personal_agent.models import PersonalMessageTask
     with sessions() as db:
         svc=AgentContext(db,"owner");task=svc.tasks.submit("部署","new")["id"]
         old=svc.conversation.append(svc.identity.agent(),"user","待澄清要求",None);db.commit()
         svc.tasks.steer(task,"较新要求","new-update")
+        row=db.get(PersonalWorkItem,task)
+        first=inputs.unread(db,row)
+        inputs.consume(row,[ident for ident,_ in first]);db.commit()
         db.add(PersonalMessageTask(message_id=old.message_id,work_item_id=task,relation="update",instruction="澄清后补充旧要求"));db.commit()
-        rows=history(svc,task)["messages"]
-        assert [m["content"] for m in rows]==["部署","较新要求","澄清后补充旧要求"]
-        assert history(svc,task)["messages"]==rows
+        assert [text for _,text in first]==["较新要求"]
+        assert [text for _,text in inputs.unread(db,row)]==["澄清后补充旧要求"]

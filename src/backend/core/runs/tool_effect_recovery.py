@@ -71,9 +71,11 @@ async def replay_tool_intent(intent: ToolIntent) -> dict[str, Any]:
                 "tool recovery cannot reconstruct its original capability scope"
             ) from exc
 
-    enabled_skill_ids = context.get("skill_ids") or context.get("enabled_skill_ids")
-    enabled_mcp_ids = context.get("mcp_ids") or context.get("enabled_mcp_ids")
-    enabled_kb_ids = context.get("kb_ids") or context.get("enabled_kb_ids")
+    # enabled_* is the run's whole surface; skill_ids/mcp_ids are only this
+    # turn's explicit invocations, already merged into it at request time.
+    enabled_skill_ids = context.get("enabled_skills")
+    enabled_mcp_ids = context.get("enabled_mcps")
+    enabled_kb_ids = context.get("enabled_kbs")
     agent = None
     clients = []
     try:

@@ -53,6 +53,27 @@ def submit(body: Message, svc=Depends(service)):
     return perform(run)
 
 
+@router.post("/messages/{message_id}/reprocess")
+def reprocess_message(message_id: str, svc=Depends(service)):
+    from personal_agent.conversation.attention import reprocess
+
+    return perform(lambda: reprocess(svc, message_id))
+
+
+@router.post("/deliveries/{message_id}/retry")
+def retry_delivery(message_id: str, svc=Depends(service)):
+    from personal_agent.conversation.attention import retry_delivery as retry
+
+    return perform(lambda: retry(svc, message_id))
+
+
+@router.get("/search")
+def search(q: str = Query(..., min_length=1, max_length=500), svc=Depends(service)):
+    from personal_agent.conversation.attention import search as find
+
+    return perform(lambda: find(svc, q))
+
+
 @router.get("/sidebar-status")
 def sidebar_status(after_seq: int = Query(0, ge=0), svc=Depends(service)):
     from personal_agent.conversation.sidebar_status import sidebar_status as snapshot
@@ -87,6 +108,7 @@ async def monitor(svc=Depends(service)):
     from integrations.email.models import EmailConnection
     from personal_agent.scheduling.schedules import listing as schedule_listing
     from personal_agent.scheduling.heartbeat import view as heartbeat_view
+    from personal_agent.conversation.attention import attention
 
     def snapshot():
         # Polled every few seconds: keep the database reads off the event loop.
@@ -101,6 +123,7 @@ async def monitor(svc=Depends(service)):
             "outputs": listing(svc, limit=12),
             "devices": list_devices(svc.user_id),
             "turns": pending(svc),
+            "attention": attention(svc) if agent else {"turns": [], "deliveries": []},
             "schedules": schedule_listing(agent["config"]) if agent else [],
             "heartbeat": heartbeat_view(agent["config"]) if agent else None,
             "email_connected": bool(email and email.status == "connected"),

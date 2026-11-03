@@ -3,7 +3,7 @@ import { CloudOutlined, CodeOutlined, FolderOutlined, LaptopOutlined, LoadingOut
 import { message, Tooltip } from 'antd';
 import { t } from '../../i18n';
 import { useChatStore } from '../../stores/chatStore';
-import { fileTabId, subagentTabId, useCanvasStore, type CanvasArtifact } from '../../stores/canvasStore';
+import { fileTabId, subagentTabId, useCanvasStore } from '../../stores/canvasStore';
 import { useSubagentIdentity } from '../../hooks/useSubagentIdentity';
 import { subagentStatus } from '../../utils/subagentView';
 import { formatClock } from '../../utils/elapsed';
@@ -13,10 +13,10 @@ import type { CommandTaskBrief, JobBrief } from '../../types';
 import { AgentIcon } from '../agent/AgentIcon';
 import { ElapsedTimer } from '../common';
 import { CONTEXT_CATEGORIES, useContextUsageView } from '../chat/useContextUsageView';
-import { DeliveryFileIcon } from '../chat/DeliveryFileIcon';
 import { SubagentStatus } from '../tool/SubagentCallRow';
 import { openSubagentTab } from '../tool/openSubagentTab';
 import { MonitorCard } from './MonitorCard';
+import { MonitorFileRow } from './MonitorFileRow';
 import { ScheduledTaskCard } from './ScheduledTaskCard';
 import { collectFiles, collectSubagents, countToolCalls, type MonitorSubagent } from './runMonitorData';
 import { isLiveCommand, isLiveJob, useBackgroundTasks } from './useBackgroundTasks';
@@ -24,8 +24,6 @@ import { useChatProject } from './useChatProject';
 import ProjectEnvironmentModal from '../projects/ProjectEnvironmentModal';
 import { projectSpaceLocation } from '../projects/projectFolderLocation';
 import { useMySpaceStore } from '../../stores/mySpaceStore';
-// DeliveryFileIcon takes its per-type colours from the delivery card styles.
-import '../chat/DeliveredFiles.css';
 import './RunMonitorRail.css';
 
 function SubagentRow({ item, chatId, active }: { item: MonitorSubagent; chatId: string; active: boolean }) {
@@ -51,25 +49,6 @@ function SubagentRow({ item, chatId, active }: { item: MonitorSubagent; chatId: 
           <SubagentStatus tool={tool} isStreaming={isStreaming} />
         </span>
       )}
-    </button>
-  );
-}
-
-function FileRow({ file, active }: { file: CanvasArtifact; active: boolean }) {
-  const openCanvas = useCanvasStore((s) => s.openCanvas);
-  const extension = file.name.includes('.') ? file.name.split('.').pop()?.toUpperCase() : '';
-  return (
-    <button
-      type="button"
-      className="jx-runMonitor-row"
-      data-active={active || undefined}
-      title={file.name}
-      onClick={() => openCanvas(file)}
-      aria-label={t('预览文件：{name}', { name: file.name })}
-    >
-      <span className="jx-runMonitor-lead"><DeliveryFileIcon name={file.name} size={20} /></span>
-      <span className="jx-runMonitor-name">{file.name}</span>
-      {extension && <span className="jx-runMonitor-meta">{extension}</span>}
     </button>
   );
 }
@@ -293,7 +272,7 @@ export function RunMonitorRail() {
       {files.output.length > 0 && (
         <MonitorCard title={t('产出文件')}>
           {[...files.output].reverse().map((file) => (
-            <FileRow key={file.file_id} file={file} active={activeTabId === fileTabId(file)} />
+            <MonitorFileRow key={file.file_id} file={file} active={activeTabId === fileTabId(file)} />
           ))}
         </MonitorCard>
       )}
@@ -301,7 +280,7 @@ export function RunMonitorRail() {
       {files.input.length > 0 && (
         <MonitorCard title={t('输入文件')}>
           {files.input.map((file) => (
-            <FileRow key={file.file_id} file={file} active={activeTabId === fileTabId(file)} />
+            <MonitorFileRow key={file.file_id} file={file} active={activeTabId === fileTabId(file)} />
           ))}
         </MonitorCard>
       )}

@@ -44,7 +44,7 @@ function TaskRow({ task, onOpen, onDone, onError }: Omit<RecentActivityProps, 't
   // An active task shows what it is doing now; a waiting one says why it waits.
   const detail = isTerminal(task) ? '' : task.waiting_reason || task.progress || '';
   return <li className={!isTerminal(task) ? 'pa-activity-item--active' : undefined}>
-    <Tooltip title={t(LABELS[task.status] || task.status)} placement="left" mouseEnterDelay={0.4}>
+    <Tooltip title={task.outcome === 'dropped' ? t('无需处理') : t(LABELS[task.status] || task.status)} placement="left" mouseEnterDelay={0.4}>
       <button type="button" className="pa-activity-row" data-testid="personal-task" data-status={task.status} onClick={() => onOpen(task)}>
         <StatusIcon task={task} />
         <span className="pa-activity-text"><span className="pa-activity-title">{taskTitle(task)}</span>{detail && <small className="pa-activity-detail">{detail}</small>}</span>
@@ -60,15 +60,13 @@ function TaskRow({ task, onOpen, onDone, onError }: Omit<RecentActivityProps, 't
 /** Like a goals list: what is in progress, then what finished recently. Open a task for its full conversation. */
 export function RecentActivity({ tasks, onOpen, onDone, onError }: RecentActivityProps) {
   const [expanded, setExpanded] = useState(false);
-  if (!tasks.length) return <p className="pa-side-empty">{t('还没有任务。需要时我会在后台开始任务。')}</p>;
   const active = tasks.filter(task => !isTerminal(task));
   const finished = tasks.filter(isTerminal);
   const shown = expanded ? finished : finished.slice(0, VISIBLE);
   return <>
     {!!active.length && <><h4 className="pa-activity-group">{t('进行中')} · {active.length}</h4>
       <ul className="pa-activity" aria-label={t('进行中')}>{active.map(task => <TaskRow key={task.id} task={task} onOpen={onOpen} onDone={onDone} onError={onError} />)}</ul></>}
-    {!!finished.length && <><h4 className="pa-activity-group">{t('已结束')}</h4>
-      <ul className="pa-activity" aria-label={t('已结束')}>{shown.map(task => <TaskRow key={task.id} task={task} onOpen={onOpen} onDone={onDone} onError={onError} />)}</ul></>}
+    {!!finished.length && <ul className="pa-activity" aria-label={t('已结束')}>{shown.map(task => <TaskRow key={task.id} task={task} onOpen={onOpen} onDone={onDone} onError={onError} />)}</ul>}
     {finished.length > VISIBLE && <button type="button" className="pa-side-more" onClick={() => setExpanded(value => !value)}>
       {expanded ? <UpOutlined /> : <DownOutlined />} {expanded ? t('收起') : t('展开更多')}
     </button>}

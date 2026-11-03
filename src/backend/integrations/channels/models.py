@@ -37,7 +37,7 @@ class ChannelConnection(Base):
         ForeignKey("users_shadow.user_id", ondelete="CASCADE"),
         nullable=False,
     )
-    channel_type = Column(String(16), nullable=False)  # 'lark' | 'dingtalk' | 'wecom' | ...
+    channel_type = Column(String(16), nullable=False)  # 'lark' | 'dingtalk' | 'wecom' | 'slack' | ...
     display_name = Column(String(100), nullable=False, default="我的机器人")
     transport = Column(String(16), nullable=False, default="long_conn")  # 'long_conn' | 'webhook'
     app_id = Column(

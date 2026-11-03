@@ -1,4 +1,4 @@
-"""IM channels (DingTalk, Lark, WeChat, WeCom) as another entry to the one Personal Agent conversation.
+"""IM channels (DingTalk, Lark, WeChat, WeCom, Slack) as another entry to the one Personal Agent conversation.
 
 Inbound: a message from a bot that the owner gave to Personal Agent goes into the normal
 message inbox. Outbound: an assistant reply for that message, or for a task it created,
@@ -11,6 +11,7 @@ import posixpath
 import re
 import time
 import uuid
+from datetime import timezone
 
 from sqlalchemy import and_, or_, select, update
 
@@ -18,11 +19,14 @@ from core.db.engine import SessionLocal
 from core.db.threads import run_in_session
 from core.db.models import Artifact, ChatMessage
 from personal_agent import access
+from personal_agent.channels.owner_binding import access as channel_access
 from personal_agent.models import PersonalAgent, PersonalMessageTask
 
 log = logging.getLogger(__name__)
-SUPPORTED = ("dingtalk", "lark", "weixin", "wecom")
-MAX_ATTEMPTS = 5
+SUPPORTED = ("dingtalk", "lark", "weixin", "wecom", "slack")
+MAX_ATTEMPTS = 6
+# A failed send waits 5 s, then twice as long each time, up to five minutes.
+RETRY_BASE_SEC, RETRY_MAX_SEC = 5, 300
 DELIVERY_LEASE_SEC = 180
 SEND_TIMEOUT_SEC = 60
 MAX_FILE_BYTES = 20 * 1024 * 1024
@@ -79,42 +83,98 @@ def unpack(data):
     fields = {field.name for field in dataclasses.fields(InboundMsg)}
     return InboundMsg(**{key: value for key, value in data.items() if key in fields})
 
+# ---------------------------------------------------------------- who may speak for the owner
+# owner_binding decides; the owner lists their IM accounts in the web settings.
+
 def _channel_chat(db, conn, msg):
-    """The Personal Agent conversation this IM conversation feeds."""
+    """What msg may do (see owner_binding.admission), and the conversation it goes to.
+
+    Only the owner's messages and group context get a conversation: a stranger's private
+    message leaves nothing behind in the owner's account."""
+    from personal_agent.channels.owner_binding import admission
     from personal_agent.context import AgentContext
     from personal_agent.conversation.conversations import channel_session
     from personal_agent.identity.config import locked_agent
     svc = AgentContext(db, conn.owner_user_id)
     svc.identity.ensure()
-    chat_id = channel_session(db, locked_agent(db, svc.user_id), conn, msg).chat_id
+    agent = locked_agent(db, svc.user_id)
+    config = dict(agent.config or {})
+    verdict = admission(config, conn.channel_id, msg)
+    if config != (agent.config or {}): agent.config = config
+    chat_id = None
+    if verdict in ("owner", "context"):
+        chat_id = channel_session(db, agent, conn, msg).chat_id
     db.commit()
-    return chat_id
+    return chat_id, verdict
 
-def _admit_message(db, owner_id, chat_id, text, key, file_ids, origin):
+def _admit_message(db, owner_id, chat_id, text, key, file_ids, origin, msg):
+    from personal_agent.channels.im_actions import route
     from personal_agent.context import AgentContext
     from personal_agent.conversation.message_routing import admit
-    admit(AgentContext(db, owner_id, chat_id), text, key, file_ids,
-          extra={"origin": "channel", "channel_origin": origin})
+    svc = AgentContext(db, owner_id, chat_id)
+    # A reply to one of the agent's messages, or an approval answer, needs no model to route.
+    intent, ids = route(db, svc.identity.agent(), chat_id, text, msg, from_owner=True)
+    admit(svc, text, key, file_ids, ids, intent, extra={"origin": "channel", "channel_origin": origin})
+
+def _record_context(db, owner_id, chat_id, text, key, origin):
+    """Someone other than the owner in a group: kept as context for the owner's next message.
+
+    No inbox row, so nothing wakes the agent, and nothing is sent back to the group."""
+    from personal_agent.context import AgentContext
+    from personal_agent.identity.config import locked_agent
+    svc = AgentContext(db, owner_id, chat_id)
+    agent = locked_agent(db, owner_id)
+    if db.scalar(select(ChatMessage.message_id).where(ChatMessage.chat_id == chat_id,
+                 ChatMessage.extra_data["request_key"].as_string() == key).limit(1)):
+        db.commit()
+        return
+    message = svc.conversation.append(agent, "user", text, None, key)
+    message.extra_data = {**message.extra_data, "origin": "channel", "context_only": True, "channel_origin": origin}
+    db.commit()
 
 async def admit_inbound(conn, msg, adapter):
     """Store the IM message in the Personal Agent conversation. The worker answers it later."""
     from integrations.channels.inbound_attachments import ingest_attachments as _ingest_attachments
     from integrations.channels.inbound_observation import speaker_label as _speaker_label
+    from personal_agent.channels.im_actions import PLACEHOLDER
+    from personal_agent.channels.owner_binding import NOT_LISTED, sender_keys
+    chat_id, verdict = await run_in_session(_channel_chat, conn, msg)
+    if verdict == "unlisted":
+        log.info("Personal channel private message while no account is listed channel=%s", conn.channel_id)
+        try:
+            await adapter.send_text(conn, msg, NOT_LISTED)
+        except Exception:  # noqa: BLE001 - the reply is a courtesy
+            log.debug("Personal channel not-listed reply failed", exc_info=True)
+        return
+    if verdict == "drop":
+        log.info("Personal channel private message from a non-owner dropped channel=%s", conn.channel_id)
+        return
+    key = "channel:" + conn.channel_id + ":" + (msg.message_id or uuid.uuid4().hex)
+    if verdict == "context":
+        # Their files are not downloaded into the owner's storage; the names are enough context.
+        names = "、".join(str(item.get("name") or "") for item in msg.attachments or [])
+        text = (msg.text or "").strip() or ("[发送了文件] " + names)
+        origin = {"channel_id": conn.channel_id, "channel_type": conn.channel_type, "msg": pack(msg), "placeholder_id": None}
+        log.info("Personal channel group message from a non-owner kept as context channel=%s", conn.channel_id)
+        await run_in_session(_record_context, conn.owner_user_id, chat_id,
+                             (_speaker_label(msg) + "：" + text)[:20000], key[:100], origin)
+        return
     placeholder = None
     try:
+        # The reply edits this placeholder in place, or recalls it (see im_actions.send_first).
         send = getattr(adapter, "send_placeholder", None) or adapter.send_text
-        sent = await send(conn, msg, "🤔 已收到，正在处理…")
+        sent = await send(conn, msg, PLACEHOLDER)
         placeholder = sent.message_id if sent.success else None
     except Exception:  # noqa: BLE001 - a missing acknowledgement must not drop the message
         log.debug("Personal channel acknowledgement failed", exc_info=True)
-    chat_id = await run_in_session(_channel_chat, conn, msg)
     files = await _ingest_attachments(adapter, conn, conn.owner_user_id, chat_id, msg)
     text = (msg.text or "").strip() or ("[收到文件] " + "、".join(item.get("name", "") for item in files))
     if msg.chat_type == "group": text = _speaker_label(msg) + "：" + text
-    key = "channel:" + conn.channel_id + ":" + (msg.message_id or uuid.uuid4().hex)
-    origin = {"channel_id": conn.channel_id, "channel_type": conn.channel_type, "msg": pack(msg), "placeholder_id": placeholder}
+    # "owner" lets messages nobody asked for (home_origin) go only to a conversation the owner wrote in.
+    origin = {"channel_id": conn.channel_id, "channel_type": conn.channel_type, "msg": pack(msg),
+              "placeholder_id": placeholder, "owner": True, "sender_keys": sender_keys(msg)}
     await run_in_session(_admit_message, conn.owner_user_id, chat_id, text[:20000], key[:100],
-                         [item["file_id"] for item in files if item.get("file_id")][:10], origin)
+                         [item["file_id"] for item in files if item.get("file_id")][:10], origin, msg)
 
 def origin_of(db, task_id=None, message_id=None):
     """The IM conversation that started a task, or that sent one message."""
@@ -138,10 +198,16 @@ def home_origin(db, chat_id):
         ChatSession.user_id == agent.user_id, ChatMessage.role == "user",
         or_(ChatMessage.chat_id == chat_id, ChatSession.extra_data[MARKER].as_string() == agent.id))
         .order_by(ChatMessage.created_at.desc(), ChatMessage.message_id.desc()).limit(200)).all()
+    from personal_agent.channels.owner_binding import listed
     for row in rows:
         origin = (row.extra_data or {}).get("channel_origin") or {}
-        # Never a group: an alert is for the owner only.
-        if origin.get("channel_id") == channel and (origin.get("msg") or {}).get("chat_type") != "group": return origin
+        if (origin.get("channel_id") != channel or (origin.get("msg") or {}).get("chat_type") == "group"
+                or not origin.get("owner") or not row.created_at):
+            continue
+        # Never a group, and only an account listed now, written in since it was listed: an alert is for the owner only.
+        entry = listed(config, channel, origin.get("sender_keys") or [])
+        if entry and row.created_at.replace(tzinfo=row.created_at.tzinfo or timezone.utc).timestamp() >= entry["added_at"]:
+            return origin
     return None
 
 def mark_for_delivery(db, message, task_id=None, reply_to=None, home=False):
@@ -159,17 +225,15 @@ def mark_for_delivery(db, message, task_id=None, reply_to=None, home=False):
             # delivery message alone owns the native attachment send.
             owner = (item.extra_data or {}).get("delivery_message_id") if item else None
             if item and (not owner or owner == message.message_id): file_ids.append(ident)
-        message.extra_data = {**(message.extra_data or {}), "channel_delivery": {
-            "origin": origin, "status": "pending", "attempts": 0, "file_ids": file_ids}}
+        delivery = {"origin": origin, "status": "pending", "attempts": 0, "file_ids": file_ids}
+        # Only the direct answer to an IM message takes over that message's placeholder.
+        if reply_to and origin.get("placeholder_id"): delivery["placeholder_id"] = origin["placeholder_id"]
+        message.extra_data = {**(message.extra_data or {}), "channel_delivery": delivery}
 
-async def send_now(origin, text):
-    """Best-effort immediate notice, for example an approval that waits in the web page."""
-    conn = await asyncio.to_thread(connection, origin["channel_id"])
-    if conn is None: return False
-    return await send_text(conn, unpack(origin["msg"]), text)
+async def send_text(conn, msg, text, sent_chunks=0, record=None, placeholder=None, sent_ids=()):
+    """Persist each successful chunk, and its channel message ID, before attempting the next one.
 
-async def send_text(conn, msg, text, sent_chunks=0, record=None):
-    """Persist each successful chunk before attempting the next one."""
+    The first chunk replaces the placeholder of the message it answers, when there is one."""
     from integrations.channels.markdown import strip_citation_markers, strip_inline_thinking
     from integrations.channels.protocol import chunk_text
     from integrations.channels.registry import get_adapter
@@ -179,12 +243,19 @@ async def send_text(conn, msg, text, sent_chunks=0, record=None):
     prepare = getattr(adapter, "prepare_markdown", None)
     if send and callable(prepare): text = prepare(text)
     chunks = chunk_text(text, adapter.caps.max_message_len)
+    ids = list(sent_ids)
     for index, chunk in enumerate(chunks):
         if index < sent_chunks: continue
         if record: await record()
-        result = await (send or adapter.send_text)(conn, msg, chunk)
+        if index == 0 and placeholder:
+            from personal_agent.channels.im_actions import send_first
+            result = await send_first(adapter, conn, msg, chunk, placeholder, send or adapter.send_text)
+        else:
+            result = await (send or adapter.send_text)(conn, msg, chunk)
         if not result.success: return False
-        if record: await record(text_chunks_sent=index + 1)
+        if result.message_id: ids.append(result.message_id)
+        # message_id (the first) is queryable: a quoted reply finds the message by it.
+        if record: await record(text_chunks_sent=index + 1, message_ids=ids, **({"message_id": ids[0]} if ids else {}))
     return True
 
 def delivery_allowed(chat_id, conn):
@@ -262,11 +333,13 @@ async def deliver_pending(limit=20):
     def pending():
         with SessionLocal() as db:
             state = ChatMessage.extra_data["channel_delivery"]
+            now = time.time()
             return list(db.scalars(select(ChatMessage.message_id).where(
                 ChatMessage.chat_id.startswith("pa_chat_"), ChatMessage.role == "assistant",
-                or_(state["status"].as_string() == "pending",
+                or_(and_(state["status"].as_string() == "pending",
+                         or_(state["due"].as_float().is_(None), state["due"].as_float() <= now)),
                     and_(state["status"].as_string() == "sending",
-                         state["lease_until"].as_float() < time.time()))
+                         state["lease_until"].as_float() < now))
             ).order_by(ChatMessage.chat_seq).limit(limit)))
 
     for ident in await asyncio.to_thread(pending):
@@ -286,7 +359,8 @@ async def deliver_pending(limit=20):
             if not delivery.get("text_sent"):
                 async with asyncio.timeout(SEND_TIMEOUT_SEC):
                     ok = await send_text(conn, unpack(origin["msg"]), text,
-                                         delivery.get("text_chunks_sent", 0), record)
+                                         delivery.get("text_chunks_sent", 0), record,
+                                         delivery.get("placeholder_id"), delivery.get("message_ids") or ())
                 if not ok: raise RuntimeError("Personal channel text delivery failed")
                 await record(text_sent=True)
             from integrations.channels.registry import get_adapter
@@ -328,45 +402,82 @@ async def deliver_pending(limit=20):
             else:
                 status = ("pending" if retry and delivery["attempts"] < MAX_ATTEMPTS
                           else "failed" if retry or failed else "sent")
-                await record(status=status)
+                await record(status=status, **retry_at(delivery) if status == "pending" else {})
         except DeliveryLost:
             continue
         except Exception as exc:  # noqa: BLE001 - bounded retry, without leaking channel credentials
             log.warning("Personal channel delivery failed message=%s (%s)", ident, type(exc).__name__)
             try:
-                await record(status="pending" if delivery["attempts"] < MAX_ATTEMPTS else "failed")
+                again = delivery["attempts"] < MAX_ATTEMPTS
+                await record(status="pending" if again else "failed", **retry_at(delivery) if again else {})
             except DeliveryLost:
                 pass
+    from personal_agent.channels.im_actions import recall_pending
+    await recall_pending()
 
-def notify_soon(origin, text):
-    """Schedule a best-effort notice from synchronous code that runs on the event loop thread."""
-    if not origin: return
-    try:
-        asyncio.get_running_loop().create_task(send_now(origin, text))
-    except RuntimeError:
-        pass
+def retry_at(delivery):
+    """When a failed send is tried again: backoff doubles from RETRY_BASE_SEC."""
+    return {"due": time.time() + min(RETRY_MAX_SEC, RETRY_BASE_SEC * 2 ** max(0, delivery.get("attempts", 1) - 1))}
+
+def retry_delivery(db, agent, message_id):
+    """Send a failed delivery again, from where it stopped."""
+    from personal_agent.conversation.conversations import require_session
+    row = db.scalar(select(ChatMessage).where(ChatMessage.message_id == message_id).with_for_update())
+    delivery = dict(((row.extra_data or {}).get("channel_delivery") or {}) if row else {})
+    if row is None or delivery.get("status") != "failed": raise LookupError("Delivery not found")
+    require_session(db, agent, row.chat_id)
+    delivery.update(status="pending", attempts=0, due=None, failed_file_ids=[])
+    row.extra_data = {**row.extra_data, "channel_delivery": delivery}
+    db.commit()
+    return {"message_id": message_id, "status": "pending"}
 
 def bots(db, uid):
     """The owner's bots, with the Personal Agent routing flag."""
     from integrations.channels.service import ChannelService, bot_to_dict
     agent = db.scalar(select(PersonalAgent).where(PersonalAgent.user_id == str(uid)))
-    routed = set((agent.config or {}).get("channel_ids", [])) if agent else set()
+    config = (agent.config or {}) if agent else {}
+    routed = set(config.get("channel_ids", []))
     result = []
     for conn in ChannelService(db).list_bots(str(uid), main_only=True):
         item = bot_to_dict(conn)
         if item.get("channel_type") not in SUPPORTED: continue
         result.append({"channel_id": item["channel_id"], "channel_type": item["channel_type"],
             "display_name": item.get("display_name"), "enabled": item.get("enabled"),
-            "status": item.get("status"), "personal_agent": item["channel_id"] in routed})
+            "status": item.get("status"), "personal_agent": item["channel_id"] in routed,
+            "access": channel_access(config, item["channel_id"])})
     return result
 
-def route(db, uid, channel_id, enabled):
+def _own_bot(db, uid, channel_id):
     from integrations.channels.service import ChannelService
     if channel_id not in {conn.channel_id for conn in ChannelService(db).list_bots(str(uid), main_only=True)}:
         raise LookupError("Bot not found")
+
+def route(db, uid, channel_id, enabled):
+    _own_bot(db, uid, channel_id)
     from personal_agent.identity.config import update_config
     def change(config):
         ids = [ident for ident in config.get("channel_ids", []) if ident != channel_id]
         config["channel_ids"] = ids + ([channel_id] if enabled else [])
     update_config(db, uid, change)
+    return bots(db, uid)
+
+def allow_account(db, uid, channel_id, *, key=None, sender_id=None):
+    """List an account that may instruct this bot: a recent private sender (key), or a typed ID."""
+    from personal_agent.channels import owner_binding
+    from personal_agent.identity.config import update_config
+    _own_bot(db, uid, channel_id)
+    if key:
+        change = lambda config: owner_binding.add_recent(config, channel_id, key)
+    else:
+        channel_type = next(item["channel_type"] for item in bots(db, uid) if item["channel_id"] == channel_id)
+        keys = owner_binding.typed_keys(channel_type, sender_id)
+        change = lambda config: owner_binding.add(config, channel_id, keys=keys, sender_id=(sender_id or "").strip())
+    update_config(db, uid, change)
+    return bots(db, uid)
+
+def remove_account(db, uid, channel_id, key):
+    from personal_agent.channels import owner_binding
+    from personal_agent.identity.config import update_config
+    _own_bot(db, uid, channel_id)
+    update_config(db, uid, lambda config: owner_binding.remove(config, channel_id, key))
     return bots(db, uid)

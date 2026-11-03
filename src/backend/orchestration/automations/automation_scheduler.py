@@ -1,10 +1,8 @@
 """Bounded dispatch of durable automation invocations."""
 import asyncio
 import contextlib
-import uuid
 
 from core.infra.logging import get_logger
-from core.infra.time import utc_now
 
 logger = get_logger(__name__)
 POLL_INTERVAL_SECONDS = 3
@@ -105,32 +103,3 @@ class AutomationScheduler:
             await lease.release()
         except Exception as e:
             logger.error("[scheduler] lock release failed for %s: %s", task_id, e)
-
-    async def _send_notification(
-        self,
-        user_id: str,
-        task_id: str,
-        task_name: str,
-        status: str,
-        summary: str,
-        chat_id: str | None = None,
-    ):
-        try:
-            from features.automation import notifications as notifications
-            from features.automation.service import SUMMARY_LIMIT_BRIEF, truncate_summary
-
-            notification = {
-                "id": f"notif_{uuid.uuid4().hex[:12]}",
-                "task_id": task_id,
-                "task_name": task_name,
-                "status": status,
-                # 走统一截断策略：result_summary 现在是全文，裸切会把整篇报告拦腰截断且
-                # 不带任何提示，与运行历史列表的观感不一致。
-                "summary": truncate_summary(summary, SUMMARY_LIMIT_BRIEF),
-                "chat_id": chat_id,
-                "timestamp": int(utc_now().timestamp() * 1000),
-                "read": False,
-            }
-            await notifications.push(user_id, notification)
-        except Exception as e:
-            logger.warning("[scheduler] notification failed: %s", e)

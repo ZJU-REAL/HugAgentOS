@@ -16,6 +16,8 @@ class MCPResource:
     unknown_outcomes: set = field(default_factory=set)
     closed: bool = False
     client_session_lease: tuple | None = None
+    # Shown to the user as the source of these tools (tool-name clash notices).
+    display_name: str | None = None
     _lease: object = None
     _closing: asyncio.Task | None = None
 

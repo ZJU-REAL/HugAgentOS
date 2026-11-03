@@ -1,0 +1,31 @@
+{
+  "slug": "hithink-astock-selector",
+  "entry_name": "hithink-astock-selector",
+  "version": "1.0.0",
+  "icon_url": "/home/brands/iwencai.png",
+  "downloads": 0,
+  "stars": 0,
+  "featured": false,
+  "display_name": "问财选A股",
+  "summary": "通过自然语言查询进行 A 股股票筛选，支持行情指标、技术形态、财务指标、行业概念等多条件组合筛选。返回符合条件的相关股票数据。当用户询问针对行情、财务数据、技术指标、行业概念等A股股票筛选相关问题时，必须使用此技能。",
+  "category": "数据分析",
+  "tags": [
+    "同花顺",
+    "问财",
+    "金融数据",
+    "问财选A股"
+  ],
+  "author": "同花顺问财",
+  "source": "iwencai",
+  "source_url": "https://www.iwencai.com/skillhub",
+  "required_secrets": [
+    {
+      "key": "IWENCAI_API_KEY",
+      "label": "问财 API Key",
+      "required": true,
+      "placeholder": "请输入 IWENCAI_API_KEY",
+      "help": "登录 https://www.iwencai.com/skillhub ，打开任一技能详情，在「安装方式 - Agent 用户」中复制 IWENCAI_API_KEY。"
+    }
+  ],
+  "requires_api_key": true
+}

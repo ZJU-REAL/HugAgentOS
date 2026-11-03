@@ -74,8 +74,9 @@ def report_finished():
             event = ChatMessageRepository(db).create({"message_id": "pa_evt_" + uuid.uuid4().hex, "chat_id": source,
                 "role": "system", "content": describe_run(db, run),
                 "extra_data": {"work_item_id": task_id, "event": EVENT, "run_id": run_id}}, commit=False)
-            db.add(PersonalMessageInbox(message_id=event.message_id, agent_id=agent.id, request_key=key,
-                payload={"kind": "task_event", "task_id": task_id, "event": EVENT, "run_id": run_id}))
+            from personal_agent.conversation.router.triggers import enqueue
+            enqueue(db, agent, kind="session_run", message=event, request_key=key,
+                payload={"kind": "task_event", "task_id": task_id, "event": EVENT, "run_id": run_id})
             try:
                 db.commit()
             except IntegrityError:

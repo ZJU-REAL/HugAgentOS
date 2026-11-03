@@ -1,6 +1,6 @@
 """Tools of the agent's own turn: delegate to tasks, read them, remember, schedule.
 
-They act only while the turn that runs them still owns its message (see front.owned).
+They act only while the turn that runs them still holds its lease (see router/turn.owned).
 Work with external effects (Bash, files, email, the computer, writes to the user's
 HugAgentOS) belongs to tasks; a turn may only read the user's HugAgentOS sessions.
 """
@@ -13,7 +13,7 @@ from agentscope.tool._response import ToolChunk
 from sqlalchemy import select
 from core.db.engine import SessionLocal
 from core.db.models import ChatMessage
-from personal_agent.models import PersonalAgent, PersonalWorkItem
+from personal_agent.models import PersonalAgent
 from personal_agent.tasks import task_ops
 from core.db.threads import off_loop
 
@@ -21,71 +21,89 @@ def response(value):
     return ToolChunk(content=[TextBlock(type="text", text=json.dumps(value, ensure_ascii=False, default=str))])
 
 def register_front_tools(toolkit, request, loader=None):
-    from personal_agent.conversation.front import EVENT_ROLE, current_turn, owned
+    from personal_agent.conversation.router.kinds import EVENT_ROLE, speaker_role
+    from personal_agent.conversation.router.turn import current_turn, owned
     from personal_agent.workspace.constants import WORKSPACE
     from personal_agent.workspace.files import read_file
     from personal_agent.workspace.files import write_file
-    from personal_agent.scheduling.schedules import create, delete, listing, is_unattended_run
+    from personal_agent.scheduling.schedules import create, delete, listing
     from personal_agent.scheduling.heartbeat import KEY_PREFIX as BEAT_PREFIX
     from personal_agent.context import AgentContext
     ident, uid = request.profile_ref, str(request.current_user_id)
     versions = {}
 
     def turn(changes_tasks=False, beat_ok=False):
-        """The running turn. changes_tasks: only a user message may change tasks; beat_ok also lets
+        """The running turn. changes_tasks: only the user's messages may change tasks; beat_ok also lets
         a heartbeat check start its one task."""
         state = current_turn.get()
-        if not state or state["ident"] != ident: raise PermissionError("This conversation turn is not active")
-        if changes_tasks and state["kind"] != "message" and not (beat_ok and state["kind"] == "heartbeat"):
+        if not state or state.id != ident: raise PermissionError("This conversation turn is not active")
+        if changes_tasks and not state.grants.change_tasks and not (beat_ok and state.grants.create_one_task):
             raise PermissionError("This turn reports a result; tasks change only on the user's request")
         return state
 
     @contextmanager
     def checked(state, lock=False):
-        """A session in which the turn still owns its message."""
+        """A session in which the turn still holds its lease."""
         with SessionLocal() as db:
             owned(db, state, lock)
             yield db
 
     @contextmanager
-    def changing(state):
-        """The owner's service and the turn's message; commits when the block succeeds.
-        Read results inside the block: rows are expired after the commit."""
+    def changing(state, sources=None):
+        """The owner's service and the message the change comes from (the first of sources);
+        commits when the block succeeds. Read results inside the block: rows are expired after the commit."""
+        sources = sources or state.sources()
         with checked(state, lock=True) as db:
-            yield AgentContext(db, uid, chat_id=db.get(ChatMessage, ident).chat_id), db.get(ChatMessage, ident)
+            yield AgentContext(db, uid, chat_id=state.chat_id), db.get(ChatMessage, sources[0].message_id)
             db.commit()
 
+    def attribute(db, task, others, context=False):
+        """Link the other messages a task change came from. context: a new task's context also covers them."""
+        for trigger in others:
+            task_ops.link(db, trigger.message_id, task.id, "related")
+            seq = db.get(ChatMessage, trigger.message_id).chat_seq
+            if context and (task.context_seq or 0) < seq: task.context_seq = seq
+
     @off_loop
-    def pa_task_create(goal: str, title: str = "", related_task_ids: list[str] | None = None) -> ToolChunk:
+    def pa_task_create(goal: str, title: str = "", related_task_ids: list[str] | None = None,
+                       from_messages: list[int] | None = None) -> ToolChunk:
         """Start a background task. goal: a self-contained instruction in the user's language with the
         requirements and the expected result; the task sees only the last few messages. title: a short
         name of at most 20 characters. related_task_ids: existing tasks this new deliverable builds on.
-        Files attached to the user's message go to the task."""
+        from_messages: when this turn has numbered inputs, the numbers ([#n]) of the user's messages the task
+        comes from; omitted, all of them. Files attached to those messages go to the task."""
         state = turn(changes_tasks=True, beat_ok=True)
-        beat = state["kind"] == "heartbeat"
-        if beat and state["count"] >= 1: raise PermissionError("A heartbeat check starts at most one task")
+        beat = not state.grants.change_tasks
+        if beat and state.count >= 1: raise PermissionError("A heartbeat check starts at most one task")
         # The key repeats on a retried turn, so the same task is not started twice.
         # A heartbeat's key marks the task as unattended: its result may stay quiet.
-        key = (BEAT_PREFIX + "task:" + ident) if beat else "turn:" + ident + ":" + str(state["count"])
-        with changing(state) as (svc, message):
+        key = (BEAT_PREFIX + "task:" + state.head) if beat else "turn:" + state.head + ":" + str(state.count)
+        sources = state.sources(from_messages)
+        with changing(state, sources) as (svc, message):
             task = task_ops.create(svc, message, goal, key[:100],
-                attachments=state["attachments"], related=related_task_ids or [], title=title)
+                attachments=state.attachments(sources), related=related_task_ids or [], title=title)
+            attribute(svc.db, task, sources[1:], context=True)
             result = {"started": True, "task_id": task.id, "title": task.label_text}
-        state["count"] += 1
+        state.count += 1
         return response(result)
 
     @off_loop
-    def pa_task_update(task_id: str, instruction: str) -> ToolChunk:
-        """Continue or change one existing task, including a completed task. Use only for a clear follow-up to its goal or result, never because it is recent or the only task. Read pa_task_get first before updating a task unless the user explicitly selected its ID. instruction: only what applies to this task."""
+    def pa_task_update(task_id: str, instruction: str, from_messages: list[int] | None = None) -> ToolChunk:
+        """Continue or change one existing task, including a completed task. Use only for a clear follow-up to its goal or result, never because it is recent or the only task. Read pa_task_get first before updating a task unless the user explicitly selected its ID. instruction: only what applies to this task. from_messages: as for pa_task_create."""
         state = turn(changes_tasks=True)
-        with checked(state) as db:
-            selected = (owned(db, state).payload or {}).get("work_item_ids") or []
+        sources = state.sources(from_messages)
+        selected = state.selected(sources)
         if selected and task_id not in selected:
-            raise ValueError("The user selected a different task; do not redirect this message")
-        if task_id not in selected and task_id not in state.get("inspected_tasks", set()):
+            # In a turn with several inputs, another message's selection must not block this one.
+            raise ValueError("The user selected a different task for these messages; do not redirect them."
+                             + (" If another input of this turn asks about this task, pass that input's number"
+                                " as from_messages." if from_messages is None and len(state.triggers) > 1 else ""))
+        if task_id not in selected and task_id not in state.inspected_tasks:
             raise ValueError("Read pa_task_get first and check that the latest user message continues its goal or result. If unrelated, answer directly or create a new task; if ambiguous, ask the user.")
-        with changing(state) as (svc, message):
-            result = {"updated": True, "status": task_ops.update_task(svc, message, task_id, instruction, attachments=state["attachments"]).status}
+        with changing(state, sources) as (svc, message):
+            task = task_ops.update_task(svc, message, task_id, instruction, attachments=state.attachments(sources))
+            attribute(svc.db, task, sources[1:])
+            result = {"updated": True, "status": task.status}
         return response(result)
 
     @off_loop
@@ -101,29 +119,30 @@ def register_front_tools(toolkit, request, loader=None):
     def pa_task_get(task_id: str) -> ToolChunk:
         """Read one task: goal, status, progress, the user's updates and the result."""
         from personal_agent.conversation.associations import instructions
-        with checked(turn()) as db:
-            task = AgentContext(db, uid, chat_id=db.get(ChatMessage, ident).chat_id).tasks.get(task_id)
+        current = turn()
+        with checked(current) as db:
+            task = AgentContext(db, uid, chat_id=current.chat_id).tasks.get(task_id)
             state = task.checkpoint or {}
-            turn().setdefault("inspected_tasks", set()).add(task_id)
+            current.inspected_tasks.add(task_id)
             return response({"title": task.label_text, "goal": task.goal[:4000], "status": task.status,
                 "waiting_reason": task.waiting_reason, "progress": state.get("progress"), "pending_approval": bool(state.get("pending_approval")),
-                "updates": instructions(db, db.get(ChatMessage, ident).chat_id, task.id, 10),
+                "updates": instructions(db, current.chat_id, task.id, 10),
                 "result": (task.result or "")[:12000], "updated": task.updated_at})
 
     @off_loop
     def pa_history_search(query: str, limit: int = 10) -> ToolChunk:
         """Search earlier messages and task results of this conversation."""
-        with checked(turn()) as db:
-            chat = db.get(ChatMessage, ident).chat_id
-            rows = db.scalars(select(ChatMessage).where(ChatMessage.chat_id == chat,
+        current = turn()
+        with checked(current) as db:
+            rows = db.scalars(select(ChatMessage).where(ChatMessage.chat_id == current.chat_id,
                 ChatMessage.role.in_(["user", "assistant", EVENT_ROLE]), ChatMessage.content.ilike("%" + query[:200] + "%"))
                 .order_by(ChatMessage.chat_seq.desc()).limit(max(1, min(30, limit)))).all()
-            return response([{"role": m.role, "at": m.created_at, "content": m.content[:3000]} for m in rows])
+            return response([{"role": speaker_role(m), "at": m.created_at, "content": m.content[:3000]} for m in rows])
 
     def workspace():
         """The agent whose workspace files the turn may change."""
         state = turn()
-        with checked(state): return state["agent_id"]
+        with checked(state): return state.agent_id
 
     def saved(data):
         # A hand-written name line in IDENTITY.md renames the agent everywhere, as in the editor.
@@ -202,16 +221,16 @@ def register_front_tools(toolkit, request, loader=None):
     def pa_stay_quiet(reason: str) -> ToolChunk:
         """Send nothing to the user for this scheduled result or heartbeat check, because it has nothing new or noteworthy."""
         state = turn()
-        if state["kind"] == "event":
-            # Only a scheduled or heartbeat check may end without telling the user; a requested result is always reported.
-            with SessionLocal() as db: unattended = is_unattended_run(db.get(PersonalWorkItem, state["task_id"]))
-            if not unattended: raise PermissionError("A requested task result must be reported to the user")
-        elif state["kind"] != "heartbeat": raise PermissionError("Only a scheduled result or a heartbeat check may stay quiet")
-        with checked(state): state["quiet"] = True
+        # Only a scheduled result or a heartbeat check may end without telling the user. A requested
+        # result is always reported, and a user's message always answered, also when they share the turn.
+        if not state.grants.quiet:
+            if state.messages: raise PermissionError("The user wrote in this turn; answer them")
+            raise PermissionError("A requested task result must be reported to the user")
+        with checked(state): state.quiet = True
         return response({"quiet": True, "next": "Stop now. Do not write a message."})
 
-    state = current_turn.get() or {}
-    if state.get("ident") == ident and state.get("kind") == "heartbeat":
+    state = current_turn.get()
+    if state is not None and state.id == ident and state.grants.readonly:
         # A heartbeat check reads, notes and may start one task. It never changes the user's tasks or schedules.
         tools = [pa_task_create, pa_task_get, pa_history_search, pa_memory_read, pa_memory_edit, pa_memory_write,
             pa_schedule_list, pa_stay_quiet]

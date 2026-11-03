@@ -1,4 +1,4 @@
-"""Fence effects to one execution, independently of incoming messages."""
+"""Fence effects to one execution (the task's Assignment), independently of incoming messages."""
 from contextvars import ContextVar
 current_execution = ContextVar("personal_execution", default=None)
 

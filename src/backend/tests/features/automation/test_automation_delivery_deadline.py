@@ -3,7 +3,6 @@ from tests.orchestration.automation_test_support import execute_queued
 
 import asyncio
 import threading
-from types import SimpleNamespace
 
 import pytest
 from orchestration.automations import automation_delivery as module
@@ -31,8 +30,8 @@ async def test_swallowed_notification_cancel_cannot_start_channel_delivery(monke
         return True
 
     monkeypatch.setattr(outbound, "deliver_to_conversation", send)
+    monkeypatch.setattr(module, "notify_inapp", notification)
     await module.deliver_result(
-        SimpleNamespace(_send_notification=notification),
         "u",
         "t",
         "n",
@@ -72,7 +71,6 @@ async def test_artifact_download_does_not_block_deadline_or_send_late(monkeypatc
     monkeypatch.setattr(outbound, "deliver_to_conversation", send)
     try:
         await module.deliver_result(
-            SimpleNamespace(),
             "u",
             "t",
             "n",
@@ -107,7 +105,7 @@ async def test_delivery_error_keeps_committed_success(live_env, monkeypatch):
 
     monkeypatch.setattr(automation_conversation, "execute_prompt", prompt)
     scheduler = AutomationScheduler()
-    monkeypatch.setattr(scheduler, "_send_notification", fail)
+    monkeypatch.setattr("orchestration.automations.automation_delivery.notify_inapp", fail)
     await execute_queued(scheduler, task_id, "owner")
     with factory() as db:
         service = AutomationService(db)
@@ -138,7 +136,7 @@ async def test_stale_executor_cannot_update_task_or_notify(live_env, monkeypatch
 
     monkeypatch.setattr(automation_conversation, "execute_prompt", prompt)
     scheduler = AutomationScheduler()
-    monkeypatch.setattr(scheduler, "_send_notification", notify)
+    monkeypatch.setattr("orchestration.automations.automation_delivery.notify_inapp", notify)
     await execute_queued(scheduler, task_id, "owner")
     with factory() as db:
         service = AutomationService(db)
@@ -163,7 +161,6 @@ async def test_channel_exception_does_not_skip_other_targets(monkeypatch):
 
     monkeypatch.setattr(outbound, "deliver_to_conversation", send)
     await module.deliver_result(
-        SimpleNamespace(),
         "u",
         "t",
         "n",

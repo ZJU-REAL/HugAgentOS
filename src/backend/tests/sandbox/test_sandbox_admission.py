@@ -395,3 +395,40 @@ async def test_stopping_a_lease_does_not_swallow_the_callers_cancellation(store)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+@pytest.mark.parametrize("cycle,status,expected", [("self", 404, "answered"), ("pair", 0, "unknown")])
+def test_failure_classifier_terminates_on_cyclic_sdk_errors(cycle, status, expected):
+    """A corrupt SDK chain must not monopolize the service event loop."""
+    import subprocess
+    import sys
+    import textwrap
+
+    program = textwrap.dedent(f"""
+        from core.sandbox.providers.opensandbox.admission import _failure_outcome
+        from opensandbox.exceptions import SandboxApiException
+        outer = SandboxApiException("creation failed", status_code={status})
+        if {cycle!r} == "self":
+            outer.__context__ = outer
+        else:
+            inner = RuntimeError("wrapped transport failure")
+            outer.__context__ = inner
+            inner.__context__ = outer
+        print(_failure_outcome(outer))
+    """)
+    completed = subprocess.run(
+        [sys.executable, "-c", program], capture_output=True, text=True, timeout=3,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == expected
+
+
+def test_failure_classifier_finds_connect_error_before_a_cycle():
+    import httpx
+    from opensandbox.exceptions import SandboxApiException
+
+    outer = SandboxApiException("connect failed", status_code=0)
+    refused = httpx.ConnectError("connection refused")
+    outer.__cause__ = refused
+    refused.__context__ = outer
+    assert admission_module._failure_outcome(outer) == "unsent"

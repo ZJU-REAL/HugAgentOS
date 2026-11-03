@@ -269,6 +269,7 @@ async def test_screenshot_file_and_channel_end_to_end(sessions, setup, monkeypat
     monkeypatch.setattr(channel_bridge, "connection", lambda ident: SimpleNamespace(
         channel_id="bot", channel_type="weixin", owner_user_id="owner"))
     monkeypatch.setattr('integrations.channels.registry.get_adapter', lambda kind: Adapter())
+    monkeypatch.setattr(channel_bridge, "RETRY_BASE_SEC", 0)
     await channel_bridge.deliver_pending()
     await channel_bridge.deliver_pending()
     with sessions() as db:

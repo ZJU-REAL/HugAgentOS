@@ -60,6 +60,8 @@ from tests.features.marketplace.mcp_marketplace_cases_4 import (
     test_missing_source_still_detects_live_snapshot_drift,
     test_manual_admin_revalidation_accepts_drift_as_new_version,
     test_periodic_revalidation_never_auto_accepts_drift,
+    test_dns_failure_during_revalidation_keeps_listing_active,
+    test_curated_rename_reaches_listing_and_untouched_installs,
     test_manual_revalidation_rejects_empty_tool_snapshot,
     test_mcp_visibility_uses_shared_marketplace_scope,
     test_delisted_item_blocks_user_install_but_not_admin_install,

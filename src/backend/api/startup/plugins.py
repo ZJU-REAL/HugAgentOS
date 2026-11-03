@@ -19,6 +19,7 @@ def _seed_mcp_servers():
     try:
         from core.db.engine import SessionLocal
         from core.capabilities.mcp.management import encrypt_legacy_mcp_headers
+        from features.marketplace.mcp_copies import reconcile_market_copies
         from features.marketplace.mcp_curated import ensure_curated_market_items
         from core.capabilities.mcp.service import prune_removed_builtin_mcp_servers, seed_builtin_mcp_servers_if_empty
 
@@ -36,6 +37,9 @@ def _seed_mcp_servers():
             curated = ensure_curated_market_items(db)
             if curated:
                 logger.info("[startup] curated MCP marketplace seeded: %s", ", ".join(curated))
+            overlap = reconcile_market_copies(db)
+            if overlap:
+                logger.info("[startup] marketplace MCPs with system and private copies: %s", ", ".join(overlap))
         finally:
             db.close()
     except Exception as exc:

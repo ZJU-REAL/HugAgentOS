@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Button,
-  Collapse,
   Empty,
   Form,
   Input,
@@ -11,6 +10,7 @@ import {
   Select,
   Spin,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from 'antd';
@@ -18,7 +18,6 @@ import {
   ApiOutlined,
   KeyOutlined,
   LeftOutlined,
-  LoginOutlined,
   SafetyCertificateOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
@@ -225,7 +224,11 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
     }
   }, [installForm, installTarget, onInstalled, selectedAuthMethod]);
 
-  const installButton = (item: McpMarketItem) => (
+  const installButton = (item: McpMarketItem) => (item.system_provided && !item.requires_user_credentials ? (
+    <Tooltip title={t('管理员已为所有用户安装，无需重复安装')}>
+      <Button size="small" disabled>{t('系统已提供')}</Button>
+    </Tooltip>
+  ) : (
     <Button
       type={item.installed ? 'default' : 'primary'}
       size="small"
@@ -240,7 +243,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
         ? item.credentials_managed_by_admin ? t('重新安装') : t('更新凭据')
         : canInstall ? t('安装') : t('无安装权限')}
     </Button>
-  );
+  ));
 
   return (
     <>
@@ -372,14 +375,14 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
           : selectedOAuthMethod ? t('授权并安装') : t('安装')}
         destroyOnHidden
       >
-        <Typography.Paragraph type="secondary">
-          {installTarget?.credentials_managed_by_admin
-            ? t('该 MCP 使用管理员托管凭据，安装时无需填写 Token；凭据仅由后端使用，不会向用户展示。')
-            : selectedOAuthMethod
-              ? t('用你自己的账号授权；令牌加密保存到你的个人安装实例，不会共享给其他用户。')
+        {!selectedOAuthMethod && (
+          <Typography.Paragraph type="secondary">
+            {installTarget?.credentials_managed_by_admin
+              ? t('该 MCP 使用管理员托管凭据，安装时无需填写 Token；凭据仅由后端使用，不会向用户展示。')
               : t('市场不会共享发布者凭据。请填写你自己的认证信息，凭据将加密保存到个人安装实例。')}
-        </Typography.Paragraph>
-        {installTarget?.listing_notice.install_notice && (
+          </Typography.Paragraph>
+        )}
+        {!selectedOAuthMethod && installTarget?.listing_notice.install_notice && (
           <Alert
             style={{ marginBottom: 16 }}
             type="info"
@@ -400,36 +403,6 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
                 label: method.label,
               }))} />
             </Form.Item>
-          )}
-          {selectedOAuthMethod && (
-            <Alert
-              type="info"
-              showIcon
-              icon={<LoginOutlined />}
-              style={{ marginBottom: 16 }}
-              message={selectedOAuthMethod?.admin_client_configured
-                ? t('管理员已配置 OAuth App。点击授权并安装后，在新标签页登录并同意授权即可。')
-                : selectedOAuthMethod?.help_text || t('点击授权并安装后，在新标签页登录并同意授权即可。')}
-            />
-          )}
-          {selectedOAuthMethod && !selectedOAuthMethod.admin_client_configured && !selectedOAuthMethod.client_id_required && (
-            <Collapse
-              ghost
-              size="small"
-              items={[{
-                key: 'own-app',
-                label: t('使用自己的 OAuth App（可选）'),
-                children: (
-                  <>
-                    <Typography.Paragraph type="secondary">
-                      {t('仅当服务方不支持自动注册时需要。回调地址：{url}', { url: `${window.location.origin}/api/v1/mcp-market/oauth/callback` })}
-                    </Typography.Paragraph>
-                    <Form.Item name="oauth_client_id" label="OAuth Client ID"><Input autoComplete="off" /></Form.Item>
-                    <Form.Item name="oauth_client_secret" label="OAuth Client Secret"><Input.Password autoComplete="new-password" /></Form.Item>
-                  </>
-                ),
-              }]}
-            />
           )}
           {selectedOAuthMethod?.client_id_required && (
             <Form.Item name="oauth_client_id" label="OAuth Client ID" rules={[{ required: true }]}>

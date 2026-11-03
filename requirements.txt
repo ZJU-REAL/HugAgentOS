@@ -107,3 +107,6 @@ lark-oapi>=1.4.0
 # 钉钉入站渠道机器人 Stream 模式（WebSocket 长连接）。回复/凭据校验走 httpx REST，
 # 仅 Stream 长连接需要本 SDK；缺失时该渠道不可用但不影响其他渠道与进程启动。
 dingtalk-stream>=0.21.0
+
+# Slack 入站渠道机器人 Socket Mode（WebSocket 长连接，使用同步客户端）。回复/凭据校验走 httpx REST。
+websockets>=13.0

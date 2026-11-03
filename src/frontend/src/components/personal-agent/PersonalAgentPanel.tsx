@@ -1,7 +1,7 @@
 import { usePersonalResultRead } from './conversation/usePersonalResultRead';
 import { useCallback, useEffect, useRef, useState, type UIEvent } from 'react';
 import { Alert, Button, Input } from 'antd';
-import { ArrowUpOutlined, CloseOutlined, HeartOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { ArrowUpOutlined, CloseOutlined, HeartOutlined, PlusOutlined, SearchOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { uploadFile } from '../../api';
 import { PersonalSettings } from './settings/PersonalSettings';
 import { useCanvasStore } from '../../stores/canvasStore';
@@ -21,6 +21,7 @@ import { useConversationFeed } from './conversation/useConversationFeed';
 import { t } from '../../i18n';
 import { personalApi, errorText, type PersonalMessage, type PersonalTask } from './api';
 import { PersonalTaskDialog } from './tasks/PersonalTaskDialog';
+import { PersonalSearch } from './conversation/PersonalSearch';
 import './personal-agent.css';
 
 interface ConversationDraft { text: string; attachments: { file_id: string; name: string }[]; requestKey?: string }
@@ -51,11 +52,11 @@ function ConversationPanel({ chatId, onSelectChat, savedDraft, saveDraft }: { ch
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   // With the canvas open there is room for one column: the status panel becomes an overlay.
   const canvasOpen = useCanvasStore(state => state.isOpen);
   const requestKey = savedDraft?.requestKey;
   const setRequestKey = (key: string | undefined) => saveDraft(chatId || 'main', previous => ({ ...previous, requestKey: key }));
-  const end = useRef<HTMLDivElement>(null);
   usePersonalResultRead(messageViewport, chatId ? [] : messages);
   const lastLength = messages[messages.length - 1]?.content.length;
   // Follow new output only while the reader is at the bottom; scrolling up to read or select text stops it.
@@ -63,7 +64,8 @@ function ConversationPanel({ chatId, onSelectChat, savedDraft, saveDraft }: { ch
     const box = event.currentTarget;
     autoScroll.current = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
   };
-  useEffect(() => { if (autoScroll.current) end.current?.scrollIntoView({ block: 'nearest' }); }, [messages.length, lastLength, monitor?.turns?.length]);
+  // Scroll the viewport itself: the composer docked at its bottom would cover a scrolled-into-view end marker.
+  useEffect(() => { if (autoScroll.current && messageViewport) messageViewport.scrollTop = messageViewport.scrollHeight; }, [messageViewport, messages.length, lastLength, monitor?.turns?.length]);
   const agent = monitor?.agent;
   const name = agent?.config.name || DEFAULT_AGENT_NAME;
   // Navigation lists outside the panel follow a rename made here or by the agent.
@@ -105,7 +107,7 @@ function ConversationPanel({ chatId, onSelectChat, savedDraft, saveDraft }: { ch
   }
 
   const tasks = monitor?.tasks || [];
-  const status = workSummary(tasks);
+  const status = workSummary(tasks, monitor?.attention, checkedAt);
   // Like a chat app, a reply shows only once it is complete; until then a typing line sits under the last message.
   // A heartbeat check usually ends quiet: it shows no typing line unless it writes an alert.
   const visible = messages.filter(row => !row.streaming);
@@ -119,38 +121,42 @@ function ConversationPanel({ chatId, onSelectChat, savedDraft, saveDraft }: { ch
       <header className="pa-header">
         <PersonalAvatar avatar={agent?.config.avatar} name={name} size={30} />
         <div className="pa-header-identity"><strong>{name}{chatId && <span className="pa-message-source"> · {t('渠道会话')}</span>}</strong>{status && <span className="pa-header-status" title={status}>{status}</span>}</div>
+        <Button className="pa-header-action" type="text" icon={<SearchOutlined />} aria-label={t('查找消息或任务')} title={t('查找消息或任务')} onClick={() => setSearchOpen(true)} />
         <Button className="pa-side-toggle" type="text" icon={<UnorderedListOutlined />} aria-label={t('打开状态栏')} onClick={() => setSideOpen(value => !value)} />
       </header>
       {error && <Alert type="error" message={error} closable onClose={() => setError('')} />}
       {pollError && <Alert type="warning" message={pollError} />}
-      <div ref={setMessageViewport} className="pa-messages" role="log" aria-live="polite" aria-busy={loading} onScroll={onScroll}>
-        <div className="pa-messages-inner">
+      {/* The composer docks inside the scroller so its scrollbar runs down to the bottom of the panel. */}
+      <div ref={setMessageViewport} className="pa-messages" onScroll={onScroll}>
+        <div className="pa-messages-inner" role="log" aria-live="polite" aria-busy={loading}>
         {loading && <div className="jx-skeletonBlock pa-skeleton" aria-label={t('加载中')} />}
         {!loading && !messages.length && <div className="pa-empty"><PersonalAvatar avatar={agent?.config.avatar} name={name} size={72} />
           <h2>{t('你好，我是 {name}', { name })}</h2><p>{t('把事情交给我。我会在后台处理，关掉页面也不会停。')}</p></div>}
         {messages.length >= 100 && older && <Button size="small" onClick={() => { autoScroll.current = false; void history(); }}>{t('查看更早的消息')}</Button>}
         {visible.map(row => <PersonalMessageRow key={row.id} row={row} author={author(row)} />)}
         {typing && <div className="pa-typing-row" data-testid="pa-typing">{typingLine}</div>}
-        <div ref={end} />
+        </div>
+        <div className="pa-dock">
+          <PersonalConfirmBar tasks={tasks} onDone={refreshRef.current} onError={fail} />
+          <AttentionBar tasks={tasks} attention={monitor?.attention} chatId={chatId} now={checkedAt} onDone={refreshRef.current} onError={fail} onOpen={setSelectedTask} />
+          <div className="pa-composer">
+            <input type="file" multiple hidden ref={fileInput} aria-label={t('添加附件')} onChange={event => void attach(event.target.files)} />
+            {!!attachments.length && <div className="pa-composer-files">{attachments.map(file => <Button key={file.file_id} size="small" onClick={() => { setAttachments(previous => previous.filter(item => item.file_id !== file.file_id)); setRequestKey(undefined); }}>{file.name} <CloseOutlined /></Button>)}</div>}
+            <div className="pa-composer-input">
+              <Button className="pa-composer-attach" type="text" shape="circle" icon={<PlusOutlined />} aria-label={t('添加附件')} loading={uploading} disabled={sending} onClick={() => fileInput.current?.click()} />
+              <Input.TextArea aria-label={t('发送给 Personal Agent')} placeholder={t('给 {name} 发消息，交代一件事', { name })} value={draft} disabled={sending} autoSize={{ minRows: 1, maxRows: 7 }} onChange={event => { setDraft(event.target.value); setRequestKey(undefined); }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} />
+              <Button className="pa-composer-send" aria-label={t('发送')} type="primary" shape="circle" icon={<ArrowUpOutlined />} loading={sending} disabled={(!draft.trim() && !attachments.length) || uploading} onClick={() => void send()} />
+            </div>
+          </div>
+          <div className="pa-composer-preferences"><PersonalApprovalPill mode={agent?.config.approval_mode} onChange={refreshRef.current} /></div>
         </div>
       </div>
-      <PersonalConfirmBar tasks={tasks} onDone={refreshRef.current} onError={fail} />
-      <AttentionBar tasks={tasks} now={checkedAt} onDone={refreshRef.current} onError={fail} onOpen={setSelectedTask} />
-      <div className="pa-composer">
-        <input type="file" multiple hidden ref={fileInput} aria-label={t('添加附件')} onChange={event => void attach(event.target.files)} />
-        {!!attachments.length && <div className="pa-composer-files">{attachments.map(file => <Button key={file.file_id} size="small" onClick={() => { setAttachments(previous => previous.filter(item => item.file_id !== file.file_id)); setRequestKey(undefined); }}>{file.name} <CloseOutlined /></Button>)}</div>}
-        <div className="pa-composer-input">
-          <Button className="pa-composer-attach" type="text" shape="circle" icon={<PlusOutlined />} aria-label={t('添加附件')} loading={uploading} disabled={sending} onClick={() => fileInput.current?.click()} />
-          <Input.TextArea aria-label={t('发送给 Personal Agent')} placeholder={t('给 {name} 发消息，交代一件事', { name })} value={draft} disabled={sending} autoSize={{ minRows: 1, maxRows: 7 }} onChange={event => { setDraft(event.target.value); setRequestKey(undefined); }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} />
-          <Button className="pa-composer-send" aria-label={t('发送')} type="primary" shape="circle" icon={<ArrowUpOutlined />} loading={sending} disabled={(!draft.trim() && !attachments.length) || uploading} onClick={() => void send()} />
-        </div>
-      </div>
-      <div className="pa-composer-preferences"><PersonalApprovalPill mode={agent?.config.approval_mode} onChange={refreshRef.current} /></div>
     </div>
     <PersonalSide monitor={monitor} name={name} open={sideOpen} onClose={() => setSideOpen(false)} onProfile={() => setProfileOpen(true)}
       conversations={conversations} selectedChatId={chatId} onSelectChat={onSelectChat}
-      onSettings={() => setSettingsOpen(true)} onOpenTask={setSelectedTask} onRefresh={refreshRef.current} onError={fail} />
+      onSettings={() => setSettingsOpen(true)} onOpenTask={setSelectedTask} onRefresh={refreshRef.current} onError={fail} now={checkedAt} />
     {selectedTask && <PersonalTaskDialog key={selectedTask.id} task={monitor?.tasks.find(task => task.id === selectedTask.id) || selectedTask} onClose={() => setSelectedTask(undefined)} onChange={refreshRef.current} />}
+    <PersonalSearch open={searchOpen} mainChatId={agent?.chat_id} onClose={() => setSearchOpen(false)} onOpenTask={setSelectedTask} onSelectChat={onSelectChat} />
     {agent && profileOpen && <ProfileModal agent={agent} open onClose={() => setProfileOpen(false)} onSaved={refreshRef.current} />}
     <PersonalSettings open={settingsOpen} monitor={monitor} name={name} onClose={() => setSettingsOpen(false)} onProfile={() => { setSettingsOpen(false); setProfileOpen(true); }} onChange={refreshRef.current} />
   </section>;

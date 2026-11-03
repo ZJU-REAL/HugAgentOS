@@ -176,37 +176,27 @@ def test_device_credentials_are_scoped_and_command_is_delivered_once(sessions):
 
 @pytest.mark.asyncio
 async def test_multiple_tasks_execute_in_background_with_one_canonical_session(sessions, monkeypatch):
-    import asyncio
-    from contextlib import asynccontextmanager
-    from types import SimpleNamespace
-    from personal_agent.tasks import worker as module
     from personal_agent.models import PersonalWorkItem
     from core.db.models import ChatSession
     from sqlalchemy import select, func
-    monkeypatch.setattr(module, "SessionLocal", sessions)
-    monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
-    @asynccontextmanager
-    async def binding(**kwargs):
-        yield SimpleNamespace(run_id=kwargs["binding_run_id"], owner="test")
-    monkeypatch.setattr(module, "durable_run_binding", binding)
-    barrier, started = asyncio.Event(), []
-    async def execute(ident, _):
-        started.append(ident)
-        await barrier.wait()
-        return "Task complete: " + ident, {}
-    worker = module.PersonalAgentWorker(execute=execute)
+    from tests.test_personal_agent_worker import make_world, end_run, report, running
+    world = make_world(sessions, monkeypatch)
     with sessions() as db:
         service = AgentContext(db, "owner")
         for i in range(4): service.tasks.submit("Independent task " + str(i), str(i))
-    active = []
-    for _ in range(3):
-        ident = worker.claim()
-        active.append(asyncio.create_task(worker.run(ident)))
-    await asyncio.sleep(.01)
-    assert len(started) == 3
-    assert worker.claim() is None  # Per-owner cap applies to independently claimed tasks.
-    barrier.set()
-    await asyncio.gather(*active)
+    assignments = [world.executor.claim() for _ in range(3)]
+    assert world.executor.claim() is None  # Per-owner cap applies to independently claimed tasks.
+    for asg in assignments:
+        await world.executor.launch(asg)
+    assert len(world.started) == 3
+    for accepted in world.started:
+        running(world, accepted.run.run_id)
+        with sessions() as db:
+            task_id = db.scalar(select(PersonalWorkItem.id).where(PersonalWorkItem.chat_id == accepted.chat_id))
+        await report(world, task_id, "ready", "Task complete: " + task_id)
+        end_run(world, accepted.run.run_id)
+    for asg in assignments:
+        await world.executor.step(asg)
     with sessions() as db:
         assert db.scalar(select(func.count()).select_from(ChatSession)) == 5
         assert len({row.chat_id for row in db.scalars(select(PersonalWorkItem))}) == 4
@@ -214,7 +204,7 @@ async def test_multiple_tasks_execute_in_background_with_one_canonical_session(s
         assert sum(t["status"] == "completed" for t in service.tasks.list()) == 3
         from personal_agent.conversation.message_routing import pending
         assert len(pending(service)) == 3  # One report turn per finished task.
-    assert worker.claim() is not None
+    assert world.executor.claim() is not None
 
 
 def test_api_admission_returns_202_and_final_only_projection(sessions):
@@ -390,33 +380,24 @@ def test_ordinary_search_and_fork_cannot_expose_personal_chat(sessions):
 
 @pytest.mark.asyncio
 async def test_new_approval_after_dispatch_stops_before_model(sessions, monkeypatch):
-    import time
-    from contextlib import asynccontextmanager
-    from personal_agent.tasks import worker as module
-    from personal_agent.models import PersonalWorkItem
-    monkeypatch.setattr(module, "SessionLocal", sessions)
-    monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
-    @asynccontextmanager
-    async def binding(**kwargs):
-        yield object()
-    monkeypatch.setattr(module, "durable_run_binding", binding)
-    async def model_must_not_run(*args):
-        raise AssertionError("Pending approval must stop the model")
-    worker = module.PersonalAgentWorker(execute=model_must_not_run)
+    from personal_agent.models import PersonalAssignment, PersonalWorkItem
+    from personal_agent.worker import executor as module
+    from tests.test_personal_agent_worker import make_world
+    world = make_world(sessions, monkeypatch)
     with sessions() as db:
         task = AgentContext(db, "owner").tasks.submit("Send changed attachment", "one")
-        row = db.get(PersonalWorkItem, task["id"])
-        row.status, row.owner, row.run_id, row.lease_until = "running", worker.identity, "run", time.time()+90
-        db.commit()
     async def dispatch(ident, uid):
         with sessions() as db:
             row = db.get(PersonalWorkItem, ident)
             row.checkpoint = {"pending_approval": {"id": "changed-file", "action": {"kind": "email.send"}}}
             db.commit()
-    monkeypatch.setattr(worker, "dispatch_approved", dispatch)
-    await worker.run(task["id"])
+    monkeypatch.setattr(module, "dispatch_approved", dispatch)
+    asg = world.executor.claim()
+    await world.executor.launch(asg)
+    assert world.started == []  # The model must not run.
     with sessions() as db:
         row = db.get(PersonalWorkItem, task["id"])
         assert row.status == "waiting"
         assert row.checkpoint["pending_approval"]["id"] == "changed-file"
         assert row.waiting_reason == "等待你批准操作"
+        assert db.get(PersonalAssignment, asg).ended_reason == "not_ready"

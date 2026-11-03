@@ -13,6 +13,7 @@ async def middleware_stack(
     request: AgentRequest,
     *,
     _api_scope,
+    _authority,
     _build_toolkit,
     _eval_scope,
     _interactive,
@@ -53,14 +54,14 @@ async def middleware_stack(
             user_id=request.current_user_id,
             interactive=_interactive,
             approval_available=_tool_approval_available,
-            default_allow=bool(_api_scope or _eval_scope)
+            default_allow=_authority.unattended
             or factory_evidence_helpers._default_allow_builtin_tools(
                 channel_origin=request.channel_origin,
                 automation_run=request.automation_run,
             ),
             approval_mode=request.approval_mode,
             read_only=request.read_only,
-            account_approval=not bool(request.profile) and not bool(_api_scope or _eval_scope),
+            authority=_authority,
         ),
     )
 

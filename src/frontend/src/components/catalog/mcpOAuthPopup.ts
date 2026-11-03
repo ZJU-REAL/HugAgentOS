@@ -1,7 +1,6 @@
 import { message } from 'antd';
 import { t } from '../../i18n';
 import { cancelMcpMarketOAuth, getMcpMarketOAuthStatus } from '../../api';
-import { PENDING_USER_OAUTH_STATUSES } from '../../utils/constants';
 
 /** One in-flight browser consent; `cancelled` is flipped by the dialog's cancel button. */
 export interface McpOAuthAttempt {
@@ -46,16 +45,9 @@ export async function runMcpOAuthPopup(
       authorizationUrl = status.authorization_url;
       popup.location.href = authorizationUrl;
     }
-    if (popup.closed && PENDING_USER_OAUTH_STATUSES.includes(status.status)) {
-      // The user closed the consent tab; give a callback in flight one more second.
-      await new Promise((resolve) => window.setTimeout(resolve, 1000));
-      status = await getMcpMarketOAuthStatus(started.flow_id);
-      if (PENDING_USER_OAUTH_STATUSES.includes(status.status)) {
-        attempt.cancelled = true;
-        await cancelMcpMarketOAuth(started.flow_id);
-        throw new Error(OAUTH_CANCELLED);
-      }
-    }
+    // popup.closed is not a cancel signal: consent pages that send
+    // Cross-Origin-Opener-Policy sever the popup, which then reads as closed
+    // while the user is still logging in. Only the dialog's cancel stops a flow.
   }
   popup.close();
   if (status.status !== 'completed') throw new Error(status.error || t('OAuth 登录超时或失败'));

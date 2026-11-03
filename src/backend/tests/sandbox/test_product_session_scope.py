@@ -59,7 +59,7 @@ def test_permanent_command_uses_database_selected_computer_without_generic_regis
     provider._sessions = {"chat": session}
     provider._get_session_lock = AsyncMock(return_value=asyncio.Lock())
     provider._binding = Mock(return_value=("computer", "permanent", 1))
-    provider._check_mount_revision = AsyncMock()
+    provider._check_alive = AsyncMock()
     provider._sync_inputs = AsyncMock()
     provider._ready_timeout_s = 1
     generic = AsyncMock(side_effect=AssertionError("must not use ordinary sandbox binding"))
@@ -70,7 +70,7 @@ def test_permanent_command_uses_database_selected_computer_without_generic_regis
         handle = await CloudProcesses(provider)._spawn(request())
         assert handle.commands is commands
         provider._binding.assert_called_once_with("chat", "owner")
-        provider._check_mount_revision.assert_awaited_once_with(sandbox, "owner")
+        provider._check_alive.assert_awaited_once_with(sandbox)
         commands.run.assert_awaited_once()
         generic.assert_not_awaited()
         remember.assert_not_awaited()

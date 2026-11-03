@@ -12,7 +12,7 @@ from personal_agent.models import PersonalAgent, PersonalMessageInbox, PersonalW
 from personal_agent.context import AgentContext
 from personal_agent.identity.config import update_config
 from tests.test_personal_agent import personal_agent_on  # noqa: F401  (module on, user permitted)
-from tests.test_personal_agent_routing import result, scripted, sessions, tools_for, turn  # noqa: F401
+from tests.test_personal_agent_routing import claim, end, prepared, result, scripted, sessions, tools_for, turn  # noqa: F401
 
 CHECKLIST = "# HEARTBEAT.md\n\n- 有等待批准超过 2 小时的任务时提醒我\n"
 ALL_DAY = {"start": "00:00", "end": "00:00"}
@@ -50,7 +50,7 @@ def config(factory):
 
 def beat_rows(factory):
     with factory() as db:
-        return db.scalars(select(PersonalMessageInbox).where(PersonalMessageInbox.request_key.startswith(heartbeat.KEY_PREFIX))).all()
+        return db.scalars(select(PersonalMessageInbox).where(PersonalMessageInbox.kind == "heartbeat")).all()
 
 
 def fire(factory, now=None):
@@ -246,40 +246,39 @@ async def test_a_beat_starts_one_unattended_task_and_its_result_may_stay_quiet(b
 
 @pytest.mark.asyncio
 async def test_a_beat_cannot_change_the_users_tasks_or_schedules(beats):
-    from personal_agent.conversation import front
-    from personal_agent.conversation import turn_worker
+    from personal_agent.conversation.router import turn as router_turn
     ident = await admitted_beat(beats)
-    assert turn_worker.claim("w") == ident
-    plan = front._prepare(ident, "w")
-    token = front.current_turn.set(plan["state"])
+    turn_id, claimed = claim("w")
+    assert claimed == [ident]
+    plan = prepared(turn_id, "w")
+    token = router_turn.current_turn.set(plan["turn"])
     try:
-        tools = tools_for(ident)
-    finally: front.current_turn.reset(token)
+        tools = tools_for(turn_id)
+    finally: router_turn.current_turn.reset(token)
     assert {"pa_stay_quiet", "pa_task_create", "pa_memory_edit"} <= set(tools)
     assert not {"pa_task_update", "pa_task_control", "pa_schedule_create", "pa_schedule_delete", "pa_set_name"} & set(tools)
 
 
 def test_user_messages_go_first_and_turns_stay_one_at_a_time(beats):
-    from personal_agent.conversation import turn_worker
     factory = beats["factory"]
     assert fire(factory) == 1
     beat = beat_rows(factory)[0].message_id
     with factory() as db: message = admit(AgentContext(db, "owner"), "你好", "hi")["message_id"]
-    assert turn_worker.claim("w") == message
+    turn_id, claimed = claim("w")
+    assert claimed == [message]
     # The beat waits while the user's turn holds its lease.
-    assert turn_worker.claim("w2") is None
-    with factory() as db: db.get(PersonalMessageInbox, message).status = "done"; db.commit()
-    assert turn_worker.claim("w2") == beat
+    assert claim("w2") == (None, [])
+    end(factory, turn_id)
+    assert claim("w2")[1] == [beat]
 
 
 def test_a_beat_that_waited_too_long_is_dropped(beats):
-    from personal_agent.conversation import turn_worker
     factory = beats["factory"]
     assert fire(factory) == 1
     with factory() as db:
         row = db.scalars(select(PersonalMessageInbox)).one()
         row.created_at = datetime.now(timezone.utc) - timedelta(seconds=heartbeat.STALE_SEC + 60); db.commit()
-    assert turn_worker.claim("w") is None
+    assert claim("w") == (None, [])
     [row] = beat_rows(factory)
     assert row.status == "done" and row.decision["outcome"] == "stale"
     assert config(factory)["heartbeat"]["last"]["outcome"] == "stale"
@@ -287,7 +286,7 @@ def test_a_beat_that_waited_too_long_is_dropped(beats):
 
 @pytest.mark.asyncio
 async def test_the_beat_sees_its_rules_and_the_checklist_but_not_earlier_checks(beats):
-    from personal_agent.conversation import front
+    from personal_agent.conversation.router import context as front
     ident = await admitted_beat(beats)
     await turn(ident, scripted(("pa_stay_quiet", {"reason": "无"})))
     with beats["factory"]() as db: admit(AgentContext(db, "owner"), "我从飞书发来的消息", "im")
@@ -320,12 +319,19 @@ async def test_quiet_beats_are_removed_after_a_day_and_alerts_stay(beats):
 @pytest.mark.asyncio
 async def test_alerts_and_scheduled_results_go_to_the_home_bot_in_direct_chats_only(beats):
     factory = beats["factory"]
-    direct = {"channel_id": "bot", "channel_type": "lark", "msg": {"text": "hi", "chat_type": "p2p"}, "placeholder_id": None}
+    import time
+    from tests.test_personal_agent_im_actions import listed_owner
+    direct = {"channel_id": "bot", "channel_type": "lark", "msg": {"text": "hi", "chat_type": "p2p"}, "placeholder_id": None,
+              "owner": True, "sender_keys": ["id:alice"]}
     group = {**direct, "msg": {"text": "hi", "chat_type": "group"}}
+    # A private message from anyone not listed never receives the owner's alerts.
+    stranger = {**direct, "msg": {"text": "hi", "chat_type": "p2p", "sender_id": "mallory"}, "owner": False,
+                "sender_keys": ["id:mallory"]}
     with factory() as db:
-        update_config(db, "owner", lambda c: c.update(channel_ids=["bot"]))
+        update_config(db, "owner", lambda c: c.update(channel_ids=["bot"], **listed_owner("bot", "alice")))
+        update_config(db, "owner", lambda c: c["channel_allowed"]["bot"][0].update(added_at=time.time() - 60))
         svc = AgentContext(db, "owner")
-        for key, origin in (("d", direct), ("g", group)):
+        for key, origin in (("d", direct), ("g", group), ("s", stranger)):
             entry = admit(svc, "hi", key, extra={"origin": "channel", "channel_origin": origin})
             db.get(PersonalMessageInbox, entry["message_id"]).status = "done"
         db.commit()

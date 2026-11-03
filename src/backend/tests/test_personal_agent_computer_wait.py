@@ -132,30 +132,19 @@ async def test_legacy_busy_wait_requeues_without_manual_retry(sessions, monkeypa
 
 @pytest.mark.asyncio
 async def test_worker_preserves_unknown_tool_outcome_despite_desktop_wait(sessions, monkeypatch):
-    import asyncio
-    from contextlib import asynccontextmanager
-    from types import SimpleNamespace
-    from personal_agent.tasks import worker as module
-    from core.runs.tool_effects.errors import ToolOutcomeUnknown
-    monkeypatch.setattr(module, "SessionLocal", sessions)
-    monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
-    @asynccontextmanager
-    async def binding(**kwargs):
-        yield SimpleNamespace(run_id=kwargs["binding_run_id"], owner="test")
-    monkeypatch.setattr(module, "durable_run_binding", binding)
-    async def execute(ident, binding):
-        with sessions() as db:
-            row = db.get(PersonalWorkItem, ident)
-            row.checkpoint = {"computer_wait": "pa:desktop:test"}
-            db.commit()
-        raise ToolOutcomeUnknown("External write result unknown")
-    worker = module.PersonalAgentWorker(execute=execute)
-    monkeypatch.setattr(worker, "dispatch_approved", lambda *args: asyncio.sleep(0))
+    from core.chat.sequencer import ChatSequencer
+    from core.db.models import ChatRun
+    from tests.test_personal_agent_worker import launched, make_world
+    world = make_world(sessions, monkeypatch)
+    task_id, asg_id, run_id = await launched(world, "Use tools", "unknown")
     with sessions() as db:
-        item = AgentContext(db, "owner").tasks.submit("Use tools", "unknown")
-    assert worker.claim() == item["id"]
-    await worker.run(item["id"])
+        db.get(PersonalWorkItem, task_id).checkpoint = {"computer_wait": "pa:desktop:test"}
+        # Core pauses the run when a tool's external outcome is unknown.
+        ChatSequencer(db).release_writer(run_id, terminal_status="completed")
+        db.get(ChatRun, run_id).status = "needs_attention"
+        db.commit()
+    await world.executor.step(asg_id)
     with sessions() as db:
-        row = db.get(PersonalWorkItem, item["id"])
+        row = db.get(PersonalWorkItem, task_id)
         assert row.status == "waiting"
         assert "未知" in row.waiting_reason

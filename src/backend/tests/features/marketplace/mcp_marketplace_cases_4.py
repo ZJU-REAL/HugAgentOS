@@ -63,6 +63,28 @@ async def test_curated_templates_seed_once_and_materialize_user_query_key(db, mo
         "gitlab-official",
         "alibaba-cloud-observability",
         "notion-official",
+        "alphaxiv",
+        "huggingface-official",
+        "linear-official",
+        "atlassian-official",
+        "sentry-official",
+        "canva-official",
+        "tencent-docs-official",
+        "tencent-meeting-official",
+        "wecom-doc",
+        "getnote-official",
+        "flomo-official",
+        "zhihu-official",
+        "bocha-search",
+        "qcc-company",
+        "oceanengine-official",
+        "pixso-official",
+        "modao-official",
+        "mastergo-official",
+        "kling-official",
+        "ifind-stock",
+        "alibaba-cloud-openapi",
+        "baidu-ai-ocr",
     }
     assert mcp_curated.ensure_curated_market_items(db) == []
     gitlab_item = mcp_listing.get_market_item(
@@ -73,10 +95,7 @@ async def test_curated_templates_seed_once_and_materialize_user_query_key(db, mo
     )
     assert gitlab_item["auth_config"]["default_method"] == "oauth2"
     assert gitlab_item["supports_admin_credentials"] is False
-    assert {method["type"] for method in gitlab_item["auth_config"]["methods"]} == {
-        "oauth2",
-        "token",
-    }
+    assert [method["type"] for method in gitlab_item["auth_config"]["methods"]] == ["oauth2"]
 
     actual_tools = _tools("maps_geo", "maps_weather")
     _patch_probe(monkeypatch, tools=actual_tools)
@@ -97,7 +116,7 @@ async def test_curated_templates_seed_once_and_materialize_user_query_key(db, mo
     assert runtime_headers == {}
     assert server.tools_json == actual_tools
     assert server.owner_user_id == "u2"
-    assert server.icon == "/home/mcp/internet.svg"
+    assert server.icon == "/home/brands/amap.png"
 
 
 @pytest.mark.asyncio
@@ -281,6 +300,44 @@ async def test_periodic_revalidation_never_auto_accepts_drift(db, monkeypatch):
 
     assert result["status"] == "changed"
     assert db.query(McpMarketVersion).filter_by(slug="acme-search").count() == 1
+
+
+def test_curated_rename_reaches_listing_and_untouched_installs(db):
+    mcp_curated.ensure_curated_market_items(db)
+    item = db.query(McpMarketItem).filter_by(slug="notion-official").one()
+    item.display_name = "Notion MCP"
+    for owner, server_id, name in (("u1", "srv_kept", "Notion MCP"), ("u2", "srv_renamed", "我的笔记")):
+        db.add(AdminMcpServer(server_id=server_id, display_name=name, transport="streamable_http", url="https://mcp.notion.com/mcp"))
+        db.add(McpMarketInstallation(
+            install_id=f"inst_{server_id}", slug="notion-official", version_id=item.latest_version_id,
+            server_id=server_id, owner_user_id=owner, installed_by=owner,
+        ))
+    db.commit()
+
+    mcp_curated.ensure_curated_market_items(db)
+
+    db.refresh(item)
+    assert item.display_name == "Notion"
+    names = {row.server_id: row.display_name for row in db.query(AdminMcpServer).all()}
+    assert names == {"srv_kept": "Notion", "srv_renamed": "我的笔记"}
+
+
+@pytest.mark.asyncio
+async def test_dns_failure_during_revalidation_keeps_listing_active(db, monkeypatch):
+    mcp_curated.ensure_curated_market_items(db)
+
+    async def unresolved(*_args, **_kwargs):
+        raise management.McpHostResolutionError(message="MCP 服务域名解析失败：gaierror")
+
+    monkeypatch.setattr(mcp_revalidation, "validate_remote_mcp_url", unresolved)
+
+    result = await mcp_revalidation.revalidate_market_item("notion-official")
+
+    assert result["status"] == "active"
+    assert "域名解析失败" in result["revalidation_error"]
+    item = db.query(McpMarketItem).filter_by(slug="notion-official").one()
+    db.refresh(item)
+    assert item.status == "active"
 
 
 @pytest.mark.asyncio

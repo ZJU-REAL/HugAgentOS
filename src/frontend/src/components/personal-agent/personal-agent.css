@@ -6,6 +6,9 @@
 .pa-header{width:100%;max-width:760px;margin:0 auto;box-sizing:border-box;display:flex;align-items:center;gap:10px;padding:10px 4px 14px;font-size:16px}
 .pa-header strong{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pa-side-toggle{display:none;margin-left:auto}
+.pa-header>.pa-header-action{flex-shrink:0;color:var(--color-text-secondary)}
+.pa-header>.pa-header-action:first-of-type{margin-left:auto}
+.pa-header-action~.pa-side-toggle{margin-left:0}
 
 /* ── Avatar ─────────────────────────────────────────────────────────── */
 .pa-avatar{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;border-radius:28%;object-fit:cover;line-height:1;user-select:none;background:var(--color-bg-layout)}
@@ -18,9 +21,11 @@
 
 /* ── Messages ───────────────────────────────────────────────────────── */
 /* Extend the viewport past the status column; keep message content in its original column. */
-.pa-messages{flex:1;overflow:auto;margin-right:calc(0px - var(--pa-scroll-extension));padding:8px var(--pa-scroll-extension) 20px 0;min-height:0;scrollbar-gutter:stable}
-.pa-messages-inner{max-width:760px;margin:0 auto;padding:0;box-sizing:border-box}
-.pa-conversation>.ant-alert,.pa-conversation>.pa-attention,.pa-conversation>.jx-confirmBar{width:100%;max-width:760px;margin-left:auto;margin-right:auto;box-sizing:border-box}
+.pa-messages{flex:1;display:flex;flex-direction:column;overflow:auto;margin-right:calc(0px - var(--pa-scroll-extension));padding:8px var(--pa-scroll-extension) 0 0;min-height:0;scrollbar-gutter:stable}
+.pa-messages-inner{flex:1 0 auto;width:100%;max-width:760px;margin:0 auto;padding:0 0 20px;box-sizing:border-box}
+/* Confirmations and the composer stay pinned to the bottom of the scroller while messages pass under them. */
+.pa-dock{position:sticky;bottom:0;z-index:2;display:flex;flex-direction:column;background:var(--pa-chat-bg)}
+.pa-conversation>.ant-alert,.pa-dock>.pa-attention,.pa-dock>.jx-confirmBar{width:100%;max-width:760px;margin-left:auto;margin-right:auto;box-sizing:border-box}
 .pa-message{position:relative;margin:0 0 24px;max-width:100%;width:fit-content;overflow-wrap:anywhere;padding-right:36px;box-sizing:border-box}
 .pa-message-user{display:flex;flex-direction:column;align-items:flex-end;margin-left:auto;max-width:88%}
 .pa-message-assistant{max-width:80%}
@@ -74,6 +79,20 @@
 .pa-attention-item p{margin:0;color:var(--color-text-secondary)}
 .pa-task-title{white-space:normal;height:auto;text-align:left;padding:0;justify-content:flex-start}
 .pa-task-actions{display:flex;gap:6px;flex-wrap:wrap}
+.pa-attention-label{font-weight:500;color:var(--color-text)}
+.pa-attention-question{display:flex;flex-direction:column;gap:8px}
+.pa-attention-item p.pa-attention-ask{color:var(--color-text);white-space:pre-wrap}
+.pa-attention-reply{display:flex;gap:8px;align-items:center}
+.pa-attention-reply .ant-input{flex:1;min-width:0}
+
+/* ── Search ─────────────────────────────────────────────────────────── */
+.pa-search-group{margin-top:16px}
+.pa-search-group h4{margin:0 0 4px;font-size:12px;font-weight:500;color:var(--color-text-tertiary)}
+.pa-search-row.ant-btn{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;height:auto;padding:8px;text-align:left;white-space:normal}
+.pa-search-title{color:var(--color-text);overflow-wrap:anywhere}
+.pa-search-row small{color:var(--color-text-tertiary)}
+.pa-search-error{margin:8px 0 0;color:var(--color-error-text)}
+.pa-search-empty{margin-top:24px}
 
 /* ── Side panel (status, channels, computers, activity, outputs) ────── */
 .pa-side{align-self:flex-start;position:sticky;top:12px;width:320px;flex-shrink:0;max-height:calc(100vh - 110px);overflow:auto;background:var(--color-bg-container);border:1px solid var(--color-border);border-radius:var(--radius-lg);box-shadow:var(--shadow-card);padding:20px 16px 12px}
@@ -101,7 +120,6 @@
 
 .pa-side-section{padding-top:18px}
 .pa-side-section h3{margin:0 0 6px;padding:0 4px;font-size:14px;font-weight:400;color:var(--color-text-tertiary)}
-.pa-side-empty{margin:4px;font-size:13px;color:var(--color-text-placeholder)}
 
 .pa-side-row{display:flex;align-items:center;gap:12px;width:100%;min-height:52px;padding:6px 4px;border:0;border-radius:var(--radius-sm);background:none;color:var(--color-text);text-align:left}
 button.pa-side-row{cursor:pointer}
@@ -133,16 +151,9 @@ button.pa-side-row:disabled{cursor:default}
 .pa-activity-icon--error{color:var(--color-error)}
 .pa-schedule{display:flex;align-items:center}
 .pa-schedule>.pa-activity-row{flex:1;min-width:0}
-.pa-side-empty{font-size:12px;line-height:1.7;color:var(--color-text-tertiary)}
 
-.pa-outputs{list-style:none;margin:0;padding:0}
-.pa-output{display:flex;align-items:center;border-radius:var(--radius-sm)}
-.pa-output:hover{background:var(--color-bg-layout)}
-.pa-output-name{display:flex;align-items:center;gap:12px;flex:1;min-width:0;min-height:40px;padding:6px 4px;border:0;background:none;color:var(--color-text);font-size:15px;text-align:left;cursor:pointer}
-.pa-output-name .anticon{flex-shrink:0;font-size:18px;color:var(--color-text-tertiary)}
-.pa-output-name span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pa-output-action{opacity:0;padding-right:4px}
-.pa-output:hover .pa-output-action,.pa-output:focus-within .pa-output-action{opacity:1}
+.pa-outputs{display:flex;flex-direction:column;gap:8px;min-width:0}
+.pa-output-rows{display:flex;flex-direction:column;min-width:0}
 
 /* ── Channels modal ─────────────────────────────────────────────────── */
 .pa-channel-mark{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;border-radius:28%;font-weight:600;line-height:1}
@@ -150,6 +161,7 @@ button.pa-side-row:disabled{cursor:default}
 .pa-channel-mark--cyan{background:var(--color-tint-cyan-bg);color:var(--color-tint-cyan)}
 .pa-channel-mark--green{background:var(--color-tint-green-bg);color:var(--color-tint-green)}
 .pa-channel-mark--teal{background:var(--color-tint-teal-bg);color:var(--color-tint-teal)}
+.pa-channel-mark--purple{background:var(--color-tint-purple-bg);color:var(--color-tint-purple)}
 .pa-channel-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:12px 0}
 .pa-channel-card{display:flex;flex-direction:column;gap:8px;padding:14px;border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-bg-container)}
 .pa-channel-card header{display:flex;align-items:center;gap:10px}

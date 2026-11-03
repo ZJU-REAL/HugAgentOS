@@ -67,9 +67,9 @@ async def start_plan_execute_run(
             "initial_args": initial_args,
             "worker_args": {
                 "context": {
-                    "mcp_ids": list(enabled_mcp_ids or []),
-                    "skill_ids": list(enabled_skill_ids or []),
-                    "kb_ids": list(enabled_kb_ids or []),
+                    "enabled_mcps": list(enabled_mcp_ids or []),
+                    "enabled_skills": list(enabled_skill_ids or []),
+                    "enabled_kbs": list(enabled_kb_ids or []),
                     "model_name": effective_model_name,
                 }
             },

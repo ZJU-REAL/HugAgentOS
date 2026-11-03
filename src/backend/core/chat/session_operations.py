@@ -4,7 +4,7 @@ import uuid
 from typing import Any, Dict, List, Optional, Tuple
 from core.auth.edition import ChatAccessLevel, resolve_chat_access
 from core.db.models import ChatSession
-from core.db.reserved_chats import reserved_chat_owner
+from core.db.reserved_chats import reserved_chat_owner, runtime_chat
 
 def create_session(
     self,
@@ -147,6 +147,20 @@ def get_session_with_access(
     """
     if reserved_chat_owner(chat_id):
         return None
+    return _with_access(self, chat_id, user_id)
+
+
+def get_runtime_session_with_access(
+    self, chat_id: str, user_id: str
+) -> Optional[Tuple[ChatSession, ChatAccessLevel]]:
+    """``get_session_with_access`` for the chat runtime itself, which also runs a
+    module's runtime chats (``core.db.reserved_chats.RUNTIME_CHAT_NAMESPACES``)."""
+    if not runtime_chat(chat_id):
+        return get_session_with_access(self, chat_id, user_id)
+    return _with_access(self, chat_id, user_id)
+
+
+def _with_access(self, chat_id, user_id):
     session = self.session_repo.get_by_id(chat_id)
     if session is None:
         return None

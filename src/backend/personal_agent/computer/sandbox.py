@@ -115,7 +115,7 @@ class PersonalSandboxProvider(OpenSandboxProvider):
     async def _session_use(self, session_id, user_id=None):
         """Use the permanent DB binding, never the ordinary pooled registry.
 
-        Resolution already locks and checks computer ownership and mount grants.
+        Resolution already locks and checks computer ownership.
         Permanent instances are never parked or recycled by another chat. Do not
         hold that lock across I/O: staging calls this resolver again for each file.
         """
@@ -128,7 +128,7 @@ class PersonalSandboxProvider(OpenSandboxProvider):
             cached = self._sessions.get(session_id)
             if cached and cached.sandbox.id == sandbox_id:
                 try:
-                    await self._check_mount_revision(cached.sandbox, user_id)
+                    await self._check_alive(cached.sandbox)
                     return cached
                 except Exception as exc:
                     if not _gone(exc): raise
@@ -140,7 +140,7 @@ class PersonalSandboxProvider(OpenSandboxProvider):
                 sandbox = None
                 try:
                     sandbox = await Sandbox.connect(sandbox_id, connection_config=self._computer_config(ident)[0], skip_health_check=True)
-                    await self._check_mount_revision(sandbox, user_id)
+                    await self._check_alive(sandbox)
                 except Exception as exc:
                     if not _gone(exc): raise
                     if sandbox is not None: await sandbox.close()
@@ -155,21 +155,19 @@ class PersonalSandboxProvider(OpenSandboxProvider):
             self._sessions[session_id] = session
             return session
 
-    async def _check_mount_revision(self, sandbox, user_id):
-        from core.files.spaces.sandbox import current_revision
+    async def _check_alive(self, sandbox):
+        """Confirm the instance still exists; a missing one raises a 404 the caller recovers from.
+
+        The computer mounts no account file spaces: user files reach it only as task
+        attachments. An instance created when it still did is replaced, since its mounts
+        no longer follow permission changes; the workspace lives on the volume.
+        """
         from core.files.spaces.mounts import MOUNT_REVISION_TAG
         info = await sandbox.get_info()
-        revision = await asyncio.to_thread(current_revision, user_id)
-        if (info.metadata or {}).get(MOUNT_REVISION_TAG) != revision:
+        if MOUNT_REVISION_TAG in (info.metadata or {}):
             await sandbox.kill()
             await self._sandbox_admission().release(str(sandbox.id))
-            # Callers retire the binding and provision with the new mounts; the workspace lives on the volume.
-            raise ComputerGone("File permissions changed; replacing the computer")
-        from core.files.spaces.recovery import ensure_mounts
-        import os
-        await ensure_mounts(sandbox, user_id, info,
-            domain=os.environ["PERSONAL_AGENT_OPENSANDBOX_DOMAIN"],
-            api_key=os.getenv("PERSONAL_AGENT_OPENSANDBOX_API_KEY", ""))
+            raise ComputerGone("Computer still has account file mounts; replacing it")
 
     async def _retire(self, ident, sandbox_id):
         """Drop a lost binding once. The next generation never adopts the old instance."""
@@ -183,11 +181,6 @@ class PersonalSandboxProvider(OpenSandboxProvider):
         await run_in_session(_drop)
 
     async def _provision(self, ident, session_id, user_id, generation):
-        from core.files.spaces.leases import async_space_lock
-        async with async_space_lock(user_id):
-            return await self._provision_locked(ident, session_id, user_id, generation)
-
-    async def _provision_locked(self, ident, session_id, user_id, generation):
         from opensandbox import Sandbox
         from opensandbox.models.sandboxes import Host, Volume
         from core.infra.ephemeral import get_ephemeral_state
@@ -202,7 +195,7 @@ class PersonalSandboxProvider(OpenSandboxProvider):
             _, existing, _ = self._binding(session_id, user_id)
             if existing:
                 sandbox = await Sandbox.connect(existing, connection_config=self._computer_config(ident)[0], skip_health_check=True)
-                await self._check_mount_revision(sandbox, user_id)
+                await self._check_alive(sandbox)
                 return sandbox
             from opensandbox import SandboxManager
             from opensandbox.models.sandboxes import SandboxFilter, SandboxState
@@ -220,7 +213,7 @@ class PersonalSandboxProvider(OpenSandboxProvider):
                             await self._sandbox_admission().release(str(found.id))
                             raise ComputerGone("Permanent computer stopped")
                         sandbox = await Sandbox.connect(found.id, connection_config=self._computer_config(ident)[0], skip_health_check=True)
-                        await self._check_mount_revision(sandbox, user_id)
+                        await self._check_alive(sandbox)
                     except Exception as exc:
                         if not _gone(exc): raise
                         if sandbox is not None: await sandbox.close()
@@ -253,14 +246,12 @@ class PersonalSandboxProvider(OpenSandboxProvider):
                 desktop.mkdir(parents=True)
                 os.chmod(desktop, 0o700)
             desktop_volume = Volume(name="personal-desktop", host=Host(path=str(Path(root) / ident / "desktop")), mount_path=DESKTOP_HOME, read_only=False)
-            from core.files.spaces.mounts import provision_volumes
-            space_volumes, space_metadata = await asyncio.to_thread(provision_volumes, user_id)
             computer_config, access_token = self._computer_config(ident)
             sandbox = await self._sandbox_admission().create(
                 lambda metadata: Sandbox.create(os.getenv("PERSONAL_AGENT_IMAGE", DEFAULT_IMAGE), connection_config=computer_config, env={"EXECD_ACCESS_TOKEN": access_token},
-                    timeout=None, skip_health_check=False, volumes=[volume, desktop_volume, *space_volumes],
+                    timeout=None, skip_health_check=False, volumes=[volume, desktop_volume],
                     metadata=metadata, entrypoint=["/bin/bash", "/opt/personal-agent/start.sh"]),
-                metadata={"hugagent-owner": "personal-agent", "hugagent-user-id": user_id, "personal-agent-id": ident, "generation": str(generation), **space_metadata})
+                metadata={"hugagent-owner": "personal-agent", "hugagent-user-id": user_id, "personal-agent-id": ident, "generation": str(generation)})
             def _mark_ready(db):
                 row = db.get(PersonalAgent, ident)
                 row.sandbox_id, row.computer_status = sandbox.id, "ready"
@@ -336,6 +327,22 @@ finally: os.close(fd)
             await self._file_command(session_id, user_id, path, source=temporary)
         finally:
             await sess.sandbox.commands.run("rm -f " + temporary, opts=RunCommandOpts(timeout=timedelta(seconds=10)))
+
+    async def put_secret(self, session_id, content, user_id=None):
+        """Write a private file outside /workspace for one command to read and delete; returns its path."""
+        sess = await self._get_or_create_session(session_id, user_id)
+        path = "/tmp/pa-secret-" + uuid.uuid4().hex
+        from opensandbox.models.execd import RunCommandOpts
+        await sess.sandbox.files.write_file(path, content.encode() if isinstance(content, str) else content)
+        await sess.sandbox.commands.run("chown 1000:1000 " + path + " && chmod 600 " + path,
+            opts=RunCommandOpts(timeout=timedelta(seconds=10)))
+        return path
+
+    async def remove_secret(self, session_id, path, user_id=None):
+        if not path.startswith("/tmp/pa-secret-"): raise ValueError("Not a secret file")
+        sess = await self._get_or_create_session(session_id, user_id)
+        from opensandbox.models.execd import RunCommandOpts
+        await sess.sandbox.commands.run("rm -f " + path, opts=RunCommandOpts(timeout=timedelta(seconds=10)))
 
     async def get_file_to_path(self, session_id, remote_path, local_path, *, max_bytes, user_id=None):
         content = await self.get_file(session_id, remote_path, user_id=user_id)

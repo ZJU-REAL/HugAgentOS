@@ -295,6 +295,11 @@ export function McpPage() {
                 {item.owner === 'self' && (
                   <Tag style={{ background: 'var(--color-primary-light)', color: 'var(--color-primary)', border: 'none' }}>{t('我的')}</Tag>
                 )}
+                {item.superseded_by_system && (
+                  <Tooltip title={t('系统已统一安装该 MCP，对话中使用系统版本；可删除这个个人安装')}>
+                    <Tag>{t('已由系统提供')}</Tag>
+                  </Tooltip>
+                )}
                 {item.owner === 'self' && (() => {
                   const submission = submissionByServer.get(item.id);
                   if (!submission) return null;

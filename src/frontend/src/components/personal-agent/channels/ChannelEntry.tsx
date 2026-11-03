@@ -7,6 +7,7 @@ import './channel-binding.css';
 import { personalApi, errorText, type ChannelType, type PersonalChannel, type PersonalConversation } from '../api';
 import { t } from '../../../i18n';
 import { CHANNELS } from './channelMeta';
+import { ChannelAllowed } from './ChannelAllowed';
 
 export function ChannelMark({ type, size = 20 }: { type?: ChannelType; size?: number }) {
   const meta = CHANNELS.find(item => item.type === type) || CHANNELS[0];
@@ -96,7 +97,7 @@ export function ChannelEntry({ agentName, conversations = [], selectedChatId, on
     <Modal open={open} width={600} footer={null} destroyOnHidden onCancel={() => { setOpen(false); setBinding(undefined); }}
       title={t('接入频道')}>
       <>
-        <p className="pa-hint">{t('在钉钉、飞书、微信或企业微信里直接给 {name} 发消息。回复会发回同一个会话。', { name: agentName })}</p>
+        <p className="pa-hint">{t('在钉钉、飞书、微信、企业微信或 Slack 里直接给 {name} 发消息。回复会发回同一个会话。', { name: agentName })}</p>
         <div className="pa-channel-grid">
           {CHANNELS.map(meta => {
             const items = bots.filter(bot => bot.channel_type === meta.type);
@@ -112,6 +113,7 @@ export function ChannelEntry({ agentName, conversations = [], selectedChatId, on
                   {detail?.device_online === false && <Alert type="warning" title={t('设备离线')} />}
                   {(bot.status === 'error' || failures[bot.channel_id]) && <Alert type="error" title={failures[bot.channel_id] || detail?.last_error || t('绑定失败，请重试')} />}
                   {bot.status === 'disconnected' && bot.enabled && <Alert type="warning" title={t('连接已断开，请重试')} />}
+                  {bot.personal_agent && <ChannelAllowed bot={bot} onChange={setBots} onRefresh={() => void refresh()} />}
                   {onSelectChat && bot.personal_agent && <div className="pa-channel-conversations">
                     {conversations.filter(item => item.channel_id === bot.channel_id).map(item =>
                       <Button key={item.chat_id} block type={selectedChatId === item.chat_id ? 'default' : 'text'}

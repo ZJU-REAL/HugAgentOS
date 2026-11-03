@@ -13,6 +13,35 @@ from core.llm.tools.ontology_toolkit import OntologyFilteredToolkit
 from core.ontology.runtime_pack import register_runtime_asset_tags
 
 
+def _mcp_label(resource) -> str:
+    return getattr(resource, "display_name", None) or resource.name
+
+
+def unique_mcp_tools(native_names: set, mcp_resources: list) -> tuple[list, list[str]]:
+    """MCP tools whose names are free, plus one notice per clashing pair.
+
+    Two MCPs (or an MCP and a native tool) exposing the same tool name must
+    not fail the run. The first holder keeps the name — native tools first,
+    then MCPs in load order — and later holders lose that tool for this turn.
+    """
+    native = object()
+    holders: Dict[str, Any] = {name: native for name in native_names}
+    kept, clashes = [], {}
+    for resource in mcp_resources:
+        for tool in resource.tools:
+            holder = holders.setdefault(tool.name, resource)
+            if holder is resource:
+                kept.append(tool)
+            else:
+                owner = "内置工具" if holder is native else _mcp_label(holder)
+                clashes.setdefault((_mcp_label(resource), owner), []).append(tool.name)
+    notices = [
+        f"MCP「{label}」的工具 {'、'.join(names)} 与「{owner}」重名，本轮已忽略「{label}」中的这些工具。"
+        for (label, owner), names in clashes.items()
+    ]
+    return kept, notices
+
+
 async def tool_surface(
     request: AgentRequest,
     *,
@@ -70,6 +99,8 @@ async def tool_surface(
         for tool_name in workflow.get("forbidden_tools", [])
     }
 
+    _clash_notices: set = set()  # _build_toolkit runs more than once
+
     def _build_toolkit(*, include_skills: bool = True) -> Toolkit:
         # Construct the native Toolkit from the assembled native tool values.
         #
@@ -95,6 +126,12 @@ async def tool_surface(
                 mcp_tools = []
             if not _profile.native_skill_prompt:
                 include_skills = False
+        if mcp_tools:
+            mcp_tools, notices = unique_mcp_tools({tool.name for tool in selected_tools}, mcp_resources)
+            for message in [m for m in notices if m not in _clash_notices]:
+                _clash_notices.add(message)
+                _log.warning("[factory] %s", message)
+                _note_unavailable(message)
         names = [tool.name for tool in [*selected_tools, *mcp_tools]]
         if len(names) != len(set(names)):
             raise ValueError("Duplicate model-facing tool names")

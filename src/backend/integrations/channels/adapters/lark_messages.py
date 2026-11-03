@@ -76,6 +76,7 @@ class LarkMessages:
             sender_name=(sender.get("sender_id") or {}).get("user_id", "") or "",
             attachments=attachments,
             mentioned_ids=self._mentioned_ids(message),
+            reply_to=message.get("parent_id") or "",
             raw=payload,
         )
 
@@ -170,7 +171,7 @@ class LarkMessages:
     def _make_inbound(
         *, conn: Any, chat_id: str, chat_type: str, message_id: str,
         text: str, sender_open_id: str, sender_name: str,
-        raw: Dict[str, Any], attachments=None, mentioned_ids=None,
+        raw: Dict[str, Any], attachments=None, mentioned_ids=None, reply_to: str = "",
     ) -> InboundMsg:
         return InboundMsg(
             channel_id=conn.channel_id,
@@ -186,6 +187,7 @@ class LarkMessages:
             # open_id is in the mention list — resolved asynchronously in resolve_addressed.
             addressed_to_bot=True if chat_type == "p2p" else None,
             mentioned_ids=list(mentioned_ids or []),
+            reply_to_message_id=reply_to,
             raw={"lark_chat_id": chat_id, "lark_message_id": message_id},
         )
 
@@ -298,6 +300,7 @@ class LarkMessages:
             sender_name="",
             attachments=attachments,
             mentioned_ids=self._sdk_mentioned_ids(message),
+            reply_to=getattr(message, "parent_id", "") or "",
             raw={},
         )
 

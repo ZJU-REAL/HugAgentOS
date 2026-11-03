@@ -1,0 +1,32 @@
+{
+  "slug": "weread-skills",
+  "entry_name": "weread-skills",
+  "version": "1.0.5",
+  "icon_url": "/home/brands/weread.png",
+  "downloads": 0,
+  "stars": 0,
+  "featured": false,
+  "display_name": "微信读书",
+  "summary": "微信读书官方技能：搜索书籍、查看书架和阅读进度、导出笔记划线、浏览书评、分析阅读数据并推荐好书。",
+  "category": "办公效率",
+  "tags": [
+    "微信读书",
+    "阅读",
+    "笔记",
+    "书架",
+    "官方"
+  ],
+  "author": "腾讯微信读书",
+  "source": "github",
+  "source_url": "https://github.com/Tencent/WeChatReading",
+  "required_secrets": [
+    {
+      "key": "WEREAD_API_KEY",
+      "label": "微信读书 API Key",
+      "required": true,
+      "placeholder": "wrk-…",
+      "help": "登录 https://weread.qq.com/r/weread-skills 获取 API Key（以 wrk- 开头），它绑定你的微信读书账号。"
+    }
+  ],
+  "requires_api_key": true
+}

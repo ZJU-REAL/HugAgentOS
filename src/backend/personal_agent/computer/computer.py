@@ -130,7 +130,7 @@ def register_computer_tools(toolkit, ident, uid):
         {"type": "key", "key": "enter", "observation_id": "..."}  (key is one of: {keys})
         {"type": "scroll", "amount": -5, "x": 640, "y": 400, "observation_id": "..."}
         target is "cloud" or "device:<id>". Each action needs user approval unless the user allowed it for this task.
-        To read web text, prefer the web fetch tool or curl in pa_bash; use the browser for pages that need a screen."""
+        To read web text, prefer the web fetch tool or curl in Bash; use the browser for pages that need a screen."""
         state = owned_task(ident, uid)
         validate_action(action)
         if action.get("type") == "observe": raise ValueError("Use pa_computer_observe")

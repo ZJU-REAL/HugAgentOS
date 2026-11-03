@@ -8,6 +8,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Callable, Mapping, Optional, Sequence
 from core.sandbox.permissions.approval import APPROVAL_ASK, APPROVAL_FULL
+from core.sandbox.permissions.authority import ApprovalAuthority
 
 if TYPE_CHECKING:
     from core.sandbox.permissions.os_gate import LocalAccessDecision
@@ -62,6 +63,8 @@ class PermissionRuntime:
     ``approval_mode`` is the user's own preset for this run: ``auto`` answers
     an ordinary confirmation with "yes" instead of suspending the tool but
     still asks about destructive/dangerous ones, and ``full`` never asks.
+    ``authority`` says whose preset that is; only ``ACCOUNT`` runs re-read the
+    owner's live setting and let it answer pending prompts.
     """
 
     chat_id: Optional[str]
@@ -70,10 +73,15 @@ class PermissionRuntime:
     approval_available: bool
     default_allow: bool = False
     approval_mode: str = APPROVAL_ASK
-    account_approval: bool = False
+    authority: ApprovalAuthority = ApprovalAuthority.RUN
     read_only: bool = False
     sandbox_session_id: Optional[str] = None
     project_scope: Optional[ProjectScope] = None
+
+    @property
+    def account_approver(self) -> Optional[str]:
+        """The account whose live preset governs this run, if any."""
+        return self.user_id if self.authority is ApprovalAuthority.ACCOUNT else None
 
 
 # What an intent does when no live UI can answer a confirmation (background runs,

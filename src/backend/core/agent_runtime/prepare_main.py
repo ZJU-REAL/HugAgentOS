@@ -105,6 +105,11 @@ async def prepare_main(turn: MainTurn):
         )
     turn.agent, turn.mcp_clients = await factory.create_agent_executor(
         agent_spec=None,
+        # A module's dedicated agent (core.harness.registry.AgentProfile) can run
+        # as a normal ChatRun: the run's context names it and it survives launch,
+        # steer, handoff and recovery snapshots with the rest of the context.
+        profile=str(turn.context.get("profile") or "") or None,
+        profile_ref=str(turn.context.get("profile_ref") or "") or None,
         enabled_skill_ids=enabled_skill_ids,
         enabled_mcp_ids=enabled_mcp_ids,
         enabled_kb_ids=enabled_kb_ids,
