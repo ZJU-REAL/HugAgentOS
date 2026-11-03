@@ -111,7 +111,10 @@ def load_session_history(
         Sequence of message dicts; None when the session does not exist or access
         is denied (same semantics as ``list_all_messages``).
     """
-    if chat_service.get_session_with_access(chat_id, user_id) is None:
+    from core.db.reserved_chats import runtime_chat
+    access = (chat_service.get_runtime_session_with_access if runtime_chat(chat_id)
+              else chat_service.get_session_with_access)
+    if access(chat_id, user_id) is None:
         return None
     # Read-only: never take the sequence-repair row lock here. This runs on the
     # request-scoped session, which stays open for the whole SSE response.

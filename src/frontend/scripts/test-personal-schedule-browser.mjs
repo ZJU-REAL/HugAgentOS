@@ -49,7 +49,8 @@ try {
   assert.equal(await page.getByLabel('任务名称').inputValue(), '保留未保存草稿');
   await page.getByRole('button', { name: /取\s*消/ }).click();
   await page.getByRole('button', { name: '清空列表' }).click();
-  await page.getByText('暂无定时任务', { exact: false }).waitFor();
+  // An empty list renders nothing: the side panel leaves the whole section out.
+  await page.getByTestId('pa-schedule').waitFor({ state: 'detached' });
   assert.deepEqual(errors, []);
   console.log('PASS: schedule settings save, unchanged timing, custom cron/timezone, once, conflict preserves draft, empty state');
 } finally { await browser.close(); }

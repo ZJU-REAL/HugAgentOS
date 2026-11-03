@@ -104,6 +104,26 @@ async def test_deterministic_binding_identity_admits_only_one_process(journal_en
         assert rows[0].status == "completed"
 
 
+@pytest.mark.asyncio
+async def test_binding_scopes_call_logs_to_the_run_message(journal_env):
+    from core.harness.log_context import current_message_id
+
+    _journal, sessions, _clock = journal_env
+    async with durable_run_binding(
+        user_id="user-1",
+        chat_id="chat-1",
+        kind="personal_agent_task",
+        external_id="task-1",
+        session_factory=sessions,
+    ) as binding:
+        logged_message_id = current_message_id.get()
+
+    assert current_message_id.get() == ""
+    with sessions() as db:
+        assert db.get(ChatRun, binding.run_id).message_id == logged_message_id
+    assert logged_message_id.startswith("msg_")
+
+
 def test_orphaned_plan_generation_stops_for_attention(journal_env):
     journal, sessions, clock = journal_env
     row = journal.accept(
@@ -518,7 +538,7 @@ def test_recovery_pauses_orphan_internal_tool_run_instead_of_leaving_it_live(
         request_payload={"kind": "internal_job_agent", "job_id": "job-1"},
         recovery_snapshot={
             "kind": "internal_job_agent",
-            "worker_args": {"context": {"mcp_ids": ["web-search"]}},
+            "worker_args": {"context": {"enabled_mcps": ["web-search"]}},
         },
     )
 
@@ -547,8 +567,8 @@ async def test_durable_internal_binding_persists_tool_surface_for_effect_recover
         recovery_snapshot={
             "worker_args": {
                 "context": {
-                    "mcp_ids": ["web-search"],
-                    "skill_ids": ["research"],
+                    "enabled_mcps": ["web-search"],
+                    "enabled_skills": ["research"],
                     "model_name": "test-model",
                 }
             }
@@ -560,8 +580,8 @@ async def test_durable_internal_binding_persists_tool_surface_for_effect_recover
             row = db.get(ChatRun, binding.run_id)
             assert row.recovery_snapshot["kind"] == "batch_item"
             assert row.recovery_snapshot["worker_args"]["context"] == {
-                "mcp_ids": ["web-search"],
-                "skill_ids": ["research"],
+                "enabled_mcps": ["web-search"],
+                "enabled_skills": ["research"],
                 "model_name": "test-model",
             }
 

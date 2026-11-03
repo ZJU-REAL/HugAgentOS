@@ -18,18 +18,7 @@ def effective_mcp_server_keys(
     owned_servers: Optional[dict] = None,
     bridge_servers: Optional[dict] = None,
 ) -> list[str]:
-    all_servers = dict(
-        McpServerConfigService.get_instance().get_all_servers(enabled_only=enabled_mcp_ids is None)
-    )
-    # Config-source precedence (later update wins on same server_id):
-    #   global rows < bridge (desktop cloud gateway; cloud is the source of
-    #   truth for a capability it takes over) < owned (a user's own private
-    #   MCP is the narrowest, most explicit grant).
-    if bridge_servers:
-        all_servers.update(bridge_servers)
-    # Merge in the current user's self-added private MCPs (owner-isolated; already filtered by user_id at the service layer)
-    if owned_servers:
-        all_servers.update(owned_servers)
+    all_servers = _merged_servers(enabled_mcp_ids is None, owned_servers, bridge_servers)
     all_keys = list(all_servers.keys())
     # Include the "database query" umbrella id in the gating set so it survives
     # the runtime/catalog/spec intersection filters (it isn't a real server, so
@@ -67,7 +56,68 @@ def effective_mcp_server_keys(
         allow |= {k for k in all_keys if k in DB_HIDDEN_SERVERS}
     allow.discard(DB_UMBRELLA_ID)
 
+    # A system copy and a private copy of one marketplace MCP expose the same
+    # tool names: when both are selected, keep one.
+    enabled_global = None
+    for keys in _market_copy_groups(all_servers).values():
+        selected = [k for k in keys if k in allow]
+        if len(selected) > 1:
+            if enabled_global is None:
+                enabled_global = set(McpServerConfigService.get_instance().get_all_servers(enabled_only=True))
+            allow -= set(selected) - {_preferred_market_copy(selected, all_servers, enabled_global)}
+
     return [k for k in all_keys if k in allow]
+
+
+def _merged_servers(enabled_only: bool, owned_servers: Optional[dict], bridge_servers: Optional[dict]) -> dict:
+    all_servers = dict(McpServerConfigService.get_instance().get_all_servers(enabled_only=enabled_only))
+    # Config-source precedence (later update wins on same server_id):
+    #   global rows < bridge (desktop cloud gateway; cloud is the source of
+    #   truth for a capability it takes over) < owned (a user's own private
+    #   MCP is the narrowest, most explicit grant).
+    if bridge_servers:
+        all_servers.update(bridge_servers)
+    # Merge in the current user's self-added private MCPs (owner-isolated; already filtered by user_id at the service layer)
+    if owned_servers:
+        all_servers.update(owned_servers)
+    return all_servers
+
+
+def _market_copy_groups(servers: dict) -> Dict[str, List[str]]:
+    """{market_item: server keys} for marketplace items installed more than once."""
+    groups: Dict[str, List[str]] = {}
+    for key, cfg in servers.items():
+        slug = cfg.get("market_item") if isinstance(cfg, dict) else None
+        if slug:
+            groups.setdefault(str(slug), []).append(key)
+    return {slug: keys for slug, keys in groups.items() if len(keys) > 1}
+
+
+def _preferred_market_copy(keys: List[str], servers: dict, enabled_global: Set[str]) -> str:
+    """The one copy of a marketplace MCP a session loads.
+
+    A private copy on the user's own credentials (or unrecorded ones) calls the
+    service as that user, so it wins; otherwise the enabled system copy wins.
+    """
+    private = [k for k in keys if servers[k].get("owner_user_id")]
+    own = [k for k in private if servers[k].get("credential_source") not in {"admin", "none"}]
+    system = [k for k in keys if k not in private and k in enabled_global]
+    return (own or system or private or keys)[0]
+
+
+def market_copy_aliases(
+    enabled_keys: List[str],
+    owned_servers: Optional[dict] = None,
+    bridge_servers: Optional[dict] = None,
+) -> Dict[str, str]:
+    """Map every copy of a loaded marketplace MCP to the copy actually loaded."""
+    enabled = set(enabled_keys)
+    aliases: Dict[str, str] = {}
+    for keys in _market_copy_groups(_merged_servers(False, owned_servers, bridge_servers)).values():
+        loaded = [k for k in keys if k in enabled]
+        if loaded:
+            aliases.update({k: loaded[0] for k in keys if k not in enabled})
+    return aliases
 
 
 def _filter_mcp_servers_by_keys(
@@ -76,22 +126,20 @@ def _filter_mcp_servers_by_keys(
     bridge_servers: Optional[dict] = None,
 ) -> dict:
     enabled_set = set(enabled_keys)
-    all_servers = dict(McpServerConfigService.get_instance().get_all_servers(enabled_only=False))
-    # Same precedence as _effective_mcp_server_keys: global < bridge < owned.
-    if bridge_servers:
-        all_servers.update(bridge_servers)
-    if owned_servers:
-        all_servers.update(owned_servers)
+    all_servers = _merged_servers(False, owned_servers, bridge_servers)
     return {k: v for k, v in all_servers.items() if k in enabled_set}
 
 
 def _required_mcp_server_keys(
-    required_mcp_ids: List[str], enabled_mcp_keys: List[str]
+    required_mcp_ids: List[str],
+    enabled_mcp_keys: List[str],
+    aliases: Optional[Dict[str, str]] = None,
 ) -> List[str]:
     """Resolve user-facing connector IDs to the concrete connected servers."""
     enabled = set(enabled_mcp_keys)
     resolved: List[str] = []
     for connector_id in required_mcp_ids:
+        connector_id = (aliases or {}).get(connector_id, connector_id)
         if connector_id == DB_UMBRELLA_ID:
             candidates = [key for key in enabled_mcp_keys if key in DB_HIDDEN_SERVERS]
         else:

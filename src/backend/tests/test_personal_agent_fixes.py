@@ -106,8 +106,10 @@ def test_paused_agent_skips_schedule_without_backlog(sessions):
 
 
 def test_interrupted_task_resumes_only_without_unconfirmed_effects(sessions, monkeypatch):
+    # Tasks a previous version ran have no Assignment; recovery treats them as interrupted runs.
     from personal_agent.tasks import worker as module
-    monkeypatch.setattr(module, "SessionLocal", sessions)
+    from personal_agent.worker import executor
+    monkeypatch.setattr(executor, "SessionLocal", sessions)
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
     with sessions() as db:
         service = AgentContext(db, "owner")
@@ -116,8 +118,7 @@ def test_interrupted_task_resumes_only_without_unconfirmed_effects(sessions, mon
         risky.checkpoint = {"action_receipts": {"a": {"status": "uncertain"}}}
         for row in (safe, risky): row.lease_until = time.time() - 1
         db.commit()
-    w = module.PersonalAgentWorker()
-    w.recover()
+    executor.Executor().recover()
     with sessions() as db:
         assert db.get(PersonalWorkItem, safe.id).status == "queued"
         assert db.get(PersonalWorkItem, risky.id).status == "waiting"
@@ -126,34 +127,6 @@ def test_interrupted_task_resumes_only_without_unconfirmed_effects(sessions, mon
         row = db.get(PersonalWorkItem, safe.id)
         row.checkpoint = {**row.checkpoint, "auto_resumes": module.MAX_AUTO_RESUMES}
         assert not module.resumable(row)
-
-
-@pytest.mark.asyncio
-async def test_run_has_no_total_deadline(sessions, monkeypatch):
-    from personal_agent.tasks import worker as module
-    monkeypatch.setattr(module, "SessionLocal", sessions)
-    monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
-    def forbidden_timeout(*args, **kwargs):
-        raise AssertionError("Personal tasks must not install a total deadline")
-    monkeypatch.setattr(module.asyncio, "timeout", forbidden_timeout)
-
-    @asynccontextmanager
-    async def binding(**kwargs):
-        yield SimpleNamespace(run_id=kwargs["binding_run_id"], owner="test")
-    monkeypatch.setattr(module, "durable_run_binding", binding)
-
-    async def complete(*args):
-        await asyncio.sleep(0.01)
-        return "Finished", {}
-    w = module.PersonalAgentWorker(execute=complete)
-    monkeypatch.setattr(w, "dispatch_approved", lambda *a: asyncio.sleep(0))
-    with sessions() as db:
-        task = AgentContext(db, "owner").tasks.submit("Endless task", "one")
-    assert w.claim() == task["id"]
-    await w.run(task["id"])
-    with sessions() as db:
-        row = db.get(PersonalWorkItem, task["id"])
-        assert row.status == "completed" and row.result == "Finished"
 
 
 def test_runaway_detection_and_final_cleanup():
@@ -192,7 +165,7 @@ def test_pending_approval_blocks_other_tools_until_user_decides(sessions, monkey
         row = running(db, AgentContext(db, "owner").tasks.submit("Use computer", "one")["id"])
         row.checkpoint = {"pending_approval": {"id": "a" * 64, "action": {"kind": "computer.action"}}}
         db.commit()
-    with pytest.raises(PermissionError, match="pa_finish"): _pa_guards.owned_task(row.id, "owner")
+    with pytest.raises(PermissionError, match="waits for user approval"): _pa_guards.owned_task(row.id, "owner")
     assert _pa_guards.owned_task(row.id, "owner", allow_pending=True)["run_id"] == "run"
 
 
@@ -259,15 +232,17 @@ async def test_channel_message_enters_inbox_and_reply_returns_to_same_conversati
         async def send_text(self, conn, msg, text):
             sent.append(text); return SendResult(success=True, message_id="ph-1")
     conn = SimpleNamespace(channel_id="ch1", channel_type="lark", owner_user_id="owner")
-    msg = InboundMsg(channel_id="ch1", channel_type="lark", text="帮我查天气", chat_type="p2p",
+    msg = InboundMsg(channel_id="ch1", channel_type="lark", text="帮我查天气", chat_type="p2p", sender_id="alice",
                      external_conversation_id="u1", message_id="m1", raw={"large": "x"})
+    from tests.test_personal_agent_im_actions import listed_owner
     with sessions() as db:
         AgentContext(db, "owner").identity.ensure()
         agent = AgentContext(db, "owner").identity.agent()
-        agent.config = {**agent.config, "channel_ids": ["ch1"]}; db.commit()
+        agent.config = {**agent.config, "channel_ids": ["ch1"], **listed_owner("ch1", "alice")}; db.commit()
         assert channel_bridge.handled_by_agent(db, conn)
     await channel_bridge.admit_inbound(conn, msg, Adapter())
-    assert sent == ["🤔 已收到，正在处理…"]
+    from personal_agent.channels.im_actions import PLACEHOLDER
+    assert sent == [PLACEHOLDER]
     with sessions() as db:
         row = db.scalars(__import__("sqlalchemy").select(ChatMessage).where(ChatMessage.role == "user")).one()
         origin = row.extra_data["channel_origin"]
@@ -335,30 +310,19 @@ def test_schedule_is_not_duplicated_and_scheduled_run_cannot_schedule(sessions, 
 async def test_approval_while_run_is_ending_requeues_instead_of_completing(sessions, monkeypatch):
     from personal_agent.tasks import approvals
     from personal_agent.tools import tools
-    from personal_agent.tasks import worker as module
-    for target in (approvals, tools, module): monkeypatch.setattr(target, "SessionLocal", sessions)
-    monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
-
-    @asynccontextmanager
-    async def binding(**kwargs):
-        yield SimpleNamespace(run_id=kwargs["binding_run_id"], owner="test")
-    monkeypatch.setattr(module, "durable_run_binding", binding)
+    from tests.test_personal_agent_worker import end_run, launched, make_world
+    world = make_world(sessions, monkeypatch)
+    for target in (approvals, tools): monkeypatch.setattr(target, "SessionLocal", sessions)
     action = {"kind": "computer.action", "target": "cloud", "action": {"type": "click", "x": 4, "y": 4}}
-
-    async def ask_then_answer(ident, _binding):
-        # The tool asks, then the user approves while the model is still writing its reply.
-        digest, _ = approvals.authorize(ident, "owner", action)
-        with sessions() as db:
-            approvals.approve(AgentContext(db, "owner"), ident, digest, True)
-        return "Waiting for approval", {}
-    w = module.PersonalAgentWorker(execute=ask_then_answer)
-    monkeypatch.setattr(w, "dispatch_approved", lambda *a: asyncio.sleep(0))
+    task_id, asg_id, run_id = await launched(world, "Click the button", "one")
+    # The tool asks, then the user approves while the model is still writing its reply.
+    digest, _ = approvals.authorize(task_id, "owner", action)
     with sessions() as db:
-        task = AgentContext(db, "owner").tasks.submit("Click the button", "one")
-    assert w.claim() == task["id"]
-    await w.run(task["id"])
+        approvals.approve(AgentContext(db, "owner"), task_id, digest, True)
+    end_run(world, run_id)
+    await world.executor.step(asg_id)
     with sessions() as db:
-        row = db.get(PersonalWorkItem, task["id"])
+        row = db.get(PersonalWorkItem, task_id)
         assert row.status == "queued" and row.owner is None
         assert not row.checkpoint.get("pending_approval") and not row.checkpoint.get("decided_during_run")
         assert row.checkpoint["approved_action_payloads"]
@@ -384,7 +348,7 @@ def test_live_stream_drops_input_while_watching():
 
 def test_front_turn_knows_its_own_cloud_computer():
     # An empty device list once made the agent deny having a cloud computer.
-    from personal_agent.conversation.front import COMPUTER
+    from personal_agent.conversation.router.context import COMPUTER
     from personal_agent.sessions.session_tool import describe
     assert "cloud computer" in COMPUTER and "browser" in COMPUTER and "pa_task_create" in COMPUTER
     assert "never your own cloud computer" in describe(False)

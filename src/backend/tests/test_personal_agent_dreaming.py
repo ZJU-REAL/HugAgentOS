@@ -303,7 +303,7 @@ def test_newer_preference_supersedes_only_unedited_managed_entry(workspace, sess
 
 def test_next_conversation_and_task_read_promoted_files_without_dreaming_events(workspace, sessions, monkeypatch):
     from personal_agent.workspace import dreaming
-    from personal_agent.conversation import front
+    from personal_agent.conversation.router import context as front
     from core.db import engine
     agent, root = workspace
     journal(sessions)

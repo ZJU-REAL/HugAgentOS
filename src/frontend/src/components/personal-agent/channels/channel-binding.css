@@ -3,3 +3,13 @@
 .pa-channel-binding img{max-width:100%;height:auto;align-self:center}
 .pa-channel-card .ant-alert{margin-top:8px;overflow-wrap:anywhere}
 .pa-channel-conversations{display:flex;flex-direction:column;gap:4px;margin-top:8px}
+.pa-channel-owner{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.pa-channel-owner .pa-hint{margin:0}
+.pa-channel-owner-actions{display:flex;flex-wrap:wrap;gap:8px}
+.pa-channel-owner-actions .ant-input{flex:1 1 140px;min-width:0}
+.pa-channel-recent{display:flex;flex-direction:column;gap:4px}
+.pa-channel-recent .pa-hint{margin:0}
+.pa-channel-recent-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.pa-channel-accounts{display:flex;flex-direction:column;gap:4px;margin:0;padding:0;list-style:none}
+.pa-channel-accounts li{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 8px;border-radius:var(--radius-sm);background:var(--color-fill-hover)}
+.pa-channel-accounts li>span{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere}

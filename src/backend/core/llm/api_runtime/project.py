@@ -6,11 +6,12 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 
 
-async def bind_project_api_runtime(request) -> None:
+async def bind_project_api_runtime(request) -> dict | None:
+    """Return the validated project credential scope, or None for an account run."""
     context = request.project_ctx or {}
     scope = context.get("project_api_scope")
     if not scope:
-        return
+        return None
     if (
         not isinstance(scope, dict)
         or scope.get("version") != 1
@@ -38,3 +39,4 @@ async def bind_project_api_runtime(request) -> None:
             )
 
     await asyncio.to_thread(authorize)
+    return scope

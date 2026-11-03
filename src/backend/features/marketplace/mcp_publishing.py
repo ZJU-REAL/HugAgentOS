@@ -11,6 +11,7 @@ from features.marketplace import edition as ml
 from core.capabilities.mcp.management import decrypt_mcp_headers, encrypt_mcp_headers, probe_mcp_connectivity, refresh_mcp_caches, validate_remote_mcp_url
 from sqlalchemy.orm import Session
 from core.db.threads import run_in_session
+from features.marketplace import mcp_copies
 from features.marketplace import mcp_listing
 from features.marketplace import mcp_validation
 from features.marketplace import mcp_versions
@@ -188,6 +189,7 @@ def record_publication(
         }
     row.headers = encrypt_mcp_headers(decrypt_mcp_headers(row.headers))
     db.commit()
+    mcp_copies.reconcile_market_copies(db, item.slug)
     ml.set_listing_enabled(db, ml.KIND_MCP, item.slug, True, updated_by=publisher_name)
     refresh_mcp_caches()
     return mcp_listing.item_dict(db, item, mcp_versions.version_for_item(db, item), installed=link_as_installation)

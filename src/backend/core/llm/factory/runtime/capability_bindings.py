@@ -33,13 +33,22 @@ async def device_bindings(
 ):
     _log.info("[factory] +%s capability snapshot prepared", _elapsed())
 
+    # A connector picked by the copy of a marketplace MCP that was not loaded
+    # resolves to the copy that was.
+    _copy_aliases = factory_mcp_config.market_copy_aliases(
+        enabled_mcp_keys,
+        owned_servers=owned_mcp_servers,
+        bridge_servers=bridge_mcp_servers,
+    )
     _required_connector_server_keys = factory_mcp_config._required_mcp_server_keys(
         required.connector_ids,
         enabled_mcp_keys,
+        _copy_aliases,
     )
     _required_plugin_server_keys = factory_mcp_config._required_mcp_server_keys(
         required.plugin_mcp_ids,
         enabled_mcp_keys,
+        _copy_aliases,
     )
     if required.connector_ids and not _required_connector_server_keys:
         _note_unavailable("所选连接器当前不可用或未获授权：" + ", ".join(required.connector_ids))

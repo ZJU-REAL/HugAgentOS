@@ -591,3 +591,8 @@ Rebuild and distribute desktop packages to deliver this change. Updating the web
 Browser tools in local conversations execute on the device. Plugins still come from the current cloud account. Worker and Canvas files share the synchronized content hash; execution location does not change plugin ownership.
 The local MCP binds resources to the local user, conversation and selected installation. Missing or mismatched conversations, disabled plugins and invalid packages stop execution without falling back to a cloud browser.
 Existing definition-only snapshots require another capability sync. Update both the cloud bundle exporter and the bundled desktop backend; updating only the cloud or website does not replace the old client's invocation path.
+
+### Local execution service startup
+
+If an older client reports that its local execution service is not ready during initialization, upgrade to a full installer containing the subprocess logging fix.
+Execution and local MCP services can then initialize logging and start without a console window. A cloud-only update does not replace an installed local backend. Keep existing accounts, conversations, and local files.

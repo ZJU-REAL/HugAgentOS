@@ -12,7 +12,7 @@ async def entry_policy(request: AgentRequest):
     """Normalize execution scopes and initialize per-construction capability state."""
     from core.llm.api_runtime.project import bind_project_api_runtime
 
-    await bind_project_api_runtime(request)
+    _project_api_scope = await bind_project_api_runtime(request)
     required = RequiredCapabilities()
     sticky = StickyCapabilities()
     import asyncio
@@ -66,6 +66,14 @@ async def entry_policy(request: AgentRequest):
         request.workflow_mode = request.plan_mode = request.turbo_mode = False
         request.mode_spec = None
         request.sandbox_session_id = _api_scope.sandbox_session_id
+
+    from core.sandbox.permissions.authority import resolve_run_authority
+
+    _authority = resolve_run_authority(
+        evaluation=_eval_scope is not None,
+        credential=_api_scope is not None or _project_api_scope is not None,
+        profile=bool(request.profile),
+    )
 
     # The shared subagent role is an administrator override. Resolve it before
     # tools/vision/manifests so all surfaces use the same effective provider.
@@ -165,6 +173,7 @@ async def entry_policy(request: AgentRequest):
 
     return (
         _api_scope,
+        _authority,
         _capability_notices,
         _capability_run_key,
         _elapsed,

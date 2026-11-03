@@ -16,7 +16,6 @@ export function PersonalSchedules({ items, onDone, onError }: { items: PersonalS
     try { await personalApi.deleteSchedule(id); await onDone(); } catch (exc) { onError(exc); } finally { setDeleting(undefined); }
   }
   return <>
-    {!items.length && <p className="pa-side-empty">{t('暂无定时任务')}</p>}
     <ul className="pa-activity">{items.map(item => <li key={item.id} className="pa-schedule" data-testid="pa-schedule">
       <Tooltip title={(item.cron ? t('重复') + ' · ' + item.cron : t('一次')) + ' · ' + item.timezone + ' — ' + item.instruction} placement="left" mouseEnterDelay={0.4}>
         <button type="button" className="pa-activity-row" onClick={() => setEditing(item)}>

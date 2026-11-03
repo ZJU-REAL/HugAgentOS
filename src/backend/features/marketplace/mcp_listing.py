@@ -5,6 +5,7 @@ from features.marketplace.models import McpMarketInstallation, McpMarketItem, Mc
 from core.infra.exceptions import ResourceNotFoundError
 from features.marketplace import edition as ml
 from sqlalchemy.orm import Session
+from features.marketplace import mcp_copies
 from features.marketplace import mcp_credentials
 from features.marketplace import mcp_oauth_clients
 from features.marketplace import mcp_state
@@ -29,6 +30,7 @@ def item_dict(
     version: McpMarketVersion,
     *,
     installed: bool = False,
+    system_provided: bool = False,
 ) -> Dict[str, Any]:
     auth_schema = list(version.auth_schema or [])
     auth_config = mcp_validation.normalize_auth_config(version.auth_config, auth_schema)
@@ -76,6 +78,8 @@ def item_dict(
         "status_reason": item.status_reason or "",
         "last_verified_at": item.last_verified_at.isoformat() if item.last_verified_at else None,
         "installed": installed,
+        # An enabled system copy already serves every user.
+        "system_provided": system_provided,
         "deletable": True,
         "created_at": item.created_at.isoformat() if item.created_at else None,
         "updated_at": item.updated_at.isoformat() if item.updated_at else None,
@@ -94,8 +98,15 @@ def list_market_items(
         query = query.filter(McpMarketItem.status == "active")
     rows = query.order_by(McpMarketItem.updated_at.desc(), McpMarketItem.slug).all()
     installed = installed_slug_set(db, owner_user_id)
+    system_provided = mcp_copies.system_server_ids(db)
     items = [
-        item_dict(db, row, mcp_versions.version_for_item(db, row), installed=row.slug in installed)
+        item_dict(
+            db,
+            row,
+            mcp_versions.version_for_item(db, row),
+            installed=row.slug in installed,
+            system_provided=row.slug in system_provided,
+        )
         for row in rows
     ]
     items = ml.annotate_and_filter(
@@ -132,6 +143,7 @@ def get_market_item(
         item,
         mcp_versions.version_for_item(db, item),
         installed=slug in installed_slug_set(db, owner_user_id),
+        system_provided=slug in mcp_copies.system_server_ids(db),
     )
     state = ml.annotate_and_filter(
         db,

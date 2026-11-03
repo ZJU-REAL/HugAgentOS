@@ -153,7 +153,9 @@ def _load_chat_history(
     """
     # 1. Try DB first — same entry point as the main chat (checkpoint-aware +
     #    structured tool replay); long sessions get the compacted history rather than the full raw text.
-    if chat_id:
+    from core.db.reserved_chats import reserved_chat_owner
+    # A module's reserved conversation (a Personal Agent task Worker) is not an ordinary chat.
+    if chat_id and not reserved_chat_owner(chat_id):
         try:
             from core.chat.compaction.service import load_session_history
 

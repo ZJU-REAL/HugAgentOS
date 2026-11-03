@@ -9,19 +9,10 @@
 .pa-ws-tree{display:flex;flex-direction:column;width:300px;flex-shrink:0;min-height:0;border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-bg-container);overflow:hidden}
 .pa-ws-treeHead{padding:10px 14px;border-bottom:1px solid var(--color-border);font-family:var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);font-size:12px;color:var(--color-text-tertiary)}
 .pa-ws-treeBody{flex:1;min-height:0;overflow:auto;padding:6px}
-.pa-ws-tree .ant-tree{background:transparent}
-.pa-ws-tree .ant-tree-treenode{width:100%;padding:0;margin-bottom:2px}
-.pa-ws-tree .ant-tree-node-content-wrapper{flex:1;min-width:0;display:flex;align-items:center;min-height:30px;padding:0 8px;border-radius:var(--radius-sm)}
-.pa-ws-tree .ant-tree-title{flex:1;min-width:0}
-/* Folder rows toggle on click and the folder icon shows open/closed state, so the expand arrow is redundant. */
-.pa-ws-tree .ant-tree-switcher{display:none}
-.pa-ws-tree .ant-tree-node-content-wrapper.ant-tree-node-selected{background:var(--color-primary-bg)}
-.pa-ws-tree .ant-tree-node-selected .pa-ws-nodeName{color:var(--color-primary);font-weight:500}
-.pa-ws-node{display:flex;align-items:center;gap:8px;min-width:0;line-height:20px}
-.pa-ws-nodeIcon{flex-shrink:0;display:inline-flex;font-size:14px;color:var(--color-text-tertiary)}
-.pa-ws-node--dir .pa-ws-nodeIcon{color:var(--color-warning)}
-.pa-ws-nodeName{flex-shrink:0;white-space:nowrap;color:var(--color-text)}
-.pa-ws-nodeRole{flex:1;min-width:0;font-size:12px;color:var(--color-text-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Tree rows, icons and selection come from the shared .jx-spaceTree (My Space / team space). */
+.pa-ws-node{display:flex;align-items:center;gap:8px;min-width:0}
+.pa-ws-node .jx-spaceTree-name{flex-shrink:0}
+.pa-ws-nodeRole{flex:1;min-width:0;font-size:12px;font-weight:400;color:var(--color-text-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 .pa-ws-viewer{display:flex;flex-direction:column;flex:1;min-width:0;border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-bg-container)}
 .pa-ws-viewerHead{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--color-border)}

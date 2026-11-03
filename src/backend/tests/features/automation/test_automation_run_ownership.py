@@ -194,7 +194,7 @@ async def test_recovery_stops_before_claiming_next_run_after_lease_loss(factory,
     calls = []
     adopted = []
 
-    async def resume(*args, run_id):
+    async def resume(*args, run_id, **kwargs):
         calls.append(run_id)
         await state.put(lease.key, "replacement", ttl=60)
         with factory() as db:
@@ -241,7 +241,7 @@ async def test_recovery_reloads_child_link_created_before_claim(factory, monkeyp
 
     resumed = []
 
-    async def resume(*args, run_id):
+    async def resume(*args, run_id, **kwargs):
         resumed.append(run_id)
 
     monkeypatch.setattr(AutomationRunRepository, "claim", link_then_claim)

@@ -55,6 +55,9 @@ def _load_owned_capability_items(db, user_id: str) -> tuple:
         logger.warning("Failed to load owned skills for %s: %s", user_id, exc)
 
     try:
+        from features.marketplace.mcp_copies import is_superseded, system_server_ids
+
+        system_ids = system_server_ids(db)
         for row in (
             db.query(AdminMcpServer)
             .filter(AdminMcpServer.owner_user_id == user_id)
@@ -84,6 +87,8 @@ def _load_owned_capability_items(db, user_id: str) -> tuple:
                     "created_at": row.created_at.isoformat() if row.created_at else None,
                     "marketplace_installed": bool(extra_config.get("market_slug"))
                     or row.server_id in marketplace_server_ids,
+                    # The system copy of the same marketplace MCP is used instead.
+                    "superseded_by_system": is_superseded(row, system_ids),
                 }
             )
     except Exception as exc:

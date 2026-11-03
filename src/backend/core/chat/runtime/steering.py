@@ -37,6 +37,12 @@ async def apply_steer(turn, chunk):
         if steer_id
         else f"msg_{uuid.uuid4().hex[:16]}"
     )
+    batch = [item for item in (chunk.get("batch") or []) if isinstance(item, dict)]
+    batch_claims = [
+        (str(item.get("queue_id") or "")[:64], str(item.get("claim_owner") or "")[:160])
+        for item in batch
+        if item.get("queue_id") and item.get("claim_owner")
+    ]
     had_assistant_output = bool(turn.full_response or turn.tool_calls_log)
     if steer_message:
         # Close the visible assistant segment before inserting the
@@ -48,13 +54,18 @@ async def apply_steer(turn, chunk):
                 from core.chat.steer_queue import SteerQueue
 
                 owned_run = db.get(models.ChatRun, turn.run_id)
-                SteerQueue.mark_applied_in_session(
-                    db,
-                    queue_id=steer_queue_id,
-                    claim_owner=steer_claim_owner,
-                    applied_run_id=turn.run_id,
-                    applied_operation_seq=int(owned_run.operation_seq or 0) + 1,
-                )
+                # A batched delivery (SteeringHook take_batch) was injected
+                # as one item; every leased item it carries is applied here.
+                for queue_id, claim_owner in batch_claims or [
+                    (steer_queue_id, steer_claim_owner)
+                ]:
+                    SteerQueue.mark_applied_in_session(
+                        db,
+                        queue_id=queue_id,
+                        claim_owner=claim_owner,
+                        applied_run_id=turn.run_id,
+                        applied_operation_seq=int(owned_run.operation_seq or 0) + 1,
+                    )
             else:
                 owned_run = db.get(models.ChatRun, turn.run_id)
             chat_service = services_ChatService_module.ChatService(db)
@@ -98,6 +109,11 @@ async def apply_steer(turn, chunk):
                     "steer_id": steer_id,
                     "steer_queue_id": steer_queue_id or None,
                     "steer_seq": steer_seq or None,
+                    **(
+                        {"steer_queue_ids": [queue_id for queue_id, _ in batch_claims]}
+                        if batch_claims
+                        else {}
+                    ),
                 },
                 commit=False,
             )
@@ -167,6 +183,14 @@ async def apply_steer(turn, chunk):
             "steer_id": steer_id,
             "queue_id": steer_queue_id or None,
             "steer_seq": steer_seq or None,
+            **(
+                {
+                    "steer_ids": [str(item.get("steer_id") or "") for item in batch],
+                    "queue_ids": [queue_id for queue_id, _ in batch_claims],
+                }
+                if batch
+                else {}
+            ),
             "message": steer_message,
             "message_id": steer_message_id,
             "previous_assistant_message_id": (

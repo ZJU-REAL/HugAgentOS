@@ -5,4 +5,6 @@ def task_view(row):
             "pending_approval": (row.checkpoint or {}).get("pending_approval"),
             "uncertain_actions": [key for key, value in (row.checkpoint or {}).get("action_receipts", {}).items() if row.status == "waiting" and (value.get("status") == "uncertain" or value.get("outcome_unknown"))],
             "title": row.label_text, "progress": ((row.checkpoint or {}).get("progress") or {}).get("summary"),
+            "question": ((row.checkpoint or {}).get("pending_question") or {}).get("text") if row.status == "waiting" else None,
+            "outcome": (row.checkpoint or {}).get("outcome"),
             "created_at": row.created_at.isoformat(), "updated_at": row.updated_at.isoformat()}

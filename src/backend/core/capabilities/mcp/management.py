@@ -250,6 +250,10 @@ async def _resolve_public_dns_via_doh(hostname: str) -> set[str]:
     return set()
 
 
+class McpHostResolutionError(BadRequestError):
+    """The MCP host could not be resolved right now; says nothing about its safety."""
+
+
 async def validate_remote_mcp_url(
     url: str,
     *,
@@ -294,7 +298,7 @@ async def validate_remote_mcp_url(
             timeout=_DNS_CHECK_TIMEOUT_S,
         )
     except Exception as exc:  # noqa: BLE001
-        raise BadRequestError(message=f"MCP 服务域名解析失败：{type(exc).__name__}") from exc
+        raise McpHostResolutionError(message=f"MCP 服务域名解析失败：{type(exc).__name__}") from exc
     addresses = {str(info[4][0]) for info in infos if info and info[4]}
     if not addresses:
         raise BadRequestError(message="MCP 服务域名解析到了本机、内网或保留地址")

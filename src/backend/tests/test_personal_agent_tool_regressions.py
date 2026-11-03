@@ -75,26 +75,21 @@ async def test_desktop_lease_release_allows_next_action_without_releasing_anothe
 
 @pytest.mark.asyncio
 async def test_cancellation_during_approved_dispatch_stays_cancelled(sessions, monkeypatch):
-    import time
-    from contextlib import asynccontextmanager
-    from personal_agent.tasks import worker as module
-    from personal_agent.models import PersonalWorkItem
-    monkeypatch.setattr(module, "SessionLocal", sessions)
-    monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
-    @asynccontextmanager
-    async def binding(**kwargs): yield object()
-    monkeypatch.setattr(module, "durable_run_binding", binding)
-    worker = module.PersonalAgentWorker()
+    from personal_agent.models import PersonalAssignment, PersonalWorkItem
+    from personal_agent.worker import executor as module
+    from tests.test_personal_agent_worker import make_world
+    world = make_world(sessions, monkeypatch)
     with sessions() as db:
         task=AgentContext(db,"owner").tasks.submit("Send file","one")
-        row=db.get(PersonalWorkItem,task["id"])
-        row.status,row.owner,row.run_id,row.lease_until="running",worker.identity,"run",time.time()+90
-        row.checkpoint={"task_wait_reason":"Device offline"};db.commit()
     async def dispatch(ident, uid):
         with sessions() as db:AgentContext(db,uid).tasks.cancel(ident)
-    monkeypatch.setattr(worker,"dispatch_approved",dispatch)
-    await worker.run(task["id"])
-    with sessions() as db:assert db.get(PersonalWorkItem,task["id"]).status=="cancelled"
+    monkeypatch.setattr(module,"dispatch_approved",dispatch)
+    asg = world.executor.claim()
+    await world.executor.launch(asg)
+    with sessions() as db:
+        assert db.get(PersonalWorkItem,task["id"]).status=="cancelled"
+        assert db.get(PersonalAssignment,asg).ended_reason=="stopped"
+    assert world.started == []
 
 
 @pytest.mark.asyncio

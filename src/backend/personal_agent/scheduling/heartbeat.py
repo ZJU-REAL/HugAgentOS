@@ -1,7 +1,7 @@
 """Heartbeat: the agent starts itself at an interval and checks the user's checklist.
 
 The checklist is HEARTBEAT.md in the workspace. A due beat becomes one turn of the agent
-in the main conversation (see front.py), like a finished task. The turn usually ends
+in the main conversation (see conversation/router/), like a finished task. The turn usually ends
 quiet; it sends a short alert only when an item needs the user. Checks that need tools
 (email, web, devices) go to one background task. Settings and state live in
 config["heartbeat"]; there is no table of its own.
@@ -204,8 +204,8 @@ def admit(db, agent, key, slot, now, manual=False):
     label = local(now, user_zone(agent.config)).strftime("%Y-%m-%d %H:%M (%A)")
     message = ChatMessageRepository(db).create({"message_id": "pa_hb_" + uuid.uuid4().hex, "chat_id": agent.chat_id,
         "role": "system", "content": "[Heartbeat] " + label, "extra_data": {"event": EVENT, "slot": slot, "manual": manual}}, commit=False)
-    db.add(PersonalMessageInbox(message_id=message.message_id, agent_id=agent.id, request_key=key[:100],
-        payload={"kind": EVENT, "slot": slot, "manual": manual}))
+    from personal_agent.conversation.router.triggers import enqueue
+    enqueue(db, agent, kind="heartbeat", message=message, request_key=key, payload={"kind": EVENT, "slot": slot, "manual": manual})
     db.flush()
     return message.message_id
 
@@ -352,7 +352,7 @@ def prompt_block(db, agent):
 def cleanup(db, now=None):
     """Remove the event rows of quiet beats after a day. Their inbox rows go with them."""
     cutoff = (now or utc_now()) - timedelta(seconds=KEEP_QUIET_SEC)
-    rows = db.scalars(select(PersonalMessageInbox).where(PersonalMessageInbox.request_key.startswith(KEY_PREFIX),
+    rows = db.scalars(select(PersonalMessageInbox).where(PersonalMessageInbox.kind == EVENT,
         PersonalMessageInbox.status.in_(("done", "failed")), PersonalMessageInbox.created_at < cutoff).limit(500)).all()
     removed = 0
     for row in rows:

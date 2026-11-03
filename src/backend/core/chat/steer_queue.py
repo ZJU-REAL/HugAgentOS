@@ -340,6 +340,87 @@ class SteerQueue:
                     return _record(claimed)
         return None
 
+    def claim_batch(
+        self,
+        target_run_id: str,
+        *,
+        owner: str,
+        max_items: int = 20,
+        max_chars: int = 20_000,
+        lease_seconds: int = 90,
+    ) -> list[SteerRecord]:
+        """Lease every claimable steer for one boundary, oldest first.
+
+        Stops before the item that would exceed ``max_items`` or ``max_chars``;
+        the first item is always taken so an oversized one cannot stall the
+        queue. Items lost to a concurrent claimer are skipped, and what is left
+        stays accepted for the next boundary.
+        """
+        if not owner:
+            raise ValueError("claim owner is required")
+        if int(max_items) < 1:
+            raise ValueError("max_items must be at least 1")
+        now = self._clock()
+        expires = now + timedelta(seconds=max(1, int(lease_seconds)))
+        claimable = or_(
+            ChatSteerQueueItem.status == "accepted",
+            and_(
+                ChatSteerQueueItem.status == "claimed",
+                ChatSteerQueueItem.lease_expires_at <= now,
+            ),
+        )
+        with self._sessions() as db:
+            candidates = (
+                db.query(ChatSteerQueueItem.queue_id, ChatSteerQueueItem.message)
+                .filter(
+                    ChatSteerQueueItem.target_run_id == target_run_id,
+                    ChatSteerQueueItem.delivery_mode == "steer",
+                    claimable,
+                )
+                .order_by(ChatSteerQueueItem.steer_seq)
+                .limit(int(max_items))
+                .all()
+            )
+            chosen: list[str] = []
+            chars = 0
+            for queue_id, message in candidates:
+                chars += len(str(message or ""))
+                if chosen and chars > int(max_chars):
+                    break
+                chosen.append(str(queue_id))
+            claimed: list[str] = []
+            for queue_id in chosen:
+                affected = (
+                    db.query(ChatSteerQueueItem)
+                    .filter(ChatSteerQueueItem.queue_id == queue_id, claimable)
+                    .update(
+                        {
+                            ChatSteerQueueItem.status: "claimed",
+                            ChatSteerQueueItem.lease_owner: owner,
+                            ChatSteerQueueItem.lease_expires_at: expires,
+                            ChatSteerQueueItem.claimed_at: now,
+                            ChatSteerQueueItem.delivery_attempt: (
+                                ChatSteerQueueItem.delivery_attempt + 1
+                            ),
+                            ChatSteerQueueItem.updated_at: now,
+                        },
+                        synchronize_session=False,
+                    )
+                )
+                if affected:
+                    claimed.append(queue_id)
+            db.commit()
+            if not claimed:
+                return []
+            db.expire_all()
+            rows = (
+                db.query(ChatSteerQueueItem)
+                .filter(ChatSteerQueueItem.queue_id.in_(claimed))
+                .order_by(ChatSteerQueueItem.steer_seq)
+                .all()
+            )
+            return [_record(row) for row in rows]
+
     @staticmethod
     def mark_applied_in_session(
         db: Session,
@@ -375,6 +456,20 @@ class SteerQueue:
         if not affected:
             raise SteerClaimLost(queue_id)
         return True
+
+    @staticmethod
+    def retarget_waiting(db: Session, *, chat_id: str, from_runs, to_run: str) -> int:
+        """Point steers still waiting for ``from_runs`` at ``to_run``; returns how many moved."""
+        return (
+            db.query(ChatSteerQueueItem)
+            .filter(
+                ChatSteerQueueItem.chat_id == chat_id,
+                ChatSteerQueueItem.status == "accepted",
+                ChatSteerQueueItem.delivery_mode == "steer",
+                ChatSteerQueueItem.target_run_id.in_(list(from_runs)),
+            )
+            .update({ChatSteerQueueItem.target_run_id: to_run}, synchronize_session=False)
+        )
 
     @staticmethod
     def consume_next_handoff_in_session(

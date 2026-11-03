@@ -11,6 +11,7 @@ from core.llm.factory.models import RequiredCapabilities
 from core.llm.factory.request import AgentRequest
 from core.llm.mcp.manager import own_factory_client
 from core.llm.factory.tools.definitions import ToolAssembly
+from core.sandbox.permissions.authority import ApprovalAuthority
 
 
 def _leaf_errors(exc):
@@ -41,7 +42,7 @@ def _gate_client_tools(resource, specs):
 async def mcp_connections(
     request: AgentRequest,
     *,
-    _api_scope,
+    _authority,
     _elapsed,
     _log,
     _note_unavailable,
@@ -86,7 +87,7 @@ async def mcp_connections(
         and not request.plan_mode
         and not _is_channel_run
         and not request.automation_run
-        and _api_scope is None
+        and _authority is not ApprovalAuthority.CREDENTIAL
     )
 
     if not request.disable_tools and enabled_servers:
@@ -104,6 +105,7 @@ async def mcp_connections(
                          if request.current_user_id and request.chat_id and not request.isolated else None)
                 resource = await discover(key, cfg, interactions=interactions, scope=scope)
                 resource.client_session_lease = cfg.get("client_session_lease")
+                resource.display_name = cfg.get("display_name") or key
                 return own_factory_client(resource)
             except asyncio.CancelledError:
                 raise

@@ -5,7 +5,12 @@ from typing import Any, Dict, Optional
 from core.db.models import AdminMcpServer
 from features.marketplace.models import McpMarketItem
 from core.infra.exceptions import BadRequestError, ResourceNotFoundError
-from core.capabilities.mcp.management import probe_mcp_connectivity, tool_snapshot_hash, validate_remote_mcp_url
+from core.capabilities.mcp.management import (
+    McpHostResolutionError,
+    probe_mcp_connectivity,
+    tool_snapshot_hash,
+    validate_remote_mcp_url,
+)
 from core.db.threads import run_in_session
 from sqlalchemy.orm import Session
 from features.marketplace import mcp_administration
@@ -89,6 +94,18 @@ def _record_endpoint(db: Session, slug: str, error: Optional[str]) -> Dict[str, 
     return _settle(db, item, version, "suspended", f"官方端点安全复检失败：{error}")
 
 
+def _record_unresolved(db: Session, slug: str, error: str) -> Dict[str, Any]:
+    """A failed DNS lookup is usually our own network; keep the verdict for the next cycle.
+
+    Suspending here would be permanent, because the monitor never rechecks
+    suspended listings.
+    """
+    item, version = _listing(db, slug)
+    result = mcp_listing.item_dict(db, item, version, installed=False)
+    result["revalidation_error"] = error
+    return result
+
+
 def _record_unsafe(db: Session, slug: str, error: str) -> Dict[str, Any]:
     mcp_administration.set_suspended(db, slug, suspended=True, reason=f"远程地址安全复检失败：{error}")
     item, version = _listing(db, slug)
@@ -129,6 +146,8 @@ async def revalidate_market_item(slug: str, *, accept_changes: bool = False) -> 
         try:
             await validate_remote_mcp_url(plan["url"], require_https=False)
             error = None
+        except McpHostResolutionError as exc:
+            return await run_in_session(_record_unresolved, slug, str(exc))
         except BadRequestError as exc:
             error = str(exc)
         return await run_in_session(_record_endpoint, slug, error)
@@ -138,6 +157,8 @@ async def revalidate_market_item(slug: str, *, accept_changes: bool = False) -> 
             allow_private_network=plan["allow_private_network"],
             require_https=False,
         )
+    except McpHostResolutionError as exc:
+        return await run_in_session(_record_unresolved, slug, str(exc))
     except BadRequestError as exc:
         return await run_in_session(_record_unsafe, slug, str(exc))
     target = plan["target"]

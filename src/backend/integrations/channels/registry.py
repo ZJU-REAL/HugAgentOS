@@ -80,6 +80,7 @@ def _ensure_builtin_loaded() -> None:
             ("dingtalk", "integrations.channels.adapters.dingtalk", "DingTalkAdapter"),
             ("wecom", "integrations.channels.adapters.wecom", "WeComAdapter"),
             ("weixin", "integrations.channels.adapters.weixin", "WeixinAdapter"),
+            ("slack", "integrations.channels.adapters.slack", "SlackAdapter"),
         ):
             try:
                 mod = __import__(module, fromlist=[cls_name])

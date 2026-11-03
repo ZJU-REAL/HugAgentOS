@@ -76,6 +76,22 @@ class LarkDelivery:
             return SendResult.ok(message_id)
         return SendResult.fail("unknown", f"code={data.get('code')} msg={data.get('msg')}")
 
+    async def recall_message(self, conn: Any, inbound: InboundMsg, message_id: str) -> SendResult:
+        """Recall one of the bot's own messages (Feishu allows it for bot messages within its recall window)."""
+        if not message_id:
+            return SendResult.fail("bad_format", "缺少 message_id")
+        try:
+            token = await self._tenant_token(conn.app_id, self._app_secret(conn))
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.delete(f"{LARK_API_BASE}/open-apis/im/v1/messages/{message_id}",
+                                           headers={"Authorization": f"Bearer {token}"})
+            data = resp.json()
+        except Exception as exc:  # noqa: BLE001
+            return SendResult.fail("transient", str(exc))
+        if data.get("code") == 0:
+            return SendResult.ok(message_id)
+        return SendResult.fail("unknown", f"code={data.get('code')} msg={data.get('msg')}")
+
     async def download_resource(
         self, conn: Any, inbound: InboundMsg, attachment: Dict[str, Any]
     ) -> Optional[bytes]:

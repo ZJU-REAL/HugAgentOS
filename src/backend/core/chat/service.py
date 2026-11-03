@@ -64,6 +64,11 @@ class ChatService:
     ) -> Optional[Tuple[ChatSession, ChatAccessLevel]]:
         return session_operations.get_session_with_access(self, chat_id, user_id)
 
+    def get_runtime_session_with_access(
+        self, chat_id: str, user_id: str
+    ) -> Optional[Tuple[ChatSession, ChatAccessLevel]]:
+        return session_operations.get_runtime_session_with_access(self, chat_id, user_id)
+
     def update_session_fields(
         self,
         chat_id: str,

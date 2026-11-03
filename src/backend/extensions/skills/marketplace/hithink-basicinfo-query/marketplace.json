@@ -1,0 +1,31 @@
+{
+  "slug": "hithink-basicinfo-query",
+  "entry_name": "hithink-basicinfo-query",
+  "version": "1.0.0",
+  "icon_url": "/home/brands/iwencai.png",
+  "downloads": 0,
+  "stars": 0,
+  "featured": false,
+  "display_name": "问财 · 基本资料查询",
+  "summary": "查询全品类标的（股票、指数、基金、期货、期权、转债、债券、理财、保险等）的基础信息、发行主体、机构资料、费率、上市地点、上市日期等静态信息，支持自然语言问句输入，返回相关基本资料数据结果。当用户询问股票基本信息、基金资料、期货合约信息、债券资料、费率信息、上市日期等基本资料查询问题时，必须使用此技能。",
+  "category": "数据分析",
+  "tags": [
+    "同花顺",
+    "问财",
+    "金融数据",
+    "基本资料查询"
+  ],
+  "author": "同花顺问财",
+  "source": "iwencai",
+  "source_url": "https://www.iwencai.com/skillhub",
+  "required_secrets": [
+    {
+      "key": "IWENCAI_API_KEY",
+      "label": "问财 API Key",
+      "required": true,
+      "placeholder": "请输入 IWENCAI_API_KEY",
+      "help": "登录 https://www.iwencai.com/skillhub ，打开任一技能详情，在「安装方式 - Agent 用户」中复制 IWENCAI_API_KEY。"
+    }
+  ],
+  "requires_api_key": true
+}

@@ -8,6 +8,7 @@ from core.harness.registry import hook_factories
 from core.harness.hooks import Decision, HookRejected, HookSpec, HookStage, Invocation
 from core.llm.factory.request import AgentRequest
 from core.llm.factory.runtime.middleware_stack import middleware_stack
+from core.sandbox.permissions.authority import ApprovalAuthority
 
 
 @pytest.mark.asyncio
@@ -28,7 +29,7 @@ async def test_factory_hooks_reach_each_agent(monkeypatch):
     for run_id in ("first", "second"):
         toolkit = Mock(function_tools=[], permission_specs={})
         _, adapters, _, _ = await middleware_stack(
-            AgentRequest(run_id=run_id), _api_scope=None, _eval_scope=None,
+            AgentRequest(run_id=run_id), _api_scope=None, _authority=ApprovalAuthority.ACCOUNT, _eval_scope=None,
             _build_toolkit=lambda: toolkit, _interactive=True, _ontology_runtime={},
             _plan_tool_enabled=False, _proj_scope=None, _sbx_sess=None,
             _subagent_model_pinned=False, _tool_approval_available=False,

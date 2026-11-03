@@ -118,7 +118,11 @@ class ChatSequencer:
                 count=2,
             )
             from core.chat.service import ChatService
-            access = ChatService(self.db).get_session_with_access(chat_id, user_id)
+            from core.db.reserved_chats import runtime_chat
+            service = ChatService(self.db)
+            # A module's runtime chat (ordinary chat surfaces refuse it before it gets here).
+            access = (service.get_runtime_session_with_access if runtime_chat(chat_id)
+                      else service.get_session_with_access)(chat_id, user_id)
             if access is None or access[1] not in ("admin", "edit"):
                 raise PermissionError("Conversation is not writable")
             user_message = ChatMessage(

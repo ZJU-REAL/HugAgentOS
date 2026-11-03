@@ -19,7 +19,10 @@ def view(row):
 
 def can_edit(db, chat_id, user_id):
     from core.chat.service import ChatService
-    pair = ChatService(db).get_session_with_access(chat_id, user_id)
+    from core.db.reserved_chats import runtime_chat
+    service = ChatService(db)
+    pair = (service.get_runtime_session_with_access if runtime_chat(chat_id)
+            else service.get_session_with_access)(chat_id, user_id)
     return pair is not None and pair[1] in ("admin", "edit")
 
 def create(req, chat_id, source_run_id, owner=None, process_id=None):

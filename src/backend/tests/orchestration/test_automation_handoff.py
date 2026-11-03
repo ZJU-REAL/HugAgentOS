@@ -46,7 +46,7 @@ async def test_scheduled_outcome_follows_the_main_executor_handoff(live_env, mon
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_send_notification", noop)
+    monkeypatch.setattr("orchestration.automations.automation_delivery.notify_inapp", noop)
     executing = asyncio.create_task(execute_queued(scheduler, task_id, "owner"))
     try:
         await asyncio.wait_for(entered.wait(), 5)

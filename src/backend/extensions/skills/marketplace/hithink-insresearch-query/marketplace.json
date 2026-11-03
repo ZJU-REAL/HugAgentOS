@@ -1,0 +1,31 @@
+{
+  "slug": "hithink-insresearch-query",
+  "entry_name": "hithink-insresearch-query",
+  "version": "1.0.0",
+  "icon_url": "/home/brands/iwencai.png",
+  "downloads": 0,
+  "stars": 0,
+  "featured": false,
+  "display_name": "问财 · 机构研究与评级查询",
+  "summary": "查询研报评级、业绩预测、ESG、信用评级、主体评级、基金评级、券商金股等机构观点数据，支持自然语言问句输入，返回相关机构研究数据结果。当用户询问研报评级、业绩预测、ESG评级、信用评级、主体评级、基金评级、券商金股等机构研究数据查询问题时，必须使用此技能。",
+  "category": "数据分析",
+  "tags": [
+    "同花顺",
+    "问财",
+    "金融数据",
+    "机构研究与评级查询"
+  ],
+  "author": "同花顺问财",
+  "source": "iwencai",
+  "source_url": "https://www.iwencai.com/skillhub",
+  "required_secrets": [
+    {
+      "key": "IWENCAI_API_KEY",
+      "label": "问财 API Key",
+      "required": true,
+      "placeholder": "请输入 IWENCAI_API_KEY",
+      "help": "登录 https://www.iwencai.com/skillhub ，打开任一技能详情，在「安装方式 - Agent 用户」中复制 IWENCAI_API_KEY。"
+    }
+  ],
+  "requires_api_key": true
+}

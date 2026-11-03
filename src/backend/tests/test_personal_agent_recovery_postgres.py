@@ -11,8 +11,9 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.schema import CreateSchema, CreateTable, DropSchema
 
-from personal_agent.models import PersonalAgent, PersonalWorkItem
-from personal_agent.tasks import worker as module
+from personal_agent.models import PersonalAgent, PersonalAssignment, PersonalWorkItem
+from personal_agent.tasks import worker as states
+from personal_agent.worker import executor as module
 
 
 @pytest.fixture
@@ -31,9 +32,9 @@ def recovery_db(monkeypatch):
     engine = root.execution_options(schema_translate_map={None: schema})
     try:
         with engine.begin() as conn:
-            # These two real ORM tables suffice for lease recovery. External
+            # These real ORM tables suffice for lease recovery. External
             # identity/chat FKs are unrelated to this isolated concurrency test.
-            for table in (PersonalAgent.__table__, PersonalWorkItem.__table__):
+            for table in (PersonalAgent.__table__, PersonalWorkItem.__table__, PersonalAssignment.__table__):
                 conn.execute(CreateTable(table, include_foreign_key_constraints=[]))
         factory = sessionmaker(bind=engine, expire_on_commit=False)
         monkeypatch.setattr(module, "SessionLocal", factory)
@@ -56,7 +57,7 @@ def recovery_db(monkeypatch):
 def test_second_recover_skips_task_locked_by_first(recovery_db, monkeypatch):
     entered, release = threading.Event(), threading.Event()
     calls = []
-    original = module.interrupt
+    original = states.interrupt
 
     def interrupt(db, row, reason):
         calls.append(row.id)
@@ -65,12 +66,12 @@ def test_second_recover_skips_task_locked_by_first(recovery_db, monkeypatch):
             assert release.wait(4), "Test barrier was not released"
         return original(db, row, reason)
 
-    monkeypatch.setattr(module, "interrupt", interrupt)
+    monkeypatch.setattr(states, "interrupt", interrupt)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        first = pool.submit(module.PersonalAgentWorker().recover)
+        first = pool.submit(module.Executor().recover)
         try:
             assert entered.wait(3)
-            second = pool.submit(module.PersonalAgentWorker().recover)
+            second = pool.submit(module.Executor().recover)
             second.result(timeout=3)
             assert calls == ["task"], "Two recoverers processed the same expired lease"
         finally:
@@ -93,7 +94,7 @@ def test_recovery_cannot_overwrite_concurrently_reclaimed_lease(recovery_db):
         row.run_id = "new-run"
         row.lease_until = time.time() + 90
         row.checkpoint = {"action_receipts": {"send": {"status": "uncertain"}}}
-        future = pool.submit(module.PersonalAgentWorker().recover)
+        future = pool.submit(module.Executor().recover)
         skipped = False
         try:
             future.result(timeout=2)
@@ -103,7 +104,7 @@ def test_recovery_cannot_overwrite_concurrently_reclaimed_lease(recovery_db):
         finally:
             owner.commit()
             future.result(timeout=4)
-    module.PersonalAgentWorker().recover()
+    module.Executor().recover()
     with recovery_db() as db:
         row = db.get(PersonalWorkItem, "task")
         assert (row.status, row.owner, row.run_id) == ("running", "new-worker", "new-run")

@@ -7,7 +7,7 @@ import { PersonalComputers } from './computer/PersonalComputers';
 import { RecentActivity } from './tasks/RecentActivity';
 import { PersonalSchedules } from './scheduling/PersonalSchedules';
 import { PersonalOutputs } from './workspace/PersonalOutputs';
-import { isTerminal, needsUser } from './tasks/taskState';
+import { attentionCount, isTerminal } from './tasks/taskState';
 import { type PersonalMonitor, type PersonalTask, type PersonalConversation } from './api';
 import { t } from '../../i18n';
 
@@ -25,16 +25,17 @@ interface PersonalSideProps {
   onOpenTask: (task: PersonalTask) => void;
   onRefresh: () => Promise<void>;
   onError: (exc: unknown) => void;
+  now: number;
 }
 
 /** Status, channels, computers, activity, schedules and outputs, in the order a user scans them. */
-export function PersonalSide({ monitor, name, open, onClose, onProfile, onSettings, onOpenTask, onRefresh, onError, conversations = [], selectedChatId, onSelectChat }: PersonalSideProps) {
+export function PersonalSide({ monitor, name, open, onClose, onProfile, onSettings, onOpenTask, onRefresh, onError, now, conversations = [], selectedChatId, onSelectChat }: PersonalSideProps) {
   const tasks = useMemo(() => {
     const rows = monitor?.tasks || [];
     return [...rows.filter(task => !isTerminal(task)), ...rows.filter(isTerminal)];
   }, [monitor?.tasks]);
   const running = tasks.some(task => task.status === 'running' || task.status === 'queued');
-  const attention = tasks.some(task => needsUser(task) && task.status !== 'failed');
+  const attention = attentionCount(tasks, monitor?.attention, now) > 0;
   const status = running ? 'thinking' : attention ? 'attention' : 'idle';
   const statusText = { thinking: t('思考中'), attention: t('等待你处理'), idle: t('随时待命') }[status];
 
@@ -57,9 +58,10 @@ export function PersonalSide({ monitor, name, open, onClose, onProfile, onSettin
     <section className="pa-side-section" data-monitor-section="computers"><h3>{t('电脑')}</h3>
       <PersonalComputers agentName={name} devices={monitor?.devices || []} status={monitor?.agent?.computer_status} onChange={onRefresh} />
     </section>
-    <section className="pa-side-section" data-monitor-section="tasks"><h3>{t('任务')}</h3><RecentActivity tasks={tasks} onOpen={onOpenTask} onDone={onRefresh} onError={onError} /></section>
-    <section className="pa-side-section" data-monitor-section="schedules"><h3>{t('定时任务')}</h3>
-      <PersonalSchedules items={monitor?.schedules || []} onDone={onRefresh} onError={onError} /></section>
-    <section className="pa-side-section" data-monitor-section="outputs"><h3>{t('输出')}</h3><PersonalOutputs page={monitor?.outputs} /></section>
+    {/* A section with nothing in it is left out. */}
+    {!!tasks.length && <section className="pa-side-section" data-monitor-section="tasks"><h3>{t('任务')}</h3><RecentActivity tasks={tasks} onOpen={onOpenTask} onDone={onRefresh} onError={onError} /></section>}
+    {!!monitor?.schedules?.length && <section className="pa-side-section" data-monitor-section="schedules"><h3>{t('定时任务')}</h3>
+      <PersonalSchedules items={monitor.schedules} onDone={onRefresh} onError={onError} /></section>}
+    {!!monitor?.outputs?.items.length && <section className="pa-side-section" data-monitor-section="outputs"><h3>{t('输出')}</h3><PersonalOutputs page={monitor.outputs} /></section>}
   </aside>;
 }

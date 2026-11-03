@@ -10,6 +10,7 @@ from typing import Any, Mapping, Optional
 from core.db.engine import SessionLocal
 from core.db.models import ChatRun, ChatSession
 from core.db.threads import run_db
+from core.harness.log_context import current_message_id
 from core.infra.logging import run_id_var
 from core.runs.journal_domain import DurableRunBinding, RunAlreadyExists, RunJournalError, RunLeaseLost
 from sqlalchemy.orm import sessionmaker
@@ -24,6 +25,7 @@ def _admit(
     kind: str,
     external_id: str,
     run_id: str,
+    message_id: str,
     owner: str,
     request_payload: Optional[Mapping[str, Any]],
     recovery_snapshot: Optional[Mapping[str, Any]],
@@ -50,7 +52,7 @@ def _admit(
     try:
         journal.accept(
             run_id=run_id,
-            message_id=f"msg_{uuid.uuid4().hex}",
+            message_id=message_id,
             chat_id=chat_id,
             user_id=user_id,
             request_payload={
@@ -94,6 +96,7 @@ async def durable_run_binding(
 
     actual_chat_id = str(chat_id or f"internal_{uuid.uuid4().hex[:24]}")
     run_id = str(binding_run_id or f"run_{uuid.uuid4().hex}")
+    message_id = f"msg_{uuid.uuid4().hex}"
     owner = f"{kind}:{uuid.uuid4().hex}"
     journal = RunJournal(session_factory)
     await run_db(
@@ -105,6 +108,7 @@ async def durable_run_binding(
         kind=kind,
         external_id=external_id,
         run_id=run_id,
+        message_id=message_id,
         owner=owner,
         request_payload=request_payload,
         recovery_snapshot=recovery_snapshot,
@@ -142,6 +146,8 @@ async def durable_run_binding(
 
     # The bound work runs in this very task: scope it to the run like a registered run task.
     run_scope = run_id_var.set(run_id)
+    # Call logs join the run through its message id; without it the task monitor sees no tools.
+    message_scope = current_message_id.set(message_id)
     with request_admission_scope(
         context={"run_id": run_id, "journal_owner": owner},
     ) as admission:
@@ -193,6 +199,7 @@ async def durable_run_binding(
             await run_db(journal.complete, run_id, owner=owner, status="completed")
         finally:
             run_id_var.reset(run_scope)
+            current_message_id.reset(message_scope)
             heartbeat.cancel()
             with suppress(asyncio.CancelledError):
                 await heartbeat

@@ -10,6 +10,7 @@ from features.marketplace import edition as ml
 from core.capabilities.mcp.management import decrypt_mcp_headers, encrypt_mcp_headers, materialize_mcp_http_connection, probe_mcp_connectivity, refresh_mcp_caches, tool_snapshot_hash, validate_remote_mcp_url
 from sqlalchemy.orm import Session
 from core.db.threads import run_in_session
+from features.marketplace import mcp_copies
 from features.marketplace import mcp_credentials
 from features.marketplace import mcp_validation
 from features.marketplace import mcp_versions
@@ -89,6 +90,11 @@ def _plan_installation(
         auth_method=selected_method,
         oauth_bundle=oauth_bundle,
     )
+    copy_source = None
+    if owner_user_id is not None:
+        copy_source = mcp_copies.credential_source(db, item, version, auth_method=selected_method, headers=headers)
+        if copy_source != "installer" and slug in mcp_copies.system_server_ids(db):
+            raise BadRequestError(message=f"「{item.display_name}」已由系统统一提供，无需重复安装")
     runtime_url, _ = materialize_mcp_http_connection(version.url, headers)
     now = utc_now()
     server_id = existing_server.server_id if existing_server else f"mmcp_{uuid.uuid4().hex[:20]}"
@@ -117,9 +123,11 @@ def _plan_installation(
                 else {}
             ),
             "market_slug": slug,
+            "market_item": slug,
             "market_version": version.version,
             "listing_notice": dict(version.listing_notice or {}),
             "auth_method": selected_method,
+            **({"credential_source": copy_source} if copy_source else {}),
         },
         tools_json=list(version.tools_json or []),
         icon=item.icon,
@@ -259,10 +267,17 @@ def _commit_installation(
         db.add(existing)
         action = "installed"
     db.commit()
-    return {
+    result = {
         "install_id": existing.install_id,
         "server_id": server.server_id,
         "slug": slug,
         "version": version.version,
         "action": action,
     }
+    if owner_user_id is None:
+        # Users' private copies of this MCP: those on the admin's (or no)
+        # credentials now give way to this system copy; own-credential ones stay.
+        copies = mcp_copies.reconcile_market_copies(db, slug).get(slug)
+        if copies:
+            result["private_copies"] = copies
+    return result

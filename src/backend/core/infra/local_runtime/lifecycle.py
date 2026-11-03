@@ -6,6 +6,8 @@ import asyncio
 import contextlib
 import os
 import signal
+import subprocess
+import sys
 from typing import List, Optional
 
 import core.infra.local_runtime.startup as host
@@ -33,8 +35,11 @@ async def _create(label, argv):
         proc = await asyncio.create_subprocess_exec(
             *argv,
             env=host._child_env(),
-            stdout=None,  # inherit — child logs stream to the backend console
-            stderr=None,
+            # A GUI-launched Windows parent may have no console handles to
+            # inherit. Pass its log streams explicitly so uvicorn can configure
+            # logging; use a valid null handle when no stream is available.
+            stdout=(sys.stdout or subprocess.DEVNULL) if os.name == "nt" else None,
+            stderr=(sys.stderr or subprocess.DEVNULL) if os.name == "nt" else None,
             **host.no_window_kwargs(),
         )
         host._PROCS.append((label, proc))

@@ -30,7 +30,7 @@ async def test_failed_launch_releases_the_accepted_writer(live_env, monkeypatch)
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_send_notification", noop)
+    monkeypatch.setattr("orchestration.automations.automation_delivery.notify_inapp", noop)
     await execute_queued(scheduler, task_id, "owner")
     with factory() as db:
         run = db.get(ChatRun, accepted_id)
@@ -90,7 +90,7 @@ async def test_scheduler_passes_explicit_agents_through_main_runtime_context(liv
     async def noop(*args):
         return None
 
-    monkeypatch.setattr(scheduler, "_send_notification", noop)
+    monkeypatch.setattr("orchestration.automations.automation_delivery.notify_inapp", noop)
     await execute_queued(scheduler, task_id, "owner")
     assert captured["enabled_agents"] == ["analyst"]
     assert captured["enabled_skills"] == ["research"]
@@ -132,3 +132,36 @@ async def test_child_acceptance_already_contains_parent_link_and_recovery(live_e
     monkeypatch.setattr(automation_conversation.admission, "start_run", crash_before_launch)
     await execute_queued(AutomationScheduler(), task_id, "owner")
     assert len(observed) == 1
+
+
+@pytest.mark.asyncio
+async def test_unconfigured_task_runs_with_defaults_as_available_not_invoked(live_env, monkeypatch):
+    """Regression: defaults written as per-turn invocations failed project-bound runs (403)."""
+    from core.agent_runtime import skills
+
+    factory, _, task_id = live_env
+    captured = {}
+
+    async def workflow(*, context, **kwargs):
+        captured.update(context)
+        yield {"type": "content", "delta": "Complete"}
+        yield {"type": "meta", "usage": {}}
+
+    monkeypatch.setattr(runner, "astream_chat_workflow", workflow)
+    defaults = (["report-skill"], ["analyst"], ["site_publish", "web_search"])
+    monkeypatch.setattr("core.chat.context.resolve_all_runtime_enabled", lambda *args: defaults)
+    scheduler = AutomationScheduler()
+
+    async def noop(*args):
+        return None
+
+    monkeypatch.setattr("orchestration.automations.automation_delivery.notify_inapp", noop)
+    await execute_queued(scheduler, task_id, "owner")
+    assert captured["enabled_mcps"] == ["site_publish", "web_search"]
+    assert captured["enabled_skills"] == ["report-skill"]
+    assert captured.get("mcp_ids") is None
+    assert captured.get("skill_ids") is None
+    # No explicit invocation means no "load every SKILL.md" message either.
+    assert skills._build_skill_injection(captured) is None
+    with factory() as db:
+        assert AutomationService(db).get_task_runs(task_id, "owner")[0].status == "success"

@@ -55,6 +55,7 @@ async def test_automation_prompt_injects_durable_binding_and_recovery_surface(
     monkeypatch.setattr(runner, "astream_chat_workflow", bound_workflow)
     stream = run_event_stream.LocalRunEventStream(chat_projection_codec())
     monkeypatch.setattr(store, "get_run_event_stream", lambda: stream)
+    from features.automation.capabilities import TaskCapabilities
     from features.automation.service import AutomationService
 
     with sessions() as db:
@@ -70,9 +71,7 @@ async def test_automation_prompt_injects_durable_binding_and_recovery_surface(
         task_name="nightly",
         prompt="collect evidence",
         task_id=task_id,
-        enabled_mcp_ids=["web-search"],
-        enabled_skill_ids=["research"],
-        enabled_kb_ids=[],
+        capabilities=TaskCapabilities(mcp_ids=["web-search"], skill_ids=["research"]),
     )
 
     assert text == "automation result"
@@ -85,8 +84,8 @@ async def test_automation_prompt_injects_durable_binding_and_recovery_surface(
         assert row.status == "completed"
         context = row.recovery_snapshot["worker_args"]["context"]
         assert context["automation_run"] is True
-        assert context["mcp_ids"] == ["web-search"]
-        assert context["skill_ids"] == ["research"]
+        assert context["enabled_mcps"] == ["web-search"]
+        assert context["enabled_skills"] == ["research"]
 
 
 @pytest.mark.asyncio

@@ -2,7 +2,7 @@ import { apiRequest, unwrapData } from '../../../api';
 import { ApiResponseError } from '../../../utils/apiError';
 import { t } from '../../../i18n';
 import type { ArtifactRef } from '../../chat/DeliveredFiles';
-export interface PersonalTask { id: string; chat_id?: string; goal: string; title?: string; progress?: string | null; status: string; run_id?: string | null; waiting_reason?: string; result?: string; uncertain_actions?: string[]; pending_approval?: { id: string; action: Record<string, unknown> }; updated_at?: string }
+export interface PersonalTask { id: string; chat_id?: string; goal: string; title?: string; progress?: string | null; status: string; run_id?: string | null; waiting_reason?: string; result?: string; uncertain_actions?: string[]; pending_approval?: { id: string; action: Record<string, unknown> }; question?: string | null; outcome?: string | null; updated_at?: string }
 export interface PersonalMessage { id: string; seq: number; role: 'user' | 'assistant'; content: string; origin?: string; channel_type?: ChannelType; work_item_id?: string; work_item_ids: string[]; task_links: { work_item_id: string; relation: string }[]; attachments?: { id: string; name: string; url: string }[]; artifacts?: ArtifactRef[]; reply_to?: string | null; streaming?: boolean; activity?: string | null; heartbeat?: boolean }
 export interface PersonalAgent { id: string; chat_id: string; status: string; computer_status: string; generation: number; config: { capability_selection?: { skill_ids: string[]; mcp_ids: string[]; plugin_ids: string[] }; concurrency: number; email_enabled: boolean; skill_ids: string[]; mcp_ids: string[]; plugins?: { id: string; name: string; skill_ids: string[]; mcp_ids: string[] }[]; model_provider_id?: string | null; thinking_effort?: 'fast' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'; timezone?: string; name?: string; avatar?: string; channel_ids?: string[]; approval_mode?: ApprovalMode } }
 export interface PersonalCapabilityOptions {
@@ -16,8 +16,12 @@ export type ApprovalMode = 'ask' | 'auto' | 'full';
 export interface WorkspaceEntry { path: string; name: string; type: 'dir' | 'file' | 'link' | 'other'; size: number | null; modified: number; role?: string | null; editable: boolean }
 export interface WorkspaceTree { available: boolean; root?: string; exists?: boolean; entries?: WorkspaceEntry[]; truncated?: boolean }
 export interface WorkspaceFile { available: boolean; path: string; size: number; modified: number; binary: boolean; truncated: boolean; content: string | null; etag: string; editable: boolean; role?: string | null }
-export type ChannelType = 'dingtalk' | 'lark' | 'weixin' | 'wecom';
-export interface PersonalChannel { channel_id: string; channel_type: ChannelType; display_name?: string; enabled: boolean; status?: string; personal_agent: boolean }
+export type ChannelType = 'dingtalk' | 'lark' | 'weixin' | 'wecom' | 'slack';
+export interface PersonalChannel { channel_id: string; channel_type: ChannelType; display_name?: string; enabled: boolean; status?: string; personal_agent: boolean; access?: ChannelAccess }
+/** One IM account: listed (added_at) or a recent private sender not listed (last_at). */
+export interface ChannelAccount { key: string; sender_id: string; sender_name: string; added_at?: number; last_at?: number }
+/** Who may instruct one bot: the allowed list the owner keeps, and recent private senders to pick from. */
+export interface ChannelAccess { allowed: ChannelAccount[]; recent: ChannelAccount[] }
 export interface ComputerPreview { image: string; taken_at: number }
 export interface PersonalSchedule { id: string; title: string; instruction: string; cron?: string | null; timezone: string; next_run?: string | null; run_at?: string | null; enabled?: boolean; revision?: number }
 export type PersonalSchedulePatch = Partial<Pick<PersonalSchedule, "title" | "instruction" | "timezone" | "enabled" | "revision">> & { cron?: string; run_at?: string };
@@ -48,7 +52,13 @@ export interface PersonalDreamingStatus {
   started_at?: number | null; completed_at?: number | null; attempts?: number | null;
   next_retry?: number | null; error?: string | null; outcomes?: string[] | null;
 }
-export interface PersonalMonitor { devices: PersonalDevice[]; outputs: OutputPage; turns: PersonalTurn[]; agent: PersonalAgent | null; tasks: PersonalTask[]; schedules?: PersonalSchedule[]; heartbeat?: PersonalHeartbeat | null; email_connected?: boolean; file_memory?: { available: boolean; pending: number; retrying: number } }
+/** A message the agent failed to answer, or a reply that did not reach its IM conversation. */
+export interface AttentionTurn { message_id: string; chat_id: string; preview: string; kind: string; at: string }
+export interface AttentionDelivery { message_id: string; chat_id: string; preview: string; channel_type?: ChannelType; at: string }
+export interface PersonalAttention { turns: AttentionTurn[]; deliveries: AttentionDelivery[] }
+export interface PersonalSearchMessage { message_id: string; chat_id: string; role: 'user' | 'assistant'; seq: number; preview: string; at: string; channel_type?: ChannelType; task_ids: string[] }
+export interface PersonalSearchResult { messages: PersonalSearchMessage[]; tasks: PersonalTask[] }
+export interface PersonalMonitor { attention?: PersonalAttention; devices: PersonalDevice[]; outputs: OutputPage; turns: PersonalTurn[]; agent: PersonalAgent | null; tasks: PersonalTask[]; schedules?: PersonalSchedule[]; heartbeat?: PersonalHeartbeat | null; email_connected?: boolean; file_memory?: { available: boolean; pending: number; retrying: number } }
 
 /** A readable message for the user. Temporary server outages use one short sentence. */
 const SERVER_MESSAGES: Record<string, string> = {
@@ -65,6 +75,9 @@ const SERVER_MESSAGES: Record<string, string> = {
   'Wait a minute before the next heartbeat': '请稍等一分钟再运行。',
   'The agent is answering a message; try again in a moment': '正在回复消息，请稍后再试。',
   'Personal Agent is paused': '智能体已暂停。',
+  'Only a message that failed can be processed again': '这条消息已经在处理或已处理完成。',
+  'Message not found': '这条消息已不存在，请刷新。',
+  'Delivery not found': '这条回复已经重新发送或不存在，请刷新。',
 };
 
 export function errorText(exc: unknown): string {
@@ -103,6 +116,8 @@ export const personalApi = {
   approve: (id: string, approval_id: string, accept: boolean, scope: 'once' | 'task' = 'once') => personalRequest<PersonalTask>(base + '/work-items/' + id + '/approve', { method: 'POST', body: JSON.stringify({ approval_id, accept, scope }) }),
   channels: () => personalRequest<PersonalChannel[]>(base + '/channels'),
   routeChannel: (id: string, enabled: boolean) => personalRequest<PersonalChannel[]>(base + '/channels/' + id, { method: 'PUT', body: JSON.stringify({ enabled }) }),
+  allowChannelAccount: (id: string, account: { key?: string; sender_id?: string }) => personalRequest<PersonalChannel[]>(base + '/channels/' + id + '/allowed', { method: 'POST', body: JSON.stringify(account) }),
+  removeChannelAccount: (id: string, key: string) => personalRequest<PersonalChannel[]>(base + '/channels/' + id + '/allowed?key=' + encodeURIComponent(key), { method: 'DELETE' }),
   preview: (signal?: AbortSignal) => personalRequest<ComputerPreview>(base + '/computer/preview', { signal }),
   control: () => personalRequest<{ token: string }>(base + '/computer/control', { method: 'POST' }),
   // keepalive lets the release finish while the page is closing, so control is not held for its full lease.
@@ -118,6 +133,9 @@ export const personalApi = {
   deleteSchedule: (id: string) => personalRequest<{ deleted: boolean }>(base + '/schedules/' + id, { method: 'DELETE' }),
   reconcile: (id: string, action_id: string, outcome: string) => personalRequest<PersonalTask>(base + "/work-items/" + id + "/reconcile", { method: "POST", body: JSON.stringify({ action_id, outcome }) }),
   retry: (id: string) => personalRequest<PersonalTask>(base + "/work-items/" + id + "/retry", { method: "POST" }),
+  reprocess: (messageId: string) => personalRequest<PersonalTurn>(base + '/messages/' + encodeURIComponent(messageId) + '/reprocess', { method: 'POST' }),
+  retryDelivery: (messageId: string) => personalRequest<{ message_id: string; status: string }>(base + '/deliveries/' + encodeURIComponent(messageId) + '/retry', { method: 'POST' }),
+  search: (query: string, signal?: AbortSignal) => personalRequest<PersonalSearchResult>(base + '/search?q=' + encodeURIComponent(query), { signal }),
   cancel: (id: string) => personalRequest<PersonalTask>(base + '/work-items/' + id + '/cancel', { method: 'POST' }),
   dreaming: (signal?: AbortSignal) => personalRequest<PersonalDreamingStatus | null>(base + '/dreaming', { signal }),
   runDreaming: () => personalRequest<PersonalDreamingStatus>(base + '/dreaming/run', { method: 'POST' }),

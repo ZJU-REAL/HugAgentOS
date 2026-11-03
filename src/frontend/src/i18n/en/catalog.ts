@@ -239,6 +239,8 @@ export const CATALOG_DICT: Record<string, string> = {
   '上传技能包（zip）': 'Upload Skill Package (.zip)',
   '添加技能': 'Add Skill',
   '我的': 'Mine',
+  '已由系统提供': 'Provided by System',
+  '系统已统一安装该 MCP，对话中使用系统版本；可删除这个个人安装': 'An administrator installed this MCP for everyone, so conversations use the system copy. You can delete this personal install',
   '上架审核中': 'Pending Review',
   '已上架市场': 'Published',
   '上架被驳回': 'Rejected',

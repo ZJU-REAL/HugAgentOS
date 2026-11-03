@@ -1,28 +1,22 @@
 """Admit messages quickly. Explicit task controls apply at once; the agent answers the rest.
 
-There is no separate classifier. A message without an explicit task control becomes one
-turn of the agent in the main conversation (see front.py). The agent answers it directly
-or uses its task tools to start, change or stop background tasks.
+There is no separate classifier. A message without an explicit task control becomes a
+Trigger of the agent's turn (see router/). The agent answers it directly or uses its task
+tools to start, change or stop background tasks.
 """
 from sqlalchemy import select
 from core.db.models import ChatMessage
 from personal_agent.models import PersonalMessageInbox
+from personal_agent.conversation.router.triggers import OPEN, enqueue, inbox_view  # noqa: F401
 from personal_agent.identity.config import locked_agent
 from personal_agent.tasks import task_ops
 
-INTENTS = {"auto", "new", "update", "status", "pause", "resume", "cancel"}
-# Statuses of a turn the agent has not finished. "routing" is the pre-agent name of "responding".
-OPEN = ("pending", "responding", "routing")
-
-def inbox_view(row):
-    from personal_agent.scheduling.heartbeat import is_beat_key
-    # A heartbeat check is not an answer the user waits for: the page shows no typing line for it.
-    return {"message_id": row.message_id, "status": row.status, "heartbeat": is_beat_key(row.request_key),
-        "work_item_ids": (row.decision or {}).get("work_item_ids", [])}
-
+INTENTS = {"auto", "new", "update", "status", "pause", "resume", "cancel", "approve", "approve_task", "reject"}
+# Answers to an approval, from an IM conversation (see im_actions.route).
+APPROVALS = ("approve", "approve_task", "reject")
 def direct(intent, ids):
     """True when the message needs no model: the user already chose the task and the action."""
-    return intent in ("new", "pause", "resume", "cancel") or (intent == "update" and len(ids) == 1)
+    return intent in ("new", "pause", "resume", "cancel", *APPROVALS) or (intent == "update" and len(ids) == 1)
 
 def admit(svc, content, request_key, artifact_ids=None, work_item_ids=None, intent="auto", reply_to=None, extra=None):
     if not content.strip() or len(content) > 20000: raise ValueError("Message must contain 1 to 20000 characters")
@@ -53,8 +47,7 @@ def admit(svc, content, request_key, artifact_ids=None, work_item_ids=None, inte
     message = svc.conversation.append(agent, "user", content, None, request_key)
     # The origin (for example an IM conversation) commits with the message, before the agent can see it.
     message.extra_data = {**message.extra_data, "artifact_ids": artifacts, **(extra or {})}
-    row = PersonalMessageInbox(message_id=message.message_id, agent_id=agent.id, request_key=request_key, payload=payload)
-    svc.db.add(row)
+    row = enqueue(svc.db, agent, kind="message", message=message, request_key=request_key, payload=payload)
     if direct(intent, ids):
         try:
             apply_direct(svc, row, message)
@@ -72,13 +65,41 @@ def apply_direct(svc, row, message):
         task = task_ops.create(svc, message, text, "message:" + message.message_id + ":0", attachments=files, related=ids)
         result = [task.id, *ids]
     elif intent == "update":
-        result = [task_ops.update_task(svc, message, ids[0], text, attachments=files).id]
+        task = task_ops.update_task(svc, message, ids[0], text, attachments=files)
+        result = [task.id]
+        # An IM reply to a task's message went straight to the task: say where it went.
+        if (message.extra_data or {}).get("channel_origin"):
+            reply = svc.conversation.append(svc.identity.agent(), "assistant", "已转给" + task.label + "继续处理。", None, reply_to=message.message_id)
+            task_ops.link(svc.db, reply.message_id, task.id, "status")
+    elif intent in APPROVALS:
+        result = list(ids)
+        reply = svc.conversation.append(svc.identity.agent(), "assistant", apply_approval(svc, intent, ids), None, reply_to=message.message_id)
+        if len(ids) == 1: task_ops.link(svc.db, reply.message_id, ids[0], "status")
     else:
         tasks = [task_ops.control(svc, message, ident, intent) for ident in ids]
         result = [task.id for task in tasks]
         reply = svc.conversation.append(svc.identity.agent(), "assistant", "\n".join(task_ops.status_line(task) for task in tasks), None, reply_to=message.message_id)
         for task in tasks: task_ops.link(svc.db, reply.message_id, task.id, "status")
     row.status, row.decision = "done", {"work_item_ids": list(dict.fromkeys(result)), "direct": True}
+
+def apply_approval(svc, intent, ids):
+    """Decide the pending action of one task from an IM answer; the text that answers the user."""
+    from personal_agent.context import AgentContext
+    from personal_agent.tasks.approvals import approve, scope_key
+    if len(ids) != 1:
+        return "有 " + str(len(ids)) + " 个操作在等你批准。请引用对应的批准消息回复「同意」或「拒绝」。"
+    # Approvals are not limited to this IM conversation's tasks: the notice may come from the home bot.
+    main = AgentContext(svc.db, svc.user_id)
+    task = main.tasks.get(ids[0], lock=True)
+    pending = (task.checkpoint or {}).get("pending_approval")
+    if not pending: return task.label + "没有待批准的操作了。"
+    scope = "task" if intent == "approve_task" and scope_key(pending.get("action") or {}) else "once"
+    try:
+        approve(main, task.id, pending["id"], intent != "reject", scope)
+    except ValueError:
+        return task.label + "的这项操作已经不能在这里批准了，请在网页的「需要你处理」中查看。"
+    if intent == "reject": return "已拒绝。" + task.label + "会换一种方式完成，或说明无法完成。"
+    return ("已允许" + task.label + "内的同类操作，继续执行。" if scope == "task" else "已批准，" + task.label + "继续执行。")
 
 def pending(svc):
     """Messages the agent has not answered yet, oldest first."""

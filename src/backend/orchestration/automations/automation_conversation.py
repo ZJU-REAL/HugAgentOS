@@ -2,7 +2,7 @@
 
 import asyncio
 import uuid
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import core.chat.runtime.admission as admission
 import core.chat.runtime.handoff as handoff
@@ -16,6 +16,7 @@ from core.db.models import ChatMessage, ChatRun
 from features.automation.models import ScheduledTaskRun
 from features.automation.runs import owned_run_guard
 from core.models import selection as user_model_selection
+from features.automation.capabilities import TaskCapabilities
 from features.automation.execution import task_execution_context
 from features.automation.service import AutomationService
 from core.chat.sequencer import ChatSequencer
@@ -245,10 +246,7 @@ async def execute_prompt(
     task_name: str,
     prompt: str,
     task_id: str,
-    enabled_mcp_ids: Optional[List[str]],
-    enabled_skill_ids: Optional[List[str]],
-    enabled_kb_ids: Optional[List[str]],
-    enabled_agent_ids: Optional[List[str]] = None,
+    capabilities: TaskCapabilities,
     automation_run_id: Optional[str] = None,
     lease_token: Optional[str] = None,
 ):
@@ -256,12 +254,13 @@ async def execute_prompt(
     chat_id, project_context = await run_db(
         _prepare, user_id, task_id, task_name, None, model, automation_run_id, lease_token=lease_token
     )
-    def _enabled_capabilities(db):
-        skills, agents, mcps = resolve_enabled_capabilities(
-            db, user_id, enabled_skill_ids, enabled_agent_ids, enabled_mcp_ids
-        )
-        return mcps, agents, skills
-    mcps, agents, skills = await run_in_session(_enabled_capabilities)
+    skills, agents, mcps = await run_in_session(
+        resolve_enabled_capabilities,
+        user_id,
+        capabilities.skill_ids,
+        capabilities.agent_ids,
+        capabilities.mcp_ids,
+    )
     from core.ontology.runtime_policy import build_user_ontology_runtime
 
     ontology_enabled, ontology_runtime = await run_db(
@@ -274,17 +273,17 @@ async def execute_prompt(
         chat_id=chat_id,
         enabled_mcps=mcps,
         enabled_skills=skills,
-        enabled_kbs=enabled_kb_ids,
+        enabled_kbs=capabilities.kb_ids,
         enabled_agents=agents,
     )
+    # The enabled_* fields are the whole selection. A scheduled run has no
+    # per-turn invocation: writing these ids into skill_ids/mcp_ids would make
+    # the runtime inject every skill and fail the project's invocation check.
     context.update(
         {
             **project_context,
             "automation_run": True,
             "chat_mode": "medium",
-            "mcp_ids": list(mcps or []),
-            "skill_ids": list(skills or []),
-            "kb_ids": list(enabled_kb_ids or []),
             "ontology_enabled": ontology_enabled,
             "ontology_runtime": ontology_runtime,
         }
@@ -336,10 +335,7 @@ async def execute_plan(
     task_name: str,
     plan_id: str,
     task_id: str,
-    enabled_mcp_ids: Optional[List[str]],
-    enabled_skill_ids: Optional[List[str]],
-    enabled_kb_ids: Optional[List[str]],
-    enabled_agent_ids: Optional[List[str]],
+    capabilities: TaskCapabilities,
     automation_run_id: Optional[str] = None,
     lease_token: Optional[str] = None,
 ):
@@ -362,10 +358,10 @@ async def execute_plan(
         plan_id=plan_id,
         chat_id=chat_id,
         user_id=user_id,
-        enabled_mcp_ids=enabled_mcp_ids,
-        enabled_skill_ids=enabled_skill_ids,
-        enabled_kb_ids=enabled_kb_ids,
-        enabled_agent_ids=enabled_agent_ids,
+        enabled_mcp_ids=capabilities.mcp_ids,
+        enabled_skill_ids=capabilities.skill_ids,
+        enabled_kb_ids=capabilities.kb_ids,
+        enabled_agent_ids=capabilities.agent_ids,
         session_messages=[{"role": "user", "content": content}],
         model_name=model,
     )

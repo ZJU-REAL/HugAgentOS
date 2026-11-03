@@ -106,6 +106,12 @@ class ChannelRoute(BaseModel):
     enabled: bool
 
 
+class ChannelAccount(BaseModel):
+    """One account to list: a recent private sender's key, or an ID the owner typed."""
+    key: str | None = Field(None, max_length=300)
+    sender_id: str | None = Field(None, max_length=200)
+
+
 class WorkspaceFile(BaseModel):
     path: str = Field(min_length=1, max_length=512)
     content: str = Field(max_length=300000)

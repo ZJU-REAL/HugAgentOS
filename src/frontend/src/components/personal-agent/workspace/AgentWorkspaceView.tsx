@@ -1,8 +1,9 @@
-import { EditOutlined, FileMarkdownOutlined, FileOutlined, FolderOpenOutlined, FolderOutlined, LinkOutlined, ReloadOutlined } from '@ant-design/icons';
+import { EditOutlined, LinkOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Button, Empty, Input, Tooltip, Tree, message } from 'antd';
 import type { TreeDataNode } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { t } from '../../../i18n';
+import { getFileIconSrc, getFolderIconSrc } from '../../../utils/fileIcon';
 import { userMarkdownHtml } from '../../../utils/userMarkdown';
 import { useAgentNameStore } from '../shared/agentName';
 import { errorText, personalApi } from '../api';
@@ -25,10 +26,11 @@ function formatSize(size: number | null): string {
   return (size / 1024 / 1024).toFixed(1) + ' MB';
 }
 
+/** Same icons as the My Space and team space trees. */
 function entryIcon(entry: WorkspaceEntry, open: boolean) {
-  if (entry.type === 'dir') return open ? <FolderOpenOutlined /> : <FolderOutlined />;
-  if (entry.type === 'link') return <LinkOutlined />;
-  return entry.name.endsWith('.md') ? <FileMarkdownOutlined /> : <FileOutlined />;
+  if (entry.type === 'link') return <LinkOutlined aria-hidden="true" />;
+  const src = entry.type === 'dir' ? getFolderIconSrc(open) : getFileIconSrc(entry.name);
+  return <img className="jx-spaceTree-folderIcon" src={src} alt="" aria-hidden="true" />;
 }
 
 function buildTree(entries: WorkspaceEntry[], expanded: Set<string>): TreeDataNode[] {
@@ -40,11 +42,11 @@ function buildTree(entries: WorkspaceEntry[], expanded: Set<string>): TreeDataNo
       key: entry.path,
       isLeaf: entry.type !== 'dir',
       selectable: entry.type !== 'link' && entry.type !== 'other',
+      icon: entryIcon(entry, expanded.has(entry.path)),
       title: (
         <Tooltip title={role || undefined} placement="right" mouseEnterDelay={0.4}>
-          <span className={`pa-ws-node pa-ws-node--${entry.type}`}>
-            <span className="pa-ws-nodeIcon">{entryIcon(entry, expanded.has(entry.path))}</span>
-            <span className="pa-ws-nodeName">{entry.name}</span>
+          <span className="pa-ws-node">
+            <span className="jx-spaceTree-name">{entry.name}</span>
             {role && <span className="pa-ws-nodeRole">{role}</span>}
           </span>
         </Tooltip>
@@ -137,6 +139,8 @@ export function AgentWorkspaceView() {
             ) : (
               <>
                 <Tree
+                  className="jx-spaceTree"
+                  showIcon
                   blockNode
                   treeData={treeData}
                   selectedKeys={[selected]}

@@ -68,6 +68,12 @@ def _commit_queued_handoff_in_session(
     )
     if handoff is None or not handoff.applied_run_id:
         return None
+    if context.get("steer_batch_handoff"):
+        # A run whose steering takes every waiting steer at one boundary (opt-in, see
+        # SteeringHook take_batch): the steers still waiting for the source go to the
+        # successor too, so it reads them together, in order, instead of one run each.
+        SteerQueue.retarget_waiting(db, chat_id=chat_id, from_runs={source_run_id, root_run_id},
+                                    to_run=handoff.applied_run_id)
 
     first_seq = reserve_chat_sequences(
         db,

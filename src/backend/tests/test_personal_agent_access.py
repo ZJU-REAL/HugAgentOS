@@ -38,7 +38,8 @@ def test_enabled_module_registers_every_hook(empty_registry, monkeypatch):
     monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "true")
     assert extension.setup() is True
     profile = registry.agent_profile(access.NAME)
-    assert profile.tool_filter("pa_finish") and not profile.tool_filter("bash")
+    assert profile.tool_filter("pa_report") and profile.tool_filter("Bash") and not profile.tool_filter("bash")
+    assert not profile.tool_filter("Read") and not profile.tool_filter("background_process")
     assert profile.inherit_default_mcps is False
     assert registry.sandbox_route("pa_box_x") is not None and registry.sandbox_route("chat_x") is None
     assert len(registry.routers()) == 2 and all(feature is None for _, feature in registry.routers())
@@ -62,7 +63,7 @@ def test_revoked_user_stops_background_work(sessions, empty_registry, monkeypatc
     _edition(monkeypatch, "ee")
     from personal_agent.channels import channel_bridge
     from personal_agent.scheduling import schedules
-    from personal_agent.tasks import worker as module
+    from personal_agent.worker import executor as module
 
     registry.mark_enabled(access.NAME)
     monkeypatch.setattr(module, "SessionLocal", sessions)
@@ -78,13 +79,13 @@ def test_revoked_user_stops_background_work(sessions, empty_registry, monkeypatc
         db.commit()
         grant(db, "owner", False)
     conn = SimpleNamespace(channel_id="ch1", channel_type="lark", owner_user_id="owner")
-    assert module.PersonalAgentWorker().claim() is None
+    assert module.Executor().claim() is None
     with sessions() as db:
         assert schedules.fire_due(db, now=4102444800 + 86400) == 0
         assert channel_bridge.handled_by_agent(db, conn) is False
         grant(db, "owner")
         assert channel_bridge.handled_by_agent(db, conn) is True
-    assert module.PersonalAgentWorker().claim() is not None
+    assert module.Executor().claim() is not None
 
 
 def test_reserved_chats_stay_hidden_without_the_module(sessions, empty_registry):

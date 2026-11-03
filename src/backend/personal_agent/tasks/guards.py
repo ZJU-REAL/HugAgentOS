@@ -5,7 +5,7 @@ from core.db.engine import SessionLocal
 
 from personal_agent.models import PersonalAgent, PersonalWorkItem
 
-PENDING = "An action waits for user approval. Stop now: call pa_finish with one sentence that says what needs approval."
+PENDING = "An action waits for user approval. Stop now: end your reply with one sentence that says what needs approval."
 
 def owned_task(task_id, user_id, *, allow_pending=False):
     with SessionLocal() as db:
@@ -15,7 +15,8 @@ def owned_task(task_id, user_id, *, allow_pending=False):
             raise PermissionError("Task is not active or owned")
         from personal_agent.tasks.execution import current_execution
         expected = current_execution.get()
-        if expected and tuple(expected) != (task.id, task.run_id, task.owner):
+        # The Assignment, not the process: another executor may take a live run over.
+        if expected and expected[0] == task.id and expected[1] != task.run_id:
             raise PermissionError("Task execution changed")
         # While an approval is pending, the model must stop. It must not look for a workaround.
         if not allow_pending and (task.checkpoint or {}).get("pending_approval"):

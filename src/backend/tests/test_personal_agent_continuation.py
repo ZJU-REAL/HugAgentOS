@@ -4,6 +4,8 @@ from personal_agent.context import AgentContext
 from personal_agent.conversation.message_routing import admit
 from personal_agent.tasks.task_threads import history
 from personal_agent.conversation.associations import instructions
+from personal_agent.models import PersonalWorkItem
+from personal_agent.worker import inputs
 from tests.test_personal_agent_routing import sessions, personal_agent_on  # noqa: F401
 
 
@@ -19,8 +21,9 @@ def test_completed_task_accepts_followup_in_same_conversation_once(sessions):
         assert updated["id"] == task["id"] and updated["status"] == "queued"
         assert updated["result"] == "Original report"
         after = history(svc, task["id"])
+        # The same Worker session resumes; the follow-up is its next input, delivered once.
         assert after["chat_id"] == before["chat_id"]
-        assert [m["content"] for m in after["messages"]] == ["Write a report", "Original report", "Add a conclusion"]
+        assert [text for _, text in inputs.unread(db, db.get(PersonalWorkItem, task["id"]))] == ["Add a conclusion"]
 
 
 @pytest.mark.asyncio
@@ -117,4 +120,4 @@ async def test_main_conversation_continues_completed_task_without_creating_anoth
         assert updated["id"] == task["id"] and updated["status"] == "queued"
         assert updated["result"] == "Original report"
         assert svc.conversation.list()[-1]["work_item_ids"] == [task["id"]]
-        assert history(svc, task["id"])["messages"][-1]["content"] == "Add a conclusion"
+        assert [text for _, text in inputs.unread(db, db.get(PersonalWorkItem, task["id"]))] == ["Add a conclusion"]

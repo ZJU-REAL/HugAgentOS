@@ -36,4 +36,4 @@ async def recover_task(scheduler, task_id):
         if not await lease.owns():
             return
         from .automation_dispatch import execute_task
-        await execute_task(scheduler, task_id, user_id, run_id=run_id)
+        await execute_task(task_id, user_id, run_id=run_id, lease_token=lease.token)

@@ -163,6 +163,15 @@ class DingTalkAdapter(DingTalkHistory, DingTalkDelivery):
                 # this field on the callback payload (present in Stream mode, which is what
                 # the long connection uses).
                 "dingtalk_robot_code": payload.get("robotCode") or "",
+                # Every sender ID DingTalk gives, for matching one person across private and
+                # group chats (the Personal Agent allowed list). senderStaffId is org-scoped and
+                # missing for org-external users; senderUnionId is the stable one when present.
+                "dingtalk_sender": {
+                    "union_id": payload.get("senderUnionId") or "",
+                    "staff_id": payload.get("senderStaffId") or "",
+                    "corp_id": payload.get("senderCorpId") or "",
+                    "sender_id": payload.get("senderId") or "",
+                },
             },
         )
 

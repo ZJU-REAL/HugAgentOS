@@ -207,8 +207,10 @@ async def job_agent(
                         "context": {
                             **(ctx.get("project_ctx") or {}),
                             "project_ctx": ctx.get("project_ctx"),
-                            "mcp_ids": list(ctx["parent_runtime"].get("enabled_mcp_ids") or []),
-                            "skill_ids": list(ctx["parent_runtime"].get("enabled_skill_ids") or []),
+                            "enabled_mcps": list(ctx["parent_runtime"].get("enabled_mcp_ids") or []),
+                            "enabled_skills": list(
+                                ctx["parent_runtime"].get("enabled_skill_ids") or []
+                            ),
                             "tool_approval_mode": "full",
                             "model_name": body.model or ctx["model_name"],
                             "model_provider_id": ctx["model_provider_id"],

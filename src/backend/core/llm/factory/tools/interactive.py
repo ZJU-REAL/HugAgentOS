@@ -13,6 +13,7 @@ async def interactive_tools(
     request: AgentRequest,
     *,
     _api_scope,
+    _authority,
     _elapsed,
     _eval_scope,
     _log,
@@ -37,7 +38,7 @@ async def interactive_tools(
     # (main/plan-execute). Subagents (isolated) have no
     # human in the loop → non-interactive, and §13 rejects /myspace writes
     # outright.
-    _interactive: bool = not (request.isolated or _api_scope or _eval_scope)
+    _interactive: bool = not (request.isolated or _authority.unattended)
 
     # Browser-backed model questions are deliberately a top-level standard-chat
     # capability. Channels, automation, plan workers and subagents have no

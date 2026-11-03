@@ -69,6 +69,33 @@ class PersonalWorkItem(Base):
         self.checkpoint = state
         return value
 
+class PersonalAssignment(Base):
+    """One binding of a task to its Worker session: pending -> running -> ended.
+
+    The Worker runs as ordinary core ChatRuns on ``chat_id``; ``run_id`` is the latest one.
+    While an assignment runs, the task mirrors its id, owner and lease in
+    ``PersonalWorkItem.run_id / owner / lease_until``, which the task tools fence on."""
+    __tablename__ = "personal_assignments"
+    id = Column(String(64), primary_key=True)
+    work_item_id = Column(String(64), ForeignKey("personal_work_items.id", ondelete="CASCADE"), nullable=False)
+    agent_id = Column(String(64), ForeignKey("personal_agents.id", ondelete="CASCADE"), nullable=False)
+    chat_id = Column(String(64), nullable=False)
+    status = Column(String(24), nullable=False, default="pending")
+    # task: one of the agent's concurrency slots; follow_up: the extra slot for a user's follow-up.
+    slot = Column(String(24), nullable=False, default="task")
+    run_id = Column(String(64))
+    owner = Column(String(100))
+    lease_until = Column(Float)
+    retries = Column(Integer, nullable=False, default=0)
+    retry_at = Column(Float)
+    # Set while no run is live but background commands still are (BACKGROUND_LIMIT).
+    idle_since = Column(Float)
+    ended_reason = Column(String(40))
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    ended_at = Column(UTCDateTime(timezone=True))
+    __table_args__ = (Index("ix_pa_assignment_task", "work_item_id", "status"),
+                      Index("ix_pa_assignment_status", "status", "lease_until"))
+
 class PersonalDevice(Base):
     __tablename__ = "personal_devices"
     id = Column(String(64), primary_key=True)
@@ -106,19 +133,39 @@ class PersonalMessageTask(Base):
     __table_args__ = (Index("ix_pa_message_task", "work_item_id", "message_id"),)
 
 class PersonalMessageInbox(Base):
-    """Durable routing admission, separate from task execution."""
+    """A Trigger of the agent's own turn: something that happened in one conversation (the lane).
+
+    It holds no lease; the Turn that claimed it does (see PersonalFrontTurn)."""
     __tablename__ = "personal_message_inbox"
     message_id = Column(String(64), ForeignKey("chat_messages.message_id", ondelete="CASCADE"), primary_key=True)
     agent_id = Column(String(64), ForeignKey("personal_agents.id", ondelete="CASCADE"), nullable=False)
     request_key = Column(String(100), nullable=False)
+    # message, task_result, session_run, heartbeat or bootstrap (see conversation/router/kinds.py).
+    kind = Column(String(24), nullable=False, default="message", server_default="message")
+    chat_id = Column(String(64))
+    turn_id = Column(String(64))
     payload = Column(JSON, nullable=False, default=dict)
     status = Column(String(24), nullable=False, default="pending")
     decision = Column(JSON, nullable=False, default=dict)
     question = Column(Text)
+    created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+    __table_args__ = (UniqueConstraint("agent_id", "request_key", name="uq_pa_inbox_request"), Index("ix_pa_inbox_status", "status", "created_at"),
+                      Index("ix_pa_inbox_turn", "turn_id"))
+
+class PersonalFrontTurn(Base):
+    """One run of the agent's own turn over a batch of Triggers of one conversation. The lease is here."""
+    __tablename__ = "personal_front_turns"
+    id = Column(String(64), primary_key=True)
+    agent_id = Column(String(64), ForeignKey("personal_agents.id", ondelete="CASCADE"), nullable=False)
+    chat_id = Column(String(64), nullable=False)
+    status = Column(String(24), nullable=False, default="running")
     owner = Column(String(100))
     lease_until = Column(Float)
+    attempts = Column(Integer, nullable=False, default=1)
+    reply_ids = Column(JSON, nullable=False, default=list)
     created_at = Column(UTCDateTime(timezone=True), default=utc_now)
-    __table_args__ = (UniqueConstraint("agent_id", "request_key", name="uq_pa_inbox_request"), Index("ix_pa_inbox_status", "status", "created_at"))
+    finished_at = Column(UTCDateTime(timezone=True))
+    __table_args__ = (Index("ix_pa_front_turn_agent", "agent_id", "status"),)
 
 class PersonalSessionOperation(Base):
     """Durable session operation receipt, independent of GUI control."""

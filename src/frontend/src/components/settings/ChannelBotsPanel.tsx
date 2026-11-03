@@ -21,7 +21,7 @@ const STATUS_META: Record<ChannelBot['status'], { color: string; label: string }
 };
 
 const CHANNEL_LABELS: Record<string, string> = {
-  lark: t('飞书'), dingtalk: t('钉钉'), wecom: t('企业微信'), weixin: t('微信（扫码）'),
+  lark: t('飞书'), dingtalk: t('钉钉'), wecom: t('企业微信'), weixin: t('微信（扫码）'), slack: 'Slack',
 };
 
 // Display labels/placeholders for each credential field (app_id/app_secret are the two core columns, the rest go into extra).
@@ -31,6 +31,11 @@ const FIELD_META: Record<string, { label: string; placeholder: string; password?
   agent_id: { label: 'AgentId', placeholder: t('应用 AgentId') },
   token: { label: 'Token', placeholder: t('回调 Token') },
   aes_key: { label: 'EncodingAESKey', placeholder: t('回调 EncodingAESKey'), password: true },
+  app_token: { label: 'App-Level Token', placeholder: 'App-Level Token (xapp-…)', password: true },
+};
+// Slack names its credentials differently; app_secret carries the Bot User OAuth Token.
+const SLACK_PLACEHOLDERS: Record<string, string> = {
+  app_id: 'App ID', app_secret: 'Bot Token (xoxb-…)',
 };
 
 interface ChannelBotsPanelProps {
@@ -184,8 +189,8 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
           <div className="jx-conn-title">{scopedToAgent ? t('渠道机器人') : t('我的机器人')}</div>
           <div className="jx-conn-desc">
             {scopedToAgent
-              ? t('为智能体「{name}」绑定渠道机器人（飞书 / 钉钉 / 企业微信 / 微信）：消息推给它，就由该智能体用它自己绑定的能力回复。', { name: agentName || '' })
-              : t('绑定你自己的渠道机器人（飞书 / 钉钉 / 企业微信 / 微信）：消息推给它就由你的智能体回复，复用你的知识库与技能。')}
+              ? t('为智能体「{name}」绑定渠道机器人（飞书 / 钉钉 / 企业微信 / 微信 / Slack）：消息推给它，就由该智能体用它自己绑定的能力回复。', { name: agentName || '' })
+              : t('绑定你自己的渠道机器人（飞书 / 钉钉 / 企业微信 / 微信 / Slack）：消息推给它就由你的智能体回复，复用你的知识库与技能。')}
           </div>
         </div>
       </div>
@@ -296,7 +301,7 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
                   const fm = FIELD_META[f];
                   const Comp = fm.password ? Input.Password : Input;
                   return (
-                    <Comp key={f} placeholder={fm.placeholder} value={creds[f] || ''}
+                    <Comp key={f} placeholder={(channelType === 'slack' && SLACK_PLACEHOLDERS[f]) || fm.placeholder} value={creds[f] || ''}
                       onChange={(e) => setCreds((c) => ({ ...c, [f]: e.target.value }))} />
                   );
                 })}
@@ -317,6 +322,11 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
                     <Input placeholder={t('Encrypt Key（飞书事件加密时填）')} value={encryptKey} onChange={(e) => setEncryptKey(e.target.value)} />
                     <Input placeholder={t('Verification Token（可选）')} value={verificationToken} onChange={(e) => setVerificationToken(e.target.value)} />
                   </>
+                )}
+                {channelType === 'slack' && (
+                  <div className="jx-conn-note" style={{ fontSize: 12 }}>
+                    {t('Slack 走 Socket Mode 长连接：在 Slack 应用后台开启 Socket Mode，订阅 message.im / message.channels / app_mention 事件，安装到工作区后填入上面三个凭据。')}
+                  </div>
                 )}
                 {channelType === 'wecom' && (
                   <div className="jx-conn-note" style={{ fontSize: 12 }}>

@@ -84,6 +84,10 @@ class InboundMsg:
     # Inbound attachments (files/images): each item {kind: 'file'|'image', key: <resource key>, name: <filename>}.
     # Parsed by the adapter; inbound orchestration downloads from it → stores an Artifact → injects into uploaded_files for the agent to read.
     attachments: List[Dict[str, Any]] = field(default_factory=list)
+    # Channel-side ID of the message this one quotes or replies to (Lark parent_id, Slack
+    # thread root), in the same format ``SendResult.message_id`` uses, so a reply to one of
+    # the bot's own messages can be matched to what the bot sent. Empty when not a reply.
+    reply_to_message_id: str = ""
     raw: Dict[str, Any] = field(default_factory=dict)  # raw event, kept for reference
 
 

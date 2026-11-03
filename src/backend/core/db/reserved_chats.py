@@ -23,6 +23,18 @@ RESERVED_CHAT_NAMESPACES: dict[str, str] = {
 }
 
 
+# Reserved chats that their module runs on the core chat runtime (Personal Agent task
+# Workers). Every ordinary chat surface still refuses them; only the runtime seams accept
+# them: run admission (``ChatSequencer``), a run's history (``load_session_history``) and
+# managed commands (``core.sandbox.commands.store.can_edit``), via
+# ``ChatService.get_runtime_session_with_access``.
+RUNTIME_CHAT_NAMESPACES: tuple[str, ...] = ("pa_chat_task_",)
+
+
+def runtime_chat(chat_id: Optional[str]) -> bool:
+    return str(chat_id or "").startswith(RUNTIME_CHAT_NAMESPACES)
+
+
 def reserved_chat_owner(chat_id: Optional[str]) -> Optional[str]:
     """The owning surface's name when ``chat_id`` is reserved, else None."""
     for prefix, owner in RESERVED_CHAT_NAMESPACES.items():

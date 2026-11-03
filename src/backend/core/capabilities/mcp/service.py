@@ -224,6 +224,12 @@ class McpServerConfigService:
         extra_config: Dict[str, Any] = (
             row.extra_config if isinstance(row.extra_config, dict) else {}
         )
+        # Marketplace copy metadata: the factory loads one copy per market item
+        # (a system copy and a user's private copy expose the same tool names).
+        for meta_key in ("market_item", "credential_source"):
+            if extra_config.get(meta_key):
+                cfg[meta_key] = extra_config[meta_key]
+        cfg["display_name"] = row.display_name or row.server_id
         for timeout_key in ("execution_timeout", "transport_timeout"):
             timeout_value = extra_config.get(timeout_key)
             if timeout_value is not None:

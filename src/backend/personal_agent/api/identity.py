@@ -19,7 +19,7 @@ def get_agent(svc=Depends(service)):
 
 @router.post("/initialize")
 def initialize(body: Initialize | None = None, svc=Depends(service)):
-    from personal_agent.conversation.front import hatch
+    from personal_agent.conversation.router.triggers import hatch
 
     def run():
         view = svc.identity.ensure()

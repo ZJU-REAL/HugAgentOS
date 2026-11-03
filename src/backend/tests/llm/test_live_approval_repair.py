@@ -7,6 +7,7 @@ from tests.orchestration.hook_support import run_permission
 from core.llm.tool_permissions.pending import approve_current_policy
 from tests.llm.test_approval_modes import _service, _tool_call
 from tests.storage.project_fixtures import team
+from core.sandbox.permissions.authority import ApprovalAuthority
 
 
 @pytest.mark.asyncio
@@ -15,7 +16,7 @@ from tests.storage.project_fixtures import team
 )
 async def test_running_dispatch_rechecks_account_mode(monkeypatch, initial, current, executes):
     service = _service(initial)
-    service.runtime = replace(service.runtime, account_approval=True)
+    service.runtime = replace(service.runtime, authority=ApprovalAuthority.ACCOUNT)
     monkeypatch.setattr("core.sandbox.permissions.account.read_account_mode", lambda *a: current)
     gate = AsyncMock(return_value={"error": "not approved"})
     monkeypatch.setattr("core.llm.tools.confirmation.gate", gate)
@@ -54,7 +55,7 @@ async def test_explicit_module_policy_is_not_replaced(monkeypatch):
 @pytest.mark.asyncio
 async def test_unavailable_policy_blocks_without_prompt(monkeypatch):
     service = _service("full")
-    service.runtime = replace(service.runtime, account_approval=True)
+    service.runtime = replace(service.runtime, authority=ApprovalAuthority.ACCOUNT)
 
     def unavailable(*args):
         raise OSError("database offline")
@@ -108,3 +109,17 @@ async def test_pending_policy_never_answers_untrusted_or_design_prompts(monkeypa
     assert not await approve_current_policy(
         "chat", "two", {"kind": "design_pick", "_approval_user_id": "alice"}
     )
+
+
+def test_credential_scopes_never_resolve_to_account_authority():
+    from core.sandbox.permissions.authority import (
+        CREDENTIAL_SCOPE_KEYS, credential_scoped, resolve_run_authority,
+    )
+
+    for key in CREDENTIAL_SCOPE_KEYS:
+        assert credential_scoped({key: {"api_key_id": "key"}})
+    assert not credential_scoped({}) and not credential_scoped(None)
+    assert resolve_run_authority(evaluation=False, credential=True, profile=True) is ApprovalAuthority.CREDENTIAL
+    assert resolve_run_authority(evaluation=True, credential=True, profile=False) is ApprovalAuthority.EVALUATION
+    assert resolve_run_authority(evaluation=False, credential=False, profile=True) is ApprovalAuthority.RUN
+    assert resolve_run_authority(evaluation=False, credential=False, profile=False) is ApprovalAuthority.ACCOUNT

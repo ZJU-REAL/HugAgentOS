@@ -356,4 +356,6 @@ export interface MCPItem extends CatalogItemBase {
   version?: string;
   /** True when this private MCP was installed from the marketplace. */
   marketplace_installed?: boolean;
+  /** The system copy of the same marketplace MCP is used in place of this private copy. */
+  superseded_by_system?: boolean;
 }

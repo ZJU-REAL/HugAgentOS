@@ -10,6 +10,10 @@ const FIELDS: Record<string, string> = {
   app_id: 'App ID / CorpID', app_secret: 'App Secret / Secret',
   agent_id: 'AgentId', token: 'Token', aes_key: 'EncodingAESKey',
 };
+// Slack's three credentials are named after what the Slack app console calls them.
+const SLACK_FIELDS: Record<string, string> = {
+  app_id: 'App ID', app_secret: 'Bot Token (xoxb-…)', app_token: 'App-Level Token (xapp-…)',
+};
 
 export function ChannelBindingForm({ type, onBound, onCancel }: {
   type: ChannelType; onBound: (id: string) => Promise<void>; onCancel: () => void;
@@ -94,8 +98,9 @@ export function ChannelBindingForm({ type, onBound, onCancel }: {
       </> : <>
         <Input aria-label={t('机器人名称（可选）')} placeholder={t('机器人名称（可选）')} value={name} disabled={creating} onChange={event => setName(event.target.value)} />
         {adapter.credential_fields.map(field => {
-          const Component = field === 'app_secret' || field === 'aes_key' ? Input.Password : Input;
-          return <Component key={field} aria-label={FIELDS[field] || field} placeholder={FIELDS[field] || field} value={creds[field] || ''} disabled={creating}
+          const Component = field === 'app_secret' || field === 'aes_key' || field === 'app_token' ? Input.Password : Input;
+          const label = (type === 'slack' ? SLACK_FIELDS[field] : undefined) || FIELDS[field] || field;
+          return <Component key={field} aria-label={label} placeholder={label} value={creds[field] || ''} disabled={creating}
             onChange={event => setCreds(current => ({ ...current, [field]: event.target.value }))} />;
         })}
         <Button type="primary" loading={creating} onClick={() => void bind()}>{t('绑定')}</Button>

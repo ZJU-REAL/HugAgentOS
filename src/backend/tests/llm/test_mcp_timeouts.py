@@ -58,6 +58,8 @@ def test_database_extra_config_exposes_timeout_overrides(monkeypatch):
         # Provenance columns every AdminMcpServer row carries (read for logical dedup).
         source_plugin=None,
         owner_user_id=None,
+        server_id="remote",
+        display_name="Remote",
     )
     service = McpServerConfigService()
     monkeypatch.setattr(service, "_build_env", lambda _row: {})

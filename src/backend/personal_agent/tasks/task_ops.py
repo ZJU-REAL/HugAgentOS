@@ -62,13 +62,15 @@ def update_task(svc, message, task_id, instruction, *, attachments=()):
     if reopening:
         # Keep the transcript, files and receipts; a new turn must not reuse old approvals.
         _sync(svc, [task.id])
-        for key in ("final_answer", "progress", "task_wait_reason", "computer_wait", "approved_scopes", "decided_during_run", "auto_resumes"):
+        for key in ("report", "progress", "task_wait_reason", "pending_question", "outcome", "computer_wait", "approved_scopes", "decided_during_run", "auto_resumes"):
             state.pop(key, None)
         task.requeue()
         if task.unconfirmed():
             task.pause("请先核对未知的操作结果，再继续此任务。")
     if task.status == "waiting" and not task.unconfirmed():
+        # The update answers the task's question, if it asked one.
         state.pop("task_wait_reason", None)
+        state.pop("pending_question", None)
         task.checkpoint = state
         task.requeue()
     task.checkpoint = state
@@ -87,7 +89,7 @@ def control(svc, message, task_id, kind):
         if (task.checkpoint or {}).get("pending_approval") or task.unconfirmed():
             raise ValueError("请先在卡片中批准待处理操作，或核对未知的操作结果。")
         if task.status == "waiting":
-            state = dict(task.checkpoint or {}); state.pop("task_wait_reason", None); task.checkpoint = state
+            state = dict(task.checkpoint or {}); state.pop("task_wait_reason", None); state.pop("pending_question", None); task.checkpoint = state
             task.requeue()
     elif task.status not in TERMINAL:
         task.status = "waiting" if kind == "pause" else "cancelled"

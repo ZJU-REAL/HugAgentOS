@@ -548,9 +548,11 @@ export const SETTINGS_DICT: Record<string, string> = {
   '应用 AgentId': 'App AgentId',
   '回调 Token': 'Callback Token',
   '回调 EncodingAESKey': 'Callback EncodingAESKey',
-  '绑定你自己的渠道机器人（飞书 / 钉钉 / 企业微信 / 微信）：消息推给它就由你的智能体回复，复用你的知识库与技能。':
-    'Bind your own channel bot (Feishu / DingTalk / WeCom / WeChat): messages sent to it are answered by your agent, reusing your knowledge bases and skills.',
+  '绑定你自己的渠道机器人（飞书 / 钉钉 / 企业微信 / 微信 / Slack）：消息推给它就由你的智能体回复，复用你的知识库与技能。':
+    'Bind your own channel bot (Feishu / DingTalk / WeCom / WeChat / Slack): messages sent to it are answered by your agent, reusing your knowledge bases and skills.',
   '请将回调地址填回渠道后台：{path}': 'Please fill this callback path back into the channel console: {path}',
+  'Slack 走 Socket Mode 长连接：在 Slack 应用后台开启 Socket Mode，订阅 message.im / message.channels / app_mention 事件，安装到工作区后填入上面三个凭据。':
+    'Slack uses a Socket Mode connection: enable Socket Mode in your Slack app, subscribe to the message.im / message.channels / app_mention events, install the app to your workspace, then fill in the three credentials above.',
   '企业微信走回调模式：绑定后把回吐的回调地址填回「企业微信后台 → 自建应用 → 接收消息」。':
     'WeCom uses callback mode: after binding, fill the returned callback URL into "WeCom console → Custom app → Receive messages".',
   // 微信扫码绑定
@@ -569,8 +571,8 @@ export const SETTINGS_DICT: Record<string, string> = {
     'Note: the bot runs with your permissions — anyone who @-mentions it in a group can reach your knowledge bases and skills through it. You can narrow the exposure in "Resource scope".',
   // ── 智能体页面绑定渠道机器人 ──
   '绑定渠道机器人': 'Bind channel bot',
-  '为智能体「{name}」绑定渠道机器人（飞书 / 钉钉 / 企业微信 / 微信）：消息推给它，就由该智能体用它自己绑定的能力回复。':
-    'Bind a channel bot (Feishu / DingTalk / WeCom / WeChat) to agent "{name}": messages sent to it are answered by this agent using its own bound capabilities.',
+  '为智能体「{name}」绑定渠道机器人（飞书 / 钉钉 / 企业微信 / 微信 / Slack）：消息推给它，就由该智能体用它自己绑定的能力回复。':
+    'Bind a channel bot (Feishu / DingTalk / WeCom / WeChat / Slack) to agent "{name}": messages sent to it are answered by this agent using its own bound capabilities.',
   '注意：机器人以你本人的权限运行——群里任何人 @ 它，都能隔着机器人用到该智能体的能力。':
     'Note: the bot runs with your permissions — anyone who @-mentions it in a group can reach this agent through it.',
   // ── 群聊旁听 ──

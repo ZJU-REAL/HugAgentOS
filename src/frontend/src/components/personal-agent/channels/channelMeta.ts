@@ -6,4 +6,5 @@ export const CHANNELS: { type: ChannelType; label: string; mark: string; tint: s
   { type: 'lark', label: '飞书', mark: '飞', tint: 'cyan' },
   { type: 'weixin', label: '微信', mark: '微', tint: 'green' },
   { type: 'wecom', label: '企业微信', mark: '企', tint: 'teal' },
+  { type: 'slack', label: 'Slack', mark: 'S', tint: 'purple' },
 ];

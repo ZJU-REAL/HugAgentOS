@@ -7,6 +7,7 @@ from core.harness.registry import client_sessions
 from core.harness.tool_call_context import CURRENT_RUN_BINDING
 from core.sandbox.permissions import approval
 from core.sandbox.permissions.approval import normalize_approval_mode
+from core.sandbox.permissions.authority import credential_scoped
 
 
 def resolve_work_approval_mode(user_id: str | None, chat_id: str | None = None) -> str:
@@ -38,10 +39,7 @@ def read_account_mode(user_id: str, chat_id: str | None = None) -> str | None:
                 or chat.user_id != user_id
                 or chat.deleted_at is not None
                 or reserved_chat_owner(chat_id)
-                or any(
-                    (chat.extra_data or {}).get(key)
-                    for key in ("agent_api_scope", "project_api_scope")
-                )
+                or credential_scoped(chat.extra_data)
             ):
                 return None
             leased = client_sessions.approval_mode(user_id, chat_id)
