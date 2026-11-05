@@ -139,11 +139,15 @@ def clear_state() -> None:
         clear_partial_selection()
         with bridge_client_state.manifest_lock:
             bridge_client_state.manifest, bridge_client_state.manifest_error, bridge_client_state.manifest_ts = None, None, 0.0
+            bridge_client_state.manifest_restored = False
         from features.desktop.bridge import bundles as desktop_cloud_bundles, skills as desktop_cloud_skills
 
         desktop_cloud_skills.on_account_switch()
         desktop_cloud_bundles.on_account_switch()
     purge_persisted_state()
+    from features.desktop.bridge import manifest_cache
+
+    manifest_cache.clear_all()
     rebuild_identity_views()
 
 
@@ -241,6 +245,7 @@ def reset_for_tests() -> None:  # pragma: no cover - 仅测试用
         bridge_client_state.manifest_error = None
         bridge_client_state.manifest_fetching = False
         bridge_client_state.refresh_pending = False
+        bridge_client_state.manifest_restored = False
     desktop_cloud_skills.reset_for_tests()
 
 

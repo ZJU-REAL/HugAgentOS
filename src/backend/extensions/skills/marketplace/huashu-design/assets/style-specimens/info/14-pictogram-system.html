@@ -1,0 +1,47 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>14 系统图标化图解</title>
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+body{background:#eef1f2;font-family:'Jost','Noto Sans SC',sans-serif;color:#111;position:relative}
+.hd{position:absolute;left:48px;top:34px;right:48px;display:flex;justify-content:space-between;align-items:flex-end;border-bottom:4px solid #111;padding-bottom:14px}
+h1{margin:0;font-size:36px;font-weight:700;letter-spacing:-.3px}
+h1 span{font-weight:400;color:#444}
+.hd .r{font-size:16px;text-align:right;line-height:1.4}
+.big{position:absolute;left:48px;top:128px;width:420px;height:420px;background:#7fb5da}
+.big svg{position:absolute;left:0;top:0}
+.cap{position:absolute;left:48px;top:566px;width:420px;font-size:16px;line-height:1.6}
+.cap b{display:block;font-size:22px;margin-bottom:4px}
+.grid{position:absolute;left:504px;top:128px;display:grid;grid-template-columns:repeat(4,162px);grid-auto-rows:207px;gap:6px}
+.c{position:relative}
+.c svg{position:absolute;left:0;top:0}
+.c span{position:absolute;left:12px;bottom:12px;font-size:17px;font-weight:700;color:#111;line-height:1.1}
+.c span i{display:block;font-style:normal;font-size:12px;font-weight:500;letter-spacing:.08em;margin-top:3px;color:#1d1d1d}
+.b{background:#7fb5da}.g{background:#97c46f}.s{background:#c9ced2}
+.foot{position:absolute;left:504px;top:628px;width:672px;font-size:16px;line-height:1.5;display:flex;gap:28px}
+.foot div{flex:1;border-top:2px solid #111;padding-top:8px}
+</style></head><body>
+<div class="hd"><h1>秦岭南线三日环线 <span>沿线设施图例</span></h1><div class="r">Trail Facility Symbols<br>全线 46.5 km · 8 类设施 · 共 31 处</div></div>
+<div class="big"><svg width="420" height="420" id="big"></svg></div>
+<div class="cap"><b>同一网格，同一笔画。</b>每个符号都画在 8×8 的格子里：笔画等粗，只走水平、垂直与 45° 三个方向，端头一律平切。</div>
+<div class="grid" id="grid"></div>
+<div class="foot"><div><b>03 号营地</b><br>海拔 1,860 m，可住 24 人</div><div><b>第二日最长</b><br>17.2 km，爬升 980 m</div></div>
+<script>
+const I={
+ peak:'M10 78 L40 48 L52 60 L62 50 L86 78 Z',
+ water:'M14 34 L26 22 L38 34 L50 22 L62 34 L74 22 L82 30 M14 58 L26 46 L38 58 L50 46 L62 58 L74 46 L82 54 M14 82 L26 70 L38 82 L50 70 L62 82 L74 70 L82 78',
+ shelter:'M12 52 L48 16 L84 52 M24 52 V82 M72 52 V82 M12 82 H84',
+ camp:'M10 80 L48 18 L86 80 Z M48 80 V50',
+ fork:'M48 84 V50 M48 50 L22 24 M48 50 L74 24 M22 24 V44 M22 24 H42 M74 24 V44 M74 24 H54',
+ stairs:'M12 82 H32 V62 H52 V42 H72 V22 H86',
+ bridge:'M8 38 H88 M24 38 L24 80 M72 38 L72 80 M24 62 L48 38 L72 62',
+ view:'M10 62 L30 42 H66 L86 62 M30 42 V24 M66 42 V24 M30 24 H66 M10 82 H86'};
+const names=[['peak','垭口','Pass','s'],['water','水源','Water','b'],['shelter','避雨亭','Shelter','g'],['camp','营地','Camp','b'],['fork','岔路','Junction','s'],['stairs','台阶段','Steps','g'],['bridge','栈桥','Bridge','s'],['view','观景台','Viewpoint','b']];
+const grid=document.getElementById('grid');
+names.forEach(n=>{const d=document.createElement('div');d.className='c '+n[3];
+ d.innerHTML=`<svg width="162" height="207" viewBox="0 0 162 207"><g transform="translate(26,14) scale(1.1)"><path d="${I[n[0]]}" fill="none" stroke="#111" stroke-width="11" stroke-linejoin="miter" stroke-linecap="butt" stroke-miterlimit="4"/></g></svg><span>${n[1]}<i>${n[2].toUpperCase()}</i></span>`;grid.appendChild(d)});
+const big=document.getElementById('big');let g='';
+for(let i=0;i<=8;i++){const p=i*52.5;g+=`<line x1="${p}" y1="0" x2="${p}" y2="420" stroke="#fff" stroke-opacity=".55" stroke-width="1.5"/><line x1="0" y1="${p}" x2="420" y2="${p}" stroke="#fff" stroke-opacity=".55" stroke-width="1.5"/>`}
+g+=`<line x1="0" y1="420" x2="420" y2="0" stroke="#fff" stroke-opacity=".8" stroke-width="1.5" stroke-dasharray="8 6"/><line x1="0" y1="0" x2="420" y2="420" stroke="#fff" stroke-opacity=".8" stroke-width="1.5" stroke-dasharray="8 6"/>`;
+g+=`<g transform="translate(26,26) scale(3.5)"><path d="${I.camp}" fill="none" stroke="#111" stroke-width="11" stroke-linejoin="miter" stroke-linecap="butt" stroke-miterlimit="4"/></g>`;
+big.innerHTML=g;
+</script></body></html>

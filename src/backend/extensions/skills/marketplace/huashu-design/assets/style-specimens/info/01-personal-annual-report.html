@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>01 个人数据印刷年报</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;900&family=Inter:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+:root{--paper:#F3EEE4;--ink:#1B1B1B;--red:#D8341C;--slate:#4B6479;--ochre:#C99A2E;--line:#1B1B1B}
+body{background:var(--paper);color:var(--ink);font-family:Inter,"Noto Sans SC",sans-serif;position:relative}
+.top{position:absolute;left:36px;right:36px;top:24px;height:44px;display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid var(--ink);padding-bottom:6px}
+.top h1{margin:0;font:900 26px/1 Archivo,"Noto Sans SC",sans-serif;letter-spacing:-.02em}
+.top h1 em{font-style:normal;color:var(--red)}
+.top span{font:500 13px/1.3 Inter,"Noto Sans SC";text-align:right;letter-spacing:.04em}
+.strip{position:absolute;left:36px;right:36px;top:76px;height:140px;display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr 1fr;border-bottom:1px solid var(--ink)}
+.strip div{border-left:1px solid var(--ink);padding:6px 12px 0}
+.strip div:first-child{border-left:0;padding-left:0}
+.strip b{display:block;font:900 66px/0.95 Archivo,sans-serif;letter-spacing:-.045em}
+.strip div:first-child b{font-size:86px;color:var(--red)}
+.strip small{display:block;font:500 13px/1.35 Inter,"Noto Sans SC";margin-top:6px}
+.strip i{font:500 13px Inter;font-style:normal;color:#555}
+.mod{position:absolute;top:228px;height:326px}
+.mod h3{margin:0 0 6px;font:700 13px/1 Inter,"Noto Sans SC";letter-spacing:.08em;display:flex;gap:8px;align-items:baseline}
+.mod h3 s{text-decoration:none;font:900 13px Archivo;color:var(--red)}
+.m1{left:36px;width:300px}
+.m2{left:362px;width:606px;border-left:1px solid var(--ink);padding-left:16px;box-sizing:content-box}
+.m3{left:998px;width:166px;border-left:1px solid var(--ink);padding-left:16px;box-sizing:content-box}
+.rank{font:500 13px/1.0 Inter,"Noto Sans SC";width:100%;border-collapse:collapse}
+.rank td{padding:6px 0;border-bottom:1px solid #1b1b1b33}
+.rank td:last-child{text-align:right;font:700 14px Archivo}
+.note{font:400 12px/1.4 Inter,"Noto Sans SC";color:#444;margin-top:8px}
+.band{position:absolute;left:36px;right:36px;top:576px;height:140px;border-top:3px solid var(--ink);padding-top:6px}
+.band h3{margin:0;font:700 13px/1 Inter,"Noto Sans SC";letter-spacing:.08em}
+.band h3 s{text-decoration:none;font:900 13px Archivo;color:var(--red);margin-right:8px}
+.foot{position:absolute;left:36px;right:36px;bottom:12px;display:flex;justify-content:space-between;font:400 12px Inter,"Noto Sans SC";color:#555}
+svg text{font-family:Inter,"Noto Sans SC",sans-serif}
+</style></head><body>
+<div class="top"><h1>苏渡 <em>/</em> 2025 城市骑行年报</h1><span>FELTRON-STYLE ANNUAL REPORT · NO.07<br>数据来源：码表 + 手机，共 312 条轨迹</span></div>
+
+<div class="strip">
+ <div><b>7,284</b><small>公里 KM<br><i>比 2024 年多骑 1,196 km</i></small></div>
+ <div><b>312</b><small>次出行<br><i>其中 214 次是上下班</i></small></div>
+ <div><b>487</b><small>小时在鞍上<br><i>均速 14.9 km/h</i></small></div>
+ <div><b>11</b><small>座桥反复过<br><i>钱塘江三桥最多：96 次</i></small></div>
+ <div><b>3</b><small>次摔车<br><i>都在雨后的井盖上</i></small></div>
+</div>
+
+<div class="mod m1"><h3><s>02</s>出发时刻 · 24 小时极坐标</h3><svg id="polar" width="300" height="290" viewBox="0 0 300 290"></svg></div>
+<div class="mod m2"><h3><s>03</s>全年日历 · 每格一天，红度＝当日公里数</h3><svg id="cal" width="606" height="196" viewBox="0 0 606 196"></svg>
+ <div class="note">最深的一格是 8 月 17 日：148 公里，环太湖，用时 8 小时 41 分。最浅的空白是 2 月的整整两周，膝盖。<br>图例　<svg width="150" height="12" style="vertical-align:-2px"><g id="leg"></g></svg>　0 → 148 km</div>
+ <div style="display:flex;gap:28px;margin-top:10px">
+  <div style="flex:1"><div style="font:700 13px Inter,'Noto Sans SC';letter-spacing:.08em;margin-bottom:4px">按路况分</div>
+   <div style="display:flex;height:22px;font:700 12px Inter;color:#fff"><div style="width:61%;background:var(--red);padding:4px 6px">非机动车道 61%</div><div style="width:27%;background:var(--slate);padding:4px 6px">绿道 27%</div><div style="width:12%;background:var(--ochre);color:#1b1b1b;padding:4px 6px">夜</div></div>
+   <div class="note" style="margin-top:4px">赭黄只代表一件事：22 点后出发的骑行，共 9 次，合计 311 km。</div></div>
+ </div>
+</div>
+<div class="mod m3"><h3><s>04</s>常去的五条路</h3>
+<table class="rank"><tr><td>之江路</td><td>1,402</td></tr><tr><td>滨江绿道</td><td>1,187</td></tr><tr><td>钱江新城</td><td>864</td></tr><tr><td>九溪</td><td>733</td></tr><tr><td>临平运河</td><td>512</td></tr></table>
+<div class="note">单位 km。五条路占全年 82%。</div></div>
+
+<div class="band"><h3><s>05</s>12 个月 · 每月公里数与出行次数（贯穿全年的时间带）</h3><svg id="band" width="1128" height="118" viewBox="0 0 1128 118"></svg></div>
+<div class="foot"><span>未涂布纸 · 单一朱红贯穿 · 黑白打印仍可读</span><span>虚构数据，仅作风格样张</span></div>
+
+<script>
+let s=7;function r(){s=(s*16807)%2147483647;return s/2147483647}
+const NS='http://www.w3.org/2000/svg';
+function el(p,t,a,txt){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;p.appendChild(e);return e}
+// polar
+(function(){const g=document.getElementById('polar');const cx=150,cy=140,r0=34,rm=108;
+ [r0,r0+43,r0+86,rm+0].forEach((q,i)=>el(g,'circle',{cx,cy,r:q,fill:'none',stroke:'#1b1b1b','stroke-width':i==0?1:.5,'stroke-opacity':i==0?1:.35}));
+ const com=[1,0,0,0,2,5,14,41,52,20,6,5,8,6,5,7,12,38,47,18,6,3,2,1],wk=[1,0,0,0,0,1,2,4,10,22,28,16,12,8,10,9,7,5,3,2,1,0,0,0],nt=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,5,2];
+ const mx=60;for(let h=0;h<24;h++){const a0=(h/24)*2*Math.PI-Math.PI/2,a1=((h+1)/24)*2*Math.PI-Math.PI/2-0.02;
+  let base=r0;[[com[h],'#D8341C'],[wk[h],'#4B6479'],[nt[h],'#C99A2E']].forEach(([v,c])=>{if(!v)return;const len=v/mx*(rm-r0);const r1=base+len;
+   const p=`M${cx+base*Math.cos(a0)},${cy+base*Math.sin(a0)} L${cx+r1*Math.cos(a0)},${cy+r1*Math.sin(a0)} A${r1},${r1} 0 0 1 ${cx+r1*Math.cos(a1)},${cy+r1*Math.sin(a1)} L${cx+base*Math.cos(a1)},${cy+base*Math.sin(a1)} A${base},${base} 0 0 0 ${cx+base*Math.cos(a0)},${cy+base*Math.sin(a0)}Z`;el(g,'path',{d:p,fill:c});base=r1})}
+ [[0,'00'],[6,'06'],[12,'12'],[18,'18']].forEach(([h,t])=>{const a=(h/24)*2*Math.PI-Math.PI/2;const rr=rm+13;el(g,'text',{x:cx+rr*Math.cos(a),y:cy+rr*Math.sin(a)+4,'text-anchor':'middle','font-size':12,'font-weight':700},t)});
+ el(g,'text',{x:cx,y:cy+4,'text-anchor':'middle','font-size':12,'font-weight':600},'312');
+ const lg=[['#D8341C','通勤 214'],['#4B6479','周末 89'],['#C99A2E','夜骑 9']];lg.forEach(([c,t],i)=>{el(g,'rect',{x:14+i*92,y:272,width:10,height:10,fill:c});el(g,'text',{x:28+i*92,y:281,'font-size':12},t)});
+})();
+// calendar
+(function(){const g=document.getElementById('cal');const cw=9.6,gap=1.4;const mon=['1','2','3','4','5','6','7','8','9','10','11','12'];
+ for(let w=0;w<53;w++){for(let d=0;d<7;d++){const day=w*7+d;if(day>=365)continue;const m=Math.floor(day/30.42);
+  const season=[0.15,0.1,0.35,0.6,0.75,0.8,0.7,0.9,0.8,0.6,0.35,0.2][Math.min(m,11)];
+  let v=r()<(d>=5?0.6:0.55)*(0.5+season)?(d>=5?(r()*70+25):(r()*24+12))*(0.6+season*0.7):0;
+  if(m==1&&day>34&&day<50)v=0;if(day==228)v=148;
+  const t=Math.min(1,v/110);const c=v==0?'#e6dfd1':`rgb(${Math.round(243-(243-216)*t)},${Math.round(224-(224-52)*t)},${Math.round(210-(210-28)*t)})`;
+  el(g,'rect',{x:w*(cw+gap)+22,y:d*(cw+gap+4)+18,width:cw,height:cw+4,fill:c})}}
+ ['一','三','五','日'].forEach((t,i)=>el(g,'text',{x:0,y:[0,2,4,6][i]*(cw+gap+4)+30,'font-size':12,fill:'#555'},t));
+ let acc=0;[31,28,31,30,31,30,31,31,30,31,30,31].forEach((n,i)=>{const w=Math.floor(acc/7);el(g,'text',{x:w*(cw+gap)+22,y:11,'font-size':12,'font-weight':600},(i+1)+'月');acc+=n});
+ const c228=Math.floor(228/7);const rc=el(g,'rect',{x:c228*(cw+gap)+22-2,y:(228%7)*(cw+gap+4)+18-2,width:cw+4,height:cw+8,fill:'none',stroke:'#1b1b1b','stroke-width':1.5});
+ el(g,'line',{x1:c228*(cw+gap)+27,y1:(228%7)*(cw+gap+4)+36,x2:c228*(cw+gap)+27,y2:168,stroke:'#1b1b1b','stroke-width':1});
+ el(g,'text',{x:c228*(cw+gap)+32,y:180,'font-size':12,'font-weight':700},'8/17 · 148 km');
+ const lg=document.getElementById('leg');for(let i=0;i<10;i++){const t=i/9;el(lg,'rect',{x:i*15,y:0,width:15,height:12,fill:`rgb(${Math.round(243-27*t)},${Math.round(224-172*t)},${Math.round(210-182*t)})`})}
+})();
+// band
+(function(){const g=document.getElementById('band');const km=[310,244,498,620,712,688,640,812,701,560,293,206],n=[19,14,26,30,34,33,32,38,31,27,16,12];const bw=1128/12;
+ el(g,'line',{x1:0,y1:90,x2:1128,y2:90,stroke:'#1b1b1b','stroke-width':1});
+ km.forEach((v,i)=>{const h=v/812*70;el(g,'rect',{x:i*bw+10,y:90-h,width:bw-20,height:h,fill:i==7?'#D8341C':'#D8341C','fill-opacity':i==7?1:.78});
+  el(g,'text',{x:i*bw+10,y:90-h-6,'font-size':14,'font-weight':900,'font-family':'Archivo'},v);
+  el(g,'text',{x:i*bw+10,y:108,'font-size':12,'font-weight':600},(i+1)+'月 · '+n[i]+' 次');
+  if(i>0)el(g,'line',{x1:i*bw,y1:20,x2:i*bw,y2:112,stroke:'#1b1b1b','stroke-opacity':.25})});
+})();
+</script></body></html>

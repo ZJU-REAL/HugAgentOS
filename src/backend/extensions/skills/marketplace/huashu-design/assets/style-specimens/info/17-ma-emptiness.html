@@ -1,0 +1,26 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>17 白之留白信息图</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@200;300;400&family=Inter:wght@300;400&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+body{background:#f7f5ef;color:#2b2a28;font-family:'Noto Serif SC',serif;font-weight:300;position:relative}
+.tag{position:absolute;right:72px;top:64px;writing-mode:vertical-rl;font-size:16px;letter-spacing:.5em;color:#6b6861}
+.en{position:absolute;left:72px;top:64px;font-family:'Inter',sans-serif;font-size:12px;letter-spacing:.3em;color:#8a867d}
+.num{position:absolute;left:459px;top:243px;font-size:176px;font-weight:200;line-height:1;letter-spacing:-.02em;color:#2b2a28}
+.num sup{font-size:20px;vertical-align:baseline;margin-left:18px;letter-spacing:.2em;color:#6b6861;font-weight:300}
+.dot{position:absolute;left:459px;top:243px;width:0;height:0}
+.line{position:absolute;left:459px;top:494px;font-size:18px;letter-spacing:.2em;line-height:2;color:#4a4843}
+svg{position:absolute;left:0;top:0}
+</style></head><body>
+<div class="en">TEAHOUSE · NIGHT TALKS · 2025</div>
+<div class="tag">老茶馆夜谈 年度记</div>
+<div class="num">37<sup>场</sup></div>
+<div class="line">这一年，茶馆在打烊之后<br>点了三十七盏灯。</div>
+<svg width="1200" height="750"><g id="g"></g></svg>
+<script>
+const NS='http://www.w3.org/2000/svg',g=document.getElementById('g');
+function el(t,a){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);g.appendChild(e);return e}
+const x0=459,y=640;
+for(let i=0;i<37;i++){const hot=i==24;el('line',{x1:x0+i*8+.5,x2:x0+i*8+.5,y1:y,y2:y+(hot?30:14),stroke:hot?'#c4402f':'#a9a59b','stroke-width':hot?2:1})}
+el('circle',{cx:x0+24*8+.5,cy:y-14,r:5,fill:'#c4402f'});
+const t=el('text',{x:x0+24*8+18,y:y-9,'font-size':13,fill:'#6b6861','font-family':'Noto Serif SC'});t.textContent='11 月 8 日 · 29 位客人，最满的一夜';
+</script></body></html>

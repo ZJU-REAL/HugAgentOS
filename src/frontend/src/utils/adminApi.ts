@@ -120,7 +120,7 @@ export async function saveAppConfig(
 
 export async function uploadPageAsset(
   token: string,
-  asset: 'logo' | 'favicon' | 'app_icon' | 'mcp_icon',
+  asset: 'logo' | 'favicon' | 'login_background' | 'app_icon' | 'mcp_icon',
   file: File,
 ): Promise<{ url: string; filename: string; size: number; asset: string }> {
   const fd = new FormData();

@@ -98,9 +98,7 @@ async def claim(session_id: str) -> AsyncIterator[None]:
     """跨进程认领这个会话，期间只有一个 worker 能建 / 换它的沙箱。"""
     from core.config.settings import settings
     sandbox = settings.sandbox
-    ttl = max(_LOCK_TTL_S,
-              2 * getattr(sandbox, "opensandbox_request_timeout_s", 120)
-              + getattr(sandbox, "opensandbox_snapshot_wait_timeout_s", 120) + 60)
+    ttl = max(_LOCK_TTL_S, 2 * getattr(sandbox, "opensandbox_request_timeout_s", 120) + 60)
     state = get_ephemeral_state()
     key = _LOCK_KEY.format(session_id=session_id)
     token = uuid.uuid4().hex
@@ -265,6 +263,20 @@ async def in_use_elsewhere(session_id: str, idle_threshold_s: float) -> bool:
         )
         return True
     return entry is not None and (time.time() - entry[1]) < idle_threshold_s
+
+
+async def used_since(session_id: str, since: float) -> bool:
+    """这个会话在 ``since``（epoch 秒）之后有没有被用过。
+
+    快照从发起到落成要几十秒到几分钟，期间会话可能又被用起来；落成后只有这段
+    时间里没人用过，快照才等于会话现在的工作区。读不到登记时按「用过」处理。
+    """
+    try:
+        entry = await _read(session_id)
+    except Exception as exc:  # noqa: BLE001 — 拿不准就当用过，快照作废重拍
+        logger.warning("[sandbox-registry] %s 最后使用时间读取失败：%s", session_id, exc)
+        return True
+    return entry is None or entry[1] > since
 
 
 _TRACK_KEY = "jx:sandbox:tracked:{sandbox_id}"

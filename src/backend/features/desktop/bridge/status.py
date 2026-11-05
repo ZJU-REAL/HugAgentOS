@@ -18,6 +18,7 @@ def initial_sync_status() -> Dict[str, Any]:
         manifest_ready = bridge_client_state.manifest is not None
         fetching = bridge_client_state.manifest_fetching
         error = bridge_client_state.manifest_error
+        restored = bridge_client_state.manifest_restored
     groups = {"skill": desktop_cloud_skills.status(), **desktop_cloud_bundles.status()}
     pending, completed, total = 0, 0, 0
     progress = []
@@ -39,12 +40,17 @@ def initial_sync_status() -> Dict[str, Any]:
     # database, and the shell's token push must never queue behind that wait.
     bridge_identity.require_current_account(st)
     complete = (manifest_ready and not fetching and not error and pending == 0 and complete_manifests)
-    if not fetching and not complete and not partial:
+    # 上次进程已经完整同步过的账号：恢复的快照与本机已就绪的包吻合就直接可用，
+    # 后台核对（包括离线时核对失败）不再把用户挡在同步页外。
+    cached = restored and manifest_ready and complete_manifests and pending == 0
+    if cached and not complete:
+        error = None
+    elif not fetching and not complete and not partial:
         error = error or "部分能力未能同步完成，请选择重试或使用已同步能力继续"
-    return {"ready": bool(complete or partial), "syncing": fetching, "partial": partial,
+    return {"ready": bool(complete or partial or cached), "syncing": fetching, "partial": partial,
             "groups": progress, "completed": completed, "total": total,
             "totals_known": bool(complete_manifests), "pending": pending,
-            "error": error, "can_continue": bool(manifest_ready and not fetching and not complete)}
+            "error": error, "can_continue": bool(manifest_ready and not fetching and not complete and not cached)}
 
 
 def bridge_status() -> Dict[str, Any]:

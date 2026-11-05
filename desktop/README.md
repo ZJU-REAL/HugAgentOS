@@ -409,6 +409,30 @@ Linux 目标（`--target linux-*`）取目录里的 `.deb`，没有则取 `.AppI
 `latest.json` 与安装包分发接口**公开无鉴权**（Tauri updater 不带 cookie），且已在 license_gate 放行
 （过期客户端也能拉到修复版）。发布目录不存在/无清单时 `/latest.json` 返回 204，客户端视为「无更新」。
 
+### 小更新包（不带运行时）
+
+设计见 [UPDATE_SIZE_DESIGN.md](UPDATE_SIZE_DESIGN.md)。自动更新下发不含 Python 运行时的小包；
+依赖指纹变化时，新版本首次启动会在停掉旧服务之前，从发布源下载
+`runtime-<target>-<fingerprint>.tar.gz`，并用包内 `runtime-manifest.json` 的 sha256 校验。
+
+1. 构建时设 `HUGAGENT_RUNTIME_SOURCE`（发布服务器地址或本地发布目录），同一指纹复用已发布的
+   运行时，保证完整包、小包和服务器上的运行时字节一致；未发布过的指纹照常构建。
+2. `npm run build` 生成完整包后，`npm run build:update` 复用同一份 `generated/` 生成小包，
+   输出到 `src-tauri/target/release/bundle-update/`，文件名带 `-update`。完整包目录不受影响。
+3. 一次发布小包、运行时和完整安装包：
+   ```bash
+   python3 desktop/scripts/publish-desktop.py --target windows-x86_64 \
+     --bundle desktop/src-tauri/target/release/bundle-update/nsis \
+     --runtime-dir desktop/generated \
+     --installer-bundle desktop/src-tauri/target/release/bundle/nsis \
+     --ssh user@release-host --container app-backend
+   ```
+   带 `-update` 的包必须同时给 `--runtime-dir`；同一指纹已发布过不同字节时发布会失败，
+   需用 `HUGAGENT_RUNTIME_SOURCE` 重新构建。网页下载入口优先提供 `installer`（完整离线包）。
+
+UOS deb 与 linux-aarch64 仍发布完整包。混合模式的私有云端也需要发布运行时文件，
+否则依赖变化的版本会提示用户重试或下载完整安装包。
+
 ## 已知注意点
 
 - **Windows 包**仍需在 Windows 侧构建（Tauri 不支持交叉编译）；**Linux 包在装好 Rust 的

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>08 地图即主角</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+body{background:#0E0F10;color:#F2F0EA;font-family:"IBM Plex Sans","Noto Sans SC",sans-serif;position:relative}
+svg{position:absolute;left:0;top:0}
+svg text{font-family:"IBM Plex Sans","Noto Sans SC",sans-serif}
+.title{position:absolute;left:36px;top:30px;width:420px}
+.title small{display:block;font:500 12px "IBM Plex Mono";letter-spacing:.14em;color:#FF5B2E;margin-bottom:8px}
+.title h1{margin:0;font:900 36px/1.2 "Noto Sans SC";letter-spacing:.01em}
+.title p{margin:10px 0 0;font:400 16px/1.6 "Noto Sans SC";color:#CFCBC2}
+.base{position:absolute;left:36px;bottom:24px;font:400 12px/1.5 "IBM Plex Mono","Noto Sans SC";color:#9A968C;border:1px dashed #6a675f;padding:6px 10px}
+</style></head><body>
+<svg width="1200" height="750" viewBox="0 0 1200 750" id="s"></svg>
+<div class="title"><small>TYPHOON NANYUAN · 2025.08.24</small><h1>南鸢过境二十四小时，<br>雨落在了东岸</h1><p>珠江口东侧的惠州、深圳、香港累计雨量都超过 230 毫米，西侧的江门和肇庆不到 150。</p></div>
+<div class="base">底图位：此处应为海岸线与水系底图（需 GeoJSON 或 Toner 瓦片）。当前只画了经纬网与数据层。</div>
+<script>
+const NS='http://www.w3.org/2000/svg',svg=document.getElementById('s');
+function e(t,a,txt,p){const n=document.createElementNS(NS,t);for(const k in a)n.setAttribute(k,a[k]);if(txt!=null)n.textContent=txt;(p||svg).appendChild(n);return n}
+const LON0=111.4,LON1=114.6,LAT0=21.85,LAT1=23.69,W=1200,H=750;
+const sx=W/(LON1-LON0),sy=H/(LAT1-LAT0);
+const P=(lo,la)=>[(lo-LON0)*sx,H-(la-LAT0)*sy];
+// graticule
+for(let lo=111.5;lo<=114.7;lo+=0.25){const [x]=P(lo,0);e('line',{x1:x,y1:0,x2:x,y2:H,stroke:'#fff',opacity:(Math.round(lo*4)%2==0)?.16:.07});
+ if(Math.round(lo*4)%2==0)e('text',{x:x+5,y:H-8,'font-size':12,fill:'#8d897f','font-family':'IBM Plex Mono'},lo.toFixed(1)+'°E')}
+for(let la=22.0;la<=23.6;la+=0.25){const [,y]=P(0,la);e('line',{x1:0,y1:y,x2:W,y2:y,stroke:'#fff',opacity:(Math.round(la*4)%2==0)?.16:.07});
+ if(Math.round(la*4)%2==0)e('text',{x:W-8,y:y-6,'text-anchor':'end','font-size':12,fill:'#8d897f','font-family':'IBM Plex Mono'},la.toFixed(1)+'°N')}
+// storm track
+const tr=[[114.5,21.95,'19:00'],[114.12,22.3,'21:00'],[113.78,22.7,'23:00'],[113.48,23.08,'01:00'],[113.2,23.5,'03:00']];
+let d='';tr.forEach(([lo,la],i)=>{const [x,y]=P(lo,la);d+=(i?'L':'M')+x+','+y});
+e('path',{d,fill:'none',stroke:'#fff','stroke-width':2,'stroke-dasharray':'3 7','stroke-linecap':'round'});
+// data circles
+const st=[['惠州',114.42,23.11,268,0,-60],['深圳',114.06,22.54,242,-84,-6],['香港',114.17,22.32,231,62,50],['东莞',113.75,23.02,205,0,-50],['广州',113.26,23.13,186,0,-48],['佛山',113.12,23.02,172,-46,32],['中山',113.39,22.52,163,-46,-10],['珠海',113.58,22.27,158,66,22],['澳门',113.54,22.2,149,-72,34],['江门',113.08,22.58,141,-30,40],['肇庆',112.47,23.05,98,0,50]];
+st.forEach(([n,lo,la,v,dx,dy])=>{const [x,y]=P(lo,la);const r=Math.sqrt(v)*2.6;
+ const hot=v>=230;
+ e('circle',{cx:x,cy:y,r,fill:hot?'#FF5B2E':'#4FD1D9','fill-opacity':hot?.62:.42,stroke:hot?'#FF5B2E':'#4FD1D9','stroke-width':1.5});
+ e('circle',{cx:x,cy:y,r:3,fill:'#fff'});
+ e('text',{x:x+dx,y:y+dy,'text-anchor':'middle','font-size':16,'font-weight':700,fill:'#fff'},n);
+ e('text',{x:x+dx,y:y+dy+17,'text-anchor':'middle','font-size':14,'font-family':'IBM Plex Mono',fill:hot?'#FFB59F':'#9fe6ea'},v+' mm');});
+// track labels
+tr.forEach(([lo,la,t],i)=>{const [x,y]=P(lo,la);e('circle',{cx:x,cy:y,r:5,fill:'#0E0F10',stroke:'#fff','stroke-width':2});e('text',{x:i==0?x-12:x+10,y:i==0?y+4:y+22,'text-anchor':i==0?'end':'start','font-size':13,'font-family':'IBM Plex Mono',fill:'#fff'},t)});
+const [tx,ty]=P(114.95,21.92);e('text',{x:tx-10,y:ty-26,'text-anchor':'end','font-size':14,'font-weight':600,fill:'#fff'},'南鸢路径');
+// legend
+const lx=1100,ly=140;e('text',{x:lx,y:38,'text-anchor':'middle','font-size':12,'font-family':'IBM Plex Mono',fill:'#9A968C'},'24H 累计雨量 · 面积∝毫米');
+[300,200,100].forEach((v,i)=>{const r=Math.sqrt(v)*2.6;e('circle',{cx:lx,cy:ly-r,r,fill:'none',stroke:'#cfcbc2','stroke-width':1});e('text',{x:lx,y:ly-2*r+14,'text-anchor':'middle','font-size':12,'font-family':'IBM Plex Mono',fill:'#cfcbc2'},v)});
+e('text',{x:1164,y:728,'text-anchor':'end','font-size':12,fill:'#6f6b62'},'虚构数据；站点经纬度为各城市中心位置');
+</script></body></html>

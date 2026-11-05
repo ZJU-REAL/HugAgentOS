@@ -27,3 +27,4 @@
 .jx-capAvailableGrid article { padding: 20px; border: 1px solid var(--color-border); border-radius: 14px; background: var(--color-bg-container); }
 .jx-capAvailableGrid h3 { font-size: 15px; margin: 0 0 10px; }
 .jx-capAvailableGrid p { font-size: 13px; line-height: 1.7; color: var(--color-text-secondary); margin: 0; }
+.jx-cloudReconnect { position: fixed; left: 50%; bottom: 24px; z-index: 1000; transform: translateX(-50%); padding: 8px 16px; border-radius: 999px; background: var(--color-text); color: var(--color-bg-container); font-size: 13px; line-height: 1.5; box-shadow: var(--shadow-floating); pointer-events: none; }

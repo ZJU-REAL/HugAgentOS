@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>16 终端核软未来</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Inter:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+:root{--bg:#0B0D14;--w:#F2F0EF;--m:#8E8D96;--l:rgba(242,240,239,.12)}
+body{background:var(--bg);color:var(--w);font-family:Inter,"Noto Sans SC",sans-serif;position:relative}
+.mono{font-family:"Geist Mono","Noto Sans SC",monospace}
+.glow{position:absolute;left:560px;top:120px;width:640px;height:560px;background:radial-gradient(closest-side,rgba(110,92,255,.35),rgba(80,140,255,.1) 60%,transparent)}
+.nav{position:absolute;top:34px;left:56px;right:56px;display:flex;gap:30px;font-size:14px;color:var(--m);align-items:center}
+.nav b{color:var(--w);font-size:17px;font-weight:600}.nav .r{margin-left:auto;color:var(--w);border:1px solid var(--l);padding:6px 14px}
+h1{position:absolute;left:56px;top:112px;margin:0;font-family:"Geist Mono","Noto Sans SC",monospace;font-weight:500;font-size:46px;line-height:1.3;letter-spacing:-1.5px;width:560px}
+h1 em{font-style:normal;color:#9D8CFF}
+.cur{display:inline-block;width:.5em;height:.9em;background:#9D8CFF;vertical-align:-.1em}
+.sub{position:absolute;left:56px;top:276px;width:470px;color:var(--m);font-size:17px;line-height:1.7}
+.install{position:absolute;left:56px;top:380px;border:1px solid var(--l);padding:14px 18px;font-size:16px;display:flex;gap:16px;align-items:center;background:rgba(255,255,255,.02)}
+.install span{color:var(--m)}.install b{font-weight:500}.install i{font-style:normal;color:var(--m);border-left:1px solid var(--l);padding-left:14px;font-size:13px}
+.btns{position:absolute;left:56px;top:460px;display:flex;gap:12px}
+.btns a{padding:11px 20px;font-size:15px;font-weight:500}
+.p{background:linear-gradient(135deg,#7C6CFF,#4F8CFF);color:#fff;border-radius:2px}
+.s{border:1px solid var(--l)}
+.term{position:absolute;left:590px;top:96px;width:556px;border:1px solid var(--l);background:rgba(11,13,20,.85);box-shadow:0 0 80px rgba(110,92,255,.25)}
+.term .bar{height:36px;border-bottom:1px solid var(--l);display:flex;align-items:center;padding:0 14px;gap:7px;font-size:13px;color:var(--m)}
+.term .bar i{width:9px;height:9px;border-radius:50%;background:#3a3b46}.term .bar span{margin-left:12px}
+.term pre{margin:0;padding:18px 20px;font:500 15px/1.85 "Geist Mono","Noto Sans SC",monospace;color:#D8D6DA}
+.g{color:#7CE3B0}.v{color:#9D8CFF}.m{color:var(--m)}.o{color:#FFB38A}
+.bento{position:absolute;left:56px;right:56px;top:576px;display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr;gap:1px;background:var(--l);border:1px solid var(--l)}
+.bento div{background:var(--bg);padding:16px 18px;font-size:14px;color:var(--m);line-height:1.5}
+.bento b{display:block;color:var(--w);font-family:"Geist Mono",monospace;font-weight:500;font-size:20px;margin-bottom:2px}
+.cube{position:absolute;left:1020px;top:380px;width:150px;height:170px}
+</style></head><body>
+<div class="glow"></div>
+<div class="nav mono"><b>ledgr</b><span>文档</span><span>命令</span><span>更新</span><span class="r">$ brew install ledgr</span></div>
+<h1>在终端里<br>管好<em>每一笔账</em><span class="cur"></span></h1>
+<div class="sub">纯文本账本，一行命令记账、一行命令出月报。数据只存在你自己的硬盘里。</div>
+<div class="install mono"><span>$</span><b>brew install ledgr</b><i>复制</i></div>
+<div class="btns"><a class="p mono">开始记账</a><a class="s mono">查看源码 ↗</a></div>
+<div class="term mono"><div class="bar"><i></i><i></i><i></i><span>~/账本 — zsh</span></div>
+<pre><span class="g">❯</span> ledgr add 午饭 38 --tag 餐饮
+<span class="m">已记录  10-17 12:41  餐饮  -38.00</span>
+
+<span class="g">❯</span> ledgr report --month 10
+<span class="v">10 月支出</span>   <span class="o">¥ 4,286.50</span>
+<span class="m">餐饮    <span class="v">████████</span>░░   1,420</span>
+<span class="m">房租    <span class="v">██████████</span>   2,100</span>
+<span class="m">交通    <span class="v">██</span>░░░░░░░░     312</span>
+<span class="m">其他    <span class="v">██</span>░░░░░░░░     454</span>
+<span class="g">❯</span> <span class="v">▌</span></pre></div>
+<svg class="cube" viewBox="0 0 150 170"><g fill="none" stroke-linejoin="round">
+<polygon points="75,12 138,48 75,84 12,48" fill="rgba(157,140,255,.28)" stroke="#9D8CFF"/>
+<polygon points="12,48 75,84 75,158 12,122" fill="rgba(79,140,255,.12)" stroke="#6C8CFF"/>
+<polygon points="138,48 75,84 75,158 138,122" fill="rgba(242,240,239,.05)" stroke="rgba(242,240,239,.5)"/>
+<line x1="75" y1="84" x2="75" y2="158" stroke="#9D8CFF"/></g></svg>
+<div class="bento"><div><b>0.9 MB</b>单文件，无依赖</div><div><b>纯文本</b>账本可用 git 管理</div><div><b>12 ms</b>万条记录出报表</div><div><b>MIT</b>开源，免费</div></div>
+</body></html>

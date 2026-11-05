@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { DEFAULT_PAGE_CONFIG, mergePageConfig, type PageConfig } from '../utils/pageConfigDefaults';
+import { mergePageConfig, type PageConfig } from '../utils/pageConfigDefaults';
+import { loadJsonPref, removeLocal, saveJsonPref } from '../storage';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || '/api';
 
@@ -93,6 +94,43 @@ function composeVersionKey(pageVer: string | null, appVer: string | null): strin
   return `${pageVer || ''}|${appVer || ''}`;
 }
 
+/**
+ * The last page config the server returned. The store starts from it, so a reload paints the configured
+ * logo and names at once instead of the defaults until `/content/docs` answers. index.html reads the
+ * same key to set the tab title and icon before any script loads — keep the two in sync.
+ */
+export const PAGE_CONFIG_CACHE_KEY = 'hugagent_page_config_cache';
+
+function cachePageConfig(config: object | null): void {
+  if (config) saveJsonPref(PAGE_CONFIG_CACHE_KEY, config);
+  else removeLocal(PAGE_CONFIG_CACHE_KEY);
+}
+
+/** index.html starts the `/content/docs` request before any script loads; the first fetch takes it over. */
+function takeEarlyRequest(): Promise<unknown> | null {
+  if (typeof window === 'undefined' || API_BASE !== '/api') return null;
+  const host = window as Window & { __jxPageConfig?: Promise<unknown> };
+  const early = host.__jxPageConfig ?? null;
+  delete host.__jxPageConfig;
+  return early;
+}
+
+interface DocsResponse {
+  data?: {
+    page_config?: Partial<PageConfig> | null;
+    app_config?: unknown;
+    page_config_updated_at?: string | null;
+    app_config_updated_at?: string | null;
+  };
+}
+
+async function requestDocs(): Promise<DocsResponse | null> {
+  const early = (await takeEarlyRequest()) as DocsResponse | null;
+  if (early) return early;
+  const res = await fetch(`${API_BASE}/v1/content/docs`);
+  return res.ok ? res.json() : null;
+}
+
 interface PageConfigState {
   config: PageConfig;
   appConfig: AppConfig;
@@ -107,7 +145,7 @@ interface PageConfigState {
 }
 
 export const usePageConfigStore = create<PageConfigState>((set, get) => ({
-  config: DEFAULT_PAGE_CONFIG,
+  config: mergePageConfig(loadJsonPref(PAGE_CONFIG_CACHE_KEY, {})),
   appConfig: DEFAULT_APP_CONFIG,
   updatedAt: null,
   appConfigUpdatedAt: null,
@@ -118,12 +156,12 @@ export const usePageConfigStore = create<PageConfigState>((set, get) => ({
     if (get().fetching) return;
     set({ fetching: true });
     try {
-      const res = await fetch(`${API_BASE}/v1/content/docs`);
-      if (!res.ok) return;
-      const body = await res.json();
-      const data = body?.data || {};
+      const body = await requestDocs();
+      if (!body) return;
+      const data = body.data || {};
       const remote = data.page_config || null;
       const remoteApp = data.app_config || null;
+      cachePageConfig(remote);
       set({
         config: mergePageConfig(remote),
         appConfig: mergeAppConfig(remoteApp),
@@ -153,10 +191,12 @@ export const usePageConfigStore = create<PageConfigState>((set, get) => ({
 
   getVersionKey: () => composeVersionKey(get().updatedAt, get().appConfigUpdatedAt),
 
-  setConfig: (config, updatedAt) =>
+  setConfig: (config, updatedAt) => {
+    cachePageConfig(config);
     set({
       config: mergePageConfig(config),
       updatedAt: updatedAt ?? new Date().toISOString(),
       loaded: true,
-    }),
+    });
+  },
 }));

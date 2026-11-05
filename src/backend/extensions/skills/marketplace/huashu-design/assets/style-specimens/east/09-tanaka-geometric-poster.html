@@ -1,0 +1,41 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>09 田中一光几何平面构成</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=Noto+Serif+SC:wght@600;900&family=Zen+Kaku+Gothic+New:wght@500;700&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden;background:#F1EBDD}
+body{position:relative;font-family:"Noto Sans SC",sans-serif;color:#1A1A1A}
+.g{position:absolute}
+/* 抽象灯笼/幕布：方、圆、半圆在网格上 */
+.stage{position:absolute;left:60px;top:60px;width:560px;height:630px}
+.stage div{position:absolute}
+.vt{position:absolute;left:690px;top:60px;writing-mode:vertical-rl;font:900 108px/1 "Noto Serif SC";letter-spacing:.06em;color:#1A1A1A}
+.en{position:absolute;left:830px;top:66px;font:700 15px "Zen Kaku Gothic New","Noto Sans SC";letter-spacing:.38em;color:#1A1A1A;writing-mode:vertical-rl}
+.info{position:absolute;left:890px;top:60px;width:250px}
+.info p{margin:0 0 18px;font:500 17px/1.7 "Noto Sans SC";letter-spacing:.06em}
+.info small{display:block;font:700 13px "Zen Kaku Gothic New","Noto Sans SC";letter-spacing:.3em;color:#D9381E;margin-bottom:4px}
+.bar{position:absolute;left:690px;right:60px;bottom:60px;height:2px;background:#1A1A1A}
+.foot{position:absolute;left:690px;bottom:72px;font:700 14px "Zen Kaku Gothic New","Noto Sans SC";letter-spacing:.3em}
+.mark{position:absolute;right:60px;bottom:72px;width:26px;height:26px;background:#D9381E;border-radius:50%}
+</style></head><body>
+<div class="stage">
+ <!-- 网格定位：每格 70px，8列9行 -->
+ <div style="left:0;top:0;width:280px;height:280px;background:#D9381E"></div>
+ <div style="left:280px;top:0;width:280px;height:280px;background:#1A1A1A;border-radius:0 280px 0 0"></div>
+ <div style="left:0;top:280px;width:280px;height:280px;background:#1A1A1A;border-radius:0 0 0 280px"></div>
+ <div style="left:280px;top:280px;width:280px;height:280px;background:#E6B52A;border-radius:140px 0 0 0;"></div>
+ <div style="left:70px;top:70px;width:140px;height:140px;background:#F1EBDD;border-radius:50%"></div>
+ <div style="left:350px;top:350px;width:140px;height:140px;background:#1A1A1A;border-radius:0 140px 0 0"></div>
+ <div style="left:210px;top:210px;width:140px;height:140px;background:#F1EBDD"></div>
+ <div style="left:210px;top:210px;width:70px;height:70px;background:#3C6E8F;border-radius:0 0 70px 0"></div>
+ <div style="left:280px;top:280px;width:70px;height:70px;background:#D9381E;border-radius:70px 0 0 0"></div>
+ <div style="left:0;top:560px;width:560px;height:70px;background:repeating-linear-gradient(90deg,#1A1A1A 0 35px,#F1EBDD 35px 70px)"></div>
+</div>
+<div class="vt">城市影展</div>
+<div class="en">CITY FILM FESTIVAL 2026</div>
+<div class="info">
+ <small>会期</small><p>十一月十四日至二十二日<br>共九天，六十二部影片</p>
+ <small>会场</small><p>旧港口仓库区三号库<br>东堤电影院　光之塔</p>
+ <small>主题</small><p>水边的人</p>
+ <small>票价</small><p>单场五十元　通票四百元</p>
+</div>
+<div class="bar"></div><div class="foot">NOV 14 – 22</div><div class="mark"></div>
+</body></html>

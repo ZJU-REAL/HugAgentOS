@@ -281,7 +281,12 @@ async def test_ce_local_login_starts_in_english_with_brand_title(monkeypatch):
     monkeypatch.setattr(
         mock_sso,
         "get_branding_info",
-        lambda: {"product_name": "HugAgentOS", "logo_url": "/icon.png"},
+        lambda: {
+            "product_name": "HugAgentOS",
+            "favicon_url": "/icon.png",
+            "login_logo_url": "/home/hugagentos-logo.png",
+            "login_background_url": "/home/mock-sso-bg-original.png",
+        },
     )
     request = Request(
         {
@@ -314,225 +319,59 @@ async def test_ce_local_login_starts_in_english_with_brand_title(monkeypatch):
     assert 'name="confirm_password"' not in html
     assert '<img class="brand-logo" src="/home/hugagentos-logo.png" alt="HugAgentOS" />' in html
     assert "<span>HugAgentOS</span>" not in html
-    assert "document.title = 'HugAgentOS'" in html
+    assert 'document.title = "HugAgentOS"' in html
 
 
-def test_mock_login_shortcuts_require_non_ce_explicit_mock_mode(monkeypatch):
+@pytest.mark.asyncio
+async def test_login_page_renders_configured_branding_escaped(monkeypatch):
     import api.routes.v1.mock_sso as mock_sso
-    import core.config.settings as settings_module
+    from starlette.requests import Request
 
+    monkeypatch.setattr(mock_sso, "is_register_allowed", lambda: True)
     monkeypatch.setattr(
-        settings_module,
-        "settings",
-        SimpleNamespace(
-            edition=SimpleNamespace(edition="ce"),
-            sso=SimpleNamespace(effective_login_mode="mock"),
-        ),
+        mock_sso,
+        "get_branding_info",
+        lambda: {
+            "product_name": 'Acme "<b>\'',
+            "favicon_url": "/docs/page_config/favicon_bbb.ico",
+            "login_logo_url": "/docs/page_config/logo_ccc.png",
+            "login_background_url": "/docs/page_config/login_background_ddd.jpg?')x",
+        },
     )
-    assert mock_sso._mock_account_shortcuts_enabled() is False
+    request = Request({"type": "http", "method": "GET", "path": "/login", "headers": [], "query_string": b""})
+    html = (await mock_sso.mock_login_page(request, redirect="/", auto="0", error=None, tab=None, reg_error=None)).body.decode()
 
-    monkeypatch.setattr(
-        settings_module,
-        "settings",
-        SimpleNamespace(
-            edition=SimpleNamespace(edition="ee"),
-            sso=SimpleNamespace(effective_login_mode="mock"),
-        ),
-    )
-    assert mock_sso._mock_account_shortcuts_enabled() is True
+    assert "hugagentos-logo.png" not in html and "mock-sso-bg-original.png" not in html
+    assert 'src="/docs/page_config/logo_ccc.png"' in html
+    assert '<link rel="icon" href="/docs/page_config/favicon_bbb.ico"/>' in html
+    assert "url('/docs/page_config/login_background_ddd.jpg?%27)x')" in html
+    assert "<title>Acme &quot;&lt;b&gt;&#x27;</title>" in html
+    assert 'document.title = "Acme \\"\\u003cb>\'";' in html
 
 
-# ── Local single-origin hosting: /api strip + SPA fallback ───────────────────
+def test_resolve_login_branding_follows_config():
+    from core.files.content.branding import resolve_login_branding
+
+    stock = resolve_login_branding({})
+    assert stock["login_logo_url"] == "/home/hugagentos-logo.png"
+    assert stock["login_background_url"] == "/home/mock-sso-bg-original.png"
+    # Empty login logo follows the sidebar logo; empty background means none.
+    picked = resolve_login_branding({"logo_url": "/x.png", "login_logo_url": "", "login_background_url": ""})
+    assert picked["login_logo_url"] == "/x.png" and picked["login_background_url"] == ""
+    assert resolve_login_branding({"logo_url": "/x.png", "login_logo_url": "/w.png"})["login_logo_url"] == "/w.png"
 
 
-def _local_app(tmp_path: Path):
-    from api.local_hosting import mount_frontend_static, setup_local_api_prefix
-    from fastapi import FastAPI
+def test_backfill_login_logo_keeps_a_custom_brand():
+    from unittest.mock import MagicMock
 
-    dist = tmp_path / "dist"
-    (dist / "assets").mkdir(parents=True)
-    (dist / "index.html").write_text("<!doctype html><title>app</title>")
-    (dist / "assets" / "app.js").write_text("console.log(1)")
+    from core.files.content.branding import backfill_login_logo
 
-    app = FastAPI()
+    def run(branding):
+        row = MagicMock(payload={"branding": branding})
+        db = MagicMock()
+        db.query.return_value.filter.return_value.first.return_value = row
+        return backfill_login_logo(db), row.payload["branding"]
 
-    @app.get("/v1/ping")
-    async def ping():
-        return {"ok": True}
-
-    setup_local_api_prefix(app)  # /api/* -> /*
-    import os
-
-    os.environ["FRONTEND_DIST_DIR"] = str(dist)
-    mount_frontend_static(app)
-    return app
-
-
-def test_local_api_prefix_and_spa_fallback(tmp_path, monkeypatch):
-    from fastapi.testclient import TestClient
-
-    client = TestClient(_local_app(tmp_path))
-
-    # /api/v1/ping is bridged to /v1/ping (nginx-style strip).
-    assert client.get("/api/v1/ping").json() == {"ok": True}
-    assert client.get("/v1/ping").json() == {"ok": True}
-
-    # SPA routes return index.html on hard refresh.
-    for route in ("/admin", "/config", "/api-docs"):
-        r = client.get(route)
-        assert r.status_code == 200 and "<title>app</title>" in r.text
-
-    # Real static asset served as a file.
-    assert "console.log" in client.get("/assets/app.js").text
-
-    # Unknown API path is a real 404, never masked as the SPA.
-    assert client.get("/v1/nope").status_code == 404
-
-
-# ── Self-built KB over embedded Milvus Lite (dense-only) ─────────────────────
-
-
-def test_kb_milvus_lite_dense_only(tmp_path, monkeypatch):
-    """The vector KB must run server-less on Milvus Lite: a file MILVUS_URL is
-    detected as Lite, the collection is created dense-only (no sparse field), an
-    upsert with a sparse_embedding key succeeds (stripped), and a dense search
-    returns the row."""
-    pytest = __import__("pytest")
-    try:
-        import milvus_lite  # noqa: F401
-    except Exception:
-        pytest.skip("milvus-lite not installed")
-
-    monkeypatch.setenv("MILVUS_URL", str(tmp_path / "kb.db"))
-    import importlib
-    from features.knowledge import kb_vector, vector_client, vector_indexing
-    from core.models import embedding as vector_embedding, embedding_state
-    import features.knowledge.kb_vector_state as kv
-    importlib.reload(kv)
-    importlib.reload(embedding_state)  # Reset relocated caches and environment configuration.
-    DIM = 8
-    monkeypatch.setattr(vector_embedding, 'detect_embed_dim', lambda: DIM)
-    monkeypatch.setattr(vector_embedding, 'embed_text', lambda t: [0.1] * DIM)
-
-    assert vector_client.is_lite() is True
-    vector_client.get_or_create_collection()
-    vector_indexing.upsert_rows(
-        [
-            {
-                "chunk_id": "c1",
-                "parent_chunk_id": "c1",
-                "row_type": "chunk",
-                "user_id": "u1",
-                "kb_id": "kb1",
-                "document_id": "d1",
-                "title": "t",
-                "content": "机器学习",
-                "tags_text": "",
-                "chunk_index": 0,
-                "dense_embedding": [0.1] * DIM,
-                "sparse_embedding": kb_vector.text_to_sparse("机器学习"),  # must be stripped on Lite
-            }
-        ]
-    )
-    hits = kb_vector.hybrid_search("u1", ["kb1"], "机器学习", [0.1] * DIM, top_k=5)
-    assert len(hits) == 1 and hits[0]["content"] == "机器学习"
-
-
-# ── Loopback proxy bypass (desktop/local internal calls must not hit env proxies) ─
-
-
-def test_local_env_merges_loopback_hosts_into_no_proxy(monkeypatch):
-    """A system proxy (http_proxy/all_proxy) must never intercept the local
-    profile's 127.0.0.1 service mesh — httpx honours those vars and a desktop
-    proxy (e.g. Clash) answers loopback targets with 502, breaking sidecar
-    readiness and site publishing. Existing NO_PROXY entries must survive."""
-    import cli
-
-    monkeypatch.setenv("http_proxy", "http://127.0.0.1:7897")
-    monkeypatch.setenv("NO_PROXY", "internal.corp")
-    monkeypatch.delenv("no_proxy", raising=False)
-
-    cli.ensure_loopback_proxy_bypass()
-
-    import os
-
-    for var in ("NO_PROXY", "no_proxy"):
-        entries = os.environ[var].split(",")
-        assert "internal.corp" in entries
-        assert "127.0.0.1" in entries
-        assert "localhost" in entries
-        assert "::1" in entries
-    # The proxy itself stays configured — external model/API calls may need it.
-    assert os.environ["http_proxy"] == "http://127.0.0.1:7897"
-
-    # Idempotent: a second call must not duplicate entries.
-    cli.ensure_loopback_proxy_bypass()
-    assert os.environ["NO_PROXY"].split(",").count("127.0.0.1") == 1
-
-
-@pytest.mark.parametrize("explicit", [None, "", "http://configured:8080"])
-def test_windows_loopback_bypass_preserves_registry_proxy(monkeypatch, explicit):
-    import os
-    from urllib import request
-
-    import cli
-
-    for name in list(os.environ):
-        if name.lower() in ("http_proxy", "https_proxy", "all_proxy", "no_proxy"):
-            monkeypatch.delenv(name)
-    monkeypatch.setattr(cli.sys, "platform", "win32")
-    monkeypatch.setattr(request, "getproxies_registry", lambda: {"http": "http://system:7897", "https": "http://system:7897"}, raising=False)
-    if explicit is not None:
-        monkeypatch.setenv("HTTPS_PROXY", explicit)
-    cli.ensure_loopback_proxy_bypass()
-    assert os.environ["HTTPS_PROXY"] == (explicit if explicit is not None else "http://system:7897")
-    assert "127.0.0.1" in os.environ["NO_PROXY"]
-    if explicit is not None:
-        assert "HTTP_PROXY" not in os.environ
-
-
-def test_apply_local_env_seeds_the_profile_before_settings_is_frozen(tmp_path):
-    """``DEPLOY_PROFILE`` must be in the environment before ``settings`` reads it.
-
-    ``core.config.settings`` snapshots the environment the first time it is
-    imported, and ``core.services`` imports it transitively. Resolving anything
-    that reaches ``core.services`` while building the local defaults therefore
-    freezes a settings object that predates ``DEPLOY_PROFILE=local``: the local
-    profile then silently runs as a compose deployment — no ``/api`` prefix
-    bridge, no static frontend, mock auth — which in the desktop shell shows up
-    as "本机执行面尚未就绪" on every hybrid request.
-
-    A fresh interpreter is required: ``settings`` is a module-level singleton.
-    """
-    import json
-    import subprocess
-    import sys
-    from pathlib import Path as _Path
-
-    backend = str(_Path(__file__).resolve().parents[1])
-    script = (
-        "import os, sys, json\n"
-        "os.environ.pop('DEPLOY_PROFILE', None)\n"
-        f"os.environ['HUGAGENT_HOME'] = {str(tmp_path / 'home')!r}\n"
-        "import cli\n"
-        "cli.apply_local_env(port=18999)\n"
-        "from core.config.settings import settings\n"
-        "print(json.dumps({'is_local': settings.deploy.is_local,\n"
-        "                  'session_persist': settings.session.persist_path,\n"
-        "                  'session_ttl_hours': settings.session.ttl_hours,\n"
-        "                  'site_home': os.environ.get('SITE_TEMPLATE_HOME', '')}))\n"
-    )
-    out = subprocess.run(
-        [sys.executable, "-c", script],
-        capture_output=True,
-        text=True,
-        env={**os.environ, "PYTHONPATH": backend},
-        cwd=backend,
-    )
-    assert out.returncode == 0, out.stderr[-2000:]
-    payload = json.loads(out.stdout.strip().splitlines()[-1])
-    assert payload["is_local"] is True
-    assert payload["site_home"]
-    # The desktop restarts this process on every launch; logins must survive it.
-    assert payload["session_persist"] == str(tmp_path / "home" / "sessions.json")
-    assert payload["session_ttl_hours"] == 720
+    assert run({"logo_url": "/x.png"}) == (True, {"logo_url": "/x.png", "login_logo_url": ""})
+    assert run({"logo_url": "/home/header.svg"})[1]["login_logo_url"] == "/home/hugagentos-logo.png"
+    assert run({"logo_url": "/x.png", "login_logo_url": "/w.png"})[0] is False

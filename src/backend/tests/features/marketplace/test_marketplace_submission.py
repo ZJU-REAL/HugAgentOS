@@ -83,10 +83,10 @@ def test_submit_snapshot_and_slug_strips_fingerprint(db):
 
 
 def test_slug_collision_with_builtin_dir(db):
-    # The preset directory already has diagram-builder, so the community slug auto-avoids the collision
-    _make_user_skill(db, "diagram-builder", "userA")
-    sub = skill_submissions.submit_to_marketplace(db, "diagram-builder", owner_user_id="userA", category="办公效率")
-    assert sub["slug"] == "diagram-builder-2"
+    # The preset directory already has diagram-design, so the community slug auto-avoids the collision
+    _make_user_skill(db, "diagram-design", "userA")
+    sub = skill_submissions.submit_to_marketplace(db, "diagram-design", owner_user_id="userA", category="办公效率")
+    assert sub["slug"] == "diagram-design-2"
 
 
 def test_submit_category_must_be_in_fixed_set(db):

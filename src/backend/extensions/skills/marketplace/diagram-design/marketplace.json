@@ -1,0 +1,22 @@
+{
+  "slug": "diagram-design",
+  "entry_name": "diagram-design",
+  "display_name": "专业图表设计（架构图 / 流程图）",
+  "summary": "出版级排版的架构图、流程图、时序图、状态机、ER 图、泳道图、时间线、组织架构图等 45 种图，输出可单独打开的 HTML/SVG，可导出 PNG；能把 draw.io、Mermaid、Excalidraw 图重新绘制，支持中文标签，默认离线不依赖外部字体。",
+  "category": "文档处理",
+  "tags": [
+    "架构图",
+    "流程图",
+    "可视化"
+  ],
+  "version": "2.6.0",
+  "author": "Cathryn Lavery",
+  "icon_url": "",
+  "source": "github",
+  "source_url": "https://github.com/cathrynlavery/diagram-design",
+  "downloads": 0,
+  "stars": 64472,
+  "featured": true,
+  "requires_api_key": false,
+  "required_secrets": []
+}

@@ -95,6 +95,12 @@ pub(crate) fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error:
     // 混合架构（Dual）：桥接秘密注入本机服务进程；本机作为「本地项目执行面」
     // 在云端为主的同时常驻。云端/本机单一形态不受影响。
     let hybrid_local = cfg.provision_mode() == config::ProvisionMode::Dual;
+    // 小更新包不带运行时：依次尝试更新源、云端地址（混合模式）、编译期发布源。
+    local_server.set_runtime_sources([
+        cfg.update_base(),
+        cfg.cloud_base(),
+        crate::brand::DESKTOP_UPDATE_BASE.to_string(),
+    ]);
     let bridge_secret = hybrid::load_or_create_bridge_secret(&config_dir);
     if hybrid_local {
         local_server.set_bridge_secret(bridge_secret.clone());

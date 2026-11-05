@@ -176,7 +176,7 @@ async def _startup_preload():
         #    row. See _NAV_BACKFILL_ENTRIES in content_blocks.py — append a
         #    new entry there each time we add a sidebar feature.
         def _backfill_nav():
-            from core.files.content.branding import backfill_navigation_entries
+            from core.files.content.branding import backfill_login_logo, backfill_navigation_entries
             from core.db.engine import SessionLocal
 
             db = SessionLocal()
@@ -186,6 +186,8 @@ async def _startup_preload():
                     logger.info(
                         "[startup] page_config navigation backfilled (%d field(s))", changed
                     )
+                if backfill_login_logo(db):
+                    logger.info("[startup] page_config branding.login_logo_url backfilled")
             finally:
                 db.close()
 

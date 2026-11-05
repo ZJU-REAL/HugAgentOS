@@ -46,6 +46,8 @@ import {
 } from '../../api';
 import { getLang, setLang, t, type Lang } from '../../i18n';
 import { usePageConfig } from '../../hooks/usePageConfig';
+import { usePageConfigStore } from '../../stores/pageConfigStore';
+import { resolveLoginLogoUrl } from '../../utils/pageConfigDefaults';
 import { useAuthStore, useModelCapabilitiesStore, useSettingsStore } from '../../stores';
 import {
   INTERNET_SEARCH_ENGINES,
@@ -139,6 +141,7 @@ function configuredSecret(value: string | null | undefined): boolean {
 
 export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
   const brandName = usePageConfig('branding.product_name', 'HugAgentOS');
+  const loginLogo = usePageConfigStore((s) => resolveLoginLogoUrl(s.config.branding));
   const doLogout = useAuthStore((state) => state.doLogout);
   const loggingOut = useAuthStore((state) => state.loggingOut);
   const [step, setStep] = useState(() => safeStoredStep(user.user_id));
@@ -987,7 +990,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
         <div className="jx-firstRun-brand">
           <img
             className="jx-firstRun-wordmark"
-            src="/home/hugagentos-logo.png"
+            src={loginLogo}
             alt={brandName}
           />
           <span className="jx-firstRun-editionLabel">Community Edition</span>

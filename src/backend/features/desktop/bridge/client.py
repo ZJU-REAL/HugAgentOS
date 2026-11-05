@@ -58,12 +58,36 @@ def set_state(
 
             desktop_cloud_skills.on_account_switch()
             desktop_cloud_bundles.on_account_switch()
+            restore_cached_manifests(payload)
     bridge_identity.purge_persisted_state()
     if changed:
         bridge_identity.rebuild_identity_views()
         refresh_manifest_async(force=True)
     elif renewed_after_rejection:
         refresh_manifest_async(force=True)
+
+
+def restore_cached_manifests(st: Dict[str, Any]) -> None:
+    """Mount this account's last accepted snapshots; the refresh that follows re-checks them.
+
+    Only a complete set counts: a half-restored view would claim readiness for
+    kinds the cloud has not confirmed in any process yet.
+    """
+    from core.capabilities.identity_rules import KIND_AGENT, KIND_PLUGIN, KIND_SKILL
+    from features.desktop.bridge import bundles as desktop_cloud_bundles, manifest_cache, skills as desktop_cloud_skills
+
+    bridge_client_state.manifest_restored = False
+    kinds = (manifest_cache.KIND_TOOLS, KIND_SKILL, KIND_AGENT, KIND_PLUGIN)
+    cached = {kind: manifest_cache.load(st, kind) for kind in kinds}
+    if any(manifest is None for manifest in cached.values()):
+        return
+    with bridge_client_state.manifest_lock:
+        bridge_client_state.manifest = cached[manifest_cache.KIND_TOOLS]
+    desktop_cloud_skills.restore_manifest(cached[KIND_SKILL])
+    desktop_cloud_bundles.restore_manifests({KIND_AGENT: cached[KIND_AGENT], KIND_PLUGIN: cached[KIND_PLUGIN]})
+    bridge_client_state.manifest_restored = True
+    logger.info("[cloud-bridge] manifests restored from cache revision=%s",
+                cached[manifest_cache.KIND_TOOLS]["revision"][:12])
 
 
 def synced_manifest() -> Optional[Dict[str, Any]]:
@@ -116,6 +140,9 @@ def sync_tool_manifest(st: Dict[str, Any]) -> None:
                 bridge_client_state.manifest_ts = time.monotonic()
                 bridge_client_state.manifest_error = None
             bridge_managed_connectors.project_managed_profile(st, manifest)
+            from features.desktop.bridge import manifest_cache
+
+            manifest_cache.save(st, manifest_cache.KIND_TOOLS, manifest)
         logger.info(
             "[cloud-bridge] manifest refreshed revision=%s servers=%d",
             manifest["revision"][:12],

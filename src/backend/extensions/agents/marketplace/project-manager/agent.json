@@ -23,8 +23,7 @@
   "model_config": {},
   "bindings": {
     "skill_ids": [
-      "diagram-builder",
-      "smart-weekly-report"
+      "diagram-design"
     ],
     "mcp_server_ids": [
       "automation_task"

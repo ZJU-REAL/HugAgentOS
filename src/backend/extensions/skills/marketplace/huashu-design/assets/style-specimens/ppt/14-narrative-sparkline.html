@@ -1,0 +1,53 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>14 Sparkline叙事波形</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=Inter:wght@400;600;700&family=Geist+Mono:wght@500&display=swap">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+body{background:#0D1320;color:#E8ECF3;font-family:'Inter','Noto Sans SC',sans-serif;position:relative}
+.h{position:absolute;left:56px;top:44px;font-size:14px;letter-spacing:.16em;color:#9AA6BA;font-weight:600}
+h1{position:absolute;left:56px;top:72px;margin:0;font-size:38px;font-weight:900;line-height:1.3;width:760px}
+h1 em{font-style:normal;color:#FF8A1F}
+svg{position:absolute;left:0;top:0}
+text{font-family:'Inter','Noto Sans SC',sans-serif}
+.m{font-family:'Geist Mono','Inter',monospace}
+</style></head><body>
+<div class="h">地方小剧场 · 「后街剧社」三年复盘</div>
+<h1>一个小剧场的故事，是在「现在」和「可能」之间<em>来回摆</em>出来的</h1>
+<svg width="1200" height="750" viewBox="0 0 1200 750">
+<line x1="56" y1="270" x2="1144" y2="270" stroke="#3A4560" stroke-width="1.5" stroke-dasharray="3 7"/>
+<line x1="56" y1="560" x2="1144" y2="560" stroke="#3A4560" stroke-width="1.5" stroke-dasharray="3 7"/>
+<text x="1080" y="258" text-anchor="end" font-size="14" fill="#9AA6BA" font-weight="600" letter-spacing="2">WHAT COULD BE · 可能</text>
+<text x="1144" y="586" text-anchor="end" font-size="14" fill="#9AA6BA" font-weight="600" letter-spacing="2">WHAT IS · 眼下</text>
+<path id="w" fill="none" stroke="#B8C2D6" stroke-width="4" stroke-linecap="round"/>
+<path id="w2" fill="none" stroke="#FF8A1F" stroke-width="5" stroke-linecap="round"/>
+<g id="dots"></g>
+<g id="ann"></g>
+</svg>
+<script>
+const P=[[56,560],[200,600],[340,300],[450,590],[560,310],[670,585],[780,285],[880,560],[970,330],[1060,480],[1150,40]];
+function path(pts){let d=`M${pts[0][0]},${pts[0][1]}`;for(let i=0;i<pts.length-1;i++){const a=pts[i],b=pts[i+1],cx=(a[0]+b[0])/2;d+=` C${cx},${a[1]} ${cx},${b[1]} ${b[0]},${b[1]}`}return d}
+document.getElementById('w').setAttribute('d',path(P.slice(0,8)));
+document.getElementById('w2').setAttribute('d',path(P.slice(7)));
+const A=[
+[1,"2023.03","首演：17 位观众，多数是朋友",0,"#B8C2D6"],
+[2,"2023.09","自己做的海报被邻街咖啡馆贴出",1,"#B8C2D6"],
+[3,"2024.01","整季只演 3 场，亏损 4.2 万",0,"#B8C2D6"],
+[4,"2024.06","「周四小剧场」试点，上座率 52%",1,"#B8C2D6"],
+[5,"2024.11","房东通知涨租 40%",0,"#B8C2D6"],
+[6,"2025.04","社区订阅制上线：首月 214 户",1,"#FF8A1F"],
+[7,"2025.10","连续 8 周满座，开始排队候补",1,"#FF8A1F"]];
+const X=[280,390,500,610,720,930,1040];
+let h='',a='';
+
+
+// dots + annotations
+const D=[[340,300,"2023.09","首场满座，邻居带来邻居",1],[450,590,"2024.01","整季只演 3 场，亏损 4.2 万",0],[560,310,"2024.06","周四夜场试点，上座率 52%",1],[670,585,"2024.11","房东通知涨租 40%",0],[780,285,"2025.04","订阅制上线，首月 214 户",1],[970,330,"2025.10","连续 8 周满座",1]];
+D.forEach(([x,y,t,s,up],i)=>{
+ const orange=i>=4;const c=orange?"#FF8A1F":"#B8C2D6";
+ h+=`<circle cx="${x}" cy="${y}" r="${orange?9:7}" fill="${orange?'#FF8A1F':'#0D1320'}" stroke="${c}" stroke-width="3"/>`;
+ const ty=up?y-44:y+44;
+ a+=`<text x="${x}" y="${ty}" text-anchor="middle" font-size="13" font-weight="600" fill="${c}" class="m" style="font-family:'Geist Mono',monospace">${t}</text>`;
+ a+=`<text x="${x}" y="${ty+22}" text-anchor="middle" font-size="16" font-weight="500" fill="#E8ECF3">${s}</text>`;
+});
+document.getElementById('dots').innerHTML=h;document.getElementById('ann').innerHTML=a;
+</script>
+</body></html>

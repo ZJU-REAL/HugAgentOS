@@ -2,9 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/icon.png" />
+    <!-- 不放默认图标和标题：品牌以页面配置为准，下面的脚本用上次缓存的配置先落，main.tsx 拿到配置后再设。
+         href="data:," 让浏览器不去请求 /favicon.ico。 -->
+    <link rel="icon" href="data:," />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>HugAgentOS</title>
+    <title></title>
     <script>
       // 防闪烁：在任何 CSS/JS 加载前同步落主题，避免深色用户首屏闪白。
       // key 与解析规则和 src/theme.ts 保持一致（非 light/dark 的值一律按 system）；
@@ -24,6 +26,39 @@
           }
         } catch (e) {
           /* 存储被禁等异常时保持浅色 */
+        }
+      })()
+    </script>
+    <script>
+      // 防闪烁：用上次缓存的页面配置先落标签页标题和图标，避免刷新时先闪默认品牌。
+      // key 与 src/stores/pageConfigStore.ts 的 PAGE_CONFIG_CACHE_KEY 一致；后台三页的标题由各自页面拼，
+      // 这里只换图标（优先后台专用图标）。主树 src/frontend/index.html 有逐字相同的一份，两处同步改。
+      ;(function () {
+        try {
+          var cfg = JSON.parse(localStorage.getItem('hugagent_page_config_cache') || 'null')
+          var brand = (cfg && cfg.branding) || {}
+          var adminPage = /^\/(admin|config|api-docs)/.test(location.pathname)
+          var admin = (cfg && cfg.navigation && cfg.navigation.admin_platform) || {}
+          var adminIcon = adminPage && admin.favicon_url
+          var icon = String(adminIcon || brand.favicon_url || '').trim()
+          if (icon) {
+            var link = document.querySelector("link[rel~='icon']")
+            link.removeAttribute('type')
+            link.href = icon
+          }
+          var shared = new URLSearchParams(location.search).has('share') || location.pathname.indexOf('/chat/') === 0
+          if (brand.page_title && !adminPage && !shared) document.title = brand.page_title
+        } catch (e) {
+          /* 存储被禁或缓存损坏时保持静态默认值 */
+        }
+        // 页面配置请求在这里就发出，与入口脚本的下载并行；main.tsx 等它到了再挂载，
+        // pageConfigStore 的首次拉取直接接手这个请求。
+        try {
+          window.__jxPageConfig = fetch('/api/v1/content/docs')
+            .then(function (r) { return r.ok ? r.json() : null })
+            .catch(function () { return null })
+        } catch (e) {
+          /* fetch 不可用时由 pageConfigStore 自己发请求 */
         }
       })()
     </script>

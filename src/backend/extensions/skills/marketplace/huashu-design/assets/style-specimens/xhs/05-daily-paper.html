@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>05 日报：报纸头版</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@500;700;900&family=Bodoni+Moda:opsz,wght@6..96,500;6..96,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_kit/xhs.css"><script src="_kit/birds.js"></script><script src="_kit/xhs.js"></script>
+<style>
+/* 日报：新闻纸底色＋噪点、宋体刊头双线、头条、分栏正文与首字下沉、灰度网点图。适合「事件」型内容：发布、复盘、深度方法稿。 */
+:root{--paper:#F2EDE1;--ink:#1D1B18}
+.news{background-color:var(--paper);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .3 0 0 0 0 .25 0 0 0 0 .2 0 0 0 .08 0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)'/%3E%3C/svg%3E")}
+.serif{font-family:var(--serif)}
+.rule2{border-top:6px double var(--ink)}
+.meta{display:flex;justify-content:space-between;font-size:var(--label);color:var(--ink2)}
+.col{font:500 var(--body)/1.62 var(--serif);text-align:justify}
+.cap::first-letter{float:left;font:900 150px/1 var(--serif);margin:10px 16px 0 0}
+.half{filter:grayscale(1) contrast(1.25) brightness(1.02)}
+.box{border:3px solid var(--ink);padding:26px 30px}
+</style></head><body>
+<main class="xhs-deck two">
+<section class="xhs-page news" data-pageno="off">
+  <div class="abs meta" style="left:var(--m);right:var(--m);top:60px"><span>第11064号 · 开源特刊</span><span>2026年10月31日</span></div>
+  <div class="abs serif" style="left:0;right:0;top:118px;text-align:center;font-weight:900;font-size:168px;letter-spacing:40px;line-height:1">鸣迹日报</div>
+  <div class="abs rule2" style="left:var(--m);right:var(--m);top:316px"></div>
+  <div class="abs meta" style="left:var(--m);right:var(--m);top:334px;font-family:'Bodoni Moda',serif;letter-spacing:2px"><span>THE BIRD STICKER DAILY</span><span>第一版</span></div>
+  <div class="abs" style="left:var(--m);right:var(--m);top:394px;border-top:2px solid var(--ink)"></div>
+  <div class="abs serif" style="left:var(--m);right:var(--m);top:430px;font-weight:900;font-size:104px;line-height:1.2">全世界<span style="background:linear-gradient(transparent 60%,#FFD447 60% 92%,transparent 92%)">11064</span>种鸟<br>全部画成了贴纸</div>
+  <div class="abs" style="left:var(--m);right:var(--m);top:700px;font-size:var(--body);color:var(--ink2)">AI照真实照片画，独立审核打分，贴纸和数据全部开源</div>
+  <div class="abs" style="left:var(--m);top:800px;width:560px;height:640px;background:#E4DED0;border:2px solid var(--ink)"><img class="half" src="_kit/stickers/Cacatua_galerita.webp" style="position:absolute;left:110px;top:40px;height:560px"></div>
+  <div class="abs" style="left:var(--m);top:1458px;width:560px;font-size:var(--label);line-height:1.4;color:var(--ink2)">图：葵花鹦鹉，对照真实照片画</div>
+  <div class="abs col cap" style="left:690px;right:var(--m);top:800px">本报讯 这套贴纸覆盖IOC名录全部现生鸟种，每种一张，透明底，白边。每张都交给一个独立审核员打分，八十分算过。</div>
+  <div class="abs box" style="left:690px;right:var(--m);top:1270px;font-size:var(--label);line-height:1.7"><b style="font-family:var(--serif)">要闻导读</b><br>▶ 怎么画　第3版<br>▶ 审核员也被审　第4版</div>
+  <div class="abs" style="left:var(--m);right:var(--m);bottom:56px;border-top:2px solid var(--ink);padding-top:14px" ><div class="meta"><span>鸣迹 · 观鸟App 出品</span><span>今日共18版</span></div></div>
+</section>
+<section class="xhs-page news">
+  <div class="abs meta" style="left:var(--m);right:var(--m);top:60px;border-bottom:2px solid var(--ink);padding-bottom:12px"><span class="serif" style="font-weight:900;color:var(--ink)">鸣迹日报</span><span>第4版 · 方法</span></div>
+  <div class="abs" style="left:var(--m);top:150px;font-size:var(--label);color:var(--ink2)">深度 · 审核员也要被审</div>
+  <div class="abs serif" style="left:var(--m);right:var(--m);top:200px;font-weight:900;font-size:92px;line-height:1.22">审过的270只<br>换一个模型再审一遍</div>
+  <div class="abs" style="left:var(--m);right:var(--m);top:460px;border-top:2px solid var(--ink)"></div>
+  <div class="abs col cap" style="left:var(--m);width:520px;top:500px">复核发生在第二轮。同一批贴纸、同一份标准，交给另一个模型从头审。两边判断不一致的，全部回到人工对照照片。</div>
+  <div class="abs" style="left:666px;right:var(--m);top:500px">
+    <div class="box"><div style="font:700 150px/1 'Bodoni Moda',serif;text-align:center">88:23</div><div style="display:flex;justify-content:space-around;font-size:var(--label);margin-top:14px;color:var(--ink2)"><span>甲过 乙不过</span><span>乙过 甲不过</span></div></div>
+    <div class="col" style="margin-top:34px">分歧集中在同一类问题：眼睛、脚趾、尾羽的长短。于是标准里每一条都写成可以对照照片核对的句子。</div>
+  </div>
+  <div class="abs" style="left:var(--m);right:var(--m);top:1200px;border-top:6px double var(--ink);padding-top:16px;font-size:var(--label);color:var(--ink2)">图解 · 画对了应该是这样</div>
+  <div class="abs" style="left:var(--m);right:var(--m);top:1266px;display:flex;justify-content:space-between" id="strip"></div>
+</section>
+</main>
+<script>
+document.getElementById('strip').innerHTML=['Bubo_bubo','Nestor_notabilis','Ensifera_ensifera','Merops_apiaster'].map(i=>`<div style="width:250px;text-align:center"><img class="half" src="${XHS.S(i)}" style="height:200px"><div style="font-size:32px;margin-top:8px">${BIRDS[i].zh}</div></div>`).join('');
+XHS.number(18);
+</script>
+</body></html>

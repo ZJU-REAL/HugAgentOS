@@ -1,0 +1,37 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>12 学术开放数据</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lato:wght@400;700&family=Noto+Serif+SC:wght@600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+body{background:#fff;font-family:'Lato','Noto Sans SC',sans-serif;color:#5b5b5b;position:relative}
+.top{position:absolute;left:0;right:0;top:0;height:6px;background:#a2559c}
+.w{position:absolute;left:48px;right:48px;top:30px}
+h1{margin:0;font-family:'Playfair Display','Noto Serif SC',serif;font-size:36px;line-height:1.25;font-weight:700;color:#4e4e4e}
+.sub{font-size:17px;margin-top:8px;line-height:1.5;color:#6e6e6e}
+svg{position:absolute;left:0;top:112px}
+.ft{position:absolute;left:48px;right:48px;bottom:0;height:62px;border-top:1px solid #dadada;font-size:14px;line-height:1.5;display:flex;justify-content:space-between;align-items:center;color:#6e6e6e}
+.ft b{color:#4e4e4e}
+</style></head><body><div class="top"></div>
+<div class="w"><h1>过去三十年，本市年均气温比上世纪九十年代初高了约 1.4℃</h1>
+<div class="sub">国家基准站年平均气温，1995–2025 年，单位 ℃。彩色为本市三个站点，灰色为周边 5 个县站。</div></div>
+<svg width="1200" height="570" id="s"></svg>
+<div class="ft"><div><b>数据来源：</b>市气象局基准站网 (2026)；原始年值，未做平滑<br><b>口径：</b>每站每年 365 天日均温的算术平均，缺测超过 5 天的年份不计</div><div style="text-align:right">授权协议：CC BY 4.0<br>原始 CSV 与口径说明可免费下载</div></div>
+<script>
+const NS='http://www.w3.org/2000/svg',s=document.getElementById('s');
+function el(t,a,p){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);(p||s).appendChild(e);return e}
+let seed=7;const rnd=()=>{seed=(seed*16807)%2147483647;return seed/2147483647-.5};
+const L=48,R=1010,T=24,B=500,x0=1995,x1=2025,y0=13,y1=17.5;
+const X=y=>L+(y-x0)/(x1-x0)*(R-L),Y=v=>B-(v-y0)/(y1-y0)*(B-T);
+for(let v=13;v<=17;v+=1){el('line',{x1:L,x2:R,y1:Y(v),y2:Y(v),stroke:v==13?'#999':'#e4e4e4','stroke-dasharray':v==13?'0':'3 3'});
+ const t=el('text',{x:L-8,y:Y(v)+4,'text-anchor':'end','font-size':14,fill:'#8a8a8a'});t.textContent=v+'℃';}
+for(let y=1995;y<=2025;y+=5){const t=el('text',{x:X(y),y:B+24,'text-anchor':'middle','font-size':14,fill:'#8a8a8a'});t.textContent=y}
+const S=[['东山县',14.2,.021,'#bdbdbd'],['北岭县',13.6,.018,'#bdbdbd'],['西湖县',15.0,.026,'#bdbdbd'],['南江县',15.6,.02,'#bdbdbd'],['临港县',15.3,.016,'#bdbdbd'],
+['本市·城区站',15.4,.047,'#c15065'],['本市·山地站',13.5,.031,'#3b6fa3'],['本市·沿海站',14.9,.036,'#2b8c6a']];
+const lab=[];
+S.forEach(([n,b,k,c],i)=>{let pts=[];for(let y=x0;y<=x1;y++){pts.push([X(y),Y(b+k*(y-x0)+rnd()*.5)])}
+ el('polyline',{points:pts.map(p=>p.join(',')).join(' '),fill:'none',stroke:c,'stroke-width':c=='#bdbdbd'?1.6:2.6,'stroke-linejoin':'round'});
+ const e=pts[pts.length-1];if(c!='#bdbdbd'){el('circle',{cx:e[0],cy:e[1],r:4,fill:c})}
+ lab.push([e[1],n,c])});
+lab.sort((a,b)=>a[0]-b[0]);let last=-99;
+lab.forEach(l=>{let y=Math.max(l[0],last+19);last=y;const col=l[2]=='#bdbdbd'?'#8a8a8a':l[2];
+ const t=el('text',{x:R+10,y:y+5,'font-size':l[2]=='#bdbdbd'?14:16,'font-weight':l[2]=='#bdbdbd'?400:700,fill:col});t.textContent=l[1]});
+</script></body></html>

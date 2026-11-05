@@ -197,16 +197,53 @@ def backfill_navigation_entries(db: Session) -> int:
     return changed
 
 
-def get_branding_info() -> dict[str, str]:
-    """Read the branding fields from page_config (product_name + logo_url), falling back to defaults on failure.
+def backfill_login_logo(db: Session) -> bool:
+    """Give a page_config saved before ``branding.login_logo_url`` existed an explicit value.
 
-    Reused by server-side rendering paths (e.g. the SSO login page); manages its
-    own DB session internally.
+    A rebranded site (custom ``logo_url``) gets ``""``, meaning "use the sidebar logo", so its
+    login page never falls back to the stock wordmark; a stock site gets the default wordmark.
+    Runs at startup and after a snapshot import; returns whether the row changed.
     """
-    defaults = {
-        "product_name": content_blocks_constants.DEFAULT_PAGE_CONFIG["branding"]["product_name"],
-        "logo_url": content_blocks_constants.DEFAULT_PAGE_CONFIG["branding"]["logo_url"],
+    row = db.query(ContentBlock).filter(ContentBlock.id == "page_config").first()
+    payload = row.payload if row and isinstance(row.payload, dict) else None
+    branding = payload.get("branding") if payload else None
+    if not isinstance(branding, dict) or "login_logo_url" in branding:
+        return False
+    defaults = content_blocks_constants.DEFAULT_PAGE_CONFIG["branding"]
+    custom_logo = (branding.get("logo_url") or defaults["logo_url"]) != defaults["logo_url"]
+    branding["login_logo_url"] = "" if custom_logo else defaults["login_logo_url"]
+    row.payload = payload
+    row.updated_at = datetime.now(timezone.utc)
+    row.updated_by = "system_seed"
+    from sqlalchemy.orm.attributes import flag_modified
+
+    flag_modified(row, "payload")
+    db.commit()
+    return True
+
+
+def resolve_login_branding(branding: dict[str, Any]) -> dict[str, str]:
+    """What the server-rendered login pages show for a stored ``branding`` dict.
+
+    An empty ``login_logo_url`` means the sidebar ``logo_url``, as in the frontend's
+    ``resolveLoginLogoUrl``; an empty ``login_background_url`` means no background image.
+    """
+    merged = {**content_blocks_constants.DEFAULT_PAGE_CONFIG["branding"], **branding}
+    text = lambda key: str(merged.get(key) or "").strip()  # noqa: E731
+    return {
+        "product_name": text("product_name"),
+        "favicon_url": text("favicon_url"),
+        "login_logo_url": text("login_logo_url") or text("logo_url"),
+        "login_background_url": text("login_background_url"),
     }
+
+
+def get_branding_info() -> dict[str, str]:
+    """Read the branding the server-rendered pages need (the SSO login page) from page_config.
+
+    Manages its own DB session; falls back to the defaults when the row is missing or the
+    read fails.
+    """
     try:
         from core.db.engine import SessionLocal
 
@@ -215,14 +252,11 @@ def get_branding_info() -> dict[str, str]:
             row = db.query(ContentBlock).filter(ContentBlock.id == "page_config").first()
             payload = (row.payload if row else {}) or {}
             branding = payload.get("branding", {}) if isinstance(payload, dict) else {}
-            return {
-                "product_name": branding.get("product_name") or defaults["product_name"],
-                "logo_url": branding.get("logo_url") or defaults["logo_url"],
-            }
+            return resolve_login_branding(branding if isinstance(branding, dict) else {})
         finally:
             db.close()
     except Exception:
-        return defaults
+        return resolve_login_branding({})
 
 
 def is_register_allowed() -> bool:

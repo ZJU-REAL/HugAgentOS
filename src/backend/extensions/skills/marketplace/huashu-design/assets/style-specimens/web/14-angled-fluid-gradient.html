@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>14 斜切流体渐变带</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+body{background:#fff;color:#0A2540;font-family:"Hanken Grotesk","Noto Sans SC",sans-serif;position:relative}
+.band{position:absolute;left:-100px;right:-100px;top:-260px;height:740px;transform:skewY(-9deg);transform-origin:top left;background:linear-gradient(100deg,#635BFF 0%,#8A5CFF 22%,#00B8F0 48%,#7AE6C0 62%,#FF7AB8 82%,#FFB35C 100%);background-size:130% 100%}
+.band:after{content:"";position:absolute;inset:0;background:radial-gradient(500px 300px at 78% 80%,rgba(255,255,255,.25),transparent)}
+.nav{position:absolute;top:0;left:0;right:0;height:72px;display:flex;align-items:center;padding:0 64px;color:#fff;font-size:15px;font-weight:500;gap:32px;z-index:2}
+.nav b{font-size:23px;font-weight:700;margin-right:16px;letter-spacing:-.5px}
+.nav .r{margin-left:auto;background:#fff;color:#635BFF;padding:9px 20px;border-radius:999px;font-weight:600}
+.hero{position:absolute;left:64px;top:132px;width:620px;color:#fff;z-index:2}
+.hero h1{margin:0;font-size:60px;line-height:1.1;letter-spacing:-2px;font-weight:700}
+.hero p{margin:20px 0 26px;font-size:19px;line-height:1.6;opacity:.95;max-width:520px}
+.btn{display:inline-block;background:#0A2540;color:#fff;font-weight:600;padding:13px 24px;border-radius:999px;margin-right:12px;font-size:16px}
+.btn.o{background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.7)}
+.card{position:absolute;left:740px;top:128px;width:384px;background:#fff;border-radius:14px;box-shadow:0 30px 60px -12px rgba(50,50,93,.35),0 18px 36px -18px rgba(0,0,0,.3);padding:24px;z-index:3;transform:rotate(-1.5deg)}
+.card .t{font-size:13px;color:#697386;letter-spacing:.5px}
+.card h3{margin:4px 0 14px;font-size:21px;letter-spacing:-.3px}
+.row{display:flex;justify-content:space-between;padding:10px 0;border-top:1px solid #E3E8EE;font-size:16px}
+.row span:last-child{font-weight:600}
+.pay{margin-top:14px;background:#635BFF;color:#fff;text-align:center;padding:12px;border-radius:8px;font-weight:600;font-size:16px}
+.feat{position:absolute;left:64px;right:64px;top:548px;display:grid;grid-template-columns:repeat(3,1fr);gap:36px}
+.feat .n{font-size:13px;font-weight:700;color:#635BFF;letter-spacing:1px}
+.feat h4{margin:6px 0 6px;font-size:21px;letter-spacing:-.3px}
+.feat p{margin:0;font-size:16px;line-height:1.6;color:#425466}
+.feat div{border-top:2px solid #0A2540;padding-top:14px}
+</style></head><body>
+<div class="band"></div>
+<div class="nav"><b>幕启</b><span>票务</span><span>场地</span><span>结算</span><span>开发者</span><span class="r">联系我们</span></div>
+<div class="hero"><h1>让每一场小剧场<br>都能顺利开演</h1><p>为地方小剧场与独立剧团打造的票务平台：售票、检票、分账，一套系统完成。</p><span class="btn">免费开通 →</span><span class="btn o">看演示</span></div>
+<div class="card"><div class="t">本周演出 · 青砖剧场</div><h3>《雨巷里的人》第 3 场</h3>
+<div class="row"><span>全价票 × 42</span><span>¥ 3,360</span></div><div class="row"><span>学生票 × 18</span><span>¥ 900</span></div><div class="row"><span>手续费</span><span>- ¥ 128</span></div><div class="row"><span>剧团分账</span><span>¥ 4,132</span></div>
+<div class="pay">已于周四 09:00 结算到账</div></div>
+<div class="feat">
+<div><span class="n">01 / 售票</span><h4>三分钟上架一场演出</h4><p>座位图、早鸟价、团体票，填表即可，不需要懂技术。</p></div>
+<div><span class="n">02 / 检票</span><h4>手机扫码，断网也能验</h4><p>地下剧场信号差，名单提前同步到检票手机。</p></div>
+<div><span class="n">03 / 分账</span><h4>演出次日自动分账</h4><p>场地、剧团、编剧按约定比例，明细逐笔可查。</p></div>
+</div>
+</body></html>

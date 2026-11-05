@@ -1,4 +1,4 @@
-import { DeleteOutlined, EditOutlined, LeftOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined, LeftOutlined, RedoOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import {
   Alert,
   Button,
@@ -111,6 +111,19 @@ export function AutomationDetailPage({ taskId, onBack }: Props) {
     try {
       await togglePause(task);
       message.success(checked ? t('已恢复运行') : t('已暂停'));
+      const updated = await getAutomation(task.task_id);
+      setTask(updated);
+    } catch {
+      message.error(t('操作失败'));
+    }
+  };
+
+  // Auto-disabled after repeated failures: re-enabling resets the failure count on the server
+  const handleReenable = async () => {
+    if (!task || task.status !== 'disabled') return;
+    try {
+      await togglePause(task);
+      message.success(t('已重新启用'));
       const updated = await getAutomation(task.task_id);
       setTask(updated);
     } catch {
@@ -319,6 +332,11 @@ export function AutomationDetailPage({ taskId, onBack }: Props) {
                 </span>
               )}
               {!isEditing && <span className={badgeClass}>{statusLabel}</span>}
+              {!isEditing && task.status === 'disabled' && (
+                <Button size="small" icon={<RedoOutlined />} onClick={handleReenable}>
+                  {t('重新启用')}
+                </Button>
+              )}
               {!isEditing && canToggleRun && (
                 <div className="jx-automation-detail-runSwitch">
                   <span className="jx-automation-detail-runSwitch-label">

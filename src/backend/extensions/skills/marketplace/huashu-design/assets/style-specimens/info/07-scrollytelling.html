@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>07 滚动叙事数据长卷</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&family=Source+Serif+4:opsz,wght@8..60,500;8..60,700&family=Noto+Sans+SC:wght@400;500;700;900&family=Noto+Serif+SC:wght@500;700&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+:root{--bg:#13213B;--acc:#FFD23F;--tx:#F4F1E8;--mut:#8EA0C2}
+body{background:var(--bg);color:var(--tx);font-family:Inter,"Noto Sans SC",sans-serif;position:relative}
+.top{position:absolute;left:60px;right:60px;top:26px;display:flex;justify-content:space-between;align-items:center;font:700 13px Inter;letter-spacing:.16em;color:var(--mut)}
+.top b{color:var(--acc)}
+.rail{position:absolute;left:60px;top:210px;width:2px;height:330px;background:#ffffff26}
+.rail i{position:absolute;left:-5px;width:12px;height:12px;border-radius:50%;background:var(--bg);border:2px solid #ffffff55}
+.rail i.on{background:var(--acc);border-color:var(--acc);box-shadow:0 0 0 6px #FFD23F33}
+.rail i.done{background:#ffffff55}
+.steps{position:absolute;left:100px;top:84px;width:410px}
+.s{margin:0 0 30px;font:500 19px/1.6 "Noto Sans SC",Inter;color:var(--mut);opacity:.5}
+.s.act{opacity:1;color:var(--tx);font:700 31px/1.4 "Noto Sans SC",Inter;margin-top:84px;margin-bottom:26px}
+.s.act em{font-style:normal;background:linear-gradient(transparent 58%,#FFD23F55 58%);padding:0 2px;color:#fff}
+.s small{display:block;margin-top:14px;font:400 17px/1.6 "Noto Sans SC";color:#C5D0E6}
+.hint{position:absolute;left:100px;bottom:34px;font:600 14px Inter;letter-spacing:.12em;color:var(--mut)}
+.hint span{color:var(--acc);margin-right:8px}
+svg{position:absolute;left:0;top:0}
+svg text{font-family:Inter,"Noto Sans SC",sans-serif}
+</style></head><body>
+<div class="top"><span>FASTGREP · 为什么越来越慢</span><span><b>CH.03</b> ／ 05　插件</span></div>
+<div class="rail"><i class="done" style="top:0"></i><i class="done" style="top:82px"></i><i class="on" style="top:164px"></i><i style="top:246px"></i><i style="top:318px"></i></div>
+<div class="steps">
+<p class="s">v1.0 到 v2.2，启动一直是 12 到 18 毫秒。每个版本只加一点功能，没人觉得有问题。</p>
+<p class="s act">直到 <em>v2.3</em>，插件系统上线：启动时把<em>全部插件一次性加载</em>。<small>启动耗时当版就从 18 毫秒跳到 41 毫秒，之后每个版本都在涨。</small></p>
+<p class="s">到了 v3.3，装满插件的用户要等 151 毫秒——比 v1.0 慢了十二倍。</p>
+</div>
+<div class="hint"><span>↓</span>继续往下滚，看看是哪几个插件拖的后腿</div>
+<svg width="1200" height="750" viewBox="0 0 1200 750" id="s"></svg>
+<script>
+const NS='http://www.w3.org/2000/svg',svg=document.getElementById('s');
+function e(t,a,txt){const n=document.createElementNS(NS,t);for(const k in a)n.setAttribute(k,a[k]);if(txt!=null)n.textContent=txt;svg.appendChild(n);return n}
+const v=[12,12,13,13,14,14,15,15,16,16,17,18,18,41,47,55,63,72,80,94,103,111,127,151];
+const lab=i=>i<10?'v1.'+i:(i<20?'v2.'+(i-10):'v3.'+(i-20));
+const x0=566,bw=18,st=24,base=626,sc=2.9;
+// grid
+[0,50,100,150].forEach(m=>{const y=base-m*sc;e('line',{x1:x0-8,y1:y,x2:x0+24*st,y2:y,stroke:m==100?'#FFD23F':'#ffffff',opacity:m==100?.7:.14,'stroke-width':m==100?1.5:1,'stroke-dasharray':m==100?'5 5':'0'});
+ e('text',{x:x0-16,y:y+4,'text-anchor':'end','font-size':13,fill:'#8EA0C2'},m);});
+e('text',{x:x0-8,y:base-100*sc-10,'font-size':14,'font-weight':700,fill:'#FFD23F'},'100 ms · 人开始觉得「卡了」');
+e('text',{x:x0-16,y:150,'text-anchor':'end','font-size':13,fill:'#8EA0C2'},'毫秒');
+// ghost of previous state: flat line at v1.0 level
+e('line',{x1:x0,y1:base-12*sc,x2:x0+24*st,y2:base-12*sc,stroke:'#fff',opacity:.35,'stroke-dasharray':'2 5'});
+e('text',{x:x0+8,y:base-12*sc-8,'font-size':13,fill:'#8EA0C2'},'v1.0 的水平：12 ms');
+v.forEach((m,i)=>{const h=m*sc,hot=i>=13;e('rect',{x:x0+i*st,y:base-h,width:bw,height:h,fill:hot?'#FFD23F':'#4B6C9E',rx:2});
+ if((i%4==0&&i!=12)||i==13||i==23)e('text',{x:x0+i*st+bw/2,y:base+22,'text-anchor':'middle','font-size':12,fill:i==13?'#FFD23F':'#8EA0C2','font-weight':i==13?700:400},lab(i));});
+e('line',{x1:x0-8,y1:base,x2:x0+24*st,y2:base,stroke:'#fff',opacity:.5});
+// annotation v2.3
+const ax=x0+13*st+bw/2;
+e('path',{d:`M${ax},${base-41*sc-10} L${ax},${base-41*sc-70}`,stroke:'#FFD23F','stroke-width':1.5});
+e('text',{x:ax-8,y:base-41*sc-96,'text-anchor':'end','font-size':17,'font-weight':900,fill:'#FFD23F'},'v2.3：插件系统');
+e('text',{x:ax-8,y:base-41*sc-76,'text-anchor':'end','font-size':14,fill:'#F4F1E8'},'18 → 41 ms，一版翻了一倍多');
+// end value
+e('text',{x:x0+23*st+bw,y:base-151*sc-12,'text-anchor':'end','font-size':26,'font-weight':900,fill:'#FFD23F'},'151 ms');
+e('text',{x:x0,y:104,'font-size':14,'font-weight':700,fill:'#8EA0C2','letter-spacing':2},'每个版本的启动耗时，裸启动，M2 MacBook');
+</script></body></html>

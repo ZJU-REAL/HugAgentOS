@@ -415,3 +415,39 @@ def test_manifest_fresh_read_request_reaches_builder(monkeypatch, path, fn):
             == 200
         )
     assert calls == [("current-user", True), ("current-user", False)]
+
+@pytest.mark.parametrize("source", ["none", "admin", "installer"])
+def test_marketplace_credential_source_does_not_block_manifest(monkeypatch, source):
+    monkeypatch.setattr(
+        security, "_user_capability_configs",
+        lambda *a, **k: (["example"], [], {"example": {"credential_source": source}}),
+    )
+    monkeypatch.setattr(
+        security, "_model_credentials_and_public_identifiers",
+        lambda **kwargs: (set(), set()),
+    )
+    monkeypatch.setattr(security, "_known_cloud_secrets", _REAL_COLLECTOR)
+    monkeypatch.setattr(
+        cap, "build_user_capability_manifest",
+        lambda *a, **k: {"revision": "a" * 64, "description": "none admin installer"},
+    )
+    app = FastAPI()
+    app.include_router(desktop_capability.router)
+    app.dependency_overrides[capability_dependencies.require_capability_user] = lambda: "user"
+    with TestClient(app) as client:
+        response = client.get("/v1/desktop/capability/manifest")
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"credential_source": CANARY},
+        {"headers": {"credential_source": "none"}},
+        {"env": {"credential_source": "none"}},
+        {"credential_source": "none", "api_key": "none"},
+    ],
+)
+def test_credential_source_exception_keeps_real_and_nested_credentials(config):
+    values = credentials._secrets_from_config(config)
+    assert (CANARY if CANARY in config.values() else "none") in values

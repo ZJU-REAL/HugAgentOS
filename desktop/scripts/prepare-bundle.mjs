@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { assertMacosSigning } from "./macos-signing.mjs";
 import { stageTrackedCeRepository } from "./ce-payload.mjs";
 import {
+  assertPinnedUv,
   currentDesktopTarget,
   desktopDependencyFingerprint,
 } from "./desktop-dependencies.mjs";
@@ -87,19 +88,7 @@ function findPython() {
   );
 }
 
-function assertUv() {
-  const result = spawnSync("uv", ["--version"], {
-    stdio: "ignore",
-    shell: false,
-  });
-  if (result.status !== 0) {
-    throw new Error(
-      "uv 0.11.33 is required on the release builder. End users do not need uv.",
-    );
-  }
-}
-
-if (bundleFlavor === "full") assertUv();
+if (bundleFlavor === "full") assertPinnedUv(repoRoot);
 
 console.log("[desktop] Building the desktop web application");
 run(npmCommand, [...npmPrefix, "run", "build"], {

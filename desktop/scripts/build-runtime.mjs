@@ -20,11 +20,13 @@ import { fileURLToPath } from "node:url";
 import { assertMacosSigning } from "./macos-signing.mjs";
 import { isBrowserRuntimeCode, macRuntimeSigningTargets, refreshSignedBrowserManifest } from "./macos-runtime-signing.mjs";
 import {
+  assertPinnedUv,
   currentDesktopTarget,
   desktopDependencyFingerprint,
   desktopTargetConfig,
   readAndValidateDesktopLock,
 } from "./desktop-dependencies.mjs";
+import { fetchPublishedRuntime } from "./published-runtime.mjs";
 
 export function buildDesktopRuntime({ desktopDir, repoRoot, sourceRoot, python }) {
   assertMacosSigning();
@@ -34,13 +36,20 @@ export function buildDesktopRuntime({ desktopDir, repoRoot, sourceRoot, python }
   const generatedDir = join(desktopDir, "generated");
   const archive = join(generatedDir, "runtime-core.tar.gz");
   const manifestPath = join(generatedDir, "runtime-manifest.json");
-  const cached = readJson(manifestPath);
-  if (
-    cached?.schema === 1 &&
-    cached.target === target &&
-    cached.dependency_fingerprint === dependencyFingerprint &&
-    cached.archive_sha256 === hashFile(archive)
-  ) {
+  let cached = readJson(manifestPath);
+  if (!isCachedRuntime(cached, target, dependencyFingerprint, archive)) {
+    mkdirSync(generatedDir, { recursive: true });
+    if (fetchPublishedRuntime({
+      source: process.env.HUGAGENT_RUNTIME_SOURCE?.trim(),
+      target,
+      fingerprint: dependencyFingerprint,
+      archivePath: archive,
+      manifestPath,
+    })) {
+      cached = readJson(manifestPath);
+    }
+  }
+  if (isCachedRuntime(cached, target, dependencyFingerprint, archive)) {
     console.log(
       `[desktop] Reusing offline runtime ${target}/${dependencyFingerprint.slice(0, 12)}`,
     );
@@ -60,7 +69,7 @@ export function buildDesktopRuntime({ desktopDir, repoRoot, sourceRoot, python }
     return cached;
   }
 
-  assertUv();
+  assertPinnedUv(repoRoot);
   readAndValidateDesktopLock(repoRoot, target);
   const buildRoot = join(generatedDir, `.runtime-build-${target}`);
   const managedRoot = join(buildRoot, "managed");
@@ -196,6 +205,15 @@ export function buildDesktopRuntime({ desktopDir, repoRoot, sourceRoot, python }
   return manifest;
 }
 
+function isCachedRuntime(cached, target, dependencyFingerprint, archive) {
+  return (
+    cached?.schema === 1 &&
+    cached.target === target &&
+    cached.dependency_fingerprint === dependencyFingerprint &&
+    cached.archive_sha256 === hashFile(archive)
+  );
+}
+
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: options.cwd,
@@ -214,15 +232,6 @@ function capture(command, args) {
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(result.stderr || `${command} failed`);
   return result.stdout.trim();
-}
-
-function assertUv() {
-  const result = spawnSync("uv", ["--version"], { stdio: "ignore", shell: false });
-  if (result.status !== 0) {
-    throw new Error(
-      "uv is required on the release builder; install the version pinned in requirements-desktop.txt.",
-    );
-  }
 }
 
 function readJson(path) {

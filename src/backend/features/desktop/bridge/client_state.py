@@ -39,6 +39,10 @@ manifest_error: Optional[str] = None
 manifest_fetching = False
 
 
+# 本进程的清单是从上次落盘的快照恢复的（见 manifest_cache）：后台核对期间照样可用。
+manifest_restored = False
+
+
 refresh_pending = False  # a forced refresh arrived while a pass was running
 
 

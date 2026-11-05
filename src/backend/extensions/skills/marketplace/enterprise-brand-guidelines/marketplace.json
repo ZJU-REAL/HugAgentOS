@@ -1,0 +1,22 @@
+{
+  "slug": "enterprise-brand-guidelines",
+  "entry_name": "enterprise-brand-guidelines",
+  "display_name": "企业视觉规范（VI）",
+  "summary": "把本单位的 logo、品牌色、中英文字体、文案语气和禁用规则记录成一份规范文件，自动校验品牌色作文字时的对比度并给出达标替代色，导出 CSS 变量、主题和图表配色，让 PPT、文档、网页、架构图和海报按同一套 VI 出品。",
+  "category": "营销创意",
+  "tags": [
+    "品牌",
+    "VI 规范",
+    "设计令牌"
+  ],
+  "version": "1.0.0",
+  "author": "HugAgentOS",
+  "icon_url": "",
+  "source": "builtin",
+  "source_url": "",
+  "downloads": 0,
+  "stars": 0,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

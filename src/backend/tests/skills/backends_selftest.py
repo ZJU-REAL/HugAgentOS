@@ -23,7 +23,7 @@ def test_filesystem_backend_list():
 
     skill_ids = {sf.skill_id for sf in skill_files}
     assert "capability-guide-brief" in skill_ids
-    assert "quick-material-analysis" in skill_ids
+    assert "officecli-docx" in skill_ids
 
     # Check SkillFileInfo fields
     first_skill = skill_files[0]

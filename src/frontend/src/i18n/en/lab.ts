@@ -61,6 +61,8 @@ export const LAB_DICT: Record<string, string> = {
 
   // ── AutomationDetailPage ───────────────────────────────────────
   '已恢复运行': 'Resumed',
+  '重新启用': 'Re-enable',
+  '已重新启用': 'Re-enabled',
   '任务不存在或已被删除。': 'Task not found or has been deleted.',
   '编辑中 · 修改后请保存': 'Editing · Save changes when done',
   '任务名称（可选）': 'Task name (optional)',

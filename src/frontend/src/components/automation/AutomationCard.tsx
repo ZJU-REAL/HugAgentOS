@@ -1,4 +1,4 @@
-import { DeleteOutlined, PauseCircleOutlined, PlayCircleOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { DeleteOutlined, PauseCircleOutlined, PlayCircleOutlined, RedoOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { Button, Popconfirm, Tag, message } from 'antd';
 import { t } from '../../i18n';
 import { useAutomationStore } from '../../stores/automationStore';
@@ -26,7 +26,9 @@ export function AutomationCard({ task, onClick }: Props) {
     e.stopPropagation();
     try {
       await togglePause(task);
-      message.success(task.status === 'active' ? t('已暂停') : t('已恢复'));
+      message.success(
+        task.status === 'active' ? t('已暂停') : task.status === 'disabled' ? t('已重新启用') : t('已恢复'),
+      );
     } catch {
       message.error(t('操作失败'));
     }
@@ -103,6 +105,15 @@ export function AutomationCard({ task, onClick }: Props) {
             size="small"
             icon={task.status === 'active' ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
             title={task.status === 'active' ? t('暂停') : t('恢复')}
+            onClick={handlePause}
+          />
+        )}
+        {task.status === 'disabled' && (
+          <Button
+            type="text"
+            size="small"
+            icon={<RedoOutlined />}
+            title={t('重新启用')}
             onClick={handlePause}
           />
         )}

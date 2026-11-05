@@ -1,0 +1,22 @@
+{
+  "slug": "meeting-action-tracker",
+  "entry_name": "meeting-action-tracker",
+  "display_name": "例会待办跟踪",
+  "summary": "为周例会、项目例会维护一份持续更新的待办台账：从会议纪要提取待办，跨会议跟踪负责人、截止日期和进展，会前列出未关闭和逾期事项供逐项回顾，导出 Excel 台账。可读取腾讯会议智能纪要。",
+  "category": "办公效率",
+  "tags": [
+    "会议",
+    "待办跟踪",
+    "项目管理"
+  ],
+  "version": "1.0.0",
+  "author": "HugAgentOS",
+  "icon_url": "",
+  "source": "builtin",
+  "source_url": "",
+  "downloads": 0,
+  "stars": 0,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

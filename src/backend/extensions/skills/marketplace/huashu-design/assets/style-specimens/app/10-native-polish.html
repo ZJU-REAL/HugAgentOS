@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>10 原生精修</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}*{box-sizing:border-box}
+body{background:#E4E7EC;font-family:Inter,"Noto Sans SC",sans-serif;color:#1d1d1f;position:relative}
+.ph{position:absolute;width:360px;height:760px;transform-origin:0 0;border-radius:52px;overflow:hidden;background:#fff;box-shadow:0 0 0 9px #17181b,0 0 0 11px #43454c,0 28px 60px rgba(30,40,60,.25)}
+.ph:before{content:"";position:absolute;top:11px;left:130px;width:100px;height:28px;border-radius:20px;background:#000;z-index:9}
+.sb{height:50px;padding:14px 30px 0;display:flex;justify-content:space-between;font-weight:600;font-size:15px}
+h1{margin:6px 22px 14px;font-size:32px;font-weight:700;letter-spacing:-.5px;display:flex;align-items:center;gap:10px}
+.star{width:22px;height:22px;background:#F6C21B;clip-path:polygon(50% 0,62% 36%,100% 38%,70% 60%,80% 98%,50% 76%,20% 98%,30% 60%,0 38%,38% 36%)}
+.row{display:flex;gap:14px;padding:12px 22px;align-items:flex-start;position:relative}
+.row:after{content:"";position:absolute;left:58px;right:0;bottom:0;height:1px;background:#ECEDF0}
+.cb{flex:none;width:22px;height:22px;border-radius:7px;border:2px solid #B9BEC9;margin-top:1px}
+.cb.on{background:#C6CAD3;border-color:#C6CAD3;position:relative}
+.cb.on:after{content:"";position:absolute;left:5px;top:1px;width:5px;height:10px;border:solid #fff;border-width:0 2.5px 2.5px 0;transform:rotate(40deg)}
+.t{font-size:17px;line-height:1.35;font-weight:500}.done .t{color:#A3A8B3;text-decoration:line-through}
+.s{font-size:14px;color:#8A8F9B;margin-top:3px;display:flex;gap:8px;align-items:center}
+.tag{background:#EEF1F6;color:#6B7280;border-radius:8px;padding:1px 8px;font-size:13px}
+.sec{margin:16px 22px 2px;font-size:15px;font-weight:700;color:#4A62D6;display:flex;gap:8px;align-items:center;padding-bottom:8px;border-bottom:1px solid #E3E5EA}
+.moon{width:16px;height:16px;border-radius:50%;box-shadow:inset -5px -2px 0 0 #4A62D6;}
+.plus{position:absolute;right:22px;bottom:34px;width:62px;height:62px;border-radius:50%;background:#3478F6;box-shadow:0 8px 18px rgba(52,120,246,.4),0 2px 4px rgba(0,0,0,.15)}
+.plus:before,.plus:after{content:"";position:absolute;left:50%;top:50%;background:#fff;border-radius:2px;transform:translate(-50%,-50%)}
+.plus:before{width:24px;height:3px}.plus:after{width:3px;height:24px}
+.pie{width:56px;height:56px;border-radius:50%;background:conic-gradient(#3478F6 0 62%,#E4E8F0 0);position:relative}
+.pie:after{content:"";position:absolute;inset:10px;border-radius:50%;background:#fff}
+.pj{padding:6px 22px}.pj h2{font-size:28px;margin:12px 0 4px;letter-spacing:-.4px}
+.note{color:#8A8F9B;font-size:15px;line-height:1.5}
+.card{position:absolute;background:#fff;border-radius:22px;box-shadow:0 2px 6px rgba(0,0,0,.06),0 26px 60px rgba(40,50,80,.25);padding:22px 24px}
+.card .ti{font-size:21px;font-weight:600;letter-spacing:-.2px;display:flex;gap:12px}
+.chk{margin:8px 0 0 34px}.chk div{display:flex;gap:10px;font-size:16px;padding:6px 0;border-bottom:1px solid #F0F1F4}
+.chk .cb{width:18px;height:18px;border-radius:6px;margin:1px 0 0}
+.meta{display:flex;gap:14px;margin:16px 0 0 34px;font-size:14px;color:#5B6171;align-items:center}
+.cap{position:absolute;font-size:13px;color:#8A8F9B;letter-spacing:.06em}
+</style></head><body>
+
+<div class="ph" style="left:74px;top:48px">
+ <div class="sb"><span>9:41</span><span>●●●</span></div>
+ <h1><span class="star"></span>今天</h1>
+ <div class="row"><div class="cb"></div><div><div class="t">确认周六夜场的灯光方案</div><div class="s"><span class="tag">灯光</span>与陈岚电话</div></div></div>
+ <div class="row"><div class="cb"></div><div><div class="t">给场刊印厂回复最终稿</div><div class="s"><span class="tag">印刷</span>截止 17:00</div></div></div>
+ <div class="row done"><div class="cb on"></div><div><div class="t">签收新到的舞台反光板</div></div></div>
+ <div class="row"><div class="cb"></div><div><div class="t">买明晚排练用的矿泉水</div></div></div>
+ <div class="sec"><span class="moon"></span>今晚</div>
+ <div class="row"><div class="cb"></div><div><div class="t">通读第三幕台词</div><div class="s">检查换场提示</div></div></div>
+ <div class="row"><div class="cb"></div><div><div class="t">回复赞助商邮件</div></div></div>
+ <div class="plus"></div>
+</div>
+
+<div class="ph" style="left:470px;top:150px;transform:scale(.96)">
+ <div class="sb"><span>9:41</span><span>●●●</span></div>
+ <div class="pj" style="display:flex;gap:16px;align-items:center;margin-top:8px"><div class="pie"></div><div><div style="font-size:14px;color:#8A8F9B">项目</div></div></div>
+ <div class="pj" style="padding-top:0"><h2>《雨夜小站》秋季排演</h2><div class="note">十一月第二周首演，黑匣子剧场。</div></div>
+ <div class="sec" style="color:#1d1d1f">灯光</div>
+ <div class="row"><div class="cb on"></div><div class="done"><div class="t">勘察场地电路</div></div></div>
+ <div class="row"><div class="cb"></div><div><div class="t">定稿追光与侧光位置</div><div class="s">3 / 5 项</div></div></div>
+ <div class="sec" style="color:#1d1d1f">道具</div>
+ <div class="row"><div class="cb"></div><div><div class="t">雨棚幕布的防火证明</div></div></div>
+ <div class="row"><div class="cb"></div><div><div class="t">联系租借旧电话亭</div></div></div>
+ <div class="sec" style="color:#1d1d1f">宣传</div>
+ <div class="row"><div class="cb"></div><div><div class="t">海报二稿给导演看</div></div></div>
+</div>
+
+<div class="card" style="left:866px;top:112px;width:300px;transform:rotate(0deg)">
+ <div class="ti"><div class="cb" style="margin-top:3px"></div>给场刊印厂回复最终稿</div>
+ <div class="note" style="margin:10px 0 4px 34px;font-size:14px">纸张改为 120g 哑粉，封面不覆膜。</div>
+ <div class="chk"><div><span class="cb on"></span><span style="color:#A3A8B3;text-decoration:line-through">核对演职员名单</span></div><div><span class="cb"></span>确认页数 24P</div><div><span class="cb"></span>付定金</div></div>
+ <div class="meta"><span class="tag" style="background:#E9F0FE;color:#3563C9">印刷</span><span>今天 17:00</span></div>
+</div>
+<div class="cap" style="left:866px;top:640px">任务卡片展开 · 局部</div>
+</body></html>

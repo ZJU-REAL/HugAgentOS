@@ -4,7 +4,6 @@ import { Alert, Button, Input } from 'antd';
 import { ArrowUpOutlined, CloseOutlined, HeartOutlined, PlusOutlined, SearchOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { uploadFile } from '../../api';
 import { PersonalSettings } from './settings/PersonalSettings';
-import { useCanvasStore } from '../../stores/canvasStore';
 import { AttentionBar } from './tasks/AttentionBar';
 import { PersonalConfirmBar } from './tasks/PersonalConfirmBar';
 import { PersonalApprovalPill } from './tasks/PersonalApprovalPill';
@@ -53,8 +52,6 @@ function ConversationPanel({ chatId, onSelectChat, savedDraft, saveDraft }: { ch
   const [profileOpen, setProfileOpen] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  // With the canvas open there is room for one column: the status panel becomes an overlay.
-  const canvasOpen = useCanvasStore(state => state.isOpen);
   const requestKey = savedDraft?.requestKey;
   const setRequestKey = (key: string | undefined) => saveDraft(chatId || 'main', previous => ({ ...previous, requestKey: key }));
   usePersonalResultRead(messageViewport, chatId ? [] : messages);
@@ -116,7 +113,7 @@ function ConversationPanel({ chatId, onSelectChat, savedDraft, saveDraft }: { ch
     <span className="pa-typing-dots" aria-hidden="true"><i /><i /><i /></span>
   </span>;
 
-  return <section className={'pa-panel' + (canvasOpen ? ' pa-panel--canvas' : '')} aria-label="Personal Agent">
+  return <section className="pa-panel" aria-label="Personal Agent">
     <div className="pa-conversation">
       <header className="pa-header">
         <PersonalAvatar avatar={agent?.config.avatar} name={name} size={30} />

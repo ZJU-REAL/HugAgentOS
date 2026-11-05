@@ -229,7 +229,6 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 | `OPENSANDBOX_USER_HEADROOM` | `2` | 预热永不占用的名额数（不超过名额减 1） |
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | `true` | 快照持久化总开关（idle 时 snapshot+kill，重连恢复） |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | `7` | 快照保留天数（GC 周期清理） |
-| `OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S` | `120` | 等快照 Ready 的轮询上限（秒） |
 
 ### CubeSandbox（E2B 兼容 MicroVM，商业版 EE）
 

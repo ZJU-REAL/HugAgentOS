@@ -1,0 +1,39 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>09 Bento便当格模块网格</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800&family=Geist+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden;background:#F5F5F7}
+body{position:relative;font-family:Inter,"Noto Sans SC",sans-serif;color:#1d1d1f}
+h1{position:absolute;left:56px;top:36px;margin:0;font:900 40px/1.1 "Noto Sans SC";letter-spacing:-.02em}
+.sub{position:absolute;right:56px;top:50px;font:500 13px "Geist Mono";color:#6e6e73;letter-spacing:.06em}
+.g{position:absolute;left:56px;right:56px;top:112px;bottom:48px;display:grid;gap:16px;
+ grid-template-columns:1.25fr 1fr 1fr 1fr;grid-template-rows:1fr 1fr 1fr;
+ grid-template-areas:"a b b c" "a d e c" "f f e g"}
+.k{background:#fff;border-radius:24px;border:1px solid rgba(0,0,0,.06);box-shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.04);padding:22px 24px;position:relative;overflow:hidden}
+.l{font:500 12px "Geist Mono";color:#6e6e73;letter-spacing:.08em}
+.v{font:800 52px/1 Inter;letter-spacing:-.04em;margin-top:10px;font-variant-numeric:tabular-nums}
+.v small{font:700 20px "Noto Sans SC";letter-spacing:0;margin-left:4px}
+.t{font:400 16px/1.5 "Noto Sans SC";color:#424245;margin-top:8px}
+.a{grid-area:a;background:#0071E3;color:#fff;border-color:transparent}
+.a .l,.a .t{color:rgba(255,255,255,.88)}
+.a .v{font-size:108px;margin-top:26px}
+.a .v small{font-size:34px}
+.b{grid-area:b}.c{grid-area:c}.d{grid-area:d}.e{grid-area:e}.f{grid-area:f}.g2{grid-area:g}
+svg{position:absolute;left:0;bottom:0;width:100%}
+.bar{height:10px;border-radius:5px;background:#e8e8ed;margin-top:20px;position:relative}
+.bar i{position:absolute;left:0;top:0;bottom:0;border-radius:5px;background:#0071E3}
+.dots{display:grid;grid-template-columns:repeat(16,1fr);gap:6px;margin-top:16px}
+.dots i{aspect-ratio:1;border-radius:50%;background:#0071E3}.dots i.o{background:#e1e1e6}
+.ic{width:34px;height:34px;border-radius:10px;background:#EAF3FF;display:flex;align-items:center;justify-content:center;margin-bottom:12px}
+</style></head><body>
+<h1>2026 海洋保护年报</h1><div class="sub">蓝屿海洋基金会 · 全年</div>
+<div class="g">
+ <div class="k a"><div class="l">已清理海岸线</div><div class="v">312<small>km</small></div><div class="t">相当于从厦门到汕头的全程。</div></div>
+ <div class="k b"><div class="l">回收海漂垃圾</div><div class="v">86.4<small>吨</small></div><div class="t">其中渔网与浮标占 41%，较去年多回收 27%。</div>
+  <svg viewBox="0 0 400 70" preserveAspectRatio="none" height="70"><path d="M0 60 L50 52 L100 56 L150 40 L200 44 L250 28 L300 30 L350 14 L400 10 L400 70 L0 70Z" fill="#0071E3" opacity=".1"/><path d="M0 60 L50 52 L100 56 L150 40 L200 44 L250 28 L300 30 L350 14 L400 10" fill="none" stroke="#0071E3" stroke-width="3"/></svg></div>
+ <div class="k c"><div class="ic"><svg style="position:static;width:20px" viewBox="0 0 24 24" fill="none" stroke="#0071E3" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.4"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6M15 14.5c3 0 6 1.6 6 5"/></svg></div><div class="l">志愿者</div><div class="v">4,215<small>人</small></div><div class="t">首次参与者占六成，34 所高校社团加入。</div></div>
+ <div class="k d"><div class="l">监测站点</div><div class="v">48</div><div class="t">新增 12 个</div></div>
+ <div class="k e"><div class="l">珊瑚存活率</div><div class="v">71<small>%</small></div><div class="bar"><i style="width:71%"></i></div><div class="t">移植 1,800 株，监测满 12 个月。</div></div>
+ <div class="k f"><div class="l">净滩行动 · 全年 16 期</div><div class="dots"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i class="o"></i><i class="o"></i><i class="o"></i><i class="o"></i></div><div class="t" style="margin-top:14px">已完成 12 期，第 13 期在 11 月。</div></div>
+ <div class="k g2"><div class="l">捐赠</div><div class="v" style="font-size:44px">¥186<small>万</small></div></div>
+</div>
+</body></html>

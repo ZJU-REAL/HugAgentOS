@@ -11,6 +11,8 @@ To test the full flow manually:
   2. The mock SSO will generate a ticket and redirect to the app with ?ticket=...
 """
 
+import html
+import json
 import os
 from typing import Any, Dict, Optional
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
@@ -21,6 +23,25 @@ from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 logger = get_logger(__name__)
+
+
+def _login_branding() -> Dict[str, str]:
+    """Configured branding for the login pages, escaped for the HTML, CSS and JS spots it lands in.
+
+    Every brand element on these pages (name, logo, tab icon, background) comes from page_config,
+    so a rebranded site never shows the stock HugAgentOS assets here.
+    """
+    brand = get_branding_info()
+    # Percent-encoding leaves no quote, backslash or angle bracket to end the CSS url('…') or the <style>.
+    background = quote(brand["login_background_url"], safe=":/?#[]@!$&()*+,;=%~")
+    return {
+        "name": html.escape(brand["product_name"]),
+        "name_js": json.dumps(brand["product_name"]).replace("<", "\\u003c"),
+        "logo": html.escape(brand["login_logo_url"]),
+        "favicon": html.escape(brand["favicon_url"]),
+        "background_preload": f'<link rel="preload" as="image" href="{background}"/>' if background else "",
+        "background_layer": f"url('{background}') center center / cover no-repeat," if background else "",
+    }
 
 router = APIRouter(prefix="/mock-sso", tags=["Mock SSO"])
 
@@ -261,8 +282,8 @@ def _render_legacy_mock_page(redirect: str, error: Optional[str]) -> str:
         f'{u["username"]} ({u["email"]})</button></li>'
         for i, u in enumerate(MOCK_USERS)
     )
-    brand = get_branding_info()
-    brand_name = brand["product_name"]
+    brand = _login_branding()
+    brand_name = brand["name"]
 
     return f"""<!DOCTYPE html>
 <html lang="zh">
@@ -270,7 +291,8 @@ def _render_legacy_mock_page(redirect: str, error: Optional[str]) -> str:
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>统一身份认证登录 · Mock</title>
-  <link rel="preload" as="image" href="/home/mock-sso-bg-original.png"/>
+  <link rel="icon" href="{brand['favicon']}"/>
+  {brand['background_preload']}
   <style>
     :root {{ --primary:#126dff; --primary-hover:#3c87ff; --text:#262626; --muted:#808080; --border:#d8dbe2; --danger:#fc5d5d; }}
     * {{ box-sizing:border-box; }}
@@ -281,7 +303,7 @@ def _render_legacy_mock_page(redirect: str, error: Optional[str]) -> str:
       color:var(--text);
       background:
         linear-gradient(128deg, rgba(219,233,255,0.18) 0%, rgba(237,244,255,0.10) 36%, rgba(249,251,255,0.06) 74%, rgba(244,248,255,0.16) 100%),
-        url('/home/mock-sso-bg-original.png') center center / cover no-repeat,
+        {brand['background_layer']}
         linear-gradient(180deg, #f7fbff 0%, #edf5ff 100%);
       background-attachment: fixed;
     }}
@@ -395,7 +417,7 @@ def _render_legacy_mock_page(redirect: str, error: Optional[str]) -> str:
   <div class="page">
     <header class="brand">
       <a class="brand-link" href="/mock-sso/login?redirect={redirect}">
-        <img class="brand-logo" src="/home/hugagentos-logo.png" alt="{brand_name}"/>
+        <img class="brand-logo" src="{brand['logo']}" alt="{brand_name}"/>
       </a>
     </header>
     <main class="main">
@@ -581,8 +603,8 @@ async def mock_login_page(
         else ""
     )
     mock_hint_html = ""
-    brand = get_branding_info()
-    brand_name = brand["product_name"]
+    brand = _login_branding()
+    brand_name = brand["name"]
 
     html = f"""<!DOCTYPE html>
 <html lang="{default_lang if default_lang == 'en' else 'zh-CN'}">
@@ -590,7 +612,8 @@ async def mock_login_page(
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>{brand_name}</title>
-  <link rel="preload" as="image" href="/home/mock-sso-bg-original.png"/>
+  <link rel="icon" href="{brand['favicon']}"/>
+  {brand['background_preload']}
   <style>
     :root {{
       --primary:#126dff;
@@ -608,7 +631,7 @@ async def mock_login_page(
       color:var(--text);
       background:
         linear-gradient(128deg, rgba(219, 233, 255, 0.18) 0%, rgba(237, 244, 255, 0.10) 36%, rgba(249, 251, 255, 0.06) 74%, rgba(244, 248, 255, 0.16) 100%),
-        url('/home/mock-sso-bg-original.png') center center / cover no-repeat,
+        {brand['background_layer']}
         linear-gradient(180deg, #f7fbff 0%, #edf5ff 100%);
       background-attachment: fixed;
     }}
@@ -1198,7 +1221,7 @@ async def mock_login_page(
   <div class="page">
     <header class="brand">
       <a class="brand-link" href="/login?redirect={redirect}">
-        <img class="brand-logo" src="/home/hugagentos-logo.png" alt="{brand_name}" />
+        <img class="brand-logo" src="{brand['logo']}" alt="{brand_name}" />
       </a>
     </header>
     <main class="main">
@@ -1325,7 +1348,7 @@ async def mock_login_page(
       }}
       function applyLang() {{
         document.documentElement.lang = curLang === 'en' ? 'en' : 'zh';
-        document.title = '{brand_name}';
+        document.title = {brand['name_js']};
         document.querySelectorAll('[data-i18n]').forEach((el) => {{ el.textContent = tr(el.dataset.i18n); }});
         document.querySelectorAll('input[data-ph]').forEach((el) => {{ el.placeholder = tr(el.dataset.ph); }});
         ['loginError', 'registerError'].forEach((id) => {{
