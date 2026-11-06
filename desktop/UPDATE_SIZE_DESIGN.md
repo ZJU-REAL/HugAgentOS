@@ -70,7 +70,7 @@ CI 不缓存 `desktop/generated`，而且运行时构建不可复现（macOS 签
    - 下载到 `runtimes/.stage-dl-<fingerprint>`（带 staging 标记，崩溃遗留的文件会被现有 prune 清掉），支持 Range 续传；
    - 用包内 `runtime-manifest.json` 的 `archive_sha256` 校验。这个清单随已签名的更新包到达，
      所以**不需要单独给运行时签名**。
-   - 使用独立的 HTTP 客户端：走系统代理，只设读超时。现有客户端是 `.no_proxy()` + 3 秒连接超时（`bootstrap.rs`），不适合下载大文件。
+   - 使用独立的 HTTP 客户端：走系统代理，只设读超时。现有客户端是 `.no_proxy()` + 10 秒连接超时（`bootstrap.rs`，取值见 `net.rs`），不适合下载大文件。
 2. 下载完成后，后续流程与今天相同：解压 → `validate_runtime` → 提交。
 3. 失败：保持旧版本服务运行（今天 `run_install` 失败时本来就会恢复旧版本），初始化页 / 本机服务页提示错误并提供重试，
    同时给出完整安装包的链接。

@@ -1,7 +1,7 @@
 //! Device-bound login transport. No device credential is sent to the browser.
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tokio::sync::{Mutex, RwLock};
 
 #[derive(Clone, Deserialize)]
@@ -57,34 +57,62 @@ pub fn browser_url(base: &str, grant: &Grant) -> Result<String, String> {
     Ok(url.into())
 }
 
-async fn request(http: &reqwest::Client, base: &str, path: &str, secret: &str)
-    -> Result<serde_json::Value, String>
-{
-    let response = http.post(format!("{}/api/v1/auth/desktop/requests{path}", base.trim_end_matches('/')))
-        .timeout(Duration::from_secs(10))
-        .json(&serde_json::json!({"device_secret": secret}))
-        .send().await.map_err(|_| "网络暂时不可用，正在重试…".to_string())?;
-    let status = response.status();
-    if status.as_u16() == 410 { return Err("expired".into()); }
-    if status.as_u16() == 404 { return Err("服务器不支持此登录流程，或登录请求已失效".into()); }
-    if status.as_u16() == 429 { return Err("登录请求过于频繁，请稍后重试".into()); }
-    if !status.is_success() { return Err(format!("登录服务暂时不可用（HTTP {status}）")); }
-    let body: serde_json::Value = response.json().await.map_err(|_| "登录响应无效".to_string())?;
-    body.get("data").cloned().ok_or_else(|| "登录响应缺少结果".to_string())
+/// Why a device-login round trip produced no result.
+#[derive(Debug)]
+pub enum LoginError {
+    /// The request never got an answer; the same call may simply be repeated.
+    Unreachable,
+    /// HTTP 410: this login request is over.
+    Expired,
+    /// A settled failure, already phrased for the login card.
+    Failed(String),
 }
 
-pub async fn begin(http: &reqwest::Client, base: &str, secret: &str) -> Result<Grant, String> {
+impl std::fmt::Display for LoginError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Unreachable => "网络暂时不可用，正在重试…",
+            Self::Expired => "登录请求已过期，请重新登录。",
+            Self::Failed(message) => message,
+        })
+    }
+}
+
+fn failed(message: impl Into<String>) -> LoginError {
+    LoginError::Failed(message.into())
+}
+
+async fn request(http: &reqwest::Client, base: &str, path: &str, secret: &str)
+    -> Result<serde_json::Value, LoginError>
+{
+    let response = http.post(format!("{}/api/v1/auth/desktop/requests{path}", base.trim_end_matches('/')))
+        .timeout(crate::net::CLOUD_REQUEST_TIMEOUT)
+        .json(&serde_json::json!({"device_secret": secret}))
+        .send().await.map_err(|_| LoginError::Unreachable)?;
+    let status = response.status();
+    match status.as_u16() {
+        410 => return Err(LoginError::Expired),
+        404 => return Err(failed("服务器不支持此登录流程，或登录请求已失效")),
+        429 => return Err(failed("登录请求过于频繁，请稍后重试")),
+        _ if !status.is_success() => return Err(failed(format!("登录服务暂时不可用（HTTP {status}）"))),
+        _ => {}
+    }
+    let body: serde_json::Value = response.json().await.map_err(|_| failed("登录响应无效"))?;
+    body.get("data").cloned().ok_or_else(|| failed("登录响应缺少结果"))
+}
+
+pub async fn begin(http: &reqwest::Client, base: &str, secret: &str) -> Result<Grant, LoginError> {
     let grant: Grant = serde_json::from_value(request(http, base, "", secret).await?)
-        .map_err(|_| "登录请求响应无效".to_string())?;
+        .map_err(|_| failed("登录请求响应无效"))?;
     if grant.expires_in == 0 || grant.expires_in > 600 || grant.interval == 0
         || grant.request_id.len() != 43 || grant.confirm_code.len() != 8 {
-        return Err("登录请求参数无效".into());
+        return Err(failed("登录请求参数无效"));
     }
     Ok(grant)
 }
 
 pub async fn action(http: &reqwest::Client, base: &str, attempt: &Attempt, action: &str)
-    -> Result<serde_json::Value, String>
+    -> Result<serde_json::Value, LoginError>
 {
     request(http, base, &format!("/{}/{}", attempt.grant.request_id, action), &attempt.secret).await
 }
@@ -92,6 +120,7 @@ pub async fn action(http: &reqwest::Client, base: &str, attempt: &Attempt, actio
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn browser_url_never_carries_device_secret() {

@@ -60,6 +60,7 @@ def test_database_extra_config_exposes_timeout_overrides(monkeypatch):
         owner_user_id=None,
         server_id="remote",
         display_name="Remote",
+        description="",
     )
     service = McpServerConfigService()
     monkeypatch.setattr(service, "_build_env", lambda _row: {})

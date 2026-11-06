@@ -13,6 +13,7 @@ mod hybrid;
 mod local_payload;
 mod local_server;
 mod menu;
+mod net;
 mod notify;
 mod prefs;
 mod proxy;

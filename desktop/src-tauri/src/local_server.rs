@@ -276,16 +276,6 @@ impl LocalServerManager {
         self.notify_changed();
     }
 
-    pub async fn probe_base(http: &reqwest::Client, base: &str) -> bool {
-        let target = format!("{}/health", base.trim_end_matches('/'));
-        http.get(target)
-            .timeout(Duration::from_secs(3))
-            .send()
-            .await
-            .map(|response| response.status().is_success())
-            .unwrap_or(false)
-    }
-
     pub async fn is_ready(&self) -> bool {
         let mut cache = self.ready_cache.lock().await;
         if let Some((at, ready)) = *cache {

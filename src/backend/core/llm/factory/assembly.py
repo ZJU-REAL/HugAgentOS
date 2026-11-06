@@ -25,6 +25,31 @@ from core.llm.factory.tools.mcp_connections import mcp_connections
 from core.llm.factory.tools.native import native_tools
 from core.llm.factory.tools.skill_registration import skill_registration
 from core.llm.factory.tools.tool_surface import tool_surface
+from core.llm.mcp import server_guidance
+
+
+def _append_mcp_server_guidance(system_prompt, mcp_resources, tool_schemas, manifest_builder, log, elapsed):
+    """Add what each connected MCP server is for; tool schemas carry only per-tool text."""
+    visible = {
+        str((schema.get("function") or schema).get("name") or "")
+        for schema in tool_schemas or []
+        if isinstance(schema, dict)
+    }
+    section = server_guidance.render_mcp_server_section(mcp_resources, visible)
+    if not section:
+        return system_prompt
+    manifest_builder.add_prompt_section(
+        server_guidance.SECTION_ID,
+        section,
+        origin="mcp:servers",
+        trust="configured_service",
+        priority=815,
+        cache_class="capability_set",
+        version="1",
+        sensitive=True,
+    )
+    log.info("[factory] +%s MCP server guidance injected (%d chars)", elapsed(), len(section))
+    return (system_prompt + "\n\n" + section) if system_prompt else section
 
 
 async def assemble_agent(request: AgentRequest):
@@ -292,6 +317,9 @@ async def assemble_agent(request: AgentRequest):
         skill_ids_to_register=skill_ids_to_register,
         tool_schemas=tool_schemas,
         toolkit=toolkit,
+    )
+    system_prompt = _append_mcp_server_guidance(
+        system_prompt, mcp_resources, tool_schemas, _manifest_builder, _log, _elapsed
     )
     (system_prompt,) = await prompt_context(
         request,

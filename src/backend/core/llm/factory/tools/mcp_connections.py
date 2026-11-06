@@ -106,6 +106,7 @@ async def mcp_connections(
                 resource = await discover(key, cfg, interactions=interactions, scope=scope)
                 resource.client_session_lease = cfg.get("client_session_lease")
                 resource.display_name = cfg.get("display_name") or key
+                resource.description = str(cfg.get("description") or "")
                 return own_factory_client(resource)
             except asyncio.CancelledError:
                 raise

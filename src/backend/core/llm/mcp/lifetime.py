@@ -18,8 +18,17 @@ class MCPResource:
     client_session_lease: tuple | None = None
     # Shown to the user as the source of these tools (tool-name clash notices).
     display_name: str | None = None
+    # Configured one-line purpose of the server (catalog / import metadata).
+    description: str = ""
     _lease: object = None
     _closing: asyncio.Task | None = None
+
+    @property
+    def instructions(self):
+        """The server's handshake instructions; manifest-backed tools have no live session."""
+        if self.session is None:
+            return ""
+        return getattr(self.session, "instructions", "") or ""
 
     @property
     def descriptors(self):

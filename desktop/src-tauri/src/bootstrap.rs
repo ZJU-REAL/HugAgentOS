@@ -62,11 +62,11 @@ pub(crate) fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error:
     }
 
     // 没有全局 `.timeout()`：这个 client 同时给反代转发 SSE 长连用。
-    // 但连接建立必须有上限，否则一个半死的上游能把调用方永久挂住。
+    // 但连接建立必须有上限，否则一个半死的上游能把调用方永久挂住（取值见 net.rs）。
     let http = reqwest::Client::builder()
         .danger_accept_invalid_certs(cfg.insecure_tls)
         .no_proxy()
-        .connect_timeout(std::time::Duration::from_secs(3))
+        .connect_timeout(crate::net::CONNECT_TIMEOUT)
         .build()
         .expect("构建 http client 失败");
 
@@ -258,11 +258,7 @@ pub(crate) fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error:
         spawn_local_session_restore(handle.clone());
     }
     if !needs_initialization && !cfg.uses_local_server() {
-        spawn_startup_probe(
-            handle.clone(),
-            cfg.server_base_trimmed().to_string(),
-            cfg.cookie_name.clone(),
-        );
+        spawn_startup_probe(handle.clone());
     }
 
     // 系统托盘：关闭窗口时「最小化到托盘」后，从这里恢复主窗口。

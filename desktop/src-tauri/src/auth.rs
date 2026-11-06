@@ -115,50 +115,40 @@ pub fn save_token(config_dir: &Path, server_base: &str, token: Option<&str>) {
     remove_legacy(config_dir);
 }
 
-/// 启动时校验已存 token 是否仍有效：带 cookie 直连后端打 `session/check`。
-/// 只有明确 2xx 才算有效；401/网络错误均视为失效（宁可回登录页，也不要带废
-/// token 进首页导致前端鉴权失败 → 白屏）。
-pub async fn validate(
-    http: &reqwest::Client,
-    server_base: &str,
-    cookie_name: &str,
-    token: &str,
-) -> bool {
-    check(http, server_base, cookie_name, token).await == Some(true)
+/// The cloud's settled answer about a saved session token.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionVerdict {
+    Valid,
+    /// 401/403: the only answer that may cost the user their saved login.
+    Rejected,
 }
 
-/// `Some(false)` only when the server rejected the session (401/403); `None` when
-/// it could not answer (timeout, connection error, 5xx), so callers can keep the token.
+/// One `session/check` round trip. `None` when the server could not answer
+/// (timeout, connection error, 5xx): callers keep the token and may retry.
 pub async fn check(
     http: &reqwest::Client,
     server_base: &str,
     cookie_name: &str,
     token: &str,
-) -> Option<bool> {
+) -> Option<SessionVerdict> {
     let url = format!(
         "{}/api/v1/auth/session/check",
         server_base.trim_end_matches('/')
     );
-    match http
+    let response = http
         .get(&url)
         .header(
             reqwest::header::COOKIE,
             format!("{}={}", cookie_name, token),
         )
-        // 共享 client 没有全局超时（要给 SSE 长连用），这里必须自带一个：
-        // 校验结果决定启动路由，云端接了连接却不应答不能拖住整个启动。
-        .timeout(std::time::Duration::from_secs(5))
+        .timeout(crate::net::CLOUD_REQUEST_TIMEOUT)
         .send()
         .await
-    {
-        Ok(resp) if resp.status().is_success() => Some(true),
-        Ok(resp)
-            if matches!(
-                resp.status(),
-                reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN
-            ) =>
-        {
-            Some(false)
+        .ok()?;
+    match response.status() {
+        status if status.is_success() => Some(SessionVerdict::Valid),
+        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN => {
+            Some(SessionVerdict::Rejected)
         }
         _ => None,
     }

@@ -390,6 +390,18 @@ export function CatalogPanel() {
     }
   }, [selectedItem]);
 
+  // 用户切到另一类知识库（侧栏 / 窄屏 Tab / 前进后退）时，已打开的库若不属于新分类就退回列表，
+  // 否则标题写着「私有知识库」，下面却还是刚才那个公共库的详情。只在分类本身变化时判断：
+  // 打开一个库时上面的 effect 会把分类同步过去，那一次分类与库一致，不会误关。
+  const prevActiveTabRef = useRef(activeTab);
+  useEffect(() => {
+    if (prevActiveTabRef.current === activeTab) return;
+    prevActiveTabRef.current = activeTab;
+    if (selectedItem && resolveVisibility(selectedItem) !== activeTab) {
+      setSelectedId(null);
+    }
+  }, [activeTab, selectedItem, setSelectedId]);
+
   useEffect(() => {
     setKbDocPage(1);
     setKbDocStatusCounts(EMPTY_DOC_STATUS_COUNTS);
