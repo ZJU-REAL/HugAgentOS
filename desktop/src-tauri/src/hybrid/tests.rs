@@ -196,6 +196,23 @@ fn renewal_is_derived_from_the_token_lifetime() {
 }
 
 #[test]
+fn renewal_failure_keeps_synced_capabilities_available() {
+    let mut sync = BridgeSync {
+        identity_ready: true,
+        capabilities_ready: true,
+        models_ready: true,
+        ..BridgeSync::default()
+    };
+    renewal_failed(&mut sync, "offline".into());
+    assert!(sync.capabilities_ready && sync.models_ready && sync.retrying);
+    assert_eq!(sync.error.as_deref(), Some("offline"));
+
+    let mut first = BridgeSync::default();
+    renewal_failed(&mut first, "offline".into());
+    assert!(!first.capabilities_ready && !first.models_ready);
+}
+
+#[test]
 fn model_manifest_requires_complete_topology() {
     let error = model_import_payload(
         serde_json::json!({"providers": []}),

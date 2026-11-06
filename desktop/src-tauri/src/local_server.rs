@@ -21,6 +21,7 @@ mod installer;
 mod logging;
 mod managed_process;
 mod process;
+mod runtime_download;
 use managed_process::ManagedProcess;
 mod supervisor;
 #[cfg(test)]
@@ -85,6 +86,8 @@ pub struct LocalServerManager {
     /// `HUGAGENT_DESKTOP_BRIDGE_SECRET`（身份桥）与 `CONFIG_TOKEN`（壳持有本机
     /// 实例的控制台令牌，用于安全模型清单 / capability gateway 下发）。
     bridge_secret: std::sync::OnceLock<String>,
+    /// 发布源基址：小更新包不带运行时，依赖变化时从这里下载。
+    runtime_sources: std::sync::OnceLock<Vec<String>>,
 }
 
 impl LocalServerManager {
@@ -122,6 +125,7 @@ impl LocalServerManager {
             health_monitor: AtomicBool::new(false),
             ready_cache: tokio::sync::Mutex::new(None),
             bridge_secret: std::sync::OnceLock::new(),
+            runtime_sources: std::sync::OnceLock::new(),
         })
     }
 
@@ -138,6 +142,17 @@ impl LocalServerManager {
     /// 设置桥接秘密（进程内只设一次；重复设置忽略）。须在首次 start 之前调用。
     pub fn set_bridge_secret(&self, secret: String) {
         let _ = self.bridge_secret.set(secret);
+    }
+
+    /// 运行时下载源（按顺序尝试）：更新源、云端地址、编译期发布源。
+    pub fn set_runtime_sources<I, S>(&self, candidates: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let _ = self
+            .runtime_sources
+            .set(runtime_download::runtime_sources(candidates));
     }
 
     fn data_dir(&self) -> PathBuf {

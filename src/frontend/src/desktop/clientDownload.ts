@@ -27,7 +27,10 @@ export async function latestClientDownloadUrl(
   if (response.status === 204) return null;
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const manifest = await response.json();
-  const rawUrl = manifest?.platforms?.[target]?.url;
+  // Slim update packages download their runtime on first start; offer the
+  // offline installer to new users whenever one is published.
+  const spec = manifest?.platforms?.[target];
+  const rawUrl = spec?.installer?.url ?? spec?.url;
   if (typeof rawUrl !== 'string' || !rawUrl) return null;
   const downloadUrl = new URL(rawUrl, base);
   if (downloadUrl.origin !== base.origin ||

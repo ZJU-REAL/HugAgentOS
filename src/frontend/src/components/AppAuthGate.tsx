@@ -7,11 +7,12 @@ import { useAuthStore } from '../stores/authStore';
 import { useDeploymentModeStore } from '../stores/deploymentModeStore';
 import { AppLoadingSkeleton, AuthExpiredModal } from './common';
 import { CapabilitySyncGate } from './desktop/CapabilitySyncGate';
+import { CloudReconnectNotice } from './desktop/CloudReconnectNotice';
 import { FirstRunSetup } from './onboarding';
 import { PasswordManagementPanel } from './settings';
 export function AppAuthGate({ children }: { children: ReactNode }) {
   const { authUser, authChecking, authExpiredUrl, setAuthUser } = useAuthStore();
-  const { isDesktop: isDesktopShell, provisionMode: desktopProvisionMode, capabilityGateOpen, capabilitiesReady, loaded: deploymentModeLoaded } = useDeploymentModeStore();
+  const { isDesktop: isDesktopShell, provisionMode: desktopProvisionMode, capabilityGateOpen, loaded: deploymentModeLoaded } = useDeploymentModeStore();
   const showAuthSkeleton = useDelayedFlag(authChecking);
 
   if (authChecking) {
@@ -54,9 +55,16 @@ export function AppAuthGate({ children }: { children: ReactNode }) {
     }
   }
 
-  if (desktopProvisionMode === 'dual' && (capabilityGateOpen || !capabilitiesReady)) {
+  // 同步页只挡「本次登录还没同步好」的那一段：一旦放行就不再因为后台续期或断网
+  // 把用户踢回来（壳会保留已就绪的能力并在后台重试），只有身份丢失才重新打开。
+  if (desktopProvisionMode === 'dual' && capabilityGateOpen) {
     return <CapabilitySyncGate />;
   }
 
-  return <SidebarLayoutGate userId={authUser.user_id}>{children}</SidebarLayoutGate>;
+  return (
+    <>
+      <SidebarLayoutGate userId={authUser.user_id}>{children}</SidebarLayoutGate>
+      {desktopProvisionMode === 'dual' && <CloudReconnectNotice />}
+    </>
+  );
 }

@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 from core.evolution.evidence.credit import T_ORCHESTRATION, T_SKILL, aggregate_finding, confidence_from_evidence
 from core.evolution.ir import RISK_HIGH, RISK_MEDIUM, EvolutionIR, InvariantViolation, Rollback, validate_ir
 import logging
+import math
 from core.evolution.cycle import candidate_records
 
 logger = logging.getLogger(__name__)
@@ -50,8 +51,13 @@ def decremental_candidates(extras: Dict[str, Any], *, dry_run: bool) -> List[Dic
             changes=[
                 {
                     "retire_reason": item.get("reason"),
+                    # Unbounded exposure is an internal sentinel for built-in
+                    # skills. Persist null, as the health API does, because
+                    # PostgreSQL JSONB rejects Infinity and NaN.
                     "stats": {
-                        k: v for k, v in item.items() if k not in ("asset_id", "explanation")
+                        k: (None if isinstance(v, float) and not math.isfinite(v) else v)
+                        for k, v in item.items()
+                        if k not in ("asset_id", "explanation")
                     },
                 }
             ],

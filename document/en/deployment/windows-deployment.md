@@ -596,3 +596,9 @@ Existing definition-only snapshots require another capability sync. Update both 
 
 If an older client reports that its local execution service is not ready during initialization, upgrade to a full installer containing the subprocess logging fix.
 Execution and local MCP services can then initialize logging and start without a console window. A cloud-only update does not replace an installed local backend. Keep existing accounts, conversations, and local files.
+
+### Credential provenance in cloud capability manifests
+
+The top-level connector field `credential_source` uses `admin`, `installer`, and `none` to identify credential provenance.
+These fixed enum values are excluded from secret collection so ordinary tool descriptions do not trigger `422 / integrity_failed`.
+Unknown source values, headers, environment variables, and real credentials remain guarded. Apply the fix to the cloud backend, then retry desktop synchronization without clearing local data.

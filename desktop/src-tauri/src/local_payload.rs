@@ -190,6 +190,64 @@ pub fn needs_install(paths: &PayloadPaths<'_>) -> bool {
         || server.dependency_fingerprint != runtime.dependency_fingerprint
 }
 
+/// A runtime the installed package expects but does not carry.
+#[derive(Clone, Debug)]
+pub struct RuntimeDownload {
+    /// Published file name, `runtime-<target>-<fingerprint>.tar.gz`.
+    pub name: String,
+    pub sha256: String,
+    pub archive_size: u64,
+    pub unpacked_size: u64,
+    /// Where the download is written; the installer then uses it as the runtime archive.
+    pub destination: PathBuf,
+}
+
+pub fn file_sha256(path: &Path) -> Result<String, String> {
+    sha256_file(path)
+}
+
+fn runtime_is_ready(root: &Path, runtime: &RuntimeBundleManifest) -> bool {
+    let dir = runtime_release_dir(root, &runtime.dependency_fingerprint);
+    dir.is_dir() && validate_runtime(&dir, runtime).is_ok()
+}
+
+/// Whether installing needs a runtime download: the package's runtime archive is
+/// an empty placeholder (slim update package) and this fingerprint isn't unpacked.
+pub fn pending_runtime_download(
+    paths: &PayloadPaths<'_>,
+) -> Result<Option<RuntimeDownload>, String> {
+    let runtime = read_runtime_manifest(paths.runtime_manifest)?;
+    validate_identifier(&runtime.dependency_fingerprint, "dependency fingerprint")?;
+    if runtime_is_ready(paths.root, &runtime) {
+        return Ok(None);
+    }
+    let bundled = fs::metadata(paths.runtime_archive)
+        .map(|meta| meta.len() > 0)
+        .unwrap_or(false);
+    if bundled {
+        return Ok(None);
+    }
+    if runtime.target != current_target() {
+        return Err(format!(
+            "安装包平台不匹配：需要 {}，运行时={}",
+            current_target(),
+            runtime.target
+        ));
+    }
+    let id = storage_id(&runtime.dependency_fingerprint);
+    Ok(Some(RuntimeDownload {
+        name: format!(
+            "runtime-{}-{}.tar.gz",
+            runtime.target, runtime.dependency_fingerprint
+        ),
+        sha256: runtime.archive_sha256,
+        archive_size: runtime.archive_size,
+        unpacked_size: runtime.unpacked_size,
+        // The staging marker lets prune_old_releases sweep an abandoned download.
+        destination: runtimes_root(paths.root).join(format!(".{id}{}download", STAGING_MARKER)),
+    }))
+}
+
 pub fn install_payloads<F>(
     paths: &PayloadPaths<'_>,
     mut progress: F,
@@ -202,8 +260,13 @@ where
     let (server, server_raw) = read_server_manifest(paths.source_manifest)?;
     let runtime = read_runtime_manifest(paths.runtime_manifest)?;
     validate_manifests(&server, &runtime)?;
-    verify_file_hash(paths.runtime_archive, &runtime.archive_sha256)?;
-    ensure_free_space(paths, &runtime)?;
+    // Slim update packages carry an empty runtime placeholder; a runtime that is
+    // already unpacked for this fingerprint needs neither the archive nor its space.
+    let runtime_ready = runtime_is_ready(paths.root, &runtime);
+    if !runtime_ready {
+        verify_file_hash(paths.runtime_archive, &runtime.archive_sha256)?;
+    }
+    ensure_free_space(paths, &runtime, !runtime_ready)?;
 
     let source_id = sha256_bytes(&server_raw);
     let runtime_id = runtime.dependency_fingerprint.clone();

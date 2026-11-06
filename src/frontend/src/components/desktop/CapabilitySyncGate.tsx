@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
+import { useDelayedFlag } from '../../hooks/useDelayedFlag';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
+import { AppLoadingSkeleton } from '../common';
 import { desktopCapabilityRequest, type CapabilitySyncStatus } from './capabilitySyncApi';
 import './capabilitySync.css';
 
@@ -16,6 +18,7 @@ export function CapabilitySyncGate() {
   const [status, setStatus] = useState<CapabilitySyncStatus | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [choosing, setChoosing] = useState(false);
+  const showCard = useDelayedFlag(true, { showAfter: 1500 });
 
   useEffect(() => {
     let active = true;
@@ -80,6 +83,10 @@ export function CapabilitySyncGate() {
       setRequestError(problem instanceof Error ? problem.message : '操作未完成，请重试');
     } finally { setChoosing(false); }
   }
+
+  // 上次已同步过的账号重启后通常一两秒内就放行：这段时间只显示加载骨架，
+  // 不闪一下同步页。真正需要等待或出错时才露出进度卡片。
+  if (!showCard && !failed) return <AppLoadingSkeleton />;
 
   return (
     <main className="jx-capSyncScreen">

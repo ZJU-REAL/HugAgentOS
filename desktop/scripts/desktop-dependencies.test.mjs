@@ -207,3 +207,42 @@ test("Mac runtime fingerprint separates signing modes and normalizes certificate
     }));
   }
 });
+
+// Published runtimes are reused by fingerprint, so a runtime input missing from
+// the list would ship an unchanged runtime even though its content should change.
+test("runtime fingerprint covers every repository file the runtime build reads", () => {
+  // Downloads previously published bytes; it never shapes runtime contents.
+  const fetchOnly = new Set(["desktop/scripts/published-runtime.mjs"]);
+  const source = readFileSync(join(desktopDir, "scripts", "build-runtime.mjs"), "utf8");
+  const referenced = new Set();
+  for (const [, name] of source.matchAll(/join\(desktopDir, "scripts", "([^"]+)"\)/g)) {
+    referenced.add(`desktop/scripts/${name}`);
+  }
+  for (const [, name] of source.matchAll(/new URL\("\.\/([^"]+)", import\.meta\.url\)/g)) {
+    referenced.add(`desktop/scripts/${name}`);
+  }
+  for (const [, name] of source.matchAll(/^import .* from "\.\/([^"]+)";$/gm)) {
+    referenced.add(`desktop/scripts/${name}`);
+  }
+  for (const [, name] of source.matchAll(/join\(repoRoot, "([^"]+)"\)/g)) {
+    referenced.add(name);
+  }
+  for (const [, name] of source.matchAll(/join\(desktopDir, "([^"]+)"\)/g)) {
+    if (name !== "generated") referenced.add(`desktop/${name}`);
+  }
+  const licenses = source.match(/for \(const name of (\[[^\]]+\])\) \{\n\s+copyFileSync\(join\(desktopDir, "licenses"/);
+  assert.ok(licenses, "license list moved; update this test");
+  for (const name of JSON.parse(licenses[1])) referenced.add(`desktop/licenses/${name}`);
+
+  const inputs = new Set([
+    ...DESKTOP_RUNTIME_INPUT_FILES,
+    "desktop/scripts/build-runtime.mjs",
+  ]);
+  assert.ok(referenced.size > 15, "the reference scan found too few files");
+  for (const path of referenced) {
+    if (fetchOnly.has(path)) continue;
+    const covered = inputs.has(path) ||
+      [...inputs].some((input) => input.startsWith(`${path}/`));
+    assert.ok(covered, `${path} is read by the runtime build but missing from DESKTOP_RUNTIME_INPUT_FILES`);
+  }
+});

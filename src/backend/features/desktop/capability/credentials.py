@@ -83,7 +83,17 @@ def _secrets_from_config(config: Dict[str, Any], *, model_config: bool = False) 
                     and isinstance(item, str)
                     and item in EFFORT_KEYS
                 )
-                if is_effort_label:
+                # Marketplace provenance is a public enum, not a credential.
+                # Limit the exception to the typed top-level field; headers,
+                # env values and unknown source strings must still be scanned.
+                is_credential_source = (
+                    not model_config
+                    and not path
+                    and key == "credential_source"
+                    and isinstance(item, str)
+                    and item in {"admin", "installer", "none"}
+                )
+                if is_effort_label or is_credential_source:
                     continue
                 if _SECRET_FIELD.search(str(key)):
                     add(item)

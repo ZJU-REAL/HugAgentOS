@@ -71,7 +71,7 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
     try {
       if (task.status === 'active') {
         await pauseApi(task.task_id);
-      } else if (task.status === 'paused') {
+      } else if (task.status === 'paused' || task.status === 'disabled') {
         await resumeApi(task.task_id);
       }
       await get().fetchTasks();

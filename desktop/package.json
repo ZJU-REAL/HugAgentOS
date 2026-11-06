@@ -8,6 +8,7 @@
     "dev": "tauri dev",
     "build": "node scripts/build-desktop.mjs full",
     "build:thin": "node scripts/build-desktop.mjs thin",
+    "build:update": "node scripts/build-desktop.mjs update",
     "build:hybrid-only": "node scripts/build-desktop.mjs full --hybrid-only",
     "verify:macos": "node scripts/verify-macos-signing.mjs",
     "test:scripts": "node --test scripts/*.test.mjs",

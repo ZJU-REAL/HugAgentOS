@@ -119,10 +119,12 @@ async def latest_manifest(request: Request) -> Response:
         for _key, spec in platforms.items():
             if not isinstance(spec, dict):
                 continue
-            url = spec.get("url")
             # Only rewrite bare filenames that are not absolute http(s); absolute URLs are kept as-is.
-            if isinstance(url, str) and url and not url.lower().startswith(("http://", "https://")):
-                spec["url"] = f"{base}/{url.lstrip('/')}"
+            # `installer` is the offline first-install package published next to a slim update.
+            for holder in (spec, spec.get("installer")):
+                url = holder.get("url") if isinstance(holder, dict) else None
+                if isinstance(url, str) and url and not url.lower().startswith(("http://", "https://")):
+                    holder["url"] = f"{base}/{url.lstrip('/')}"
             # signature may be inlined; if a .sig filename is given, read the content and inline it.
             sig = spec.get("signature")
             if isinstance(sig, str) and sig.endswith(".sig"):

@@ -56,15 +56,19 @@ pub(super) fn read_runtime_manifest(path: &Path) -> Result<RuntimeBundleManifest
 pub(super) fn ensure_free_space(
     paths: &PayloadPaths<'_>,
     runtime: &RuntimeBundleManifest,
+    include_runtime: bool,
 ) -> Result<(), String> {
     let available = fs2::available_space(paths.root)
         .map_err(|error| format!("检查本机磁盘空间失败：{error}"))?;
     let source_size = fs::metadata(paths.source_archive)
         .map(|value| value.len())
         .unwrap_or_default();
-    let required = runtime
-        .unpacked_size
-        .saturating_add(runtime.archive_size)
+    let runtime_size = if include_runtime {
+        runtime.unpacked_size.saturating_add(runtime.archive_size)
+    } else {
+        0
+    };
+    let required = runtime_size
         .saturating_add(source_size.saturating_mul(3))
         .saturating_add(256 * 1024 * 1024);
     if available < required {
