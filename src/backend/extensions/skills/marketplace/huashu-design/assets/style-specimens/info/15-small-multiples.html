@@ -1,0 +1,36 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>15 Tufte小倍数矩阵</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@400;600&family=Inter:wght@400;500&family=Noto+Serif+SC:wght@400;600&family=Noto+Sans+SC:wght@400;500&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+body{background:#fff;color:#111;font-family:'Inter','Noto Sans SC',sans-serif;position:relative}
+h1{position:absolute;left:56px;top:30px;margin:0;font-family:'Source Serif 4','Noto Serif SC',serif;font-weight:600;font-size:30px;line-height:1.3;width:1090px}
+.sub{position:absolute;left:56px;top:82px;font-family:'Source Serif 4','Noto Serif SC',serif;font-size:17px;color:#444;width:1090px;line-height:1.5}
+.sub em{color:#c8312b;font-style:normal;font-weight:600}
+svg{position:absolute;left:0;top:0}
+</style></head><body>
+<h1>二十处浪点，同一把尺：只有「栖霞礁」的好浪发生在夏天</h1>
+<div class="sub">2025 年各浪点月均有效浪高，1 月至 12 月。每格纵轴统一为 0–3 米；<em>红色</em>为峰值落在 6–8 月的唯一浪点。</div>
+<svg width="1200" height="750" id="s"></svg>
+<script>
+const NS='http://www.w3.org/2000/svg',s=document.getElementById('s');
+function el(t,a,p){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);(p||s).appendChild(e);return e}
+let seed=11;const rnd=()=>{seed=(seed*16807)%2147483647;return seed/2147483647};
+const names=['鹿角湾','白沙头','石梅','日月湾','万宁东','神州半岛','牛岭','长沙湾','红树林口','海棠角','南湾','大东海','三亚湾','亚龙','后海','分界洲','香水湾','清水湾','栖霞礁','陵水角'];
+const cols=5,cw=206,ch=118,x0=76,y0=150;
+names.forEach((n,i)=>{const c=i%cols,r=Math.floor(i/cols),X=x0+c*(cw+16),Y=y0+r*(ch+20);
+ const anom=n=='栖霞礁',col=anom?'#c8312b':'#111';
+ const amp=.7+rnd()*1.3,base=.4+rnd()*.4,ph=Math.floor(rnd()*3)-1;
+ const w=cw-8,h=ch-34;const pts=[];
+ for(let m=0;m<12;m++){let v;
+  if(anom)v=.5+1.9*Math.exp(-Math.pow((m-6.5)/1.8,2));
+  else{v=base+amp*(.5+.5*Math.cos((m+ph-0.5)*Math.PI/6))*.85+(rnd()-.5)*.18}
+  v=Math.max(.15,Math.min(2.95,v));pts.push([X+m*w/11,Y+h-(v/3)*h,v,m])}
+ el('line',{x1:X,x2:X+w,y1:Y+h,y2:Y+h,stroke:'#999','stroke-width':.6});
+ el('polyline',{points:pts.map(p=>p[0]+','+p[1]).join(' '),fill:'none',stroke:col,'stroke-width':anom?2:1.4,'stroke-linejoin':'round'});
+ let mx=pts.reduce((a,b)=>b[2]>a[2]?b:a);el('circle',{cx:mx[0],cy:mx[1],r:2.8,fill:col});
+ const t=el('text',{x:X,y:Y+h+20,'font-size':13,'font-weight':anom?500:400,fill:anom?'#c8312b':'#333'});t.textContent=n;
+ const t2=el('text',{x:X+w,y:Y+h+20,'font-size':12,'text-anchor':'end',fill:anom?'#c8312b':'#777'});t2.textContent=mx[2].toFixed(1)+' m · '+(mx[3]+1)+'月';
+});
+const h=ch-34;
+[0,3].forEach(v=>{const y=y0+h-(v/3)*h;const t=el('text',{x:x0-8,y:y+4,'text-anchor':'end','font-size':12,fill:'#777'});t.textContent=v+' m'});
+</script></body></html>

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>04 长卷：滑动时连成一幅</title>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@500;700;800;900&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_kit/xhs.css"><script src="_kit/birds.js"></script><script src="_kit/xhs.js"></script>
+<style>
+/* 长卷：几张图是同一幅画，主角跨在接缝上（左图露 2/3、右图露 1/3），往右滑就接上。每张单看也要成立：各有标题和一句话。
+   适合能排成一条线的内容：一组对象、一条时间线、一条流水线。 */
+.fig{font-family:var(--latin)}
+.pill{display:inline-flex;align-items:center;height:72px;padding:0 32px;border-radius:36px;background:var(--ink);color:#fff;font-weight:700;font-size:var(--label)}
+.tag{position:absolute;background:#fff;border-radius:12px;padding:6px 16px;font-size:var(--label);font-weight:700;box-shadow:0 4px 10px rgba(var(--shade),.14);white-space:nowrap}
+.str{position:absolute;width:3px;background:#9C968C}
+.no{position:absolute;bottom:52px;font:800 var(--label) var(--latin);color:var(--gray);letter-spacing:3px}
+.p{font-size:var(--body);line-height:1.55;color:var(--ink2)}
+</style></head><body>
+<main class="xhs-deck strip">
+<section class="xhs-strip dots" id="P" style="--n:3">
+  <!-- 图1 -->
+  <div class="abs" style="left:var(--m);top:72px"><span class="pill">鸣迹 · 鸟类贴纸开源</span></div>
+  <div class="abs" style="left:var(--m);top:190px;font-weight:900;line-height:1.08"><span class="fig" style="font-size:200px;letter-spacing:-6px">11064</span><span style="font-size:84px">种鸟</span><br><span style="font-size:116px">都画成了贴纸</span></div>
+  <div class="abs p" data-overlap-ok style="left:var(--m);top:1250px;width:440px">每种一张：透明底、白边、写实。</div>
+  <div class="abs" style="left:var(--m);top:1500px;font-size:var(--body);font-weight:700">往右滑，它们站成一排 →</div>
+  <!-- 图2 -->
+  <div class="abs" style="left:1700px;top:150px;width:760px"><div class="fig" style="font-weight:900;font-size:160px;line-height:1">7,676</div><div style="font-size:var(--body);font-weight:700;margin-top:12px">张过了80分质量线</div></div>
+  <div class="abs" style="left:1640px;top:1290px;width:640px"><div style="font-weight:900;font-size:80px;line-height:1.15">80分，才算过</div><div class="p" style="margin-top:14px">独立审核员对照真实照片逐项挑错</div></div>
+  <!-- 图3 -->
+  <div class="abs" style="left:2820px;top:150px;font-weight:900;line-height:1"><span style="font-size:96px">鹦鹉</span><span class="fig" style="font-size:210px;letter-spacing:-6px;margin-left:16px">392</span><span style="font-size:72px">种</span></div>
+  <div class="abs p" style="left:2826px;top:400px;width:820px">每张都带一条数据：<br>分类、43种语言的名字、体重翼长</div>
+  <div class="no" style="left:1110px">01</div><div class="no" style="left:2352px">02</div><div class="no" style="left:3594px">03</div>
+</section>
+</main>
+<script>
+const P=document.getElementById('P'), y=XHS.wire(P);
+// 爪子落点比例：先在贴纸上量好（fx,fy），换素材就重量
+const F={Cacatua_galerita:[.5,.93],Trichoglossus_moluccanus:[.63,.66],Coracias_caudatus:[.66,.83],Eolophus_roseicapilla:[.29,.92],Platycercus_icterotis:[.26,.79],Agapornis_pullarius:[.63,.90],Psephotellus_chrysopterygius:[.71,.79],Alcedo_atthis:[.48,.83]};
+function bird(id,cx,h,tag){
+  XHS.perch(P,y,XHS.S(id),cx,h,F[id],[BIRDS[id].w,BIRDS[id].h]);
+  if(!tag) return;
+  P.insertAdjacentHTML('beforeend',`<div class="str" style="left:${cx}px;top:${y(cx)+4}px;height:70px"></div><div class="tag" style="left:${cx}px;top:${y(cx)+70}px;transform:translateX(-50%) rotate(-3deg)">${BIRDS[id].zh}</div>`);
+}
+bird('Cacatua_galerita',260,560,1);
+bird('Trichoglossus_moluccanus',1180,1000,0);   // 跨第1道缝
+bird('Alcedo_atthis',1790,400,1);
+bird('Coracias_caudatus',2479,760,0);           // 跨第2道缝
+bird('Eolophus_roseicapilla',2980,380,1);
+bird('Agapornis_pullarius',3250,320,0);
+bird('Psephotellus_chrysopterygius',3500,300,1);
+</script>
+</body></html>

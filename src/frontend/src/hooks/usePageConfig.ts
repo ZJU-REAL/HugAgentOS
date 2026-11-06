@@ -70,8 +70,8 @@ export function usePageConfigPolling(): void {
   useEffect(() => {
     const store = usePageConfigStore.getState();
 
-    // Initial fetch
-    void store.fetchConfig();
+    // main.tsx fetched the config before mounting; fetch here only if that did not land (timeout or error).
+    if (!store.loaded) void store.fetchConfig();
 
     let cancelled = false;
     let timer: ReturnType<typeof setInterval> | null = null;

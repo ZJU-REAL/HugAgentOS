@@ -1,0 +1,70 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>05 纯CSS几何插画与响应式变形</title>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@500;700;900&family=Archivo:wght@700;900&family=Noto+Sans+SC:wght@500;900&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden;background:#FFF3D6;font-family:Rubik,"Noto Sans SC",sans-serif;color:#14213D}
+.pg{position:relative;width:1200px;height:750px}
+.art{position:absolute;overflow:hidden;background:#14213D}
+.art i{position:absolute;display:block}
+.s{background:#FFC93C;border-radius:50%}
+.h{background:#2EC4B6;border-radius:999px 999px 0 0}
+.q{background:#FF5D5D;border-radius:100% 0 0 0}
+.cb{background:#fff;border-radius:999px}
+.c1,.c2{background:#fff;border-radius:50%}
+.r{background:#2EC4B6;border-radius:6px}
+.st{background:repeating-linear-gradient(180deg,#FF5D5D 0 14px,#14213D 14px 28px)}
+.v0{width:560px;height:540px}
+.v0 .s{left:300px;top:40px;width:200px;height:200px}
+.v0 .h{left:0;bottom:0;width:320px;height:160px}
+.v0 .q{right:0;bottom:0;width:200px;height:200px}
+.v0 .cb{left:60px;top:230px;width:300px;height:78px}
+.v0 .c1{left:100px;top:186px;width:110px;height:110px}
+.v0 .c2{left:190px;top:166px;width:130px;height:130px}
+.v0 .r{width:10px;height:56px;top:330px}
+.v0 .r1{left:100px}.v0 .r2{left:160px;top:350px}.v0 .r3{left:220px}.v0 .r4{left:280px;top:350px}
+.v0 .st{right:0;top:260px;width:150px;height:140px}
+.v1{width:520px;height:300px}
+.v1 .s{left:360px;top:30px;width:120px;height:120px}
+.v1 .h{left:0;bottom:0;width:200px;height:100px}
+.v1 .q{right:0;bottom:0;width:120px;height:120px}
+.v1 .cb{left:40px;top:90px;width:200px;height:52px}
+.v1 .c1{left:70px;top:60px;width:72px;height:72px}.v1 .c2{left:128px;top:46px;width:86px;height:86px}
+.v1 .r{width:8px;height:36px;top:160px}.v1 .r1{left:70px}.v1 .r2{left:110px;top:172px}.v1 .r3{left:150px}.v1 .r4{left:190px;top:172px}
+.v1 .st{left:250px;top:170px;width:100px;height:130px}
+.v2{width:340px;height:420px}
+.v2 .s{left:40px;top:250px;width:120px;height:120px}
+.v2 .h{right:0;bottom:0;width:200px;height:100px}
+.v2 .q{left:0;top:0;width:120px;height:120px;border-radius:0 0 100% 0}
+.v2 .cb{left:100px;top:60px;width:200px;height:52px}
+.v2 .c1{left:130px;top:30px;width:72px;height:72px}.v2 .c2{left:188px;top:16px;width:86px;height:86px}
+.v2 .r{width:8px;height:36px;top:130px}.v2 .r1{left:130px}.v2 .r2{left:170px;top:142px}.v2 .r3{left:210px}.v2 .r4{left:250px;top:142px}
+.v2 .st{right:0;top:200px;width:120px;height:110px}
+.v3{width:200px;height:420px}
+.v3 .s{left:50px;top:20px;width:100px;height:100px}
+.v3 .h{left:0;bottom:0;width:200px;height:100px}
+.v3 .q{display:none}
+.v3 .cb{left:30px;top:160px;width:140px;height:40px}
+.v3 .c1{left:46px;top:138px;width:56px;height:56px}.v3 .c2{left:90px;top:128px;width:64px;height:64px}
+.v3 .r{width:7px;height:30px;top:216px}.v3 .r1{left:52px}.v3 .r2{left:90px;top:226px}.v3 .r3{left:128px}.v3 .r4{display:none}
+.v3 .st{left:30px;top:290px;width:140px;height:20px}
+.main{left:600px;top:105px;box-shadow:12px 12px 0 #FF5D5D}
+h1{position:absolute;left:56px;top:80px;margin:0;font:900 76px/1.02 Archivo,"Noto Sans SC";letter-spacing:-.03em}
+h1 span{background:#FF5D5D;color:#fff;padding:0 10px}
+.p{position:absolute;left:58px;top:262px;width:470px;font:500 20px/1.6 "Noto Sans SC";color:#14213D}
+.frames{position:absolute;left:58px;top:388px}
+.fr{position:absolute;transform-origin:0 0}
+.fl{position:absolute;white-space:nowrap;font:700 16px Rubik,"Noto Sans SC"}
+.note{position:absolute;left:58px;top:690px;font:500 16px "Noto Sans SC";color:#14213D}
+.nav{position:absolute;left:600px;top:40px;display:flex;gap:26px;font:700 18px "Noto Sans SC"}
+</style></head><body><div class="pg">
+<div class="nav"><span>阿宁 / 气象站</span><span>观测</span><span>手作</span><span>联系</span></div>
+<h1>天气本身<br>就是一张<span>图</span></h1>
+<div class="p">全部用 div 和 CSS 画出来，没有一张图片。拖动窗口宽度，同一组形状会重新排列成另一幅画。</div>
+<div class="frames">
+ <div class="fr" style="left:0;top:0;transform:scale(.46)"><div class="art v1"><i class="s"></i><i class="h"></i><i class="q"></i><i class="cb"></i><i class="c1"></i><i class="c2"></i><i class="r r1"></i><i class="r r2"></i><i class="r r3"></i><i class="r r4"></i><i class="st"></i></div></div>
+ <div class="fr" style="left:262px;top:0;transform:scale(.46)"><div class="art v2"><i class="s"></i><i class="h"></i><i class="q"></i><i class="cb"></i><i class="c1"></i><i class="c2"></i><i class="r r1"></i><i class="r r2"></i><i class="r r3"></i><i class="r r4"></i><i class="st"></i></div></div>
+ <div class="fr" style="left:434px;top:0;transform:scale(.46)"><div class="art v3"><i class="s"></i><i class="h"></i><i class="q"></i><i class="cb"></i><i class="c1"></i><i class="c2"></i><i class="r r1"></i><i class="r r2"></i><i class="r r3"></i><i class="r r4"></i><i class="st"></i></div></div>
+ <div class="fl" style="left:0;top:146px">宽屏 1200</div><div class="fl" style="left:262px;top:200px">平板 760</div><div class="fl" style="left:434px;top:200px">手机 390</div>
+</div>
+<div class="note">同一批 11 个形状 · 零图片 · 3 个断点各画一幅</div>
+<div class="art v0 main"><i class="s"></i><i class="h"></i><i class="q"></i><i class="cb"></i><i class="c1"></i><i class="c2"></i><i class="r r1"></i><i class="r r2"></i><i class="r r3"></i><i class="r r4"></i><i class="st"></i></div>
+</div></body></html>

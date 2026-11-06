@@ -23,8 +23,7 @@
   "model_config": {},
   "bindings": {
     "skill_ids": [
-      "pmaster",
-      "diagram-builder",
+      "diagram-design",
       "officecli-pptx"
     ],
     "mcp_server_ids": [

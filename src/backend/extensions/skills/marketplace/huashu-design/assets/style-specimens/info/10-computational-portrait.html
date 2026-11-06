@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>10 计算式数据肖像</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Roboto+Mono:wght@300;400;500&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+body{background:#07080B;color:#E8EAF0;font-family:Inter,"Noto Sans SC",sans-serif;position:relative}
+canvas{position:absolute;left:0;top:0}
+.h{position:absolute;left:40px;top:30px;width:560px}
+.h small{display:block;font:400 12px "Roboto Mono";letter-spacing:.14em;color:#7F8798;margin-bottom:8px}
+.h b{display:block;font:300 38px/1.2 Inter,"Noto Sans SC";letter-spacing:-.01em}
+.h b em{font-style:normal;font-weight:500}
+.n{position:absolute;font:400 13px/1.5 "Roboto Mono","Noto Sans SC";color:#9AA2B3}
+.n b{color:#fff;font-weight:500}
+.ax{position:absolute;font:400 12px "Roboto Mono";color:#7F8798}
+</style></head><body>
+<canvas id="c" width="1200" height="750"></canvas>
+<div class="h"><small>37 ROUTES · 06:00–10:30 · <span id="cnt"></span> TRIPS</small><b>37 条公交线，<em>每一班车</em>的早晨</b></div>
+<div id="lab"></div>
+<script>
+const cv=document.getElementById('c'),g=cv.getContext('2d');
+let s=20260817;function r(){s=(s*1664525+1013904223)>>>0;return s/4294967296}
+function gauss(){return (r()+r()+r()+r()-2)/2*1.7}
+const PX0=96,PX1=1150,PY0=150,PY1=690,T0=360,T1=630;
+const X=t=>PX0+(t-T0)/(T1-T0)*(PX1-PX0),Y=p=>PY1-p*(PY1-PY0);
+// hourly weights
+const wts=[0.3,1.2,3,3.4,2.2,1.5,1.4,1.5,1.4,1.4,1.7,2.4,3.4,3.2,2,1.2,0.8,0.5,0.25];
+const cdf=[];let tot=0;wts.forEach(w=>{tot+=w;cdf.push(tot)});
+function sampleT(){const u=r()*tot;let h=0;while(cdf[h]<u)h++;return 300+h*60+r()*60}
+const peak=t=>{const h=t/60;return 1+0.55*Math.exp(-Math.pow((h-8.2)/1.1,2))+0.5*Math.exp(-Math.pow((h-17.8)/1.3,2))};
+const trips=[];
+g.fillStyle='#07080B';g.fillRect(0,0,1200,750);
+g.globalCompositeOperation='lighter';
+const NS=30;let at812=0,inwin=0;
+for(let k=0;k<4812;k++){
+ const t0=sampleT(),dir=k%2?1:-1;
+ let t=t0;const pts=[];
+ // slow start variation per trip (bunching)
+ const bias=1+gauss()*0.06;
+ for(let j=0;j<=NS;j++){const p=dir==1?j/NS:1-j/NS;pts.push([X(t),Y(p)]);
+  const cong=Math.exp(-Math.pow((t/60-8.2)/0.95,2));const bump=Math.exp(-Math.pow((p-0.55)/0.09,2));const base=52/NS*peak(t)*bias*(1+1.6*cong*bump);
+  const ends=(j<3||j>NS-4)?1.25:1;// terminal/city-centre slowdown
+  t+=base*ends*(1+gauss()*0.34)+(r()<0.03?r()*2.4:0)}
+ const t1=t;if(t1<T0||t0>T1)continue;inwin++;if(t0<=492&&t1>=492)at812++;
+ g.beginPath();pts.forEach(([x,y],i)=>i?g.lineTo(x,y):g.moveTo(x,y));
+ const hue=dir==1?'150,200,255':'255,214,170';
+ g.strokeStyle=`rgba(${hue},0.075)`;g.lineWidth=0.7;g.stroke();
+}
+g.globalCompositeOperation='source-over';
+// axis hairlines
+g.strokeStyle='rgba(255,255,255,0.22)';g.lineWidth=1;
+g.beginPath();g.moveTo(PX0,PY1+8.5);g.lineTo(PX1,PY1+8.5);g.stroke();
+g.beginPath();g.moveTo(PX0-10.5,PY0);g.lineTo(PX0-10.5,PY1);g.stroke();
+for(let m=360;m<=630;m+=30){g.beginPath();g.moveTo(X(m)+.5,PY1+8);g.lineTo(X(m)+.5,PY1+14);g.stroke()}
+// the 08:12 rule
+g.strokeStyle='rgba(255,255,255,0.45)';g.setLineDash([2,4]);g.beginPath();g.moveTo(X(492)+.5,PY0-8);g.lineTo(X(492)+.5,PY1);g.stroke();g.setLineDash([]);
+const lab=document.getElementById('lab');
+function add(cls,x,y,html,extra){const d=document.createElement('div');d.className=cls;d.style.left=x+'px';d.style.top=y+'px';if(extra)d.style.cssText+=extra;d.innerHTML=html;lab.appendChild(d)}
+for(let m=360;m<=630;m+=60)add('ax',X(m)-22,PY1+18,String(m/60|0).padStart(2,'0')+':'+String(m%60).padStart(2,'0'));document.getElementById('cnt').textContent=inwin.toLocaleString();
+add('ax',PX0-86,PY1-8,'起点站');add('ax',PX0-86,PY0-8,'终点站');add('ax',PX0-86,(PY0+PY1)/2-8,'沿线位置');
+add('n',X(492)+10,PY0-34,'<b>08:12</b>　此刻同时有 <b>'+at812+'</b> 辆车在路上');
+add('n',860,52,'每条线是一班车。<span style="color:#96C8FF">蓝</span>＝上行，<span style="color:#FFD6AA">暖</span>＝下行。<br>线越密，亮度越高，没有别的编码。');
+add('n',120,Y(0.55)-20,'<b>07:30–09:00</b>　沿线 55% 处所有车都慢下来，<br>斜线在这里被压平，收束成一个结 →',"text-align:right;width:450px");
+add('n',40,722,'虚构数据：按真实站距与班次规律程序生成，仅作风格样张',"font-size:12px;color:#6c7384");
+</script></body></html>

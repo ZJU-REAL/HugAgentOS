@@ -1,0 +1,51 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>12 图谱箭头企业版</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+body{background:#F4F7FB;color:#0B2545;font-family:'IBM Plex Sans','Noto Sans SC',sans-serif;position:relative}
+h1{position:absolute;left:56px;top:34px;margin:0;font-size:34px;font-weight:700;letter-spacing:-.01em}
+.sub{position:absolute;left:56px;top:84px;font-size:17px;color:#4A5F7A}
+.sec{position:absolute;left:56px;font-size:13px;font-weight:700;letter-spacing:.12em;color:#1B6FD1}
+.flow{position:absolute;left:56px;top:158px;width:1070px;height:92px;display:flex}
+.step{flex:1;height:92px;background:#1B6FD1;color:#fff;display:flex;flex-direction:column;justify-content:center;padding:0 0 0 40px;clip-path:polygon(0 0,calc(100% - 28px) 0,100% 50%,calc(100% - 28px) 100%,0 100%,28px 50%);margin-right:-12px;box-sizing:border-box}
+.step:first-child{clip-path:polygon(0 0,calc(100% - 28px) 0,100% 50%,calc(100% - 28px) 100%,0 100%);padding-left:26px}
+.step b{font-size:22px}.step span{font-size:15px;opacity:.9;margin-top:3px}
+.step:nth-child(2){background:#2E83E0}.step:nth-child(3){background:#4A98EC}.step:nth-child(4){background:#0B2545}
+.layers{position:absolute;left:56px;top:318px;width:660px}
+.lay{display:flex;margin-bottom:8px;height:78px}
+.lay .tag{width:130px;background:#0B2545;color:#fff;font-size:15px;font-weight:600;display:flex;align-items:center;padding-left:16px;box-sizing:border-box}
+.lay .cells{flex:1;display:flex;gap:6px;border:2px solid #0B2545;padding:5px;box-sizing:border-box;background:#fff}
+.cell{flex:1;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:600;color:#fff}
+.c1{background:#1B6FD1}.c2{background:#E8833A}.c3{background:#2BA58A}.c4{background:#7B5CC4}
+.lay.base .cells{background:#DDE6F2}.lay.base .cell{background:#8FA6C4;color:#0B2545}
+.grid{position:absolute;left:770px;top:318px;width:374px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.ic{background:#fff;border:2px solid #0B2545;height:128px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;font-size:14px;font-weight:600}
+.ic svg{width:38px;height:38px;fill:none;stroke:#1B6FD1;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.legend{position:absolute;left:56px;bottom:30px;font-size:13px;color:#4A5F7A;display:flex;gap:22px}
+.legend i{display:inline-block;width:12px;height:12px;margin-right:6px;vertical-align:-1px}
+</style></head><body>
+<h1>一个平台，覆盖从灵感到发布的整条写作流程</h1>
+<div class="sub">笔迹 AI 写作平台能力总览 · 面向内容团队</div>
+<div class="sec" style="top:134px">创作旅程 JOURNEY</div>
+<div class="flow">
+<div class="step"><b>1 选题</b><span>热点与读者问题</span></div>
+<div class="step"><b>2 起稿</b><span>大纲到初稿</span></div>
+<div class="step"><b>3 打磨</b><span>风格与事实核查</span></div>
+<div class="step"><b>4 发布</b><span>多渠道分发与复盘</span></div></div>
+<div class="sec" style="top:290px">平台架构 PLATFORM</div>
+<div class="layers">
+<div class="lay"><div class="tag">应用层</div><div class="cells"><div class="cell c1">选题雷达</div><div class="cell c2">协同写作</div><div class="cell c3">事实核查</div><div class="cell c4">发布中心</div></div></div>
+<div class="lay"><div class="tag">智能层</div><div class="cells"><div class="cell c1">语义检索</div><div class="cell c2">风格模型</div><div class="cell c3">引文溯源</div><div class="cell c4">读者画像</div></div></div>
+<div class="lay base"><div class="tag" style="background:#4A5F7A">数据层</div><div class="cells"><div class="cell">稿件库 · 素材库 · 品牌词表 · 阅读数据</div></div></div>
+<div style="margin-top:28px;font-size:18px;line-height:1.7;color:#27405F;width:600px">四条产品线共用同一套数据底座：选题时沉淀的素材，会自动进入起稿的引用库，并在发布后回流为风格模型的训练样本。</div>
+</div>
+<div class="grid">
+<div class="ic"><svg viewBox="0 0 40 40"><circle cx="18" cy="18" r="10"/><path d="M26 26l9 9"/></svg>选题检索</div>
+<div class="ic"><svg viewBox="0 0 40 40"><rect x="6" y="5" width="28" height="30" rx="2"/><path d="M12 14h16M12 21h16M12 28h9"/></svg>大纲草稿</div>
+<div class="ic"><svg viewBox="0 0 40 40"><path d="M8 32l4-1L32 11l-3-3L9 28z"/><path d="M26 14l3 3"/></svg>风格润色</div>
+<div class="ic"><svg viewBox="0 0 40 40"><path d="M7 21l9 9L33 11"/></svg>事实核查</div>
+<div class="ic"><svg viewBox="0 0 40 40"><circle cx="12" cy="20" r="5"/><circle cx="29" cy="10" r="5"/><circle cx="29" cy="30" r="5"/><path d="M16 18l9-6M16 22l9 6"/></svg>多渠道分发</div>
+<div class="ic"><svg viewBox="0 0 40 40"><path d="M6 33V20M16 33V10M26 33V16M36 33V6"/></svg>数据复盘</div>
+</div>
+<div class="legend"><span><i style="background:#1B6FD1"></i>选题线</span><span><i style="background:#E8833A"></i>写作线</span><span><i style="background:#2BA58A"></i>质量线</span><span><i style="background:#7B5CC4"></i>分发线</span></div>
+</body></html>

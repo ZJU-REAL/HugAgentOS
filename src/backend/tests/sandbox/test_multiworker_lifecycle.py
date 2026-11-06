@@ -90,7 +90,6 @@ def test_queued_snapshot_renewal_keeps_binding_without_resetting_idle(monkeypatc
     import core.sandbox.providers.opensandbox.lifecycle as runtime
     monkeypatch.setattr(runtime.settings.sandbox, 'idle_ttl_s', 60)
     a = worker('a')
-    a._parking_in_flight = set()
     a._renew = AsyncMock()
     async def scenario():
         sess = await a._get_or_create_session('chat', 'user')

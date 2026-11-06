@@ -10,7 +10,7 @@ from core.db.models.column_types import INETType, JSONType
 from core.db.edition import EDITION_MODEL_EXPORTS
 from core.db.models.chat import ChatCompactionState, ChatMessage, ChatSession
 from core.db.models.chat_runs import ChatRun, ChatRunOperation, ChatSteerQueueItem, TaskNumberCounter
-from core.db.models.chat_resources import ChatSandboxSnapshot, ToolMediaBlob, MessageFeedback
+from core.db.models.chat_resources import ChatSandboxSnapshot, ChatSandboxSnapshotJob, SandboxSnapshotDeletion, ToolMediaBlob, MessageFeedback
 from core.db.models.identity import LocalUser, UserApiKey, UserFolder, UserShadow
 from core.db.models.project import Project, ProjectFavorite
 
@@ -102,6 +102,8 @@ __all__ = [
     'HarnessEventLog',
     'MessageFeedback',
     'ChatSandboxSnapshot',
+    'ChatSandboxSnapshotJob',
+    'SandboxSnapshotDeletion',
     'ToolMediaBlob',
     'CatalogOverride',
     'Artifact',

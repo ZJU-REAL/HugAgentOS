@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>01 硬件面板</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Doto:wght@700;900&family=Noto+Sans+SC:wght@500;700&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}*{box-sizing:border-box}
+body{background:#D8D8D4;font-family:"Space Mono","Noto Sans SC",monospace;color:#111;position:relative}
+.grid{position:absolute;inset:0;background-image:linear-gradient(#C6C6C1 1px,transparent 1px),linear-gradient(90deg,#C6C6C1 1px,transparent 1px);background-size:50px 50px;opacity:.7}
+.sil{position:absolute;font-size:13px;letter-spacing:.14em;color:#4B4B48;font-weight:700}
+.ph{position:absolute;width:360px;height:760px;transform-origin:0 0;border-radius:36px;overflow:hidden;background:#0B0B0B;color:#F2F2EE;box-shadow:0 0 0 10px #1E1E1E,0 0 0 12px #777,0 24px 40px rgba(0,0,0,.3)}
+.sb{height:46px;padding:16px 26px 0;display:flex;justify-content:space-between;font-size:14px;font-weight:700;color:#999}
+.lcd{font-family:Doto,"Space Mono",monospace;font-weight:900}
+.or{color:#FF5A1F}
+.top{display:flex;justify-content:space-between;align-items:flex-end;padding:8px 22px 14px;border-bottom:2px solid #2a2a2a}
+.top .n{font-size:58px;line-height:.9}
+.pads{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:18px 18px 0}
+.pad{aspect-ratio:1;background:#232323;border-radius:12px;position:relative;box-shadow:inset 0 -4px 0 #151515}
+.pad span{position:absolute;left:8px;top:6px;font-size:13px;color:#8C8C88;font-weight:700}
+.pad.on{background:#FF5A1F;box-shadow:inset 0 -4px 0 #C23D0C}.pad.on span{color:#1a0a02}
+.pad.w{background:#E9E9E4;box-shadow:inset 0 -4px 0 #B4B4AE}.pad.w span{color:#333}
+.knobs{display:flex;justify-content:space-around;padding:22px 10px 0}
+.kn{width:58px;height:58px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#4A4A4A,#1B1B1B);border:2px solid #333;position:relative}
+.kn:after{content:"";position:absolute;left:50%;top:6px;width:4px;height:18px;margin-left:-2px;background:#FF5A1F;transform-origin:50% 23px;transform:rotate(var(--r))}
+.kl{text-align:center;font-size:13px;margin-top:8px;color:#A7A7A2;font-weight:700}
+.wave{margin:16px 18px;height:140px;background:#141414;border:2px solid #2A2A2A;border-radius:8px;position:relative;overflow:hidden}
+.wave svg{position:absolute;inset:0;width:100%;height:100%}
+.row{display:flex;justify-content:space-between;padding:12px 22px;border-bottom:1px solid #222;font-size:16px;font-weight:700}
+.fad{display:flex;gap:14px;justify-content:center;height:230px;padding:20px 18px 0}
+.fd{flex:1;background:#171717;border-radius:6px;position:relative;border:1px solid #2c2c2c}
+.fd i{position:absolute;left:-4px;right:-4px;height:26px;border-radius:5px;background:#E9E9E4;bottom:var(--b);box-shadow:0 3px 0 #9a9a96}
+.fd i:after{content:"";position:absolute;left:8px;right:8px;top:12px;height:3px;background:#FF5A1F}
+</style></head><body>
+<div class="grid"></div>
+<div class="sil" style="left:60px;top:22px">TAPE-04 / 采样台 / A-B-C</div>
+<div class="sil" style="right:60px;top:22px">+ 01 02 03 04 +</div>
+<div class="sil" style="left:60px;bottom:20px">REC ○ PLAY ▷ SYNC ◇</div>
+
+<div class="ph" style="left:70px;top:62px">
+ <div class="sb"><span>9:41</span><span>BAT 82</span></div>
+ <div class="top"><div><div style="font-size:13px;color:#8C8C88;font-weight:700">音色组 A / 鼓</div><div class="lcd or n">KIT 07</div></div><div style="text-align:right"><div style="font-size:13px;color:#8C8C88;font-weight:700">速度</div><div class="lcd" style="font-size:34px">96.0</div></div></div>
+ <div class="pads">
+  <div class="pad"><span>7</span></div><div class="pad"><span>8</span></div><div class="pad"><span>9</span></div><div class="pad w"><span>A</span></div>
+  <div class="pad"><span>4</span></div><div class="pad on"><span>5</span></div><div class="pad"><span>6</span></div><div class="pad w"><span>B</span></div>
+  <div class="pad"><span>1</span></div><div class="pad"><span>2</span></div><div class="pad on"><span>3</span></div><div class="pad w"><span>C</span></div>
+  <div class="pad"><span>.</span></div><div class="pad"><span>0</span></div><div class="pad"><span>FX</span></div><div class="pad w"><span>D</span></div>
+ </div>
+ <div class="knobs"><div><div class="kn" style="--r:-50deg"></div><div class="kl">音量</div></div><div><div class="kn" style="--r:30deg"></div><div class="kl">滤波</div></div><div><div class="kn" style="--r:80deg"></div><div class="kl">混响</div></div></div>
+</div>
+
+<div class="ph" style="left:490px;top:120px;transform:scale(.94)">
+ <div class="sb"><span>9:41</span><span>BAT 82</span></div>
+ <div class="top"><div><div style="font-size:13px;color:#8C8C88;font-weight:700">切片 / 菜市场清晨</div><div class="lcd or" style="font-size:40px">05 / 16</div></div><div class="lcd" style="font-size:26px">00:07.4</div></div>
+ <div class="wave"><svg viewBox="0 0 320 140" preserveAspectRatio="none"><g stroke="#E9E9E4" stroke-width="3">
+  <path d="M6 70v0M14 56v28M22 40v60M30 62v16M38 28v84M46 48v44M54 60v20M62 20v100M70 44v52M78 58v24M86 34v72M94 52v36M102 64v12M110 24v92M118 46v48M126 58v24M134 16v108M142 40v60M150 56v28M158 66v8" /><path d="M166 30v80M174 54v32M182 62v16M190 22v96M198 46v48M206 60v20M214 36v68M222 56v28M230 64v12M238 40v60M246 52v36M254 66v8M262 58v24M270 70v0M278 62v16M286 66v8M294 70v0M302 70v0M310 70v0"/></g>
+  <rect x="106" y="0" width="3" height="140" fill="#FF5A1F"/><rect x="186" y="0" width="3" height="140" fill="#FF5A1F"/><rect x="109" y="0" width="77" height="140" fill="#FF5A1F" opacity=".18"/></svg></div>
+ <div class="row"><span>起点</span><span class="or lcd" style="font-size:20px">1.92 s</span></div>
+ <div class="row"><span>终点</span><span class="or lcd" style="font-size:20px">3.10 s</span></div>
+ <div class="row"><span>循环</span><span class="lcd" style="font-size:20px">ON</span></div>
+ <div class="row"><span>音高</span><span class="lcd" style="font-size:20px">+2.0</span></div>
+ <div class="pads" style="grid-template-columns:repeat(3,1fr)"><div class="pad on" style="aspect-ratio:2.4"><span>试听</span></div><div class="pad w" style="aspect-ratio:2.4"><span>保存</span></div><div class="pad" style="aspect-ratio:2.4"><span>撤销</span></div></div>
+</div>
+
+<div class="ph" style="left:880px;top:200px;transform:scale(.84)">
+ <div class="sb"><span>9:41</span><span>BAT 82</span></div>
+ <div class="top"><div class="lcd or" style="font-size:44px">MIX</div><div style="font-size:13px;color:#8C8C88;font-weight:700;text-align:right">通道 1-4</div></div>
+ <div class="fad"><div class="fd" style="--b:130px"><i></i></div><div class="fd" style="--b:84px"><i></i></div><div class="fd" style="--b:150px"><i></i></div><div class="fd" style="--b:40px"><i></i></div></div>
+ <div class="knobs" style="padding-top:34px"><div><div class="kn" style="--r:-20deg"></div><div class="kl">1 鼓</div></div><div><div class="kn" style="--r:60deg"></div><div class="kl">2 贝斯</div></div></div>
+ <div class="knobs" style="padding-top:20px"><div><div class="kn" style="--r:10deg"></div><div class="kl">3 采样</div></div><div><div class="kn" style="--r:-70deg"></div><div class="kl">4 人声</div></div></div>
+</div>
+</body></html>

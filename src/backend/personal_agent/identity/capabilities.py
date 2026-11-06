@@ -4,7 +4,6 @@ import logging
 DEFAULT_MCP_IDS = ("internet_search", "web_fetch")
 DEFAULT_SKILL_IDS = (
     "officecli-docx", "officecli-xlsx", "officecli-pptx", "pdf-editing",
-    "translate", "writing-polish", "meeting-minutes-organizer", "smart-weekly-report", "report-summary-generation",
 )
 SELECTION_KEYS = ("skill_ids", "mcp_ids", "plugin_ids")
 

@@ -1,0 +1,22 @@
+{
+  "slug": "theme-factory",
+  "entry_name": "theme-factory",
+  "display_name": "主题配色工厂",
+  "summary": "10 套预设的配色加字体主题，也能按要求生成新主题，统一应用到幻灯片、文档、报告和网页上。",
+  "category": "文档处理",
+  "tags": [
+    "配色",
+    "主题",
+    "品牌风格"
+  ],
+  "version": "1.0.0",
+  "author": "Anthropic",
+  "icon_url": "",
+  "source": "github",
+  "source_url": "https://github.com/anthropics/skills/tree/main/skills/theme-factory",
+  "downloads": 0,
+  "stars": 0,
+  "featured": false,
+  "requires_api_key": false,
+  "required_secrets": []
+}

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>01 标本志：博物馆图版</title>
+<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500;6..96,700&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_kit/xhs.css"><script src="_kit/birds.js"></script><script src="_kit/xhs.js"></script>
+<style>
+/* Bodoni 这类高反差衬线只用在 100px 以上，小号的细线在手机上会断（「4」看成「1」）。
+   标本志：宋体大标题、细线刊头、博物馆图版式的大贴纸、侧栏数字。适合自然、知识、文化长文。 */
+.serif{font-family:var(--serif)}
+.bod{font-family:"Bodoni Moda",var(--serif)}
+.mast{left:var(--m);right:var(--m);top:64px;height:92px;display:flex;align-items:flex-end;justify-content:space-between;border-bottom:2px solid var(--ink);padding-bottom:14px}
+.mast b{font:900 64px/1 var(--serif);letter-spacing:4px}
+.mast span{font:500 var(--label)/1 var(--latin);letter-spacing:3px;color:var(--ink2)}
+.fact b{display:block;font:900 92px/1 var(--serif)}
+.fact span{display:block;font-size:var(--label);line-height:1.4;color:var(--ink2);margin-top:10px}
+.foot{left:var(--m);right:var(--m);bottom:56px;display:flex;justify-content:space-between;border-top:1px solid var(--ink);padding-top:16px;font-size:var(--label);color:var(--ink2)}
+.foot i{font-family:"Bodoni Moda",serif}
+ol.chk{list-style:none;counter-reset:c}
+ol.chk li{counter-increment:c;display:flex;gap:22px;align-items:baseline;font-size:var(--body);line-height:1.5;padding:12px 0}
+ol.chk li::before{content:counter(c);flex:none;width:52px;height:52px;border-radius:50%;background:var(--ink);color:#fff;font:700 32px/52px var(--latin);text-align:center;transform:translateY(-4px)}
+ol.chk li.hl::before{background:var(--accent);color:var(--accentText)}
+.dot{position:absolute;width:56px;height:56px;border-radius:50%;background:var(--ink);color:#fff;font:700 32px/56px var(--latin);text-align:center;box-shadow:0 0 0 6px #fff}
+</style></head><body>
+<main class="xhs-deck two">
+<!-- 封面 -->
+<section class="xhs-page dots" data-pageno="off">
+  <div class="abs mast"><b>鸣迹</b><span>THE BIRD STICKER ATLAS</span><span>第03期</span></div>
+  <div class="abs bod" style="left:70px;top:190px;font-weight:500;font-size:330px;line-height:1;letter-spacing:-10px">11,064</div>
+  <div class="abs serif" data-overlap-ok style="left:var(--m);top:540px;font-size:44px;color:var(--ink2);letter-spacing:6px">种鸟 · 一种不少</div>
+  <img class="sticker" src="_kit/stickers/Trichoglossus_moluccanus.webp" style="left:420px;top:470px;width:800px;transform:rotate(-3deg)">
+  <div class="abs fact" style="left:var(--m);top:700px;width:300px"><b>44</b><span>个目，250个科<br>按分类学排好</span></div>
+  <div class="abs fact" style="left:var(--m);top:960px;width:300px"><b>43</b><span>种语言的名字<br>每张都带</span></div>
+  <div class="abs serif" style="left:var(--m);top:1200px;font-weight:900;font-size:126px;line-height:1.18">全世界的鸟，<br>都画成了贴纸</div>
+  <div class="abs" style="left:var(--m);top:1520px;font-size:42px;color:var(--ink2)">AI画、独立审核，贴纸和数据全部开源</div>
+  <div class="abs" style="right:var(--m);top:1150px;font-size:32px;color:var(--gray);text-align:right"><i class="bod">Trichoglossus moluccanus</i><br>彩虹吸蜜鹦鹉</div>
+</section>
+<!-- 内页 -->
+<section class="xhs-page dots">
+  <div class="abs" style="left:var(--m);right:var(--m);top:64px;display:flex;justify-content:space-between;font-size:var(--label);color:var(--ink2);border-bottom:1px solid var(--ink);padding-bottom:14px"><span>一万多张贴纸是怎么做出来的</span><span style="font-family:var(--latin);letter-spacing:3px">STEP 03 / 04</span></div>
+  <div class="abs serif" style="left:var(--m);top:170px;font-weight:900;font-size:150px;line-height:1.12">80分，<br>才算过。</div>
+  <div class="abs" style="left:var(--m);width:1074px;top:540px;font-size:var(--body);line-height:1.6;color:var(--ink2)">每张画完，交给另一个独立的审核员，对照真实照片逐项挑错。画图的模型不给自己打分。</div>
+  <ol class="abs chk" style="left:var(--m);top:740px;width:560px">
+    <li>眼睛虹膜的颜色</li><li>喙的形状和长短</li><li>每一块羽色</li><li>腿、脚和趾爪</li><li>尾巴的形状</li><li class="hl">上一轮的问题改了</li>
+  </ol>
+  <img class="sticker" src="_kit/stickers/Alcedo_atthis.webp" style="left:640px;top:820px;width:540px">
+  <div class="dot" style="left:690px;top:870px">1</div><div class="dot" style="left:650px;top:930px">2</div><div class="dot" style="left:880px;top:1030px">3</div><div class="dot" style="left:870px;top:1240px">4</div><div class="dot" style="left:1120px;top:1160px">5</div>
+  <div class="abs" style="left:var(--m);right:var(--m);top:1390px">
+    <div style="position:relative;height:6px;background:var(--line)"><div style="position:absolute;left:50%;top:-22px;width:10px;height:50px;background:var(--accent);outline:3px solid var(--accentText)"></div><div style="position:absolute;left:77.5%;top:-12px;width:30px;height:30px;border-radius:50%;background:var(--ink)"></div></div>
+    <div style="position:relative;height:50px;margin-top:34px;font:500 var(--label)/1 var(--latin);color:var(--gray)"><span class="abs" style="left:0">60</span><span class="abs" style="left:50%;transform:translateX(-50%);color:var(--accentText);font-weight:700">80 过线</span><span class="abs" style="left:77.5%;transform:translateX(-50%);color:var(--ink)">这只 91</span><span class="abs" style="right:0">100</span></div>
+  </div>
+  <div class="abs" style="left:var(--m);bottom:48px;font-size:var(--label);color:var(--gray)"><i class="bod">Alcedo atthis</i> 普通翠鸟</div>
+</section>
+</main>
+<script>XHS.number(18)</script>
+</body></html>

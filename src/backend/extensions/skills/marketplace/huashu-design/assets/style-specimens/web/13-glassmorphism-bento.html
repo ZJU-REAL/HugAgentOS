@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>13 Linear暗色发光Bento网格</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+:root{--bg:#08090A;--brand:#5E6AD2;--t:#F7F8F8;--m:#8A8F98;--line:rgba(255,255,255,.08)}
+body{background:var(--bg);color:var(--t);font-family:Inter,"Noto Sans SC",sans-serif;position:relative}
+.aura{position:absolute;left:300px;top:-260px;width:600px;height:520px;background:radial-gradient(closest-side,rgba(94,106,210,.55),rgba(78,167,252,.12) 60%,transparent);filter:blur(30px)}
+.nav{position:absolute;top:0;left:0;right:0;height:60px;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 48px;gap:34px;font-size:14px;color:var(--m)}
+.nav b{color:var(--t);font-weight:600;font-size:16px;display:flex;align-items:center;gap:8px;margin-right:10px}
+.nav b i{width:16px;height:16px;border-radius:5px;background:linear-gradient(135deg,#4EA7FC,#B59AFF)}
+.nav .cta{margin-left:auto;color:var(--t);background:rgba(255,255,255,.08);border:1px solid var(--line);padding:6px 16px;border-radius:999px}
+.hero{position:absolute;top:92px;left:0;right:0;text-align:center}
+.pill{display:inline-block;font-size:13px;color:#B8BDFF;border:1px solid rgba(94,106,210,.5);background:rgba(94,106,210,.12);padding:4px 14px;border-radius:999px}
+h1{margin:16px 0 0;font-size:52px;line-height:1.15;letter-spacing:-1.8px;font-weight:600;background:linear-gradient(180deg,#fff 30%,#8A8F98);-webkit-background-clip:text;color:transparent}
+.sub{margin:14px auto 0;color:var(--m);font-size:17px;width:560px;line-height:1.6}
+.grid{position:absolute;left:48px;right:48px;top:352px;height:340px;display:grid;grid-template-columns:1.5fr 1fr 1fr;grid-template-rows:1fr 1fr;gap:14px}
+.c{position:relative;border-radius:16px;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.015));border:1px solid var(--line);padding:20px 22px;overflow:hidden;backdrop-filter:blur(12px)}
+.c:before{content:"";position:absolute;inset:0;border-radius:16px;padding:1px;background:linear-gradient(135deg,rgba(78,167,252,.7),transparent 35%,transparent 65%,rgba(181,154,255,.5));-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
+.big{grid-row:span 2}
+.c h3{margin:0;font-size:17px;font-weight:600}
+.c p{margin:6px 0 0;font-size:14.5px;color:var(--m);line-height:1.55}
+.doc{margin-top:18px;border:1px solid var(--line);border-radius:10px;background:rgba(0,0,0,.35);padding:14px 16px;font-size:14px;line-height:1.9;color:#C9CCD3}
+.doc .h{height:10px;width:46%;background:linear-gradient(90deg,#4EA7FC,#B59AFF);border-radius:5px;margin-bottom:12px}
+.doc mark{background:rgba(94,106,210,.35);color:#fff;border-radius:3px;padding:0 3px}
+.doc .cur{display:inline-block;width:2px;height:15px;background:#B59AFF;vertical-align:-2px}
+.num{font-size:44px;font-weight:600;letter-spacing:-1.5px;margin-top:12px;background:linear-gradient(135deg,#4EA7FC,#B59AFF);-webkit-background-clip:text;color:transparent}
+.mono{font-family:"Geist Mono",monospace;font-size:13px;color:var(--m)}
+.bars{display:flex;gap:6px;align-items:flex-end;height:50px;margin-top:10px}.bars i{flex:1;background:linear-gradient(180deg,#5E6AD2,rgba(94,106,210,.2));border-radius:3px}
+</style></head><body>
+<div class="aura"></div>
+<div class="nav"><b><i></i>墨阶</b><span>产品</span><span>模板</span><span>定价</span><span>更新日志</span><span class="cta">开始写作</span></div>
+<div class="hero"><span class="pill">v2.4 · 新增「风格记忆」 →</span><h1>为严肃写作者打造的<br>AI 写作工具</h1><div class="sub">从提纲到终稿，保留你自己的语气。每一次改动都可追溯、可回退。</div></div>
+<div class="grid">
+  <div class="c big"><h3>逐段对照改写</h3><p>选中一段，并排看到三个版本，一键采用。</p>
+    <div class="doc"><div class="h"></div>城市夜里的公交，其实是一座<mark>移动的小型客厅</mark>。每个人都在赶路，却又不约而同地安静下来<span class="cur"></span></div>
+<div style="display:flex;gap:8px;margin-top:14px"><span class="mono" style="border:1px solid var(--line);border-radius:8px;padding:6px 12px;background:rgba(94,106,210,.25);color:#fff">版本 A · 克制</span><span class="mono" style="border:1px solid var(--line);border-radius:8px;padding:6px 12px">版本 B · 口语</span><span class="mono" style="border:1px solid var(--line);border-radius:8px;padding:6px 12px">版本 C · 精简</span></div></div>
+  <div class="c"><h3>风格记忆</h3><div class="num">94%</div><p>与你过往文章的语气相似度</p></div>
+  <div class="c"><h3>版本回溯</h3><div class="bars"><i style="height:30%"></i><i style="height:48%"></i><i style="height:40%"></i><i style="height:72%"></i><i style="height:60%"></i><i style="height:92%"></i></div><p class="mono" style="margin-top:8px">142 次改动 · 可回退</p></div>
+  <div class="c" style="grid-column:span 2"><h3>引用核对</h3><p>稿中每一个数字与引语，自动标出来源并提示缺失。已为本文核对 <span style="color:#fff">27</span> 处引用，发现 <span style="color:#B59AFF">2</span> 处需确认。</p><div style="display:flex;gap:8px;margin-top:12px"><span class="mono" style="border:1px solid var(--line);border-radius:8px;padding:6px 12px">“全市日均客流 128 万” · 已核对</span><span class="mono" style="border:1px solid rgba(181,154,255,.5);color:#C9B8FF;border-radius:8px;padding:6px 12px">“2019 年改线” · 缺来源</span></div></div>
+</div>
+</body></html>

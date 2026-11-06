@@ -188,7 +188,7 @@ def test_forget_does_not_clear_a_binding_that_moved_on():
     assert asyncio.run(scenario()) == "sbx-new"
 
 
-def test_a_worker_does_not_reclaim_a_session_another_worker_is_using():
+def test_a_worker_does_not_reclaim_a_session_another_worker_is_using(provider_database):
     """空闲回收按全局活跃时间判断：B 刚用过，A 不能把容器快照掉销毁。"""
     a, b = _worker("a"), _worker("b")
     a._take_snapshot = AsyncMock(return_value="snap-1")
@@ -197,7 +197,6 @@ def test_a_worker_does_not_reclaim_a_session_another_worker_is_using():
         await a._get_or_create_session("chat-1", user_id="u1")
         # A 这边看起来闲了很久，但 B 刚刚服务过这个会话
         a._sessions["chat-1"].last_active_ts = time.monotonic() - 7200
-        a._parking_in_flight = set()
         await b._get_or_create_session("chat-1", user_id="u1")
         await a._snapshot_idle_sessions_once()
         await asyncio.sleep(0)
@@ -209,11 +208,10 @@ def test_a_worker_does_not_reclaim_a_session_another_worker_is_using():
     assert bound is not None
 
 
-def test_a_globally_idle_session_is_still_reclaimed(sandbox_session_store):
+def test_a_globally_idle_session_is_still_reclaimed(sandbox_session_store, provider_database):
     """没人用了就该回收——上一条不能把空闲回收整个关掉。"""
     a = _worker("a")
-    a._parking_in_flight = set()
-    a._park_session_via_snapshot = AsyncMock()
+    a._start_snapshot = AsyncMock()
 
     async def scenario():
         await a._get_or_create_session("chat-1", user_id="u1")
@@ -223,7 +221,7 @@ def test_a_globally_idle_session_is_still_reclaimed(sandbox_session_store):
 
     asyncio.run(scenario())
 
-    a._park_session_via_snapshot.assert_called_once()
+    a._start_snapshot.assert_called_once()
 
 
 def test_an_unreadable_registry_stops_reclamation_rather_than_guessing(monkeypatch):

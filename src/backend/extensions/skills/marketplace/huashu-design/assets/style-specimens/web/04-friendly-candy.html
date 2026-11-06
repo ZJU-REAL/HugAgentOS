@@ -1,0 +1,54 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>04 糖果色凸起立体按钮游戏化</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Baloo+2:wght@700;800&family=ZCOOL+KuaiLe&family=Noto+Sans+SC:wght@500;700;900&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden;background:#fff;font-family:Nunito,"Noto Sans SC",sans-serif;color:#3C3C3C}
+.pg{position:relative;width:1200px;height:750px}
+.top{position:absolute;left:0;right:0;top:0;height:76px;border-bottom:2px solid #E5E5E5;display:flex;align-items:center;padding:0 40px;gap:14px}
+.brand{font:800 34px "Baloo 2","ZCOOL KuaiLe";color:#58CC02;letter-spacing:-.01em;margin-right:auto}
+.pill{display:flex;align-items:center;gap:8px;font:900 18px Nunito,"Noto Sans SC";padding:6px 14px;border-radius:16px}
+.dot{width:20px;height:20px;border-radius:50%}
+.btn{display:inline-block;border-radius:18px;font:900 20px/1 "Nunito","Noto Sans SC";padding:18px 34px;letter-spacing:.04em;color:#fff;border:0}
+.g{background:#58CC02;box-shadow:0 5px 0 #58A700}
+.b{background:#1CB0F6;box-shadow:0 5px 0 #1899D6}
+.w{background:#fff;color:#1CB0F6;border:2px solid #E5E5E5;box-shadow:0 4px 0 #E5E5E5}
+h1{position:absolute;left:56px;top:122px;margin:0;font:900 62px/1.16 "Noto Sans SC";letter-spacing:-.02em;color:#3C3C3C;width:520px}
+h1 span{color:#58CC02}
+.sub{position:absolute;left:58px;top:340px;width:470px;font:700 22px/1.5 "Noto Sans SC";color:#777}
+.cta{position:absolute;left:58px;top:464px;display:flex;gap:18px}
+.stats{position:absolute;left:58px;top:600px;display:flex;gap:16px}
+.stat{border:2px solid #E5E5E5;border-radius:20px;padding:12px 20px;box-shadow:0 4px 0 #E5E5E5;font:700 16px "Noto Sans SC";color:#777}
+.stat b{display:block;font:900 30px Nunito;color:#3C3C3C}
+.panel{position:absolute;left:640px;top:104px;width:520px;height:600px;border:2px solid #E5E5E5;border-radius:28px;box-shadow:0 5px 0 #E5E5E5;box-sizing:border-box;padding:24px 28px}
+.banner{background:#58CC02;color:#fff;border-radius:18px;padding:14px 20px;font:900 20px "Noto Sans SC";box-shadow:0 4px 0 #58A700;display:flex;justify-content:space-between}
+.banner small{display:block;font:700 16px "Noto Sans SC";opacity:.95}
+.path{position:relative;height:410px;margin-top:10px}
+.node{position:absolute;width:76px;height:76px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font:900 30px Nunito}
+.done{background:#58CC02;box-shadow:0 7px 0 #58A700}
+.now{background:#1CB0F6;box-shadow:0 7px 0 #1899D6;width:92px;height:92px}
+.lock{background:#E5E5E5;box-shadow:0 7px 0 #CFCFCF;color:#AFAFAF}
+.lbl{position:absolute;font:900 18px "Noto Sans SC";color:#3C3C3C}
+.ring{position:absolute;border-radius:50%;border:6px solid #FFC800;width:112px;height:112px;box-sizing:border-box}
+.bar{position:absolute;left:28px;right:28px;bottom:24px;height:22px;border-radius:12px;background:#E5E5E5;overflow:hidden}
+.bar i{display:block;height:100%;width:64%;background:#FFC800;border-radius:12px;box-shadow:inset 0 -5px 0 rgba(0,0,0,.12)}
+.barl{position:absolute;left:28px;bottom:54px;font:900 16px "Noto Sans SC";color:#E5A800}
+.coin{position:absolute;left:520px;top:508px;width:96px;height:96px;border-radius:50%;background:#FFC800;box-shadow:0 7px 0 #E5A800;display:none}
+</style></head><body><div class="pg">
+<div class="top"><div class="brand">记一笔</div>
+<div class="pill" style="background:#FFF4CC;color:#E5A800"><div class="dot" style="background:#FFC800"></div>连续 23 天</div>
+<div class="pill" style="background:#DDF4FF;color:#1899D6"><div class="dot" style="background:#1CB0F6"></div>428 分</div></div>
+<h1>每天花一分钟，<br>把钱<span>看明白</span></h1>
+<div class="sub">像打卡一样记账。今天记了 3 笔，再记 2 笔就能点亮本周徽章。</div>
+<div class="cta"><div class="btn g">开始今日记账</div><div class="btn w">看本月报告</div></div>
+<div class="stats"><div class="stat"><b>¥86</b>今日已花</div><div class="stat"><b>¥2,140</b>本月预算余额</div><div class="stat"><b>3 / 5</b>本周徽章</div></div>
+<div class="panel">
+ <div class="banner"><div><small>第 4 单元</small>把餐饮控制在预算内</div><div style="font-size:30px">→</div></div>
+ <div class="path">
+  <div class="node done" style="left:70px;top:14px">✓</div><div class="lbl" style="left:164px;top:36px">早餐 ¥12</div>
+  <div class="node done" style="left:190px;top:130px">✓</div><div class="lbl" style="left:284px;top:152px">午饭 ¥31</div>
+  <div class="ring" style="left:92px;top:232px"></div>
+  <div class="node now" style="left:102px;top:242px">¥</div><div class="lbl" style="left:218px;top:266px">晚饭，记一下</div>
+  <div class="node lock" style="left:290px;top:352px;width:60px;height:60px;font-size:22px">4</div>
+ </div>
+ <div class="barl">本周目标 64%</div><div class="bar"><i></i></div>
+</div>
+</div></body></html>

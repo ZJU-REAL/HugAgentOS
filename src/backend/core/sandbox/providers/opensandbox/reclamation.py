@@ -28,8 +28,6 @@ class _OpenSandboxReclamationMixin:
         async def protect(chat_id, sess):
             if time.monotonic() - sess.last_active_ts < threshold:
                 return
-            if chat_id in self._parking_in_flight:
-                return
             async with slots:
                 try:
                     lock = await self._get_session_lock(chat_id)

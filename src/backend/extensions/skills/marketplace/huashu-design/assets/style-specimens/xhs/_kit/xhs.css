@@ -1,0 +1,35 @@
+/* 小红书图文页面套件。真实尺寸 1242×1660（3:4）。
+   用法：<main class="xhs-deck"> 里放若干 <section class="xhs-page">；连续长卷用 <section class="xhs-strip" style="--n:3">。
+   视口 1200×750（build_specimens.py）时自动缩成并排样张；其余宽度按真实尺寸竖排，xhs_render.py 逐页切图。 */
+:root{
+  --W:1242px; --H:1660px; --m:84px;
+  /* 字号底线：1242 宽画布，按 1080 宽正文 36 / 标签 28 折算 */
+  --body:42px; --label:32px;
+  /* 色彩只是示例锚点，真做时按 design-styles.md 的色彩推导协议从内容里取 */
+  --paper:#F7F6F2; --dot:#D8D6CE; --ink:#211F1C; --ink2:#5C5852; --gray:#726D66; --line:#E6E3DB;
+  --accent:#FFD447; --accent2:#FFF1BF; --accentText:#4D3E00; --shade:60,40,0;
+  --display:"Figtree","Noto Sans SC",sans-serif;
+  --sans:"Noto Sans SC","PingFang SC","Source Han Sans SC","Microsoft YaHei",sans-serif;
+  --serif:"Noto Serif SC","Songti SC","Source Han Serif SC","STSong",serif;
+  --latin:"Figtree","Inter","Helvetica Neue",Arial,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{background:var(--paper)}   /* 和页面同色：design_lint 按 body 取底色 */
+body{font-family:var(--sans);color:var(--ink);-webkit-font-smoothing:antialiased}
+.xhs-deck{display:flex;flex-direction:column;width:max-content}
+.xhs-page{position:relative;width:var(--W);height:var(--H);overflow:hidden;background:var(--paper);flex:none}
+.xhs-strip{position:relative;width:calc(var(--W) * var(--n,3));height:var(--H);overflow:hidden;background:var(--paper);flex:none}
+.abs{position:absolute}
+.dots{background-image:radial-gradient(circle,var(--dot) 2.4px,transparent 2.9px);background-size:40px 40px;background-position:20px 20px}
+.sticker{position:absolute;display:block;filter:drop-shadow(0 16px 18px rgba(var(--shade),.17)) drop-shadow(0 2px 3px rgba(var(--shade),.12))}
+.body{font-size:var(--body);line-height:1.6}
+.label{font-size:var(--label);line-height:1.4}
+.pageno{position:absolute;right:var(--m);bottom:48px;font:800 var(--label) var(--latin);letter-spacing:2px}
+/* 样张模式：只在 1200×750 视口生效 */
+@media (max-width:1240px) and (max-height:800px){
+  html,body{width:1200px;height:750px;overflow:hidden;background:#d9d9d6}
+  .xhs-deck{flex-direction:row;gap:56px;transform-origin:50% 50%;position:absolute;left:50%;top:50%}
+  .xhs-deck.two{transform:translate(-50%,-50%) scale(.44)}
+  .xhs-deck.strip{transform:translate(-50%,-50%) scale(.3)}
+  .xhs-page,.xhs-strip{box-shadow:0 10px 40px rgba(0,0,0,.18)}
+}

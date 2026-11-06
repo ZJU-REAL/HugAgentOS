@@ -1,0 +1,40 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>16 拓扑简化路网图</title>
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+body{background:#fff;font-family:'Jost','Noto Sans SC',sans-serif;color:#111;position:relative}
+.hd{position:absolute;left:48px;top:30px}
+h1{margin:0;font-size:34px;font-weight:700;letter-spacing:-.3px}
+.hd p{margin:6px 0 0;font-size:16px;color:#444}
+.lg{position:absolute;right:48px;top:34px;font-size:16px;line-height:1.9;font-weight:500}
+.lg i{display:inline-block;width:34px;height:10px;margin-right:10px;vertical-align:middle}
+.lg .o{display:inline-block;width:14px;height:14px;border:4px solid #111;border-radius:50%;margin-right:18px;margin-left:10px;vertical-align:middle;box-sizing:content-box;background:#fff;width:8px;height:8px}
+svg{position:absolute;left:0;top:0}
+.ft{position:absolute;left:48px;bottom:18px;font-size:13px;color:#555}
+</style></head><body>
+<div class="hd"><h1>2026 夏季公交快线网</h1><p>示意图，不按比例 · 线路只走 0° / 45° / 90°</p></div>
+<div class="lg"><div><i style="background:#e0312b"></i>1 环湖快线</div><div><i style="background:#1c5bb8"></i>2 南北快线</div><div><i style="background:#1f9d55"></i>3 东港快线</div><div><i style="background:#f08a00"></i>4 大学城线</div><div><span class="o"></span>换乘站</div></div>
+<svg width="1200" height="750" id="s"></svg>
+<div class="ft">示意图，不按实际里程与方位绘制。换乘信息以站内公示为准。</div>
+<script>
+const NS='http://www.w3.org/2000/svg',s=document.getElementById('s');
+function el(t,a,p){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);(p||s).appendChild(e);return e}
+const L=[
+['#e0312b','120,250 350,250 450,350 700,350 800,250 1080,250'],
+['#1c5bb8','330,650 480,650 575,555 575,200'],
+['#1f9d55','700,350 700,520 780,600 1000,600 1080,520 1080,250'],
+['#f08a00','250,170 250,400 330,480 330,650']];
+L.forEach(l=>el('polyline',{points:l[1],fill:'none',stroke:l[0],'stroke-width':14,'stroke-linejoin':'round','stroke-linecap':'butt'}));
+// stations: x,y,name,dx,dy,anchor,interchange
+const S=[
+[120,250,'湖滨北路',0,-22,'middle'],[350,250,'市图书馆',-8,-22,'middle'],[450,350,'东门',-18,30,'middle'],[700,350,'中央车站',20,34,'start',1],[800,250,'老街',0,-22,'middle'],[940,250,'钟楼',0,-22,'middle'],[1080,250,'凤凰港',0,-22,'middle',1],
+[250,250,'北桥',-20,-22,'end',1],[250,170,'大学北门',18,5,'start'],[250,330,'理工园',-20,5,'end'],[330,480,'实验学校',-20,5,'end'],[330,570,'菜市场',-20,5,'end'],[330,650,'南站',-14,-14,'end',1],
+[480,650,'水厂',0,30,'middle'],[575,555,'滨河公园',18,5,'start'],[575,450,'工人文化宫',18,5,'start'],[575,350,'市中心',18,26,'start',1],[575,270,'省医院',18,5,'start'],[575,200,'北郊',18,5,'start'],
+[700,450,'电力学院',18,5,'start'],[780,600,'东港口',0,30,'middle'],[890,600,'渔市',0,30,'middle'],[1000,600,'海关',0,30,'middle'],[1080,520,'度假区',-20,5,'end'],[1080,400,'跨海大桥',-20,5,'end'],
+[575,350,'',0,0,'middle']];
+const drawn={};
+S.forEach(([x,y,n,dx,dy,a,ic])=>{
+ if(!(x+','+y in drawn)||ic){ if(ic) el('circle',{cx:x,cy:y,r:12,fill:'#fff',stroke:'#111','stroke-width':5}); else el('circle',{cx:x,cy:y,r:6.5,fill:'#fff',stroke:'#111','stroke-width':3.5});drawn[x+','+y]=1}
+ if(n){const t=el('text',{x:x+dx,y:y+dy,'text-anchor':a,'font-size':ic?18:16,'font-weight':ic?700:500,fill:'#111'});t.textContent=n}
+});
+</script></body></html>

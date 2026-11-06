@@ -7,6 +7,10 @@ export interface PageConfig {
     product_subtitle: string;
     logo_url: string;
     favicon_url: string;
+    /** Wordmark on the login page (/login) and first-run setup; empty = use logo_url. */
+    login_logo_url: string;
+    /** Full-screen background of the login page; empty = gradient only. */
+    login_background_url: string;
     page_title: string;
     hero_title: string;
     hero_subtitle: string;
@@ -71,6 +75,8 @@ export const DEFAULT_PAGE_CONFIG: PageConfig = {
     product_subtitle: 'HugAgentOS AI 智能助手',
     logo_url: '/home/header.svg',
     favicon_url: '/icon.png',
+    login_logo_url: '/home/hugagentos-logo.png',
+    login_background_url: '/home/mock-sso-bg-original.png',
     page_title: 'HugAgentOS',
     hero_title: '你好，我是 HugAgentOS',
     hero_subtitle: '今天想从哪里开始？',
@@ -152,6 +158,11 @@ export const DEFAULT_PAGE_CONFIG: PageConfig = {
     allow_register: true,
   },
 };
+
+/** The login / first-run wordmark: its own image, or the sidebar logo when left empty (as the backend's resolve_login_branding). */
+export function resolveLoginLogoUrl(branding: Pick<PageConfig['branding'], 'login_logo_url' | 'logo_url'>): string {
+  return branding.login_logo_url.trim() || branding.logo_url.trim() || DEFAULT_PAGE_CONFIG.branding.logo_url;
+}
 
 export function mergePageConfig(remote: Partial<PageConfig> | null | undefined): PageConfig {
   if (!remote || typeof remote !== 'object') return DEFAULT_PAGE_CONFIG;

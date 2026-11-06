@@ -116,7 +116,8 @@ formats or reduce their content before delivering each part.
 ```text
 Request → authorize identity and session binding → reuse / restore / create container
         → execd starts a separate process → retain files → renew on activity
-Idle reaches SANDBOX_IDLE_TTL_S → create snapshot → wait Ready → record in database
+Idle reaches SANDBOX_IDLE_TTL_S → start snapshot and record the job (no waiting)
+        → a later scan sees Ready and no use since → record as restore point
         → clean workspace → return to the same user's idle pool
 User returns → restore the session snapshot first → declare mounts again → run command
 ```
@@ -133,7 +134,7 @@ User returns → restore the session snapshot first → declare mounts again →
 
 Implementation: core/sandbox/providers/opensandbox/snapshots.py. Goal: stop idle sessions from squatting on Docker resources while letting users resume **with their filesystem intact**.
 
-- **Park**: a background worker scans every 60 s; sessions idle beyond `SANDBOX_IDLE_TTL_S` (default 3600 s) get a snapshot (accept→Ready measured at ~60 s, a docker commit), then the `chat_sandbox_snapshots` row is upserted (chat_id is the primary key) and the wiped container goes back to the idle pool; at most 3 concurrent parks per round to protect the docker daemon. **This is the only path that reclaims a chat sandbox** — a second 600 s reaper used to wipe and release without snapshotting, and being the shorter threshold it always won, so files were lost with no backup to restore from; the two are now one;
+- **Park**: a background worker scans every 60 s; sessions idle beyond `SANDBOX_IDLE_TTL_S` (default 3600 s) get a snapshot (a docker commit the controller runs asynchronously under its own 180 s limit). The job is recorded in `chat_sandbox_snapshot_jobs` and the backend does not wait on a timer of its own. Each later scan reads the controller state once: on Ready, and only if the chat was not used since the snapshot started, one transaction writes the `chat_sandbox_snapshots` row (chat_id is the primary key) and drops the job, and the wiped container goes back to the idle pool. A Ready snapshot of a chat used meanwhile is discarded; a Failed or vanished one backs the chat off (5 min, doubling, capped at 1 h) while its session stays bound and renewed; a job the controller has not settled after 30 min counts as failed and frees its slot. Discarded, failed and replaced snapshots go to `sandbox_snapshot_deletions` in the same transaction and are retried every scan until the controller confirms; a refused delete never blocks the chat's next snapshot. At most 2 snapshots are in flight across the deployment, matching the controller's snapshot workers. Jobs are rows, so a restart or a new maintenance leader resumes them. **This is the only path that reclaims a chat sandbox** — a second 600 s reaper used to wipe and release without snapshotting, and being the shorter threshold it always won, so files were lost with no backup to restore from; the two are now one;
 - **Restore**: `_create_session_for` checks the DB snapshot **first** (~15–20 s restore, still faster than a fresh create), falling back to the Q2 user idle pool (~7 s warm path) only for chats with nothing to restore, and creating fresh last. The order matters — idle-pool containers are wiped clean, so handing one to a chat that has a snapshot silently drops its files. When booting from a snapshot the volumes **must be re-declared** — docker commit does not preserve mount configuration, otherwise bind mounts like `/workspace/skills/` are lost;
 - **Single-use**: once a snapshot has been consumed as a boot image it is marked for 1-hour short retention (an immediate DELETE would 409 because the new container still references the image layer);
 - **GC**: an hourly sweep deletes expired snapshots (DB row + remote; default retention `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS=7`), retrying delete conflicts on the next round;
@@ -199,7 +200,6 @@ fix on both execution surfaces. Updating only the cloud does not fix old clients
 | `SANDBOX_IDLE_TTL_S` | 3600 | Idle snapshot threshold and keepalive basis; server expiry adds snapshot and queue grace |
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | true | Snapshot system master switch |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | 7 | Snapshot retention |
-| `OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S` | 120 | Max wait for snapshot Ready |
 | `OPENSANDBOX_MYSPACE_BIND_MOUNT_ENABLED` | true | Plan F myspace direct-mount switch |
 | `HOST_STORAGE_PATH` | — | Real host path of the storage volume (bind-mount source) |
 | `SANDBOX_SKILLS_DIR` | `$STORAGE_PATH/sandbox_skills` | Unified skills directory override |

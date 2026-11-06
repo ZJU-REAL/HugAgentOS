@@ -64,8 +64,7 @@ export function RecentActivity({ tasks, onOpen, onDone, onError }: RecentActivit
   const finished = tasks.filter(isTerminal);
   const shown = expanded ? finished : finished.slice(0, VISIBLE);
   return <>
-    {!!active.length && <><h4 className="pa-activity-group">{t('进行中')} · {active.length}</h4>
-      <ul className="pa-activity" aria-label={t('进行中')}>{active.map(task => <TaskRow key={task.id} task={task} onOpen={onOpen} onDone={onDone} onError={onError} />)}</ul></>}
+    {!!active.length && <ul className="pa-activity" aria-label={t('进行中')}>{active.map(task => <TaskRow key={task.id} task={task} onOpen={onOpen} onDone={onDone} onError={onError} />)}</ul>}
     {!!finished.length && <ul className="pa-activity" aria-label={t('已结束')}>{shown.map(task => <TaskRow key={task.id} task={task} onOpen={onOpen} onDone={onDone} onError={onError} />)}</ul>}
     {finished.length > VISIBLE && <button type="button" className="pa-side-more" onClick={() => setExpanded(value => !value)}>
       {expanded ? <UpOutlined /> : <DownOutlined />} {expanded ? t('收起') : t('展开更多')}

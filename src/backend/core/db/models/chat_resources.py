@@ -82,6 +82,66 @@ class ChatSandboxSnapshot(Base):
     )
 
 
+class ChatSandboxSnapshotJob(Base):
+    """An idle chat's snapshot attempt that the controller is creating or that failed.
+
+    A controller snapshot is an asynchronous job (Creating → Ready / Failed) that
+    outlives any backend request and any maintenance leader. This row is its
+    handle: the outcome is read from the controller, never decided by a local
+    timer. A chat has at most one row; it is removed once the snapshot becomes
+    the restore point in ``chat_sandbox_snapshots`` or is discarded.
+
+    ``state``: ``creating`` (the controller is working on ``snapshot_id``) or
+    ``failed`` (backing off until ``retry_after``). Snapshots that must be
+    deleted go to ``sandbox_snapshot_deletions`` instead of staying here, so a
+    delete the controller keeps refusing never blocks the next attempt.
+    """
+
+    __tablename__ = "chat_sandbox_snapshot_jobs"
+
+    chat_id = Column(String(64), primary_key=True)
+    sandbox_id = Column(String(64), nullable=False)
+    snapshot_id = Column(String(64))
+    state = Column(String(16), nullable=False)
+    # Taken before the create request: any use of the chat after this instant
+    # means the snapshot may not hold the workspace the chat now has.
+    started_at = Column(UTCDateTime(timezone=True), nullable=False)
+    failures = Column(Integer, nullable=False, default=0)
+    retry_after = Column(UTCDateTime(timezone=True))
+    last_error = Column(String(500))
+
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('creating', 'failed')",
+            name="chat_sandbox_snapshot_jobs_state_check",
+        ),
+        Index("idx_chat_sandbox_snapshot_jobs_state", "state"),
+    )
+
+
+class SandboxSnapshotDeletion(Base):
+    """A controller snapshot nothing references any more, waiting to be deleted.
+
+    Failed and discarded attempts and replaced restore points are queued here in
+    the same transaction that drops their last reference, so none is forgotten
+    between the decision and the remote delete. Rows are retried until the
+    controller confirms the deletion (404 counts).
+    """
+
+    __tablename__ = "sandbox_snapshot_deletions"
+
+    snapshot_id = Column(String(64), primary_key=True)
+    chat_id = Column(String(64))
+    reason = Column(String(200))
+    queued_at = Column(
+        UTCDateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    attempts = Column(Integer, nullable=False, default=0)
+    last_error = Column(String(500))
+
+
 class ToolMediaBlob(Base):
     """工具返回的媒体字节，按内容寻址，供历史回放取回原件。
 

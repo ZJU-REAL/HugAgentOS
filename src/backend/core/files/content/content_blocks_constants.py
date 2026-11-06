@@ -39,6 +39,11 @@ DEFAULT_PAGE_CONFIG: dict[str, Any] = {
         "product_subtitle": "AI 智能助手",
         "logo_url": "/home/header.svg",
         "favicon_url": "/icon.png",
+        # Login page (/login) wordmark; empty = use logo_url. Configs saved before the key
+        # existed get it from branding.backfill_login_logo.
+        "login_logo_url": "/home/hugagentos-logo.png",
+        # Login page background image; empty = gradient only.
+        "login_background_url": "/home/mock-sso-bg-original.png",
         "page_title": BRAND_NAME,
         "hero_title": f"你好，我是 {BRAND_NAME}",
         "hero_subtitle": "今天想从哪里开始？",

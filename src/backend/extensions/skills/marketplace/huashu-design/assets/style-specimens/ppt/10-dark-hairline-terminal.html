@@ -1,0 +1,34 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>10 Neo-Swiss暗色终端美学</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden;background:#0D0D0F}
+body{position:relative;color:#EDEDEF;font-family:"Inter Tight","Noto Sans SC",sans-serif}
+.frame{position:absolute;left:48px;right:48px;top:48px;bottom:48px;border:1px solid #262629}
+.row{position:absolute;left:0;right:0;border-top:1px solid #262629}
+.mono{font:400 13px "JetBrains Mono";color:#8B8B93;letter-spacing:.08em;text-transform:uppercase}
+.head{position:absolute;left:0;right:0;top:0;height:56px;display:flex;justify-content:space-between;align-items:center;padding:0 28px}
+.head b{font:500 14px "JetBrains Mono";color:#EDEDEF;letter-spacing:.04em}
+.head b::before{content:"";display:inline-block;width:8px;height:8px;background:#7C7CFF;margin-right:10px}
+h1{position:absolute;left:28px;top:128px;margin:0;font:600 92px/1.08 "Inter Tight","Noto Sans SC";letter-spacing:-.035em;width:900px}
+h1 span{color:#7C7CFF}
+.lead{position:absolute;left:28px;top:372px;font:400 20px/1.7 "Noto Sans SC";color:#A1A1AA;width:560px}
+.cmd{position:absolute;right:28px;top:372px;width:430px;border:1px solid #262629;padding:16px 20px;font:400 16px/1.8 "JetBrains Mono";color:#EDEDEF;background:#111113}
+.cmd .p{color:#7C7CFF}.cmd .m{color:#6B6B73}
+.grid{position:absolute;left:0;right:0;bottom:0;height:128px;display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid #262629}
+.cell{padding:18px 28px;border-right:1px solid #262629}.cell:last-child{border:0}
+.cell b{display:block;font:500 40px/1 "Inter Tight";letter-spacing:-.03em;margin-top:14px}
+</style></head><body>
+<div class="frame">
+ <div class="head"><b>kuaigai</b><span class="mono">v1.0 · 2026.10 · MIT</span></div>
+ <div class="row" style="top:56px"></div>
+ <h1>批量改名，<br>只需要<span>一行命令</span>。</h1>
+ <div class="lead">一个用 Rust 写的命令行小工具，替你重命名几千个文件，先预览，再动手，随时可撤销。</div>
+ <div class="cmd"><span class="m">$</span> <span class="p">kg</span> rename <span class="m">--dry</span> "*.jpg"<br><span class="m">  → 2,481 files, 0 conflicts</span><br><span class="m">$</span> <span class="p">kg</span> undo</div>
+ <div class="grid">
+  <div class="cell"><span class="mono">Stars</span><b>12.4k</b></div>
+  <div class="cell"><span class="mono">冷启动</span><b>3 ms</b></div>
+  <div class="cell"><span class="mono">二进制体积</span><b>1.1 MB</b></div>
+  <div class="cell"><span class="mono">贡献者</span><b>87</b></div>
+ </div>
+</div>
+</body></html>

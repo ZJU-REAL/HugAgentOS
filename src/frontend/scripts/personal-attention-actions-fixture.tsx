@@ -11,13 +11,14 @@ export function Fixture() {
   const [refreshed, setRefreshed] = useState(0);
   const [errors, setErrors] = useState<string[]>([]);
   const [searching, setSearching] = useState(false);
-  const tasks: PersonalTask[] = [
+  // Each handled item drops out on the next refresh, like the real page: question, failed task, turn, delivery.
+  const tasks: PersonalTask[] = ([
     { id: 'failed', goal: '整理周报', status: 'failed', waiting_reason: '任务执行失败。', updated_at: new Date(now).toISOString() },
     { id: 'blocked', goal: '订会议室', status: 'waiting', waiting_reason: '订 3 楼还是 5 楼？', question: '订 3 楼还是 5 楼？', updated_at: new Date(now).toISOString() },
-  ];
+  ] as PersonalTask[]).filter(task => task.id === 'failed' ? refreshed < 2 : refreshed < 1);
   const attention: PersonalAttention = {
-    turns: [{ message_id: 'pa_msg_turn', chat_id: 'main', preview: '帮我总结今天的会议', kind: 'message', at: new Date(now).toISOString() }],
-    deliveries: [{ message_id: 'pa_msg_reply', chat_id: 'pa_chat_channel_x', preview: '会议总结如下', channel_type: 'lark', at: new Date(now).toISOString() }],
+    turns: refreshed >= 3 ? [] : [{ message_id: 'pa_msg_turn', chat_id: 'main', preview: '帮我总结今天的会议', kind: 'message', at: new Date(now).toISOString() }],
+    deliveries: refreshed >= 4 ? [] : [{ message_id: 'pa_msg_reply', chat_id: 'pa_chat_channel_x', preview: '会议总结如下', channel_type: 'lark', at: new Date(now).toISOString() }],
   };
   const done = async () => { setRefreshed(value => value + 1); };
   return <ConfigProvider theme={{ token: { motion: false } }}>
