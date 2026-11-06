@@ -216,6 +216,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           HUGAGENT_RELEASE_BUILD: "1"
+          # Reuse the runtime already published for this dependency fingerprint so
+          # every package and the release server carry identical runtime bytes.
+          HUGAGENT_RUNTIME_SOURCE: ${{ vars.DESKTOP_RUNTIME_SOURCE }}
           # tsc + Vite peaks near Node's default heap limit on hosted runners.
           NODE_OPTIONS: "--max-old-space-size=4096"
         with:
@@ -234,6 +237,31 @@ jobs:
         if: startsWith(matrix.platform, 'macos-')
         working-directory: desktop
         run: npm run verify:macos -- --bundle-dir src-tauri/target/release/bundle/macos
+
+      # The updater ships this slim package; the full installer above stays the
+      # offline first install. Both come from the same prepared generated/ tree.
+      - name: Build slim update package
+        working-directory: desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          HUGAGENT_RELEASE_BUILD: "1"
+        run: npm run build:update
+
+      - name: Attach slim update package and runtime
+        shell: bash
+        working-directory: desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.validate-release.outputs.release_tag }}
+        run: |
+          stem=$(node -p "const m=require('./generated/runtime-manifest.json'); \`runtime-\${m.target}-\${m.dependency_fingerprint}\`")
+          mkdir -p generated/release
+          cp generated/runtime-core.tar.gz "generated/release/$stem.tar.gz"
+          cp generated/runtime-manifest.json "generated/release/$stem.json"
+          gh release upload "$RELEASE_TAG" --clobber \
+            src-tauri/target/release/bundle-update/*/*-update* \
+            "generated/release/$stem.tar.gz" "generated/release/$stem.json"
 
       - name: Remove temporary macOS signing keychain
         if: always() && startsWith(matrix.platform, 'macos-') && steps.import_macos_identity.outcome == 'success'

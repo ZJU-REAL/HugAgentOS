@@ -23,7 +23,6 @@
   "model_config": {},
   "bindings": {
     "skill_ids": [
-      "data-analyst-cn",
       "data-analysis-report-generator"
     ],
     "mcp_server_ids": [

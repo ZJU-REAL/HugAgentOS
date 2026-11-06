@@ -23,8 +23,6 @@
   "model_config": {},
   "bindings": {
     "skill_ids": [
-      "data-analyst-cn",
-      "csv-pipeline",
       "officecli-xlsx",
       "data-analysis-report-generator"
     ],

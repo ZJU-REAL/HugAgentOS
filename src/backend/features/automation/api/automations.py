@@ -265,7 +265,7 @@ def resume_automation(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """恢复一个已暂停的自动化任务，任务不存在或不可恢复时返回 400。"""
+    """恢复已暂停的任务，或重新启用因连续失败被自动停用的任务（清零失败计数）；任务不存在或不可恢复时返回 400。"""
     svc = AutomationService(db)
     task = svc.resume_task(task_id, user.user_id)
     if not task:

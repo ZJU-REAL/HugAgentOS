@@ -113,7 +113,8 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 ```text
 会话请求 → 校验身份与会话绑定 → 复用容器 / 从快照恢复 / 创建容器
         → execd 执行独立进程 → 保存会话文件 → 按活动续期
-空闲达到 SANDBOX_IDLE_TTL_S → 创建快照 → 等待 Ready → 登记数据库
+空闲达到 SANDBOX_IDLE_TTL_S → 发起快照并登记任务（不等待）
+        → 后续扫描读到 Ready 且期间未被使用 → 登记为恢复点
         → 清理工作区 → 归还对应用户的空闲池
 用户返回 → 先恢复会话快照 → 重新声明挂载 → 执行下一条命令
 ```
@@ -130,7 +131,7 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 
 实现位于 core/sandbox/providers/opensandbox/snapshots.py。目标：会话空闲时不白白占着 Docker 资源，又能在用户回来时**带着文件系统**满血复活。
 
-- **park（雪藏）**：后台 worker 每 60s 扫描，对 idle 超过 `SANDBOX_IDLE_TTL_S`（默认 3600s）的会话发起 snapshot（实测 accept→Ready 约 60s，docker commit），Ready 后 upsert `chat_sandbox_snapshots` 表（chat_id 为主键）、把容器重置干净（杀掉沙箱用户残留进程；删除 `/workspace`、`$HOME`、`/tmp`、`/var/tmp`、`/dev/shm` 中挂载点以外的全部内容，含 execd 旧命令输出；按 `/proc/self/mountinfo` 跳过网盘、团队空间、技能和 `$HOME` 下的账号凭据挂载；重置失败则直接销毁）再还回 idle 池；单轮最多并发 park 3 个保护 docker daemon。**这是回收会话沙箱的唯一路径**——旧版另有一条 600s 的「直接擦、不快照」回收比 park 先跑，结果文件没了也没备份，现已合并成这一条；
+- **park（雪藏）**：后台 worker 每 60s 扫描，对 idle 超过 `SANDBOX_IDLE_TTL_S`（默认 3600s）的会话发起 snapshot（控制器里是 docker commit，异步执行，自带 180s 上限），并在 `chat_sandbox_snapshot_jobs` 登记任务后立即返回，不在后端计时等待。之后每轮扫描读一次控制器状态：Ready 且会话自发起后没被用过，才在同一事务里写入 `chat_sandbox_snapshots`（chat_id 为主键）并删除任务、把容器重置干净（杀掉沙箱用户残留进程；删除 `/workspace`、`$HOME`、`/tmp`、`/var/tmp`、`/dev/shm` 中挂载点以外的全部内容，含 execd 旧命令输出；按 `/proc/self/mountinfo` 跳过网盘、团队空间、技能和 `$HOME` 下的账号凭据挂载；重置失败则直接销毁）再还回 idle 池；Ready 但会话期间被用过则作废；Failed 或已消失则按 5 分钟起倍增（上限 1 小时）退避，会话保留并持续续期；控制器 30 分钟仍未了结的任务按失败处理，释放名额。作废、失败和被替换的旧快照在同一事务里记入 `sandbox_snapshot_deletions`，每轮重试删除直到控制器确认，删除失败不会阻塞会话的下一次快照。全局同时在创建的快照不超过 2 个，与控制器的快照工作线程数一致。任务落库，重启或换维护进程后接着处理。**这是回收会话沙箱的唯一路径**——旧版另有一条 600s 的「直接擦、不快照」回收比 park 先跑，结果文件没了也没备份，现已合并成这一条；
 - **restore（恢复）**：`_create_session_for` **优先查 DB snapshot**（~15–20s restore，仍快于全新创建）；本会话没有快照时才走 Q2 user idle 池（~7s 暖路径），都没有才全新建。顺序不能反——idle 池里的容器是擦干净的，端给有快照的会话等于把它的文件悄悄丢掉。从 snapshot 启动时 volumes 必须**重新声明**——docker commit 不保存 mount 配置，否则 `/workspace/skills/` 等 bind-mount 会丢；
 - **一次性消耗**：snapshot 被用作启动镜像后立即标 1 小时短保留（立刻 DELETE 会因镜像层被新容器引用而 409）；
 - **GC**：每小时清理过期快照（DB 行 + 远端，默认保留 `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS=7` 天），删除冲突自动下轮重试；
@@ -189,7 +190,6 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 | `SANDBOX_IDLE_TTL_S` | 3600 | 空闲快照阈值和保活间隔基准；服务端 TTL 另加快照与排队宽限 |
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | true | 快照体系总开关 |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | 7 | 快照保留天数 |
-| `OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S` | 120 | 等 snapshot Ready 的轮询上限 |
 | `OPENSANDBOX_MYSPACE_BIND_MOUNT_ENABLED` | true | Plan F myspace 直挂开关 |
 | `HOST_STORAGE_PATH` | — | 宿主机 storage 真实路径（bind-mount 源） |
 | `SANDBOX_SKILLS_DIR` | `$STORAGE_PATH/sandbox_skills` | 统一技能目录覆盖 |

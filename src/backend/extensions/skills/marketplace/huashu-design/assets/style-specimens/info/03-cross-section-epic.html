@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>03 巨幅剖面手绘</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&family=Noto+Serif+SC:wght@600;900&family=Noto+Sans+SC:wght@400;500;700&family=Inter:wght@500;700&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+:root{--ink:#1D1711;--paper:#E9CFA2;--hi:#FF9A3D;--tx:#F1E3C8}
+body{background:radial-gradient(ellipse at 50% 45%,#2A2018 0%,#1D1711 70%);color:var(--tx);font-family:"Noto Sans SC",Inter,sans-serif;position:relative}
+svg{position:absolute;left:0;top:0}
+h1{position:absolute;left:40px;top:26px;margin:0;font:900 34px/1.2 "Noto Serif SC","Source Serif 4",serif;letter-spacing:.02em;width:520px}
+h1 span{display:block;font:600 14px "Inter";letter-spacing:.2em;color:var(--hi);margin-bottom:6px}
+.c{position:absolute;width:236px;font:400 15px/1.5 "Noto Sans SC";color:#E7D8BC}
+.c b{display:block;font:700 18px/1.3 "Noto Serif SC",serif;color:var(--tx);margin-bottom:2px}
+.c i{position:absolute;left:-34px;top:0;width:26px;height:26px;border-radius:50%;background:var(--hi);color:var(--ink);font:700 15px/26px Inter;text-align:center;font-style:normal}
+.r i{left:auto;right:-34px}
+.r{text-align:right}
+.foot{position:absolute;left:40px;bottom:16px;font:400 13px "Noto Sans SC";color:#B9A98A}
+.scale{position:absolute;right:40px;bottom:16px;font:500 13px Inter;color:#B9A98A}
+</style></head><body>
+<svg width="1200" height="750" viewBox="0 0 1200 750" id="s">
+<defs>
+<pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="7" stroke="#E9CFA2" stroke-width="1" opacity=".55"/></pattern>
+<pattern id="earth" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(-30)"><line x1="0" y1="0" x2="0" y2="10" stroke="#E9CFA2" stroke-width=".8" opacity=".22"/></pattern>
+<pattern id="stripe" width="12" height="12" patternUnits="userSpaceOnUse"><rect width="6" height="12" fill="#FF9A3D"/><rect x="6" width="6" height="12" fill="#E9CFA2"/></pattern>
+<filter id="grain"><feTurbulence baseFrequency=".9" numOctaves="2" seed="4"/><feColorMatrix values="0 0 0 0 1  0 0 0 0 .9  0 0 0 0 .7  0 0 0 .5 -.1"/></filter>
+</defs>
+<g id="g" stroke="#E9CFA2" fill="none" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"></g>
+<rect width="1200" height="750" filter="url(#grain)" opacity=".10" style="mix-blend-mode:screen;pointer-events:none"/>
+</svg>
+<h1><span>MARKET IN SECTION · 1987 → 2025</span>菜市场剖面：<br>一座老市场如何装下 312 个摊位</h1>
+
+<div class="c" style="left:78px;top:168px"><i>1</i><b>屋顶光伏与锯齿天窗</b>86 块光伏板，年发电 4.1 万度，抵掉冷库三成电费。</div>
+<div class="c" style="left:78px;top:318px"><i>2</i><b>二层熟食厨房</b>17 间档口，油烟统一进屋脊排风井，不再糊到邻居窗上。</div>
+<div class="c" style="left:78px;top:548px"><i>3</i><b>地下冷库</b>−2°C 和 8°C 两段，货梯直达一层鲜货区，不再占用过道。</div>
+<div class="c r" style="left:886px;top:168px"><i>4</i><b>采光天井</b>把阳光放进一层，原先最暗的角落，现在是租金最高的摊位。</div>
+<div class="c r" style="left:886px;top:316px"><i>5</i><b>鲜货区 148 个摊位</b>主过道由 1.8 米拓到 2.6 米，早高峰的小推车终于能错身。</div>
+<div class="c r" style="left:886px;top:404px"><i>6</i><b>原 1987 承重墙，一根不拆</b>改造只动隔断和管线，结构评估三年内无需复检。</div>
+<div class="foot">手绘细节位：摊位商品、人流与光影需由插画师补绘；此稿只保留结构剖面与引线标注层。</div>
+<div class="scale">0 ——— 10 m　　剖面图 A–A′</div>
+<script>
+const NS='http://www.w3.org/2000/svg',g=document.getElementById('g');
+function e(t,a,p){const n=document.createElementNS(NS,t);for(const k in a)n.setAttribute(k,a[k]);(p||g).appendChild(n);return n}
+const X0=340,X1=860,GY=490,TOP=170;
+// earth
+e('rect',{x:0,y:GY,width:1200,height:260,fill:'url(#earth)',stroke:'none'});
+e('line',{x1:0,y1:GY,x2:1200,y2:GY,'stroke-width':2.4});
+// basement poche
+e('rect',{x:X0-18,y:GY,width:X1-X0+36,height:132,fill:'#1D1711',stroke:'none'});
+// building walls (poche)
+function wall(x,y,w,h){e('rect',{x,y,width:w,height:h,fill:'url(#hatch)','stroke-width':1.6})}
+wall(X0-18,TOP+50,18,GY-TOP-50+132);wall(X1,TOP+50,18,GY-TOP-50+132);
+// floors slabs
+[[GY,10],[345,10],[225,10],[GY+132,12]].forEach(([y,h])=>wall(X0-18,y,X1-X0+36,h));
+// roof sawtooth
+for(let i=0;i<6;i++){const x=X0-18+i*(X1-X0+36)/6,w=(X1-X0+36)/6;
+ e('path',{d:`M${x},${TOP+50} L${x},${TOP+14} L${x+w},${TOP+50} Z`,fill:'#1D1711'});
+ e('line',{x1:x,y1:TOP+14,x2:x,y2:TOP+50,'stroke-width':3,stroke:'#FF9A3D'}); // glazed face
+ for(let k=1;k<4;k++)e('line',{x1:x,y1:TOP+14+k*9,x2:x+0.0,y2:TOP+14+k*9,'stroke-width':1}); }
+// solar panels on slopes (right 3)
+for(let i=3;i<6;i++){const x=X0-18+i*(X1-X0+36)/6,w=(X1-X0+36)/6;
+ e('line',{x1:x+4,y1:TOP+17,x2:x+w-4,y2:TOP+47,'stroke-width':6,stroke:'#FF9A3D',opacity:.9});}
+// light shafts from skylights
+for(let i=0;i<3;i++){const x=X0-18+i*(X1-X0+36)/6;e('path',{d:`M${x},${TOP+50} L${x-40},${225} L${x+30},${225} Z`,fill:'#FF9A3D',opacity:.10,stroke:'none'})}
+// level 2: kitchens
+for(let i=0;i<9;i++){const x=X0+6+i*56;e('rect',{x,y:262,width:44,height:50});e('path',{d:`M${x+6},262 L${x+12},246 L${x+32},246 L${x+38},262`});e('line',{x1:x+22,y1:246,x2:x+22,y2:236});e('circle',{cx:x+16,cy:290,r:7});e('line',{x1:x+28,y1:300,x2:x+40,y2:300});}
+e('line',{x1:X0+8,y1:236,x2:X1-8,y2:236,'stroke-width':3,stroke:'#FF9A3D','stroke-dasharray':'2 7'}); // exhaust duct
+// level 1: stalls
+for(let i=0;i<8;i++){const x=X0+4+i*63;
+ if(i==3){continue}
+ e('path',{d:`M${x},392 L${x+58},392 L${x+52},372 L${x+6},372 Z`,fill:'url(#stripe)','stroke-width':1.4});
+ e('rect',{x:x+2,y:430,width:54,height:60});
+ for(let k=0;k<4;k++)e('circle',{cx:x+12+k*11,cy:424,r:5});
+ e('line',{x1:x+4,y1:392,x2:x+4,y2:430});e('line',{x1:x+54,y1:392,x2:x+54,y2:430});}
+// atrium (void) with shaft
+e('rect',{x:X0+4+3*63,y:225+10,width:58,height:GY-235,fill:'#FF9A3D',opacity:.13,stroke:'none'});
+e('path',{d:`M${X0+4+3*63},${GY} V235 M${X0+4+3*63+58},${GY} V235`,'stroke-dasharray':'4 5'});
+// stairs
+(function(){let d='M'+(X0+8)+','+GY;for(let i=0;i<9;i++){d+=` l 8,0 l 0,-14`}e('path',{d:'M'+(X0+4+3*63+58)+',345 l 28,0',stroke:'none'});})();
+// basement
+for(let i=0;i<7;i++){const x=X0+6+i*72;e('rect',{x,y:GY+22,width:62,height:92});e('line',{x1:x+31,y1:GY+22,x2:x+31,y2:GY+114});for(let k=0;k<3;k++)e('line',{x1:x+4,y1:GY+42+k*22,x2:x+27,y2:GY+42+k*22,'stroke-width':1})}
+e('line',{x1:X0+4,y1:GY+16,x2:X1-4,y2:GY+16,'stroke-width':3,stroke:'#7FB7C9','stroke-dasharray':'2 6'});
+// leaders
+function lead(x1,y1,x2,y2){e('path',{d:`M${x1},${y1} L${x2},${y2}`,stroke:'#FF9A3D','stroke-width':1.2});e('circle',{cx:x2,cy:y2,r:4.5,fill:'#FF9A3D',stroke:'none'})}
+lead(314,182,X0+110,TOP+30);
+lead(314,336,X0+28,288);
+lead(314,562,X0+36,GY+70);
+lead(886,182,563,238);
+lead(886,342,785,412);
+lead(886,440,X1+9,440);
+// hand-drawn placeholder tags
+['M'].forEach(()=>{});
+</script></body></html>

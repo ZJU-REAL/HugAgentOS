@@ -195,20 +195,20 @@ def test_unnamed_agent_upgrade_keeps_a_self_chosen_name(sessions, tmp_path, monk
 def test_capabilities_follow_what_the_user_may_use(sessions, monkeypatch):
     from personal_agent import context as module
     from personal_agent.identity import config as identity_config
-    permitted = {"skills": ["officecli-docx", "translate", "some-other-skill"], "mcps": ["internet_search", "web_fetch", "database_query"]}
+    permitted = {"skills": ["officecli-docx", "officecli-xlsx", "some-other-skill"], "mcps": ["internet_search", "web_fetch", "database_query"]}
     monkeypatch.setattr('core.capabilities.catalog.resolver.resolve_all_runtime_enabled',
                         lambda db, uid: (permitted["skills"], [], permitted["mcps"]))
     with sessions() as db:
         svc = module.AgentContext(db, "owner")
         config = svc.identity.ensure()["config"]
-        assert config["skill_ids"] == ["officecli-docx", "translate"]
+        assert config["skill_ids"] == ["officecli-docx", "officecli-xlsx"]
         assert config["mcp_ids"] == ["internet_search", "web_fetch"]
         permitted["skills"] = ["officecli-docx"]
         assert svc.identity.ensure()["config"]["skill_ids"] == ["officecli-docx"]
         # An unreadable catalog keeps the last known set instead of emptying it.
         permitted["skills"] = permitted["mcps"] = None
         assert svc.identity.ensure()["config"]["skill_ids"] == ["officecli-docx"]
-        with pytest.raises(ValueError): svc.identity.configure({"skill_ids": ["translate"]})
+        with pytest.raises(ValueError): svc.identity.configure({"skill_ids": ["officecli-xlsx"]})
 
 
 def test_enabled_plugins_join_with_their_components(sessions, monkeypatch):

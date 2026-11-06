@@ -23,7 +23,7 @@
   "model_config": {},
   "bindings": {
     "skill_ids": [
-      "diagram-builder"
+      "diagram-design"
     ],
     "mcp_server_ids": [],
     "plugin_ids": [],

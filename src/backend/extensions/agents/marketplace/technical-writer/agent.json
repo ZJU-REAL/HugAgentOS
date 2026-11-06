@@ -23,9 +23,7 @@
   "model_config": {},
   "bindings": {
     "skill_ids": [
-      "api-doc-writer",
-      "md2word-cn",
-      "tech-translator"
+      "md2word-cn"
     ],
     "mcp_server_ids": [],
     "plugin_ids": [],

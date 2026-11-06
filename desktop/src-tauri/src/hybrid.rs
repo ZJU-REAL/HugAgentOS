@@ -147,12 +147,7 @@ pub(crate) fn on_cloud_login(context: BridgeContext, expected: u64) {
                 Err(error) => {
                     eprintln!("[hybrid] 本机执行能力刷新失败: {error}");
                     if !session
-                        .update_bridge(expected, |sync| {
-                            sync.capabilities_ready = false;
-                            sync.models_ready = false;
-                            sync.error = Some(error);
-                            sync.retrying = true;
-                        })
+                        .update_bridge(expected, |sync| renewal_failed(sync, error))
                         .await
                     {
                         return;
@@ -238,6 +233,14 @@ async fn read_capability_readiness(
         data["ready"].as_bool() == Some(true),
         data["error"].as_str().map(str::to_owned),
     ))
+}
+
+/// 续期失败（断网、云端抖动）只记成「正在自动重试」。已经同步好的能力与模型留在本机，
+/// 不因为一次续期失败被收回：收回会把用户从工作台踢回能力同步页，而网络一恢复下一轮
+/// 续期就自愈了。首轮还没就绪时两项本来就是 false，保持原样。
+fn renewal_failed(sync: &mut BridgeSync, error: String) {
+    sync.error = Some(error);
+    sync.retrying = true;
 }
 
 /// 就绪轮询的起步间隔：用户正盯着同步页，头几次要足够快。

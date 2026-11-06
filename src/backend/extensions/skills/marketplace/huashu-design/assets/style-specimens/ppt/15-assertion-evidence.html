@@ -1,0 +1,38 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>15 断言-证据 Tufte信息设计</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700&family=Noto+Sans+SC:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&family=Inter:wght@400;500&display=swap">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+body{background:#FFFEFB;color:#1A1A1A;font-family:'Inter','Noto Sans SC',sans-serif;position:relative}
+h1{position:absolute;left:72px;top:52px;width:1000px;margin:0;font-family:'Source Serif 4','Noto Serif SC',serif;font-weight:700;font-size:38px;line-height:1.36}
+svg{position:absolute;left:0;top:0}
+text{font-family:'Inter','Noto Sans SC',sans-serif;fill:#444;font-size:15px}
+.src{position:absolute;left:72px;bottom:34px;font-size:13px;color:#666}
+</style></head><body>
+<h1>城南站过去三十年的夜间最低气温上升了约 1.8℃，相当于每十年升高 0.58℃</h1>
+<svg width="1200" height="750" viewBox="0 0 1200 750"><g id="g"></g></svg>
+<div class="src">数据：城南气象站 1995–2025 年逐年夜间（20:00–06:00）最低气温均值；虚线为最小二乘线性趋势。</div>
+<script>
+const v=[13.7, 13.82, 13.97, 13.32, 13.54, 13.9, 14.08, 14.12, 13.54, 13.82, 14.11, 14.38, 14.3, 14.19, 14.01, 14.54, 14.92, 14.77, 14.34, 14.5, 15.27, 14.88, 14.94, 14.48, 14.74, 15.17, 15.25, 15.14, 14.73, 15.32, 15.5];
+const x0=110,x1=1090,y0=585,y1=195,lo=13,hi=16;
+const X=i=>x0+(x1-x0)*i/30, Y=t=>y0-(y0-y1)*(t-lo)/(hi-lo);
+let s='';
+// trend
+const n=31,mx=15,my=v.reduce((a,b)=>a+b)/n;
+const b=v.reduce((a,y,i)=>a+(i-mx)*(y-my),0)/v.reduce((a,y,i)=>a+(i-mx)**2,0),a0=my-b*mx;
+s+=`<line x1="${X(0)}" y1="${Y(a0)}" x2="${X(30)}" y2="${Y(a0+b*30)}" stroke="#A63A2B" stroke-width="2" stroke-dasharray="7 5"/>`;
+// data line
+s+=`<polyline fill="none" stroke="#1A1A1A" stroke-width="2.2" points="${v.map((t,i)=>X(i)+','+Y(t)).join(' ')}"/>`;
+v.forEach((t,i)=>{s+=`<circle cx="${X(i)}" cy="${Y(t)}" r="${[0,30,2.9].includes(i)?4.5:3}" fill="#1A1A1A"/>`});
+// range-frame axes
+s+=`<line x1="${x0-24}" y1="${Y(13.3)}" x2="${x0-24}" y2="${Y(15.5)}" stroke="#444" stroke-width="1"/>`;
+[13.5,14,14.5,15,15.5].forEach(t=>{s+=`<line x1="${x0-30}" y1="${Y(t)}" x2="${x0-24}" y2="${Y(t)}" stroke="#444"/><text x="${x0-38}" y="${Y(t)+5}" text-anchor="end">${t.toFixed(1)}℃</text>`});
+s+=`<line x1="${X(0)}" y1="${y0+30}" x2="${X(30)}" y2="${y0+30}" stroke="#444"/>`;
+[0,10,20,30].forEach(i=>{s+=`<line x1="${X(i)}" y1="${y0+30}" x2="${X(i)}" y2="${y0+36}" stroke="#444"/><text x="${X(i)}" y="${y0+56}" text-anchor="middle">${1995+i}</text>`});
+// direct labels
+s+=`<text x="${X(0)-4}" y="${Y(v[0])-50}" text-anchor="start" style="fill:#1A1A1A">1995 年 13.7℃</text>`;
+s+=`<text x="${X(30)-4}" y="${Y(v[30])-16}" text-anchor="end" style="fill:#1A1A1A">2025 年 15.5℃</text>`;
+s+=`<text x="${X(8)}" y="${Y(14.75)-6}" style="fill:#A63A2B;font-weight:500" transform="rotate(-9.2 ${X(8)} ${Y(14.75)})">线性趋势</text>`;
+s+=`<text x="${X(3)}" y="${Y(13.32)+26}" text-anchor="middle">1998 年最低 13.3℃</text>`;
+s+=`<text x="${X(20)}" y="${Y(15.27)-14}" text-anchor="middle">2015 年首次越过 15℃</text>`;
+document.getElementById('g').innerHTML=s;
+</script></body></html>

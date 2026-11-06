@@ -1,0 +1,50 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>01 吕敬人书籍设计</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400;600;900&family=Noto+Sans+SC:wght@400;500&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden;background:#D9D2C3}
+body{font-family:"Noto Serif SC",serif;color:#26221D;position:relative}
+.book{position:absolute;left:40px;top:35px;width:1120px;height:680px;display:flex;box-shadow:0 14px 30px -14px rgba(40,30,15,.45)}
+.pg{position:relative;width:560px;height:680px;background:#F4EFE4}
+.L{background:linear-gradient(90deg,#F4EFE4 0,#F4EFE4 92%,#E6DFCE 100%)}
+.R{background:linear-gradient(90deg,#E6DFCE 0,#F4EFE4 8%)}
+/* 左页：只有一个字，一个书名，大片留白 */
+.L .no{position:absolute;left:84px;top:84px;font:400 140px/1 "Noto Serif SC";color:#B2301F;letter-spacing:-.02em}
+.L .rule{position:absolute;left:92px;top:262px;width:36px;height:2px;background:#26221D}
+.L h2{position:absolute;left:90px;top:286px;margin:0;font:600 38px/1.5 "Noto Serif SC";letter-spacing:.14em}
+.L .sub{position:absolute;left:92px;top:416px;font:400 16px/2 "Noto Serif SC";color:#5C544A;letter-spacing:.08em;width:260px}
+.L .ph{position:absolute;right:60px;bottom:100px;width:112px;height:176px;background:#CFC6B2;color:#6D6453;font:400 12px "Noto Sans SC";display:flex;align-items:flex-end;padding:8px;box-sizing:border-box}
+.L .folio{position:absolute;left:84px;bottom:36px;font:400 13px "Noto Serif SC";letter-spacing:.2em;color:#6D6453}
+/* 右页：版心上提靠订口，切口一侧留旁注栏，地脚极大 */
+.R .run{position:absolute;left:60px;right:60px;top:40px;font:400 12px "Noto Sans SC";letter-spacing:.2em;color:#675D4E;display:flex;justify-content:space-between}
+.R .body{position:absolute;left:58px;top:92px;width:290px;font:400 17px/2.05 "Noto Serif SC";text-align:justify;letter-spacing:.02em}
+.R .body p{margin:0;text-indent:2em}
+.R .body p.q{text-indent:0;margin:14px 0;padding-left:0;font-weight:600;font-size:19px;color:#26221D}
+.R .body p.q b{color:#B2301F;font-weight:600}
+.R .side{position:absolute;left:386px;width:120px;font:400 13px/1.8 "Noto Serif SC";color:#6D6453}
+.R .side i{display:block;font-style:normal;font:500 12px "Noto Sans SC";letter-spacing:.12em;color:#B2301F;margin-bottom:4px}
+.R .seal{position:absolute;left:58px;bottom:70px;width:38px;height:38px;background:#B2301F;color:#F4EFE4;font:900 21px/38px "Noto Serif SC";text-align:center;letter-spacing:0}
+.R .foot{position:absolute;right:60px;bottom:36px;font:400 13px "Noto Serif SC";letter-spacing:.2em;color:#6D6453}
+.R .hair{position:absolute;left:58px;top:70px;width:290px;height:1px;background:#26221D}
+</style></head><body>
+<div class="book">
+ <div class="pg L">
+  <div class="no">叁</div><div class="rule"></div>
+  <h2>灯灭之后<br>才开始说话</h2>
+  <div class="sub">周阿婆 · 七十四岁<br>南门“聚贤茶楼”第三十一年</div>
+  <div class="ph">照片位 · 茶楼二层窗边</div>
+  <div class="folio">夜茶：城南茶馆口述史</div>
+ </div>
+ <div class="pg R">
+  <div class="run"><span>第三章</span><span>夜谈</span></div><div class="hair"></div>
+  <div class="body">
+   <p>楼下的灯是十点熄的，楼上的不熄。老客人都知道，十点以后上来的，不是来喝茶的，是来把一天里没说完的话说完。</p>
+   <p class="q"><b>“</b>茶凉了不要紧，话不能凉。<b>”</b></p>
+   <p>周阿婆管这叫“收摊话”。她把最后一壶水续在靠窗的位子上，自己坐在柜台后头，不插嘴，只数着对面的人添了几次水。三十一年里，她记得最清楚的不是谁说了什么，而是谁在哪一晚忽然不再上来了。</p>
+  </div>
+  <div class="side" style="top:112px"><i>旁注 01</i>聚贤茶楼，1993年开业，二层十二张方桌，现存七张。</div>
+  <div class="side" style="top:262px"><i>旁注 02</i>夜谈场次按周记录，2019至2024年共整理四百一十二场。</div>
+  <div class="seal">夜</div>
+  <div class="foot">四十一</div>
+ </div>
+</div>
+</body></html>

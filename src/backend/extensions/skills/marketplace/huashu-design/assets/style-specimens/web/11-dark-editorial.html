@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>11 暗色双色侧栏开发者作品集</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+:root{--bg:#0A192F;--card:#112240;--slate:#8892B0;--light:#A8B2D1;--head:#CCD6F6;--acc:#64FFDA}
+body{background:var(--bg);color:var(--slate);font-family:Inter,"Noto Sans SC",sans-serif;font-size:16px;line-height:1.65;display:grid;grid-template-columns:470px 1fr;padding:0 0 0 90px;box-sizing:border-box;position:relative}
+.mono{font-family:"JetBrains Mono","Noto Sans SC",monospace}
+.glow{position:absolute;left:0;top:0;width:1200px;height:750px;background:radial-gradient(520px at 260px 200px,rgba(29,78,216,.15),transparent 80%);pointer-events:none}
+aside{padding:84px 0 56px;display:flex;flex-direction:column;justify-content:space-between;position:relative}
+h1{margin:0;color:var(--head);font-size:44px;line-height:1.1;font-weight:700;letter-spacing:-.5px}
+h2.role{margin:14px 0 0;color:var(--head);font-size:20px;font-weight:500}
+aside p.tag{margin:18px 0 0;max-width:330px;font-size:16px}
+nav{margin-top:56px}
+nav a{display:flex;align-items:center;gap:14px;font-size:13px;letter-spacing:1.6px;color:var(--slate);font-weight:500;padding:9px 0;text-transform:uppercase}
+nav a i{display:block;width:32px;height:1px;background:var(--slate)}
+nav a.on{color:var(--head)}nav a.on i{width:64px;background:var(--head)}
+.soc{display:flex;gap:26px;font-size:13px;color:var(--slate)}
+.soc b{color:var(--acc);font-weight:500}
+main{padding:84px 80px 0 20px;position:relative}
+.sec{display:flex;align-items:center;gap:14px;color:var(--head);font-weight:600;font-size:20px;margin-bottom:26px}
+.sec span{color:var(--acc);font-size:15px;font-weight:400}
+.sec:after{content:"";height:1px;background:#233554;flex:1}
+.about{margin:0 0 54px}
+.about p{margin:0 0 12px;color:var(--slate)}
+.about b{color:var(--acc);font-weight:500}
+.job{display:grid;grid-template-columns:120px 1fr;gap:14px;margin-bottom:26px}
+.job .d{font-size:12.5px;padding-top:4px;letter-spacing:.5px;text-transform:uppercase}
+.job h3{margin:0;color:var(--head);font-size:17px;font-weight:500}
+.job h3 em{font-style:normal;color:var(--acc)}
+.job p{margin:6px 0 10px;font-size:15.5px}
+.tags{display:flex;flex-wrap:wrap;gap:8px}
+.tags span{font-size:12px;color:var(--acc);background:rgba(100,255,218,.1);padding:3px 12px;border-radius:999px}
+.job.hl{background:rgba(17,34,64,.7);margin-left:-18px;margin-right:-18px;padding:16px 18px;border-radius:6px}
+.job.hl h3{color:var(--acc)}
+</style></head><body>
+<div class="glow"></div>
+<aside>
+  <div>
+    <h1>周见川</h1>
+    <h2 class="role">开源命令行工具开发者</h2>
+    <p class="tag">我做给终端用的小工具：把原本要点十次鼠标的事，压成一行命令。目前在维护 tidal-cli 与 rollcall。</p>
+    <nav>
+      <a class="on mono"><i></i>01 关于</a>
+      <a class="mono"><i></i>02 经历</a>
+      <a class="mono"><i></i>03 项目</a>
+    </nav>
+  </div>
+  <div class="soc mono"><span><b>›</b> GitHub</span><span><b>›</b> 即刻</span><span><b>›</b> 邮件</span></div>
+</aside>
+<main>
+  <div class="sec"><span class="mono">01.</span>关于我</div>
+  <div class="about">
+    <p>2019 年我为了给自己的小站换主题，写了第一个能用的命令行脚本，之后一发不可收拾。现在更关心的是工具的<b>手感</b>：报错写得像人话、默认值合理、装上就能用。</p>
+    <p>在杭州，白天做基础设施，晚上维护一个有 <b>3.2k</b> star 的开源项目。</p>
+  </div>
+  <div class="sec"><span class="mono">02.</span>经历</div>
+  <div class="job hl"><div class="d mono">2023 — 至今</div><div><h3>基础设施工程师 · <em>澜舟云</em></h3><p>负责构建流水线与内部 CLI，把平均发布耗时从 14 分钟压到 3 分钟。</p><div class="tags"><span class="mono">Go</span><span class="mono">Bazel</span><span class="mono">GitHub Actions</span></div></div></div>
+  <div class="job"><div class="d mono">2020 — 2023</div><div><h3>后端工程师 · <em>小满科技</em></h3><p>设计订单对账服务，维护 12 个 Python 微服务。</p><div class="tags"><span class="mono">Python</span><span class="mono">PostgreSQL</span></div></div></div>
+</main>
+</body></html>

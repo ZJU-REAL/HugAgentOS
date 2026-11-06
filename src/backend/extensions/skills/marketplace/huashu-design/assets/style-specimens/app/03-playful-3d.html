@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>03 玩味 3D 材质</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&family=Noto+Sans+SC:wght@500;700;900&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}*{box-sizing:border-box}
+body{background:#1B1330;font-family:"Bricolage Grotesque","Noto Sans SC",sans-serif;position:relative;color:#1B1330}
+.ph{position:absolute;width:360px;height:760px;transform-origin:0 0;border-radius:52px;overflow:hidden;box-shadow:0 0 0 9px #0c0818,0 0 0 11px #4a3d70,0 40px 80px rgba(0,0,0,.55)}
+.ph:before{content:"";position:absolute;top:11px;left:130px;width:100px;height:28px;border-radius:20px;background:#000;z-index:9}
+.sb{height:50px;padding:14px 30px 0;display:flex;justify-content:space-between;font-weight:800;font-size:15px}
+.h{font-size:26px;font-weight:800;padding:8px 26px 0;letter-spacing:-.5px}
+.dial{position:relative;width:290px;height:290px;margin:26px auto 0;border-radius:50%;background:radial-gradient(circle at 32% 24%,#FFF6E4 0,#FFD9A0 38%,#E8892B 100%);box-shadow:inset -14px -22px 32px rgba(120,40,0,.45),inset 12px 14px 22px rgba(255,255,255,.7),0 26px 0 #A4400A,0 40px 40px rgba(60,10,0,.45)}
+.dial .in{position:absolute;inset:34px;border-radius:50%;background:radial-gradient(circle at 36% 28%,#fff,#FFE9C4 55%,#F2B572);box-shadow:inset 0 10px 18px rgba(130,50,0,.35),inset 0 -6px 12px #fff}
+.dial .num{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:66px;font-weight:800;letter-spacing:-3px;color:#4B1E05;line-height:1}
+.dial .num small{font-size:18px;letter-spacing:0;font-family:"Noto Sans SC";font-weight:900;margin-top:8px;color:#A4400A}
+.dot{position:absolute;left:50%;top:10px;width:18px;height:18px;margin-left:-9px;border-radius:50%;background:#1B1330;box-shadow:inset 0 3px 3px rgba(255,255,255,.3)}
+.chunk{display:inline-flex;align-items:center;justify-content:center;font-family:"Noto Sans SC";font-weight:900;font-size:20px;border-radius:26px;padding:15px 30px;box-shadow:0 8px 0 var(--d),inset 0 4px 0 rgba(255,255,255,.55),0 16px 20px rgba(0,0,0,.25)}
+.card{margin:18px 22px 0;border-radius:30px;padding:18px 22px;background:#fff;box-shadow:0 8px 0 rgba(60,30,150,.35),inset 0 3px 0 #fff,0 18px 24px rgba(30,10,90,.25);display:flex;justify-content:space-between;align-items:center}
+.card b{font-family:"Noto Sans SC";font-size:20px;font-weight:900}.card small{display:block;font-family:"Noto Sans SC";font-weight:700;font-size:15px;opacity:.65;margin-top:3px}
+.card .v{font-size:40px;font-weight:800;letter-spacing:-1.5px}
+.tg{width:84px;height:48px;border-radius:30px;background:#6A3DFF;box-shadow:inset 0 6px 8px rgba(0,0,0,.35),0 4px 0 #3b1ba8;position:relative}
+.tg:after{content:"";position:absolute;right:5px;top:5px;width:38px;height:38px;border-radius:50%;background:radial-gradient(circle at 35% 28%,#fff,#E5DEFF);box-shadow:0 5px 0 #8f77f0,0 8px 10px rgba(0,0,0,.35)}
+.tube{position:relative;width:96px;height:420px;margin:26px auto 0;border-radius:50px;background:linear-gradient(90deg,#fff,#e8e8e8 40%,#bdbdbd);box-shadow:inset 0 0 0 6px #fff,inset 10px 0 14px rgba(255,255,255,.9),0 10px 0 #7da000,0 28px 30px rgba(0,0,0,.3);overflow:hidden}
+.tube i{position:absolute;left:14px;right:14px;bottom:14px;height:62%;border-radius:40px;background:linear-gradient(90deg,#FF7A2D,#FF3D5A 50%,#C4143E);box-shadow:inset 6px 0 8px rgba(255,255,255,.55)}
+.tick{position:absolute;left:36px;font-family:"Noto Sans SC";font-weight:900;font-size:18px}
+</style></head><body>
+
+<div class="ph" style="left:70px;top:70px;background:#FF7A2D;transform:rotate(-5deg)">
+ <div class="sb"><span>9:41</span><span>●●●</span></div>
+ <div class="h">烘焙计时</div>
+ <div class="dial"><div class="dot"></div><div class="in"></div><div class="num">11:42<small>一爆倒计时</small></div></div>
+ <div style="display:flex;gap:16px;justify-content:center;margin-top:62px">
+  <span class="chunk" style="background:#1B1330;color:#FFE9C4;--d:#000">暂停</span>
+  <span class="chunk" style="background:#FFF3DA;color:#4B1E05;--d:#C98B3B">标记</span>
+ </div>
+</div>
+
+<div class="ph" style="left:420px;top:34px;background:#B6A2FF;transform:scale(1.0)">
+ <div class="sb"><span>9:41</span><span>●●●</span></div>
+ <div class="h">今日批次</div>
+ <div class="card"><div><b>埃塞 古吉</b><small>浅烘 · 200 克</small></div><div class="v">8:55</div></div>
+ <div class="card" style="transform:rotate(-2deg)"><div><b>哥伦比亚 蕙兰</b><small>中烘 · 350 克</small></div><div class="v">10:20</div></div>
+ <div class="card"><div><b>云南 保山</b><small>中深烘 · 500 克</small></div><div class="v">12:05</div></div>
+ <div class="card" style="background:#FFE45C"><div><b>自动记录曲线</b><small>每 5 秒采样一次</small></div><div class="tg"></div></div>
+ <div style="text-align:center;margin-top:34px"><span class="chunk" style="background:#1B1330;color:#fff;--d:#000;font-size:22px;padding:18px 44px">新建批次</span></div>
+</div>
+
+<div class="ph" style="left:800px;top:120px;background:#D4FF3F;transform:rotate(5deg)">
+ <div class="sb"><span>9:41</span><span>●●●</span></div>
+ <div style="padding:6px 26px 0"><div style="font-family:'Noto Sans SC';font-weight:900;font-size:20px">豆温</div><div style="font-size:92px;font-weight:800;letter-spacing:-5px;line-height:1">198<span style="font-size:36px;letter-spacing:0">°C</span></div></div>
+ <div class="tube"><i></i></div>
+ <div class="tick" style="left:226px;top:280px">200°</div><div class="tick" style="left:226px;top:420px">150°</div><div class="tick" style="left:226px;top:560px">100°</div>
+</div>
+</body></html>

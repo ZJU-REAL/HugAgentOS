@@ -62,11 +62,11 @@ pub(crate) fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error:
     }
 
     // 没有全局 `.timeout()`：这个 client 同时给反代转发 SSE 长连用。
-    // 但连接建立必须有上限，否则一个半死的上游能把调用方永久挂住。
+    // 但连接建立必须有上限，否则一个半死的上游能把调用方永久挂住（取值见 net.rs）。
     let http = reqwest::Client::builder()
         .danger_accept_invalid_certs(cfg.insecure_tls)
         .no_proxy()
-        .connect_timeout(std::time::Duration::from_secs(3))
+        .connect_timeout(crate::net::CONNECT_TIMEOUT)
         .build()
         .expect("构建 http client 失败");
 
@@ -95,6 +95,12 @@ pub(crate) fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error:
     // 混合架构（Dual）：桥接秘密注入本机服务进程；本机作为「本地项目执行面」
     // 在云端为主的同时常驻。云端/本机单一形态不受影响。
     let hybrid_local = cfg.provision_mode() == config::ProvisionMode::Dual;
+    // 小更新包不带运行时：依次尝试更新源、云端地址（混合模式）、编译期发布源。
+    local_server.set_runtime_sources([
+        cfg.update_base(),
+        cfg.cloud_base(),
+        crate::brand::DESKTOP_UPDATE_BASE.to_string(),
+    ]);
     let bridge_secret = hybrid::load_or_create_bridge_secret(&config_dir);
     if hybrid_local {
         local_server.set_bridge_secret(bridge_secret.clone());
@@ -252,11 +258,7 @@ pub(crate) fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error:
         spawn_local_session_restore(handle.clone());
     }
     if !needs_initialization && !cfg.uses_local_server() {
-        spawn_startup_probe(
-            handle.clone(),
-            cfg.server_base_trimmed().to_string(),
-            cfg.cookie_name.clone(),
-        );
+        spawn_startup_probe(handle.clone());
     }
 
     // 系统托盘：关闭窗口时「最小化到托盘」后，从这里恢复主窗口。

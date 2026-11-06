@@ -69,7 +69,7 @@ pub fn start(app: tauri::AppHandle, base: String, client: reqwest::Client) {
 /// A true return marks a server that has not deployed release notifications yet.
 async fn listen(client: &reqwest::Client, endpoint: &str, demand: &Notify) -> Result<bool, ()> {
     let response = tokio::time::timeout(
-        Duration::from_secs(10),
+        crate::net::CLOUD_REQUEST_TIMEOUT,
         client
             .get(endpoint)
             .header("Accept", "text/event-stream")

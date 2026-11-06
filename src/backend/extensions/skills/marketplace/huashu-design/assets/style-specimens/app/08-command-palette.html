@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>08 键盘优先命令面板</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}*{box-sizing:border-box}
+body{background:#07080A;font-family:Inter,"Noto Sans SC",sans-serif;color:#E8EAEC;position:relative;
+ background-image:radial-gradient(700px 400px at 30% 0%,rgba(255,99,99,.14),transparent 70%),radial-gradient(600px 400px at 90% 100%,rgba(80,150,255,.12),transparent 70%)}
+.ph{position:absolute;width:360px;height:760px;transform-origin:0 0;border-radius:52px;overflow:hidden;background:#0D0E10;border:1px solid #2A2D30;box-shadow:0 0 0 8px #000,0 0 0 9px #26292C,0 30px 70px rgba(0,0,0,.6)}
+.ph:before{content:"";position:absolute;top:11px;left:130px;width:100px;height:28px;border-radius:20px;background:#000;z-index:9;border:1px solid #1d1f22}
+.sb{height:50px;padding:14px 30px 0;display:flex;justify-content:space-between;font-weight:600;font-size:15px}
+.mono{font-family:"JetBrains Mono",monospace}
+.kbd{font-family:"JetBrains Mono",monospace;font-size:13px;font-weight:500;color:#C7CACD;background:linear-gradient(#2B2E31,#1C1E20);border:1px solid #34373A;border-bottom-color:#111;border-radius:6px;padding:2px 7px;box-shadow:0 2px 0 #0a0a0b;min-width:24px;text-align:center;display:inline-block}
+.win{position:absolute;background:#121315;border:1px solid #242728;border-radius:16px;box-shadow:0 40px 90px rgba(0,0,0,.7),0 0 0 1px rgba(255,255,255,.03) inset;overflow:hidden;display:flex;flex-direction:column}
+.in{display:flex;align-items:center;gap:12px;padding:0 20px;height:62px;border-bottom:1px solid #242728;font-size:20px}
+.in .ph1{color:#6B7075}.in .cur{width:2px;height:24px;background:#FF6363}
+.sc{font-size:13px;color:#7A7F84;padding:12px 20px 6px;font-weight:600;letter-spacing:.04em}
+.it{display:flex;align-items:center;gap:14px;padding:10px 20px;margin:0 8px;border-radius:10px;font-size:17px;font-weight:500}
+.it.sel{background:#202225}
+.ic{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff;flex:none;font-family:"JetBrains Mono"}
+.it .r{margin-left:auto;display:flex;gap:5px;align-items:center;color:#7A7F84;font-size:15px}
+.sub{color:#7A7F84;font-size:15px;font-weight:400}
+.ft{margin-top:auto;display:flex;align-items:center;justify-content:space-between;padding:0 20px;height:52px;border-top:1px solid #242728;background:#0E0F11;font-size:14px;color:#9BA0A5}
+.ft span{display:flex;gap:8px;align-items:center}
+.log{padding:6px 18px;font-size:14px;line-height:1.9;color:#B4B8BC}
+.log .g{color:#59D499}.log .y{color:#FFC531}.log .b{color:#52A9FF}.log .d{color:#5D6368}
+</style></head><body>
+
+<div class="win" style="left:60px;top:84px;width:620px;height:580px">
+ <div class="in"><span class="ph1">›</span>部署<span class="cur"></span><span class="ph1" style="margin-left:6px;font-size:18px">到预览环境…</span><span class="kbd" style="margin-left:auto">esc</span></div>
+ <div class="sc">建议</div>
+ <div class="it sel"><span class="ic" style="background:#FF6363">▲</span>部署当前分支<span class="sub">tide-cli · main</span><span class="r"><span class="kbd">⌘</span><span class="kbd">D</span></span></div>
+ <div class="it"><span class="ic" style="background:#52A9FF">↻</span>重新运行上次部署<span class="r"><span class="kbd">⌘</span><span class="kbd">R</span></span></div>
+ <div class="sc">命令</div>
+ <div class="it"><span class="ic" style="background:#59D499;color:#07351f">≡</span>查看最近日志<span class="sub">最近 200 行</span><span class="r"><span class="kbd">⌘</span><span class="kbd">L</span></span></div>
+ <div class="it"><span class="ic" style="background:#8A63F5">⎇</span>切换分支<span class="r"><span class="kbd">⌘</span><span class="kbd">B</span></span></div>
+ <div class="it"><span class="ic" style="background:#FFC531;color:#3a2a00">¶</span>新建发布说明<span class="r"><span class="kbd">⌘</span><span class="kbd">⇧</span><span class="kbd">N</span></span></div>
+ <div class="it"><span class="ic" style="background:#3A3E42">⚙</span>打开设置<span class="r"><span class="kbd">⌘</span><span class="kbd">,</span></span></div>
+ <div class="ft"><span><b style="color:#E8EAEC;font-weight:600">tide</b> 命令面板</span><span>打开命令 <span class="kbd">↵</span> &nbsp; 更多操作 <span class="kbd">⌘</span><span class="kbd">K</span></span></div>
+</div>
+<div class="mono" style="position:absolute;left:60px;top:44px;font-size:13px;color:#5D6368;letter-spacing:.08em">⌘ SPACE · 全局唤起 · 0.04 s</div>
+
+<div class="ph" style="left:730px;top:70px;transform:scale(.86)">
+ <div class="sb"><span>9:41</span><span>●●●</span></div>
+ <div class="in" style="height:58px;font-size:19px"><span class="ph1">›</span>日志<span class="cur"></span></div>
+ <div class="sc">命令</div>
+ <div class="it sel"><span class="ic" style="background:#59D499;color:#07351f">≡</span>查看最近日志</div>
+ <div class="it"><span class="ic" style="background:#52A9FF">↻</span>重新运行部署</div>
+ <div class="it"><span class="ic" style="background:#8A63F5">⎇</span>切换分支</div>
+ <div class="it"><span class="ic" style="background:#3A3E42">⚙</span>打开设置</div>
+ <div class="sc">最近</div>
+ <div class="it"><span class="ic" style="background:#FF6363">▲</span>部署 main<span class="sub">3 分钟前</span></div>
+ <div class="it"><span class="ic" style="background:#FFC531;color:#3a2a00">¶</span>发布说明 v0.9</div>
+</div>
+
+<div class="ph" style="left:1075px;top:200px;transform:scale(.86)">
+ <div class="sb"><span>9:41</span><span>●●●</span></div>
+ <div style="padding:6px 18px 8px;font-size:18px;font-weight:600">最近日志</div>
+ <div class="log mono"><span class="d">14:02:11</span> <span class="b">INFO</span> 开始构建<br><span class="d">14:02:13</span> <span class="g">OK</span>&nbsp;&nbsp; 依赖安装完成<br><span class="d">14:02:19</span> <span class="y">WARN</span> 缓存未命中<br><span class="d">14:02:31</span> <span class="g">OK</span>&nbsp;&nbsp; 测试 128 项通过<br><span class="d">14:02:40</span> <span class="b">INFO</span> 上传产物<br><span class="d">14:02:44</span> <span class="g">OK</span>&nbsp;&nbsp; 已部署到预览</div>
+</div>
+</body></html>

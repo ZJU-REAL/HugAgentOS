@@ -94,7 +94,7 @@ pub(super) async fn fetch_cloud_user(
     let resp = http
         .get(&url)
         .header(reqwest::header::COOKIE, format!("{cookie_name}={token}"))
-        .timeout(std::time::Duration::from_secs(15))
+        .timeout(crate::net::CLOUD_REQUEST_TIMEOUT)
         .send()
         .await
         .ok()?;
@@ -138,7 +138,7 @@ pub(super) async fn issue_capability_once(
         .post(&issue_url)
         .json(&serde_json::json!({ "device_id": device_id }))
         .header(reqwest::header::COOKIE, format!("{cookie_name}={token}"))
-        .timeout(std::time::Duration::from_secs(15))
+        .timeout(crate::net::CLOUD_REQUEST_TIMEOUT)
         .send()
         .await
         .map_err(|e| format!("token 签发请求失败: {e}"))?;

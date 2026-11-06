@@ -1,0 +1,54 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>19 研报密集图表</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@500;600&display=swap">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+body{background:#fff;color:#111;font-family:'Inter','Noto Sans SC',sans-serif;position:relative}
+.hd{position:absolute;left:36px;right:36px;top:22px;display:flex;justify-content:space-between;font-size:12px;color:#555;letter-spacing:.08em;font-weight:600;border-bottom:2px solid #0066FF;padding-bottom:6px}
+h1{position:absolute;left:36px;top:58px;margin:0;width:1130px;font-size:30px;font-weight:900;line-height:1.3}
+h1 em{font-style:normal;color:#0066FF}
+.g{position:absolute;left:36px;right:36px;top:136px;bottom:62px;display:grid;grid-template-columns:1.25fr 1fr 0.8fr;grid-template-rows:1fr 1fr;gap:14px 24px}
+.p{border-top:1px solid #111;padding-top:6px;position:relative;min-height:0}
+.p h4{margin:0 0 6px;font-size:14px;font-weight:700;line-height:1.35}
+.p h4 span{font-weight:400;color:#555}
+.big{grid-row:span 2}
+.kpi{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.k{background:#F2F6FF;padding:14px 12px}
+.k b{display:block;font-family:'Geist Mono','Inter',monospace;font-size:34px;font-weight:600;color:#0066FF;line-height:1.1}
+.k span{font-size:12px;color:#444;line-height:1.35;display:block;margin-top:2px}
+svg{display:block;width:100%}
+svg text{font-family:'Inter','Noto Sans SC',sans-serif;font-size:12px;fill:#444}
+.fn{position:absolute;left:36px;right:36px;bottom:20px;font-size:12px;color:#555;line-height:1.5;border-top:1px solid #CCC;padding-top:6px;display:flex;justify-content:space-between}
+</style></head><body>
+<div class="hd"><span>城市骑行年报 2025 · 趋势篇</span><span>CITY CYCLING REPORT</span></div>
+<h1>过去五年，骑行出行量翻了一倍多，而且<em>通勤骑行</em>贡献了其中近六成的增长</h1>
+<div class="g">
+<div class="p big"><h4>图 1　全市月度骑行量 <span>（百万次，2025，高亮为 5–10 月）</span></h4><svg id="c1" viewBox="0 0 520 470"></svg></div>
+<div class="p"><h4>图 2　年度骑行总量 <span>（亿次）</span></h4><svg id="c2" viewBox="0 0 400 210"></svg></div>
+<div class="p"><h4>核心指标 <span>（2025 vs 2020）</span></h4><div class="kpi">
+<div class="k"><b>2.3x</b><span>全年骑行总量</span></div><div class="k"><b>58%</b><span>增量来自通勤</span></div>
+<div class="k"><b>612km</b><span>新增专用车道</span></div><div class="k"><b>−19%</b><span>骑行者受伤率</span></div></div></div>
+<div class="p"><h4>图 3　骑行目的构成 <span>（%）</span></h4><svg id="c3" viewBox="0 0 400 210"></svg></div>
+<div class="p"><h4>图 4　各区年均增速 <span>（2020–25，%）</span></h4><svg id="c4" viewBox="0 0 300 210"></svg></div>
+</div>
+<div class="fn"><span>来源：市交通运行监测中心；共享单车与公共自行车平台脱敏订单；作者测算。注：2020 年受疫情影响基数偏低。</span><span>12</span></div>
+<script>
+const B='#0066FF',G='#C4CAD4';
+// c1
+let s='';const m=[3.1,3.4,5.2,6.8,8.4,9.1,9.6,9.9,9.3,7.9,5.4,3.6];
+m.forEach((v,i)=>{const hi=i>=4&&i<=9,x=14+i*42,h=v*40;s+=`<rect x="${x}" y="${430-h}" width="32" height="${h}" fill="${hi?B:G}"/><text x="${x+16}" y="${424-h}" text-anchor="middle" style="fill:${hi?'#0050CC':'#444'};font-weight:${hi?700:400}">${v}</text><text x="${x+16}" y="452" text-anchor="middle">${i+1}月</text>`});
+s+=`<line x1="10" y1="430" x2="518" y2="430" stroke="#111"/>`;
+document.getElementById('c1').innerHTML=s;
+// c2
+s='';const y=[0.52,0.61,0.78,0.93,1.07,1.21];
+y.forEach((v,i)=>{const x=20+i*64,h=v*135;const last=i==5;s+=`<rect x="${x}" y="${182-h}" width="44" height="${h}" fill="${last?B:G}"/><text x="${x+22}" y="${176-h}" text-anchor="middle" style="font-weight:${last?700:400};fill:${last?'#0050CC':'#444'}">${v}</text><text x="${x+22}" y="202" text-anchor="middle">${2020+i}</text>`});
+s+=`<line x1="14" y1="182" x2="400" y2="182" stroke="#111"/>`;document.getElementById('c2').innerHTML=s;
+// c3 stacked
+s='';const rows=[['2020',[34,41,25]],['2025',[46,34,20]]];const cols=['#0066FF','#7FAEFF','#C4CAD4'];const names=['通勤','生活出行','休闲健身'];
+rows.forEach(([n,a],r)=>{let x=44;s+=`<text x="0" y="${50+r*74}">${n}</text>`;a.forEach((v,i)=>{const w=v*3.4;s+=`<rect x="${x}" y="${28+r*74}" width="${w}" height="40" fill="${cols[i]}"/><text x="${x+w/2}" y="${53+r*74}" text-anchor="middle" style="fill:${i==0?'#fff':'#111'};font-weight:600">${v}</text>`;x+=w})});
+names.forEach((n,i)=>{s+=`<rect x="${44+i*100}" y="180" width="10" height="10" fill="${cols[i]}"/><text x="${60+i*100}" y="190">${n}</text>`});
+document.getElementById('c3').innerHTML=s;
+// c4 hbars
+s='';const d=[['东城新区',21.4],['南湖区',14.2],['老城区',9.8],['西郊',8.1],['北辰区',6.5]];
+d.forEach(([n,v],i)=>{const yy=8+i*40,hi=i==0;s+=`<text x="0" y="${yy+19}">${n}</text><rect x="64" y="${yy}" width="${v*9}" height="28" fill="${hi?B:G}"/><text x="${64+v*9+6}" y="${yy+19}" style="font-weight:${hi?700:400}">${v}</text>`});
+document.getElementById('c4').innerHTML=s;
+</script></body></html>

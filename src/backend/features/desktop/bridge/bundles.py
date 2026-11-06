@@ -161,6 +161,10 @@ def _reconcile(
             candidates = _apply_intent(kind, manifest, state)
             with _lock:
                 _manifests[kind], _errors[kind] = manifest, None
+        # Inside the account scope: a logout that already cleared the cache is never undone.
+        from features.desktop.bridge import manifest_cache
+
+        manifest_cache.save(state, kind, manifest)
     prepared = 0
     if prepare and candidates:
         from concurrent.futures import ThreadPoolExecutor
@@ -292,6 +296,13 @@ def on_account_switch() -> None:
         for kind in _manifests:
             _manifests[kind] = None
             _errors[kind] = None
+
+
+def restore_manifests(manifests: Dict[str, Dict[str, Any]]) -> None:
+    """Mount cached snapshots whose intent this profile already applied in an earlier process."""
+    with _lock:
+        for kind, manifest in manifests.items():
+            _manifests[kind] = manifest
 
 
 def synced_manifests() -> Dict[str, Optional[Dict[str, Any]]]:

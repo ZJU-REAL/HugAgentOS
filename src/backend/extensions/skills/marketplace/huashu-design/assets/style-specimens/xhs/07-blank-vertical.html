@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>07 留白：竖排与印章</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700;900&family=Bodoni+Moda:ital,opsz,wght@0,6..96,500;1,6..96,500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_kit/xhs.css"><script src="_kit/birds.js"></script><script src="_kit/xhs.js"></script>
+<style>
+/* 留白：大面积空白、宋体竖排、一枚朱印、主体小而孤立；一页只讲一个对象。适合慢内容、故事、单个对象的特写、金句。
+   留白靠字号撑住：竖排正文也不低于 42px，空出来的是版面，不是字。 */
+:root{--paper:#F8F6F0}
+body{font-family:var(--serif)}
+.v{writing-mode:vertical-rl;position:absolute}
+.seal{position:absolute;width:120px;height:120px;background:#B8322A;color:#F8E9E2;border-radius:10px;display:flex;align-items:center;justify-content:center;font:900 44px/1.05 var(--serif);text-align:center;writing-mode:vertical-rl;letter-spacing:4px}
+.no{position:absolute;left:var(--m);top:96px;font:500 var(--label) var(--serif);letter-spacing:6px;color:var(--gray)}
+.foot{position:absolute;left:var(--m);bottom:110px;width:520px;border-top:2px solid #CFCBC0;padding-top:18px;font-size:var(--label);color:var(--gray)}
+</style></head><body>
+<main class="xhs-deck two">
+<section class="xhs-page" data-pageno="off">
+  <div class="no">No. 3465 / 11064</div>
+  <div class="v" style="right:120px;top:150px;font-weight:900;font-size:104px;line-height:1.5;letter-spacing:10px">把世界上的鸟<br>一种一种画下来</div>
+  <div class="v" style="right:470px;top:160px;font-size:var(--label);letter-spacing:8px;color:var(--ink2)">一万一千零六十四种 · 贴纸与数据全部开源</div>
+  <div class="seal" style="right:560px;top:930px">鸣迹</div>
+  <img class="sticker" src="_kit/stickers/Alcedo_atthis.webp" style="left:110px;top:1050px;width:340px">
+  <div class="foot"><i style="font-family:'Bodoni Moda',serif">Alcedo atthis</i>　普通翠鸟</div>
+</section>
+<section class="xhs-page">
+  <div class="no">No. 4086 / 11064</div>
+  <div class="v" style="right:110px;top:150px;font-weight:900;font-size:120px;letter-spacing:12px">葵花鹦鹉</div>
+  <div class="v" style="right:300px;top:160px;height:880px;font-size:var(--body);line-height:2;letter-spacing:4px;color:var(--ink2)">头顶一束硫黄色的冠羽，兴奋时整束竖起。体重七百二十克上下，原产澳大利亚和新几内亚。</div>
+  <img class="sticker" src="_kit/stickers/Cacatua_galerita.webp" style="left:130px;top:780px;height:600px">
+  <div class="seal" style="left:470px;top:1250px;width:96px;height:96px;font-size:34px">八六</div>
+  <div class="foot"><i style="font-family:'Bodoni Moda',serif">Cacatua galerita</i>　审核86分</div>
+</section>
+</main>
+<script>XHS.number(18)</script>
+</body></html>

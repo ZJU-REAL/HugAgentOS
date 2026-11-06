@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>05 ISOTYPE图形统计</title>
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+:root{--paper:#F0E8D6;--k:#1A1A1A;--red:#C8321F;--blue:#2A5A89;--ochre:#D6A022}
+body{background:var(--paper);color:var(--k);font-family:Jost,"Noto Sans SC",sans-serif;position:relative}
+.bar{position:absolute;left:0;top:0;width:1200px;height:14px;background:var(--k)}
+.bar:after{content:"";position:absolute;left:60px;top:0;width:120px;height:14px;background:var(--red)}
+h1{position:absolute;left:60px;top:44px;margin:0;font:700 44px/1.1 Jost,"Noto Sans SC";letter-spacing:.01em}
+h1 small{display:block;font:500 17px/1 Jost;letter-spacing:.28em;color:var(--red);margin-bottom:10px}
+.sub{position:absolute;left:60px;top:150px;font:500 18px/1.5 "Noto Sans SC";width:620px}
+.key{position:absolute;right:60px;top:46px;width:240px;border:3px solid var(--k);padding:12px 14px;display:flex;gap:14px;align-items:center;background:var(--paper)}
+.key svg{flex:none}
+.key div{font:700 17px/1.35 "Noto Sans SC"}
+.key div span{font:500 16px "Noto Sans SC";display:block}
+#rows{position:absolute;left:60px;top:226px;width:1080px}
+.row{height:92px;border-top:2px solid var(--k);position:relative;display:flex;align-items:center}
+.row:last-child{border-bottom:2px solid var(--k)}
+.name{width:176px;font:900 30px/1 "Noto Sans SC";letter-spacing:.02em;flex:none}
+.name small{display:block;font:500 14px Jost;letter-spacing:.2em;margin-top:6px;opacity:.75}
+.icons{display:flex;gap:6px;flex:none;align-items:center}
+.n{white-space:nowrap;margin-left:18px;font:700 32px Jost}
+.n small{font:500 15px "Noto Sans SC"}
+.foot{position:absolute;left:60px;bottom:16px;font:500 15px "Noto Sans SC";width:1080px;display:flex;justify-content:space-between}
+</style></head><body>
+<div class="bar"></div>
+<svg width="0" height="0" style="position:absolute"><defs>
+<symbol id="rec" viewBox="0 0 100 100"><circle cx="50" cy="50" r="49" fill="currentColor"/><circle cx="50" cy="50" r="40" fill="none" stroke="#F0E8D6" stroke-width="1.6" opacity=".55"/><circle cx="50" cy="50" r="32" fill="none" stroke="#F0E8D6" stroke-width="1.6" opacity=".55"/><circle cx="50" cy="50" r="24" fill="none" stroke="#F0E8D6" stroke-width="1.6" opacity=".55"/><circle cx="50" cy="50" r="15" fill="#F0E8D6"/><circle cx="50" cy="50" r="3.6" fill="currentColor"/></symbol></defs></svg>
+<h1><small>VINYL SALES 2025</small>一家唱片店，这一年卖出的黑胶</h1>
+<div class="sub">北城「回声」唱片店，全年共售出 7,400 张。每张唱片图案代表 200 张，图案大小从不变化，卖得多，就多画几张。</div>
+<div class="key"><svg width="54" height="54" style="color:var(--k)"><use href="#rec" width="54" height="54"/></svg><div>＝ 200 张<span>半张 ＝ 100 张</span></div></div>
+<div id="rows"></div>
+<div class="foot"><span>虚构数据，仅作风格样张</span><span>数据：「回声」唱片店 POS 记录，2025 年 1–12 月</span></div>
+<script>
+const rows=[['摇滚','ROCK',12,'#C8321F'],['爵士','JAZZ',9.5,'#2A5A89'],['电子','ELECTRONIC',7.5,'#1A1A1A'],['民谣','FOLK',5,'#D6A022'],['古典','CLASSICAL',3,'#2A5A89']];
+const host=document.getElementById('rows'),S=58;
+rows.forEach(([n,en,v,c])=>{const r=document.createElement('div');r.className='row';
+ let ic='';for(let i=0;i<Math.floor(v);i++)ic+=`<svg width="${S}" height="${S}" style="color:${c}"><use href="#rec" width="${S}" height="${S}"/></svg>`;
+ const f=v-Math.floor(v);if(f>0)ic+=`<svg width="${S*f}" height="${S}" viewBox="0 0 ${100*f} 100" style="color:${c}"><use href="#rec" width="100" height="100"/></svg>`;
+ r.innerHTML=`<div class="name">${n}<small>${en}</small></div><div class="icons">${ic}</div><div class="n">${(v*200).toLocaleString()}<small> 张</small></div>`;host.appendChild(r)});
+</script></body></html>

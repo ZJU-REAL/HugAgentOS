@@ -1,0 +1,53 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>11 美丽信息</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;700;800;900&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+body{background:#fbf9f4;font-family:'Nunito Sans','Noto Sans SC',sans-serif;color:#1c2b33;position:relative}
+.hd{position:absolute;left:32px;top:20px;right:32px;display:flex;justify-content:space-between;align-items:flex-end}
+h1{margin:0;font-size:34px;font-weight:900;letter-spacing:-.5px;line-height:1.1}
+h1 small{display:block;font-size:16px;font-weight:700;color:#5a6b73;letter-spacing:0;margin-top:6px}
+.note{font-size:14px;color:#4b5a62;text-align:right;line-height:1.5}
+.note b{color:#1c2b33}
+svg{position:absolute;left:0;top:0}
+.ft{position:absolute;left:32px;right:32px;bottom:10px;font-size:12px;color:#5a6b73;display:flex;justify-content:space-between}
+</style></head><body>
+<div class="hd"><h1>海里的塑料，是谁丢的？<small>Where ocean plastic comes from · 方块面积 = 每年入海吨数</small></h1>
+<div class="note">共 <b>24</b> 类来源 · 合计 <b>约 397 万吨/年</b><br>蓝屿海洋保护联盟 2025 年报估算</div></div>
+<svg width="1200" height="750" id="s"></svg>
+<div class="ft"><span>注：「河流输入」含内河与入海口带出；数值为区间中值，已四舍五入。</span><span>面积按全图同一比例，颜色只区分来源大类</span></div>
+<script>
+const data=[
+{n:'河流输入',hue:205,c:[['包装袋',52],['饮料瓶',41],['外卖餐盒',30],['轮胎磨损颗粒',26],['一次性餐具',18],['化纤洗涤',15],['吸管搅拌棒',6]]},
+{n:'渔业',hue:22,c:[['废弃渔网',38],['浮标与绳索',22],['养殖设施',17],['泡沫箱',14],['钓具',9]]},
+{n:'陆上其他',hue:330,c:[['农用地膜',19],['医疗废弃',7],['建筑碎屑',6],['气球',3]]},
+{n:'海滩与旅游',hue:145,c:[['烟蒂',12],['塑料袋',11],['瓶盖',9],['防晒包装',5],['玩具',4]]},
+{n:'航运',hue:275,c:[['货柜落海',15],['船舶生活垃圾',10],['压舱与油漆',8]]}];
+const NS='http://www.w3.org/2000/svg',s=document.getElementById('s');
+function sq(items,x,y,w,h){ // items:{v}, sorted desc; returns rects
+ const tot=items.reduce((a,b)=>a+b.v,0),k=w*h/tot,out=[];let it=items.map(i=>({...i,a:i.v*k}));
+ function worst(row,side){const s=row.reduce((a,b)=>a+b.a,0);let mx=Math.max(...row.map(r=>r.a)),mn=Math.min(...row.map(r=>r.a));return Math.max(side*side*mx/(s*s),s*s/(side*side*mn))}
+ while(it.length){const side=Math.min(w,h);let row=[it[0]],i=1;
+  while(i<it.length&&worst(row.concat(it[i]),side)<=worst(row,side)){row.push(it[i]);i++}
+  const s=row.reduce((a,b)=>a+b.a,0);
+  if(w>=h){const rw=s/h;let yy=y;row.forEach(r=>{const rh=r.a/rw;out.push({...r,x,y:yy,w:rw,h:rh});yy+=rh});x+=rw;w-=rw}
+  else{const rh=s/w;let xx=x;row.forEach(r=>{const rw=r.a/rh;out.push({...r,x:xx,y,w:rw,h:rh});xx+=rw});y+=rh;h-=rh}
+  it=it.slice(row.length)}
+ return out}
+function el(t,a,p){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);(p||s).appendChild(e);return e}
+const groups=data.map(g=>({...g,v:g.c.reduce((a,b)=>a+b[1],0)})).sort((a,b)=>b.v-a.v);
+const G=sq(groups,32,100,1136,600);
+G.forEach(g=>{
+ const pad=3,hh=26,gx=g.x+pad/2,gy=g.y+pad/2,gw=g.w-pad,gh=g.h-pad;
+ el('rect',{x:gx,y:gy,width:gw,height:gh,fill:`hsl(${g.hue},48%,36%)`});
+ const t=el('text',{x:gx+8,y:gy+18,fill:'#fff','font-size':14,'font-weight':900,'letter-spacing':'.5'});t.textContent=g.n+'  '+g.v+' 万吨';
+ const C=sq(g.c.map(c=>({n:c[0],v:c[1]})).sort((a,b)=>b.v-a.v),gx,gy+hh,gw,gh-hh);
+ C.forEach((c,i)=>{
+  el('rect',{x:c.x+1,y:c.y+1,width:c.w-2,height:c.h-2,fill:`hsl(${g.hue},${70-i*2}%,${68+Math.min(i,5)*2}%)`});
+  const fit=fs=>c.w>c.n.length*fs+16;
+  if(c.w>52&&c.h>34){
+   const big=c.w>150&&c.h>90; let fs=big?Math.min(30,c.w/6):(c.w>90?16:13); while(fs>12&&!fit(fs))fs--; if(!fit(fs)){return}
+   const t=el('text',{x:c.x+9,y:c.y+9+fs,fill:'#17242b','font-size':fs,'font-weight':big?900:700});t.textContent=c.n;
+   if(c.h>fs*2.6+12){const v=el('text',{x:c.x+9,y:c.y+14+fs*2,fill:'#17242b','font-size':Math.max(12,fs*.8),'font-weight':400});v.textContent=c.v+' 万吨'}
+  }});
+});
+</script></body></html>

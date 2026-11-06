@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>19 Swiss极致黑白</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+body{background:#000;color:#fff;font-family:Geist,"Noto Sans SC",sans-serif;position:relative}
+.mono{font-family:"Geist Mono","Noto Sans SC",monospace}
+.nav{position:absolute;top:0;left:0;right:0;height:60px;border-bottom:1px solid #333;display:flex;align-items:center;padding:0 40px;gap:28px;font-size:14px;color:#A1A1A1}
+.nav b{color:#fff;font-size:17px;font-weight:600;display:flex;align-items:center;gap:10px;margin-right:12px}
+.nav b svg{width:18px;height:16px}
+.nav .r{margin-left:auto;background:#fff;color:#000;padding:7px 16px;font-weight:500}
+.nav .l{color:#fff}
+h1{position:absolute;left:40px;top:110px;margin:0;font-size:76px;line-height:1.08;letter-spacing:-3px;font-weight:700;width:760px}
+.sub{position:absolute;left:40px;top:324px;width:520px;font-size:19px;line-height:1.6;color:#A1A1A1}
+.btn{position:absolute;left:40px;top:410px;display:flex;gap:12px;font-size:15px;font-weight:500}
+.btn a{padding:12px 22px}.w{background:#fff;color:#000}.o{border:1px solid #444;color:#fff}
+.ref{position:absolute;right:40px;top:116px;width:300px;border:1px solid #333;font-size:13px}
+.ref div{display:flex;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #333;color:#A1A1A1}
+.ref div:last-child{border:0}.ref b{color:#fff;font-weight:500}
+.ref .h{color:#fff;background:#111}
+.grid{position:absolute;left:40px;right:40px;top:520px;display:grid;grid-template-columns:repeat(4,1fr);border:1px solid #333}
+.grid>div{padding:18px 20px 22px;border-right:1px solid #333}
+.grid>div:last-child{border:0}
+.grid .k{font-size:12px;letter-spacing:1px;color:#888}
+.grid .n{font-size:44px;font-weight:600;letter-spacing:-2px;margin:10px 0 4px}
+.grid p{margin:0;font-size:14.5px;color:#A1A1A1}
+.inv{background:#fff;color:#000}.inv .k,.inv p{color:#444}
+</style></head><body>
+<div class="nav"><b><svg viewBox="0 0 18 16"><polygon points="9,0 18,16 0,16" fill="#fff"/></svg>浪讯</b><span class="l">产品</span><span>文档</span><span>定价</span><span>案例</span><span class="r">开始使用</span></div>
+<h1>浪况预报，<br>精确到每一个浪点。</h1>
+<div class="sub">为冲浪社区、浪店与赛事方提供浪高、周期、风向的开放 API，数据每 15 分钟更新。</div>
+<div class="btn"><a class="w">获取 API 密钥</a><a class="o mono">GET /v1/spots/wanning</a></div>
+<div class="ref mono"><div class="h"><b>万宁 · 日月湾</b><span>NOW</span></div><div><span>浪高</span><b>1.4 m</b></div><div><span>周期</span><b>11 s</b></div><div><span>风向</span><b>NE 9 kt</b></div><div><span>潮位</span><b>↑ 0.8 m</b></div></div>
+<div class="grid"><div><div class="k mono">覆盖</div><div class="n">312</div><p>个中国沿海浪点</p></div><div><div class="k mono">延迟</div><div class="n">38ms</div><p>P95 响应时间</p></div><div><div class="k mono">精度</div><div class="n">±0.2m</div><p>对比浮标实测浪高</p></div><div class="inv"><div class="k mono">价格</div><div class="n">¥0</div><p>个人与非商业项目</p></div></div>
+</body></html>

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>07 中文内容瀑布流</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}*{box-sizing:border-box}
+body{background:#F0F0F2;font-family:"Noto Sans SC",sans-serif;color:#222;position:relative}
+.ph{position:absolute;width:360px;height:760px;transform-origin:0 0;border-radius:52px;overflow:hidden;background:#fff;box-shadow:0 0 0 9px #1a1a1c,0 0 0 11px #555,0 24px 50px rgba(0,0,0,.22)}
+.ph:before{content:"";position:absolute;top:11px;left:130px;width:100px;height:28px;border-radius:20px;background:#000;z-index:9}
+.sb{height:50px;padding:14px 30px 0;display:flex;justify-content:space-between;font-weight:700;font-size:15px}
+.tabs{display:flex;justify-content:center;gap:26px;font-size:17px;color:#777;font-weight:500;padding:4px 0 10px;position:relative}
+.tabs .on{color:#222;font-weight:700;position:relative}.tabs .on:after{content:"";position:absolute;left:50%;bottom:-8px;width:22px;height:3px;border-radius:2px;background:#FF2442;margin-left:-11px}
+.chips{display:flex;gap:8px;padding:8px 10px 8px;font-size:14px;overflow:hidden;white-space:nowrap}
+.chips span{background:#F4F4F6;border-radius:16px;padding:6px 14px;color:#555}.chips .on{background:#222;color:#fff}
+.cols{display:flex;gap:6px;padding:4px 6px;background:#F5F5F7;height:640px}
+.col{flex:1;display:flex;flex-direction:column;gap:6px}
+.c{background:#fff;border-radius:10px;overflow:hidden;flex:none}
+.ph .img{position:relative;display:flex;align-items:flex-end;padding:6px 8px;font-size:12px;color:rgba(255,255,255,.85);font-weight:500}
+.c h4{margin:8px 10px 6px;font-size:15px;line-height:1.35;font-weight:500;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.au{display:flex;align-items:center;gap:6px;padding:0 10px 10px;font-size:13px;color:#777}
+.av{width:20px;height:20px;border-radius:50%;flex:none;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:700}
+.lk{margin-left:auto;display:flex;align-items:center;gap:3px}
+.hrt{width:13px;height:12px;background:#999;clip-path:path("M6.5 12 L1 6.5 C-1 4 1 0 4 0 C5.2 0 6 .7 6.5 1.5 C7 .7 7.8 0 9 0 C12 0 14 4 12 6.5Z")}
+.nav{position:absolute;left:0;right:0;bottom:0;height:84px;background:#fff;border-top:1px solid #eee;display:flex;justify-content:space-around;padding:12px 8px 0;font-size:14px;color:#777;font-weight:500}
+.nav b{color:#222}.plus{width:50px;height:36px;border-radius:12px;background:#FF2442;position:relative;margin-top:-2px}
+.plus:before,.plus:after{content:"";position:absolute;left:50%;top:50%;background:#fff;transform:translate(-50%,-50%)}.plus:before{width:18px;height:3px}.plus:after{width:3px;height:18px}
+.det .hd{display:flex;align-items:center;gap:10px;padding:6px 18px 10px;font-weight:700;font-size:16px}
+.det .fol{margin-left:auto;border:1px solid #FF2442;color:#FF2442;border-radius:16px;padding:4px 16px;font-size:14px;font-weight:500}
+.det h2{margin:14px 18px 8px;font-size:20px;line-height:1.4;font-weight:700}
+.det p{margin:0 18px 10px;font-size:16px;line-height:1.7;color:#333}
+.tg{color:#3A5BA8;font-size:16px}
+.cb{position:absolute;left:0;right:0;bottom:0;height:78px;background:#fff;border-top:1px solid #eee;display:flex;align-items:center;gap:14px;padding:0 18px 12px;font-size:15px;color:#777}
+.cb .inp{flex:1;background:#F4F4F6;border-radius:20px;padding:9px 16px}
+.float{position:absolute;background:#fff;border-radius:14px;box-shadow:0 22px 44px rgba(0,0,0,.22);overflow:hidden;width:250px}
+</style></head><body>
+
+<div class="ph" style="left:70px;top:46px">
+ <div class="sb"><span>9:41</span><span>●●●</span></div>
+ <div class="tabs"><span>关注</span><span class="on">发现</span><span>附近</span></div>
+ <div class="chips"><span class="on">推荐</span><span>市集</span><span>咖啡</span><span>徒步</span><span>展览</span><span>骑行</span></div>
+ <div class="cols">
+  <div class="col">
+   <div class="c"><div class="img" style="height:210px;background:linear-gradient(160deg,#E8B77A,#C98B4F)">照片位</div><h4>周末去了改造后的菜市场，三楼居然藏着咖啡</h4><div class="au"><span class="av" style="background:#E86A5A">阿</span>阿柚</div></div>
+   <div class="c"><div class="img" style="height:150px;background:linear-gradient(160deg,#9CC3B4,#5E8F7E)">照片位</div><h4>骑行 40 公里记录｜滨江夜路线</h4><div class="au"><span class="av" style="background:#4A7DC4">川</span>川子<span class="lk"><i class="hrt"></i>2.1万</span></div></div>
+   <div class="c"><div class="img" style="height:180px;background:linear-gradient(160deg,#D8A7C8,#A06A92)">照片位</div><h4>小剧场新戏试演场次整理</h4><div class="au"><span class="av" style="background:#8A5CC4">沐</span>沐沐</div></div>
+  </div>
+  <div class="col">
+   <div class="c"><div class="img" style="height:150px;background:linear-gradient(160deg,#A9C1E8,#6C8DC6)">照片位</div><h4>天文台开放夜实录，土星环真的看得见</h4><div class="au"><span class="av" style="background:#2E9E8F">星</span>星野<span class="lk"><i class="hrt"></i>8764</span></div></div>
+   <div class="c"><div class="img" style="height:220px;background:linear-gradient(160deg,#F0C98A,#D9944A)">照片位</div><h4>独立烘焙店的一天：从五点开始的香味</h4><div class="au"><span class="av" style="background:#D9744A">豆</span>豆豆<span class="lk"><i class="hrt"></i>1.3万</span></div></div>
+   <div class="c"><div class="img" style="height:120px;background:linear-gradient(160deg,#B8D4A0,#7DA05F)">照片位</div><h4>茶馆夜谈清单</h4><div class="au"><span class="av" style="background:#6F9E3F">茶</span>茶茶</div></div>
+  </div>
+ </div>
+ <div class="nav"><b>首页</b><span>市集</span><div class="plus"></div><span>消息</span><span>我</span></div>
+</div>
+
+<div class="ph det" style="left:470px;top:104px;transform:scale(.96)">
+ <div class="sb"><span>9:41</span><span>●●●</span></div>
+ <div class="hd"><span style="font-size:20px">&lsaquo;</span><span class="av" style="background:#E86A5A;width:32px;height:32px;font-size:14px">阿</span>阿柚<span class="fol">关注</span></div>
+ <div class="img" style="height:310px;background:linear-gradient(160deg,#E8B77A,#C98B4F);display:flex;align-items:flex-end;padding:10px 14px;font-size:13px;color:rgba(255,255,255,.9)">照片位 · 1/6</div>
+ <h2>周末去了改造后的菜市场，三楼居然藏着咖啡</h2>
+ <p>早上八点到的，一楼还是熟悉的鱼摊和菜摊，只是地面干净了很多。</p>
+ <p>三楼的咖啡店只有六个座位，老板是以前卖豆腐的阿姨的儿子。<span class="tg">#菜市场改造 #周末去哪儿</span></p>
+ <div class="cb"><div class="inp">说点什么…</div><span>2.1k</span><span>568</span></div>
+</div>
+
+<div class="float" style="left:880px;top:92px;transform:rotate(2deg)">
+ <div class="img" style="height:230px;background:linear-gradient(160deg,#F0C98A,#D9944A);display:flex;align-items:flex-end;padding:8px 10px;font-size:12px;color:rgba(255,255,255,.9)">照片位</div>
+ <h4 style="margin:12px 14px 8px;font-size:18px;line-height:1.4;font-weight:500">独立烘焙店的一天：从五点开始的香味</h4>
+ <div class="au" style="padding:0 14px 14px;font-size:14px"><span class="av" style="background:#D9744A;width:24px;height:24px">豆</span>豆豆<span class="lk"><i class="hrt" style="background:#FF2442"></i>1.3万</span></div>
+</div>
+<div style="position:absolute;left:880px;top:462px;width:250px;font-size:13px;color:#8A8A90;letter-spacing:.04em">卡片 · 局部放大</div>
+</body></html>

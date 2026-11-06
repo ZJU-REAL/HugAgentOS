@@ -1,0 +1,26 @@
+{
+  "name": "示例集团",
+  "tagline": "稳重、可信、专业的政企服务品牌",
+  "logo": {
+    "primary": "brand/logo.svg",
+    "on_dark": "brand/logo-white.svg",
+    "min_width_px": 120,
+    "clear_space": "四周留白不小于 logo 高度的 1/4",
+    "dont": ["不得拉伸变形", "不得改色或加阴影", "不得放在杂乱图片上"]
+  },
+  "colors": {
+    "primary": "#C8102E",
+    "secondary": "#1F3A5F",
+    "accent": "#F2A900",
+    "muted": "#6B7280",
+    "ink": "#1A1A1A",
+    "paper": "#FFFFFF"
+  },
+  "fonts": {
+    "heading": ["方正小标宋简体", "FZXiaoBiaoSong-B05S", "SimSun", "serif"],
+    "body": ["微软雅黑", "Microsoft YaHei", "PingFang SC", "WenQuanYi Zen Hei", "sans-serif"],
+    "mono": ["Consolas", "Menlo", "monospace"]
+  },
+  "voice": ["用词稳重，少用感叹号", "先结论后理由", "数字和日期必须准确"],
+  "dont": ["不使用与竞品相近的配色", "正式文件中不使用卡通插画", "不使用未经授权的图片"]
+}

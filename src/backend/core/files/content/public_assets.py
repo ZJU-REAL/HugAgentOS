@@ -24,7 +24,7 @@ def remote() -> bool:
 def key(kind: str, filename: str) -> str:
     manual = kind == "manual" and filename == "manual.pdf"
     image = kind == "page_config" and re.fullmatch(
-        r"(?:logo|favicon|app_icon|mcp_icon)_[0-9a-f]{12}\.(?:png|jpg|svg|webp|ico)", filename
+        r"(?:logo|favicon|login_background|app_icon|mcp_icon)_[0-9a-f]{12}\.(?:png|jpg|svg|webp|ico)", filename
     )
     if not (manual or image):
         raise HTTPException(404, "Asset not found")

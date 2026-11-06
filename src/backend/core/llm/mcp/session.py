@@ -65,6 +65,8 @@ class Session:
         self.client = None
         self.descriptors = []
         self.context = []  # (kind, descriptor) for advertised resources, templates and prompts
+        # The server's own usage guidance from the initialize handshake (empty when it sends none).
+        self.instructions = ""
         self.calls = CallGate()
         self.in_flight = set()
         self.failed = False
@@ -89,6 +91,8 @@ class Session:
 
     async def _discover(self, client):
         capabilities = client.server_capabilities
+        # Optional guidance: a client without it must not fail discovery.
+        self.instructions = str(getattr(client, "instructions", None) or "").strip()
         if capabilities.tools is not None:
             descriptors = await _pages(client.list_tools, "tools")
             names = [d.name for d in descriptors]

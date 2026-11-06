@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>09 健康数据颜色编码</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}*{box-sizing:border-box}
+body{background:#0A0A0C;font-family:Inter,"Noto Sans SC",sans-serif;color:#fff;position:relative}
+.ph{position:absolute;width:360px;height:760px;transform-origin:0 0;border-radius:52px;overflow:hidden;background:#000;box-shadow:0 0 0 9px #17181B,0 0 0 11px #3A3C42,0 30px 60px rgba(0,0,0,.6)}
+.ph:before{content:"";position:absolute;top:11px;left:130px;width:100px;height:28px;border-radius:20px;background:#000;z-index:9;border:1px solid #1d1f22}
+.sb{height:50px;padding:14px 30px 0;display:flex;justify-content:space-between;font-weight:600;font-size:15px}
+.t{padding:6px 22px 0}.t small{font-size:14px;color:#8E8E93;font-weight:600;letter-spacing:.04em}.t h1{margin:2px 0 0;font-size:28px;font-weight:800}
+.card{margin:12px 16px 0;background:#1C1C1E;border-radius:22px;padding:16px 18px}
+.lb{font-size:14px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
+.st{font-size:13px;font-weight:700;border-radius:12px;padding:2px 10px}
+.good{background:rgba(52,152,255,.18);color:#5FB0FF}.fair{background:rgba(255,204,0,.16);color:#FFD43B}.bad{background:rgba(255,69,58,.18);color:#FF6B61}
+.sc{position:relative;width:230px;height:230px;margin:18px auto 0}
+.sc .n{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:76px;font-weight:800;letter-spacing:-3px;line-height:1}
+.sc .n small{font-size:17px;color:#5FB0FF;letter-spacing:0;margin-top:8px;font-weight:700}
+.bars .r{display:flex;align-items:center;gap:12px;font-size:15px;margin-top:11px}.bars .r span{width:84px;color:#C7C7CC}
+.bars .b{flex:1;height:8px;border-radius:4px;background:#2C2C2E;overflow:hidden}.bars .b i{display:block;height:100%;border-radius:4px}
+.hyp{display:flex;align-items:flex-end;gap:3px;height:130px;margin-top:14px}
+.hyp i{flex:1;border-radius:3px}
+.float{position:absolute;background:#1C1C1E;border-radius:30px;padding:22px;box-shadow:0 30px 70px rgba(0,0,0,.6),0 0 0 1px #2c2c2e}
+.leg{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:600;margin-top:12px}.leg i{width:14px;height:14px;border-radius:50%}
+</style></head><body>
+
+<div class="ph" style="left:66px;top:46px">
+ <div class="sb"><span>9:41</span><span>●●●</span></div>
+ <div class="t"><small>周五 · 10 月 17 日</small><h1>准备度</h1></div>
+ <div class="sc"><svg viewBox="0 0 230 230" width="230" height="230"><circle cx="115" cy="115" r="100" fill="none" stroke="#1C1C1E" stroke-width="18"/><circle cx="115" cy="115" r="100" fill="none" stroke="#3498FF" stroke-width="18" stroke-linecap="round" stroke-dasharray="546 628" transform="rotate(-90 115 115)"/></svg><div class="n">87<small>最佳</small></div></div>
+ <div class="card bars"><div class="lb"><span>构成项</span></div>
+  <div class="r"><span>静息心率</span><div class="b"><i style="width:92%;background:#3498FF"></i></div></div>
+  <div class="r"><span>心率变异</span><div class="b"><i style="width:78%;background:#3498FF"></i></div></div>
+  <div class="r"><span>睡眠均衡</span><div class="b"><i style="width:58%;background:#FFCC00"></i></div></div>
+  <div class="r"><span>体温偏差</span><div class="b"><i style="width:30%;background:#FF453A"></i></div></div>
+ </div>
+</div>
+
+<div class="ph" style="left:450px;top:96px;transform:scale(.94)">
+ <div class="sb"><span>9:41</span><span>●●●</span></div>
+ <div class="t"><small>昨晚</small><h1>睡眠 7 时 32 分</h1></div>
+ <div class="card"><div class="lb"><span>睡眠分期</span><span class="st good">良好</span></div>
+  <div class="hyp">
+   <i style="height:30%;background:#5E5CE6"></i><i style="height:48%;background:#5E5CE6"></i><i style="height:70%;background:#3A3AA0"></i><i style="height:100%;background:#2A2A78"></i><i style="height:92%;background:#2A2A78"></i><i style="height:66%;background:#3A3AA0"></i><i style="height:44%;background:#5E5CE6"></i><i style="height:22%;background:#64D2FF"></i><i style="height:52%;background:#5E5CE6"></i><i style="height:80%;background:#3A3AA0"></i><i style="height:96%;background:#2A2A78"></i><i style="height:60%;background:#3A3AA0"></i><i style="height:36%;background:#5E5CE6"></i><i style="height:18%;background:#64D2FF"></i><i style="height:40%;background:#5E5CE6"></i><i style="height:26%;background:#64D2FF"></i><i style="height:10%;background:#FF9F0A"></i>
+  </div>
+  <div style="display:flex;justify-content:space-between;font-size:13px;color:#8E8E93;margin-top:8px;font-weight:600"><span>23:20</span><span>03:00</span><span>06:52</span></div>
+ </div>
+ <div class="card" style="display:flex;gap:10px;padding:14px">
+  <div style="flex:1"><div style="font-size:13px;color:#8E8E93;font-weight:700">深睡</div><div style="font-size:26px;font-weight:800;margin-top:4px">1:48</div><span class="st good">正常</span></div>
+  <div style="flex:1"><div style="font-size:13px;color:#8E8E93;font-weight:700">快速眼动</div><div style="font-size:26px;font-weight:800;margin-top:4px">1:34</div><span class="st fair">偏低</span></div>
+  <div style="flex:1"><div style="font-size:13px;color:#8E8E93;font-weight:700">清醒</div><div style="font-size:26px;font-weight:800;margin-top:4px">0:22</div><span class="st bad">偏多</span></div>
+ </div>
+ <div class="card"><div class="lb"><span>夜间心率变异</span><span class="st good">在你的正常范围内</span></div>
+  <svg viewBox="0 0 300 90" style="width:100%;margin-top:10px"><rect x="0" y="22" width="300" height="42" fill="#3498FF" opacity=".16" rx="6"/><path d="M0 60 L40 48 L80 54 L120 36 L160 40 L200 30 L240 38 L300 28" fill="none" stroke="#5FB0FF" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/><circle cx="300" cy="28" r="5" fill="#fff"/></svg>
+ </div>
+</div>
+
+<div class="float" style="left:850px;top:70px;width:300px;text-align:center">
+ <div style="font-size:14px;color:#8E8E93;font-weight:700;letter-spacing:.04em;text-align:left">活动圆环 · 局部放大</div>
+ <svg viewBox="0 0 220 220" width="236" height="236" style="margin-top:8px"><g fill="none" stroke-linecap="round" stroke-width="22" transform="rotate(-90 110 110)">
+  <circle cx="110" cy="110" r="92" stroke="#3A0A14"/><circle cx="110" cy="110" r="92" stroke="#FA114F" stroke-dasharray="473 579"/>
+  <circle cx="110" cy="110" r="68" stroke="#1E3A08"/><circle cx="110" cy="110" r="68" stroke="#92E82A" stroke-dasharray="330 427"/>
+  <circle cx="110" cy="110" r="44" stroke="#04373A"/><circle cx="110" cy="110" r="44" stroke="#1EEAEF" stroke-dasharray="160 276"/></g></svg>
+ <div style="text-align:left;margin-top:6px">
+  <div class="leg"><i style="background:#FA114F"></i>活动 512 / 600 千卡</div>
+  <div class="leg"><i style="background:#92E82A"></i>锻炼 26 / 30 分钟</div>
+  <div class="leg"><i style="background:#1EEAEF"></i>站立 7 / 12 小时</div>
+ </div>
+</div>
+<div class="float" style="left:850px;top:512px;width:300px;padding:18px 22px">
+ <div style="font-size:14px;color:#8E8E93;font-weight:700;letter-spacing:.04em;margin-bottom:6px">状态色</div>
+ <div style="display:flex;gap:8px"><span class="st good">最佳</span><span class="st fair">一般</span><span class="st bad">注意</span></div>
+</div>
+</body></html>

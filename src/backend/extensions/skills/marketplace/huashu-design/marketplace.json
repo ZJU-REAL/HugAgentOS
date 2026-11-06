@@ -1,0 +1,22 @@
+{
+  "slug": "huashu-design",
+  "entry_name": "huashu-design",
+  "display_name": "花叔 Design · 高保真设计",
+  "summary": "用 HTML 做高保真网页与 App 原型、演示幻灯片、信息图、小红书图文和 HTML 动画；每次先出三个设计方向初稿供选择，内置中文排印、风格库和设计体检脚本，可导出 PDF 与可编辑 PPTX。",
+  "category": "营销创意",
+  "tags": [
+    "UI 原型",
+    "视觉设计",
+    "信息图"
+  ],
+  "version": "3.1.0",
+  "author": "花叔",
+  "icon_url": "",
+  "source": "github",
+  "source_url": "https://github.com/alchaincyf/huashu-design",
+  "downloads": 0,
+  "stars": 28539,
+  "featured": true,
+  "requires_api_key": false,
+  "required_secrets": []
+}

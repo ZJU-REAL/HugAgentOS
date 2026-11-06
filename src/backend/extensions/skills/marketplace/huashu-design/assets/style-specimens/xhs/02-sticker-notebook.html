@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>02 贴纸本：产品自己的纸面</title>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@500;700;800;900&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_kit/xhs.css"><script src="_kit/birds.js"></script><script src="_kit/xhs.js"></script>
+<style>
+/* 贴纸本：直接借产品界面的纸、点阵、胶囊和贴纸，读者一眼认出「这是那个 App」。亲切、可收藏，最像小红书原生内容。 */
+.fig{font-family:var(--latin)}
+.pill{display:inline-flex;align-items:center;height:72px;padding:0 32px;border-radius:36px;background:var(--ink);color:#fff;font-weight:700;font-size:var(--label)}
+.pill.l{background:#fff;color:var(--ink);box-shadow:0 4px 12px rgba(var(--shade),.10)}
+.stamp{position:absolute;background:var(--accent2);border:3px solid var(--accentText);color:var(--accentText);font:800 var(--label) var(--latin);padding:10px 22px;border-radius:12px;white-space:nowrap;box-shadow:0 4px 10px rgba(var(--shade),.12)}
+.card{position:absolute;background:#fff;border-radius:44px;box-shadow:0 22px 50px rgba(var(--shade),.12),0 2px 6px rgba(var(--shade),.06)}
+.tape{position:absolute;width:170px;height:52px;background:rgba(255,212,71,.55)}
+.cell{position:absolute;width:350px;text-align:center}
+.cell .im{height:250px;display:flex;align-items:flex-end;justify-content:center}
+.cell img{max-width:290px;max-height:246px;filter:drop-shadow(0 12px 12px rgba(var(--shade),.17)) drop-shadow(0 1px 2px rgba(var(--shade),.12))}
+.cell .z{font-size:var(--body);font-weight:700;margin-top:14px}
+.row{display:flex;align-items:center;gap:24px;height:92px;border-bottom:3px dashed var(--line);font-size:var(--body);font-weight:500}
+.row:last-child{border:0}
+.ck{flex:none;width:54px;height:54px;border-radius:14px;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;font:900 32px var(--latin)}
+</style></head><body>
+<main class="xhs-deck two">
+<section class="xhs-page dots" data-pageno="off">
+  <div class="abs pill" style="right:var(--m);top:64px">鸣迹 · 贴纸开源</div>
+  <div class="abs" style="left:var(--m);top:64px;font-size:var(--label);color:var(--ink2);line-height:72px">全世界的本子 ⌄</div>
+  <div class="abs" style="left:76px;top:170px;display:flex;align-items:baseline;gap:16px"><span class="fig" style="font-weight:900;font-size:230px;line-height:1;letter-spacing:-8px">11064</span><span style="font-weight:900;font-size:64px">种鸟</span></div>
+  <div class="abs" style="left:var(--m);top:430px;display:flex;gap:16px"><span class="pill">按目</span><span class="pill l">按科</span><span class="pill l">按颜色</span></div>
+  <div class="stamp" style="right:96px;top:440px;transform:rotate(-6deg)">0 种漏掉</div>
+  <div id="g"></div>
+  <div class="card" style="left:70px;top:1236px;width:1100px;height:370px;transform:rotate(-2deg)">
+    <div class="abs" style="left:60px;top:46px;font-weight:900;font-size:110px;line-height:1.16">我把全世界的鸟<br>都做成了贴纸<span style="color:#E9A800">！</span></div>
+  </div>
+  <div class="tape" style="left:540px;top:1208px;transform:rotate(-6deg)"></div>
+</section>
+<section class="xhs-page dots">
+  <div class="abs" style="left:var(--m);top:72px"><span class="pill">第 3 步 · 打分</span></div>
+  <div class="abs" style="left:var(--m);top:190px;font-weight:900;font-size:128px;line-height:1.1"><span style="background:linear-gradient(transparent 58%,var(--accent) 58% 92%,transparent 92%)">80分</span>，才算过</div>
+  <div class="abs" style="left:var(--m);right:var(--m);top:360px;font-size:var(--body);line-height:1.6;color:var(--ink2)">每张画完，交给独立审核员，对照真实照片逐项挑错。</div>
+  <div class="card" style="left:var(--m);top:540px;width:1074px;height:820px">
+    <div class="abs" style="left:60px;top:52px"><div style="font-weight:900;font-size:56px">审核单</div><div style="font-size:var(--label);color:var(--gray);margin-top:8px">普通翠鸟</div></div>
+    <div class="abs" style="right:60px;top:40px;width:170px;height:170px;border-radius:50%;border:12px solid #E9A800;display:flex;flex-direction:column;align-items:center;justify-content:center"><span class="fig" style="font-weight:900;font-size:72px;line-height:1">91</span><span style="font-size:32px;color:var(--gray);font-weight:700">过线</span></div>
+    <div class="abs" style="left:60px;width:560px;top:240px">
+      <div class="row"><span class="ck">✓</span>虹膜颜色</div><div class="row"><span class="ck">✓</span>喙的形状</div><div class="row"><span class="ck">✓</span>每一块羽色</div><div class="row"><span class="ck">✓</span>腿脚趾爪</div><div class="row"><span class="ck">✓</span>尾巴形状</div><div class="row"><span class="ck" style="background:var(--accent);color:var(--accentText)">✓</span>改对上一轮</div>
+    </div>
+  </div>
+  <img class="sticker" src="_kit/stickers/Alcedo_atthis.webp" style="left:640px;top:820px;width:500px;transform:rotate(5deg)">
+  <div class="abs" style="left:var(--m);right:var(--m);top:1380px;display:flex;gap:24px">
+    <div style="flex:1.2;background:var(--accent);border-radius:32px;padding:26px 36px;color:var(--accentText)"><span class="fig" style="font-weight:900;font-size:84px;line-height:1">7,676</span><div style="font-size:var(--label);font-weight:700;margin-top:6px">张过了线</div></div>
+    <div style="flex:1;background:#F3F1EA;border:3px solid var(--line);border-radius:32px;padding:26px 36px;color:var(--ink2)"><span class="fig" style="font-weight:900;font-size:84px;line-height:1">3,388</span><div style="font-size:var(--label);font-weight:700;margin-top:6px">张没过，标着</div></div>
+  </div>
+</section>
+</main>
+<script>
+const L=[['Cacatua_galerita',84,530],['Alcedo_atthis',446,530],['Aix_galericulata',808,530],['Bubo_bubo',84,870],['Chrysolophus_pictus',446,870],['Upupa_epops',808,870]];
+document.getElementById('g').innerHTML=L.map(([i,x,y],k)=>`<div class="cell" style="left:${x}px;top:${y}px"><div class="im"><img src="${XHS.S(i)}" style="transform:rotate(${[-3,2,-1.5,2.5,-2,1.5][k]}deg)"></div><div class="z">${BIRDS[i].zh}</div></div>`).join('');
+XHS.number(18);
+</script>
+</body></html>

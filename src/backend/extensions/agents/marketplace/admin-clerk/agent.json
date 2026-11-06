@@ -23,8 +23,7 @@
   "model_config": {},
   "bindings": {
     "skill_ids": [
-      "officecli-docx",
-      "meeting-minutes-organizer"
+      "officecli-docx"
     ],
     "mcp_server_ids": [],
     "plugin_ids": [],

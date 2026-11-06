@@ -70,7 +70,7 @@ interface AnswerFieldProps {
  * box. Mirror and textarea must keep identical type, padding and wrapping —
  * a mismatch makes the box the wrong height for the text being typed.
  */
-function AnswerField({ variant, ...props }: AnswerFieldProps) {
+export function AnswerField({ variant, ...props }: AnswerFieldProps) {
   return (
     <div
       className={

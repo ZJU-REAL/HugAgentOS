@@ -88,7 +88,11 @@ def _reconcile_intent(manifest: Dict[str, Any], state: Dict[str, Any]) -> List[s
             updates = _apply_intent(manifest, state)
             with _lock:
                 _manifest, _error = manifest, None
-            return updates
+        # Inside the account scope: a logout that already cleared the cache is never undone.
+        from features.desktop.bridge import manifest_cache
+
+        manifest_cache.save(state, KIND_SKILL, manifest)
+    return updates
 
 
 def _apply_intent(manifest: Dict[str, Any], state: Dict[str, Any]) -> List[str]:
@@ -268,6 +272,13 @@ def on_account_switch() -> None:
         _manifest = None
         _error = None
     skills.bump_view_generation()
+
+
+def restore_manifest(manifest: Dict[str, Any]) -> None:
+    """Mount a cached snapshot whose intent this profile already applied in an earlier process."""
+    global _manifest
+    with _lock:
+        _manifest = manifest
 
 
 def synced_manifest() -> Optional[Dict[str, Any]]:

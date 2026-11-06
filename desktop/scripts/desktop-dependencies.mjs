@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -127,6 +128,27 @@ export function desktopTargetInputHash(root, target) {
 
 export function desktopRequirementsInputHash(root) {
   return sha256(readNormalizedText(join(root, DESKTOP_REQUIREMENTS_FILE)));
+}
+
+export function pinnedUvVersion(root) {
+  const pin = readNormalizedText(join(root, DESKTOP_REQUIREMENTS_FILE)).match(/^uv==([^\s#]+)$/m);
+  if (!pin) throw new Error(`${DESKTOP_REQUIREMENTS_FILE} must pin uv with uv==<version>`);
+  return pin[1];
+}
+
+// uv resolves `uv python install 3.11` to a patch release from its own
+// catalog. The uv pin is a fingerprint input, so enforcing it here keeps the
+// bundled CPython from changing while the fingerprint stays the same.
+export function assertPinnedUv(root, runner = spawnSync) {
+  const expected = pinnedUvVersion(root);
+  const result = runner("uv", ["--version"], { encoding: "utf8", shell: false });
+  const actual = result.status === 0 ? result.stdout.match(/^uv (\S+)/)?.[1] : null;
+  if (actual !== expected) {
+    throw new Error(
+      `uv ${expected} is required on the release builder (found ${actual ?? "none"}). ` +
+        "End users do not need uv.",
+    );
+  }
 }
 
 export function readAndValidateDesktopLock(root, target) {

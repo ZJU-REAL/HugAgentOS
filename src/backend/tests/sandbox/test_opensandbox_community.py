@@ -63,7 +63,7 @@ def test_authenticated_controller_renews_and_completes_snapshot_lifecycle(monkey
         try:
             await provider._renew(SimpleNamespace(sandbox=SimpleNamespace(id="box-1")))
             assert await provider._take_snapshot("box-1") == "snapshot-1"
-            await provider._wait_snapshot_ready("snapshot-1", timeout_s=1)
+            assert await provider._snapshot_state("snapshot-1") == "Ready"
             await provider._delete_snapshot("snapshot-1")
         finally:
             await provider._http_client.aclose()

@@ -243,11 +243,23 @@ class AutomationService:
         return task
 
     def resume_task(self, task_id: str, user_id: str) -> Optional[ScheduledTask]:
+        """Resume a paused task, or re-enable one auto-disabled after repeated failures.
+
+        Re-enabling clears the failure streak; otherwise the next single failure
+        would disable the task again straight away.
+        """
         task = self.get_task(task_id, user_id)
-        if not task or task.status != "paused":
+        if not task or task.status not in ("paused", "disabled"):
             return None
+        if task.status == "disabled":
+            task.consecutive_failures = 0
+            task.last_error = None
         task.status = "active"
-        task.next_run_at = scheduling.compute_next_run(task.cron_expression, task.timezone)
+        # Manual tasks are never auto-scheduled (see create_task).
+        task.next_run_at = (
+            None if task.schedule_type == "manual"
+            else scheduling.compute_next_run(task.cron_expression, task.timezone)
+        )
         task.updated_at = datetime.now(timezone.utc)
         self.db.commit()
         self.db.refresh(task)

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>08 信息图：面积即数量</title>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@500;700;800;900&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_kit/xhs.css"><script src="_kit/birds.js"></script><script src="_kit/xhs.js"></script>
+<style>
+/* 信息图：面积就是数量。封面用矩形树图（贴纸嵌在格里），内页用华夫格（一格＝10个）。适合有一组硬数字、要一眼看懂的结论页。
+   小格放不下 32px 的字就不放字，合并成「其余 N 个」，不要缩字号。 */
+.fig{font-family:var(--latin)}
+.tm{position:absolute;left:var(--m);top:400px;width:1074px;height:1180px}
+.tm div{position:absolute;border:4px solid var(--paper);background:#fff;overflow:hidden}
+.tm b{position:absolute;left:18px;top:12px;font-size:var(--label);font-weight:900;line-height:1.2}
+.tm b span{display:block;font:900 var(--label) var(--latin)}
+.tm img{position:absolute;right:10px;bottom:8px;filter:drop-shadow(0 8px 8px rgba(var(--shade),.18))}
+.waf{position:absolute;left:var(--m);top:400px;display:grid;grid-template-columns:repeat(41,23.4px);gap:3px}
+.waf i{height:23.4px;border-radius:3px}
+.lg{display:grid;grid-template-columns:44px 230px 1fr;align-items:center;gap:20px;padding:12px 0;font-size:var(--body)}
+.lg i{width:44px;height:44px;border-radius:6px}
+.lg b{font:900 52px var(--latin)}
+.lg span{font-size:var(--label);color:var(--ink2)}
+</style></head><body>
+<main class="xhs-deck two">
+<section class="xhs-page dots" data-pageno="off">
+  <div class="abs" style="left:var(--m);top:80px;font-weight:900;font-size:104px;line-height:1.15">11064种鸟<br>分在44个目里</div>
+  <div class="abs" style="right:var(--m);top:110px;text-align:right;font-size:var(--label);line-height:1.5;color:var(--ink2)">面积＝种数<br>雀形目一家<br>超过一半</div>
+  <div class="tm" id="tm"></div>
+</section>
+<section class="xhs-page dots">
+  <div class="abs" style="left:var(--m);top:80px;font-weight:900;font-size:100px">过线的，有多少？</div>
+  <div class="abs" style="left:var(--m);right:var(--m);top:230px;font-size:var(--body);line-height:1.5;color:var(--ink2)">一格＝10种。审核80分以上算过线</div>
+  <div class="waf" id="waf"></div>
+  <div class="abs" style="left:var(--m);right:var(--m);top:1150px" id="lg"></div>
+</section>
+</main>
+<script>
+// 真实数字：每个目的种数（IOC 15.2），前 9 个单列，其余合并
+const O=[['雀形目',6696,'Carpodacus_erythrinus'],['雨燕目',477,'Ensifera_ensifera'],['䴕形目',443],['鹦形目',392,'Trichoglossus_moluccanus'],['鸻形目',385],['鸽形目',339],['鸡形目',305,'Chrysolophus_pictus'],['鹰形目',262,'Accipiter_nisus'],['鸮形目',251,'Bubo_bubo'],['其余35个目',1514]];
+// squarify：按面积切矩形树图（变量别叫 top/name，会撞浏览器全局）
+function squarify(items,x,y,w,h){const tot=items.reduce((s,d)=>s+d.v,0),out=[];let rest=items.slice(),X=x,Y=y,W=w,H=h,T=tot;
+  while(rest.length){const side=Math.min(W,H),row=[];let best=Infinity;
+    for(const d of rest){const r=row.concat(d),s=r.reduce((a,b)=>a+b.v,0),area=s/T*W*H,len=area/side;
+      const worst=Math.max(...r.map(e=>{const a=e.v/T*W*H,o=a/len;return Math.max(len/o,o/len)}));if(worst>best)break;best=worst;row.push(d)}
+    rest=rest.slice(row.length);const s=row.reduce((a,b)=>a+b.v,0),area=s/T*W*H;
+    if(W>=H){const cw=area/H;let cy=Y;row.forEach(d=>{const ch=d.v/s*H;out.push({...d,x:X,y:cy,w:cw,h:ch});cy+=ch});X+=cw;W-=cw}
+    else{const rh=area/W;let cx=X;row.forEach(d=>{const cw=d.v/s*W;out.push({...d,x:cx,y:Y,w:cw,h:rh});cx+=cw});Y+=rh;H-=rh}
+    T-=s}
+  return out}
+document.getElementById('tm').innerHTML=squarify(O.map(([n,v,s])=>({n,v,s})),0,0,1074,1180).map((r,k)=>{
+  const big=k===0, small=r.w<120||r.h<100, pic=r.w>=170&&r.h>=170, bg=big?'#FFF1BF':'#fff';
+  const img=r.s&&pic?`<img src="${XHS.S(r.s)}" style="max-width:${r.w*(big?.7:.62)}px;max-height:${r.h*(big?.62:.58)}px">`:'';
+  return `<div style="left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px;background:${bg}"><b style="${big?'font-size:64px':''}">${r.n}${small?'':`<span style="${big?'font-size:96px;line-height:1':''}">${r.v}</span>`}</b>${img}</div>`}).join('');
+// 华夫格：7676 过线 / 3273 在70–79 / 109 低于70 / 6 盲审未过，一格10种
+const Q=[[768,'#211F1C'],[327,'#FFD447'],[11,'#A8A39A'],[1,'#fff']],cells=[];Q.forEach(([n,c])=>{for(let k=0;k<n;k++)cells.push(c)});
+document.getElementById('waf').innerHTML=cells.map(c=>`<i style="background:${c};${c==='#fff'?'outline:2px solid #211F1C;outline-offset:-2px':''}"></i>`).join('');
+document.getElementById('lg').innerHTML=[['#211F1C','7,676','达到质量线'],['#FFD447','3,273','70–79分'],['#A8A39A','109','低于70分'],['#fff','6','初审过、盲审没过']].map(([c,n,t])=>`<div class="lg"><i style="background:${c};outline:2px solid #211F1C;outline-offset:-2px"></i><b>${n}</b><span>${t}</span></div>`).join('');
+XHS.number(18);
+</script>
+</body></html>

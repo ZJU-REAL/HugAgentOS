@@ -101,7 +101,7 @@ pub(super) fn remove_tree(path: &Path) {
 /// 解压暂存目录名里的固定段，`staging_path` 拼名字和 `prune_children` 认残骸用的是
 /// 同一个常量。安装中途被杀或断电会留下一份，每份都是一整套 Python 运行时；下次安装
 /// 用的是新的 nonce，删不到旧的那份。
-const STAGING_MARKER: &str = ".stage-";
+pub(super) const STAGING_MARKER: &str = ".stage-";
 /// 多久没动过就认定这份暂存目录已经没人在写了。解压是持续写入的，正在进行的那份
 /// 修改时间一直在刷新，不会落进这个窗口。
 const ABANDONED_STAGING: Duration = Duration::from_secs(60 * 60);

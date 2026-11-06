@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>02 液态玻璃</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}*{box-sizing:border-box}
+body{font-family:Inter,"Noto Sans SC",sans-serif;color:#fff;position:relative;background:linear-gradient(135deg,#0F2A63 0%,#2A56C8 35%,#18A5C9 65%,#7BE3C6 100%)}
+.blob{position:absolute;border-radius:50%;filter:blur(30px)}
+.glass{background:linear-gradient(135deg,rgba(255,255,255,.34),rgba(255,255,255,.08));backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);border:1px solid rgba(255,255,255,.45);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.7),inset 0 -1px 0 rgba(255,255,255,.18),0 12px 30px rgba(8,25,70,.28)}
+.ph{position:absolute;width:360px;height:760px;transform-origin:0 0;border-radius:52px;overflow:hidden;box-shadow:0 0 0 9px #0A1022,0 0 0 11px #4B5778,0 34px 70px rgba(5,15,50,.5)}
+.ph:before{content:"";position:absolute;top:11px;left:130px;width:100px;height:28px;border-radius:20px;background:#000;z-index:20}
+.sb{height:50px;padding:14px 30px 0;display:flex;justify-content:space-between;font-weight:600;font-size:15px;position:relative;z-index:5}
+.s1{background:linear-gradient(170deg,#FF9A5A 0%,#F45B8B 28%,#6A4CD6 62%,#143B8F 100%)}
+.s2{background:linear-gradient(170deg,#0F8F9E 0%,#18C0A8 45%,#E6F6A8 100%)}
+.s3{background:linear-gradient(190deg,#1B2A6B 0%,#4D4AC2 45%,#F27A9B 100%)}
+.big{font-size:84px;font-weight:700;letter-spacing:-3px;line-height:1;margin:6px 24px 0}
+.card{margin:14px 18px 0;border-radius:30px;padding:18px 20px}
+.lab{font-size:14px;font-weight:600;opacity:.9;letter-spacing:.04em}
+.tab{position:absolute;left:24px;right:24px;bottom:26px;height:64px;border-radius:34px;display:flex;justify-content:space-around;align-items:center;font-size:14px;font-weight:600;z-index:6}
+.tab span{padding:9px 16px;border-radius:24px}.tab .on{background:rgba(255,255,255,.35);box-shadow:inset 0 1px 0 rgba(255,255,255,.7)}
+.round{width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:20px}
+.hr{display:flex;justify-content:space-between;font-size:16px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.22)}
+.hr:last-child{border:0}
+.sheet{position:absolute;left:10px;right:10px;bottom:10px;border-radius:44px;padding:24px 22px 100px;z-index:4}
+.grab{width:44px;height:5px;border-radius:3px;background:rgba(255,255,255,.7);margin:-12px auto 14px}
+</style></head><body>
+<div class="blob" style="left:480px;top:-60px;width:320px;height:320px;background:#FF7AA8;opacity:.5"></div>
+<div class="blob" style="left:60px;top:560px;width:400px;height:260px;background:#9AF0D4;opacity:.45"></div>
+<div class="blob" style="left:960px;top:420px;width:300px;height:300px;background:#F27AA0;opacity:.5"></div>
+
+<div class="ph s2" style="left:60px;top:90px;transform:scale(.92)">
+ <div class="sb"><span>9:41</span><span>●●●</span></div>
+ <div style="padding:6px 24px 0"><div class="lab">岬角北湾</div><div style="font-size:28px;font-weight:700;margin-top:2px">今日浪况</div></div>
+ <div class="card glass"><div class="lab">浪高</div><div style="font-size:54px;font-weight:700;letter-spacing:-2px;line-height:1.1">1.2<span style="font-size:22px"> 米</span></div><div style="font-size:16px;margin-top:4px;opacity:.95">周期 9 秒，西南涌，适合长板。</div></div>
+ <div class="card glass"><div class="hr"><span>风</span><b>西北 12 节</b></div><div class="hr"><span>水温</span><b>17 °C</b></div><div class="hr"><span>下次高潮</span><b>16:48</b></div></div>
+ <div class="tab glass"><span class="on">浪况</span><span>潮汐</span><span>地图</span></div>
+</div>
+
+<div class="ph s1" style="left:430px;top:36px">
+ <div class="sb"><span>9:41</span><span>●●●</span></div>
+ <div style="padding:6px 24px 0;display:flex;justify-content:space-between;align-items:center"><div class="round glass">&lsaquo;</div><div class="round glass" style="font-size:16px">编辑</div></div>
+ <div style="padding:14px 24px 0"><div class="lab">岬角北湾 · 周六</div></div>
+ <div class="big">1.6<span style="font-size:30px;letter-spacing:0"> 米</span></div>
+ <div style="margin:6px 24px 0;font-size:18px;font-weight:600">涌浪抬升，日出前最干净</div>
+ <div class="sheet glass"><div class="grab"></div>
+  <div class="lab" style="margin-bottom:10px">逐小时</div>
+  <div style="display:flex;gap:10px;justify-content:space-between">
+   <div class="glass" style="flex:1;border-radius:22px;padding:12px 0;text-align:center;font-size:15px">06<br><b style="font-size:22px">1.1</b></div>
+   <div class="glass" style="flex:1;border-radius:22px;padding:12px 0;text-align:center;font-size:15px;background:rgba(255,255,255,.4)">07<br><b style="font-size:22px">1.4</b></div>
+   <div class="glass" style="flex:1;border-radius:22px;padding:12px 0;text-align:center;font-size:15px">08<br><b style="font-size:22px">1.6</b></div>
+   <div class="glass" style="flex:1;border-radius:22px;padding:12px 0;text-align:center;font-size:15px">09<br><b style="font-size:22px">1.3</b></div>
+  </div>
+  <div style="margin-top:16px;font-size:16px;line-height:1.5">潮位上升，建议 7 点前下水。</div>
+ </div>
+ <div class="tab glass"><span>浪况</span><span class="on">潮汐</span><span>地图</span></div>
+</div>
+
+<div class="ph s3" style="left:820px;top:150px;transform:scale(.92)">
+ <div class="sb"><span>9:41</span><span>●●●</span></div>
+ <div style="padding:6px 24px 0"><div style="font-size:28px;font-weight:700">我的浪点</div></div>
+ <div class="card glass" style="display:flex;gap:14px;align-items:center"><div class="round" style="background:rgba(255,255,255,.3)">北</div><div><b style="font-size:18px">岬角北湾</b><div style="font-size:15px;opacity:.9">1.2 米 · 良好</div></div></div>
+ <div class="card glass" style="display:flex;gap:14px;align-items:center"><div class="round" style="background:rgba(255,255,255,.3)">石</div><div><b style="font-size:18px">石滩南口</b><div style="font-size:15px;opacity:.9">0.7 米 · 偏小</div></div></div>
+ <div class="card glass" style="display:flex;gap:14px;align-items:center"><div class="round" style="background:rgba(255,255,255,.3)">礁</div><div><b style="font-size:18px">外礁</b><div style="font-size:15px;opacity:.9">2.1 米 · 仅限熟手</div></div></div>
+ <div class="tab glass"><span>浪况</span><span>潮汐</span><span class="on">地图</span></div>
+</div>
+
+<div class="glass" style="position:absolute;left:326px;top:604px;height:56px;padding:0 24px;border-radius:30px;display:flex;align-items:center;font-size:17px;font-weight:600;z-index:30">分享浪况</div>
+<div class="glass round" style="position:absolute;left:800px;top:56px;z-index:30;width:60px;height:60px">+</div>
+</body></html>

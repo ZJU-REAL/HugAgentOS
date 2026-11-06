@@ -138,6 +138,8 @@ def cloud_gateway_mcp_configs(
             "schema_hash": str(s["schema_hash"]),
             "gateway_invoke_url": invoke_url,
             "gateway_plugin": str(s.get("source_plugin") or ""),
+            "display_name": str(s.get("display_name") or sid),
+            "description": str(s.get("description") or ""),
         }
     return configs
 

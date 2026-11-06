@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>02 解释性图解</title>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Nunito:wght@700;800;900&family=Noto+Sans+SC:wght@500;700;900&family=ZCOOL+KuaiLe&family=Long+Cang&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden}
+:root{--bg:#FFE9A8;--k:#161616;--red:#EF4B3C;--blue:#2E86DE;--green:#2FB67C;--yellow:#FFC93C;--pink:#FF8FB1}
+body{background:var(--bg);color:var(--k);font-family:Nunito,"Noto Sans SC",sans-serif;position:relative}
+h1{position:absolute;left:52px;top:34px;margin:0;font:400 66px/1.12 "ZCOOL KuaiLe","Noto Sans SC",sans-serif;letter-spacing:.01em}
+h1 mark{font-family:'Noto Sans SC';font-weight:900;background:var(--red);color:#fff;padding:0 14px;border:4px solid var(--k);border-radius:14px;display:inline-block;transform:rotate(-2deg);box-shadow:5px 5px 0 var(--k)}
+.sub{position:absolute;left:56px;top:222px;font:700 20px/1.5 "Noto Sans SC";width:520px}
+.key{position:absolute;right:52px;top:44px;width:250px;background:#fff;border:4px solid var(--k);border-radius:18px;padding:14px 18px;box-shadow:6px 6px 0 var(--k);transform:rotate(1.5deg)}
+.key b{font:800 17px "Noto Sans SC"}
+.key .b{display:inline-block;width:46px;height:20px;border:3px solid var(--k);border-radius:4px;background:var(--green);vertical-align:middle;margin-right:8px;box-shadow:0 3px 0 #0b7a4c}
+.key p{margin:6px 0 0;font:700 16px/1.4 "Noto Sans SC"}
+.stage{position:absolute;left:0;right:0;bottom:0;height:420px}
+.ground{position:absolute;left:36px;right:36px;bottom:92px;height:8px;background:var(--k);border-radius:4px}
+.col{position:absolute;bottom:100px;width:150px;display:flex;flex-direction:column-reverse;align-items:center}
+.bill{width:128px;height:17px;border:3px solid var(--k);border-radius:5px;margin-top:-1px;position:relative;box-shadow:0 4px 0 rgba(0,0,0,.28)}
+.bill:after{content:"";position:absolute;left:50%;top:50%;width:11px;height:11px;margin:-6px 0 0 -6px;border:2px solid var(--k);border-radius:50%;opacity:.55}
+.bill:nth-child(odd){transform:translateX(5px) rotate(.7deg)}
+.bill:nth-child(even){transform:translateX(-5px) rotate(-.6deg)}
+.lab{position:absolute;bottom:34px;width:160px;text-align:center;font:900 22px/1.15 "Noto Sans SC"}
+.lab small{display:block;font:800 18px Nunito;opacity:.9}
+.num{position:absolute;width:150px;text-align:center;font:800 34px/1 "Baloo 2",sans-serif}
+.note{position:absolute;font:400 26px/1.15 "Long Cang","Noto Sans SC",cursive;color:var(--k)}
+.tag{position:absolute;right:52px;bottom:14px;font:700 14px "Noto Sans SC";opacity:.8}
+svg.arr{position:absolute;left:0;top:0;pointer-events:none}
+.pill{position:absolute;background:var(--k);color:#fff;border-radius:999px;padding:4px 16px;font:800 18px "Noto Sans SC"}
+</style></head><body>
+<h1>月薪 12,000，<br>钱是怎么<mark>飞</mark>走的？</h1>
+<div class="sub">一个人在杭州，租房、吃饭、通勤、快乐、订阅，再把剩下的存起来。一摞钞票，一个去处。</div>
+<div class="key"><b><span class="b"></span>= 300 元</b><p>每摞多高，就是这项花了多少钱。数一数，一共 40 张。</p></div>
+
+<div class="stage" id="stage"></div>
+<div class="ground"></div>
+<svg class="arr" width="1200" height="750"><path d="M268 352 C246 354 232 356 214 358" fill="none" stroke="#161616" stroke-width="4" stroke-linecap="round"/><path d="M228 346 L212 358 L230 368" fill="none" stroke="#161616" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1062 408 C1070 420 1074 430 1076 440" fill="none" stroke="#161616" stroke-width="4" stroke-linecap="round"/><path d="M1064 430 L1076 442 L1086 428" fill="none" stroke="#161616" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<div class="note" style="left:276px;top:326px;transform:rotate(-3deg);width:230px">房租一家，就吃掉<br>三分之一还多！</div>
+<div class="note" style="left:990px;top:352px;transform:rotate(3deg);width:170px">剩下的才是<br>真·可以存</div>
+<div class="tag">虚构数据 · 手绘插画位已降级为几何钞票</div>
+<script>
+const items=[['房租',14,'#EF4B3C','4,200'],['吃饭',9,'#FFC93C','2,700'],['通勤',2,'#2E86DE','600'],['玩乐',5,'#FF8FB1','1,500'],['订阅',3,'#B28CFF','900'],['存款',7,'#2FB67C','2,100']];
+const st=document.getElementById('stage');const x0=56,gx=186;
+items.forEach((it,i)=>{const left=x0+i*gx+(i>=1?0:0);
+ const c=document.createElement('div');c.className='col';c.style.left=left+'px';
+ for(let k=0;k<it[1];k++){const b=document.createElement('div');b.className='bill';b.style.background=it[2];c.appendChild(b)}
+ st.appendChild(c);
+ const n=document.createElement('div');n.className='num';n.style.left=left+'px';n.style.bottom=(100+it[1]*22+16)+'px';n.textContent='¥'+it[3];st.appendChild(n);
+ const l=document.createElement('div');l.className='lab';l.style.left=(left-5)+'px';l.innerHTML=it[0]+'<small>'+(it[1]*2.5)+'%</small>';st.appendChild(l);
+});
+</script></body></html>

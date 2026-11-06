@@ -1,5 +1,7 @@
+use crate::auth::SessionVerdict;
+use crate::device_login::LoginError;
 use crate::windows::{navigate_session_windows, show_main_window};
-use crate::{auth, device_login, hybrid, local_server, Shared};
+use crate::{auth, device_login, hybrid, net, Shared};
 use std::sync::atomic::Ordering;
 use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
@@ -59,7 +61,7 @@ async fn clear_invalidated_session(shared: &Shared, expected: u64) {
                 reqwest::header::COOKIE,
                 format!("{}={token}", shared.cookie_name),
             )
-            .timeout(std::time::Duration::from_secs(15))
+            .timeout(net::CLOUD_REQUEST_TIMEOUT)
             .send()
             .await;
         match response {
@@ -70,14 +72,45 @@ async fn clear_invalidated_session(shared: &Shared, expected: u64) {
     }
 }
 
-pub(crate) fn spawn_startup_probe(app: tauri::AppHandle, server_base: String, cookie_name: String) {
+/// Asks the cloud about the saved session, retrying transient failures. `None`
+/// means undecided (or the epoch moved on): the token is kept for the next try.
+async fn verify_saved_session(shared: &Shared, epoch: u64, token: &str) -> Option<SessionVerdict> {
+    net::retry_transient(
+        || shared.session.epoch.matches(epoch),
+        || {
+            auth::check(
+                &shared.http,
+                &shared.server_base,
+                &shared.cookie_name,
+                token,
+            )
+        },
+    )
+    .await
+}
+
+/// The cloud explicitly rejected the saved session: drop it and show the login card.
+async fn drop_rejected_session(app: &tauri::AppHandle, shared: &Shared, epoch: u64) {
+    let Some(expected) = shared.session.epoch.advance_if_current(epoch) else {
+        return;
+    };
+    cancel_device_login(shared);
+    clear_invalidated_session(shared, expected).await;
+    if shared.session.epoch.matches(expected) {
+        navigate_session_windows(app, &shared.login_idle_url());
+    }
+}
+
+/// Cloud backends: the window already opened on what local state suggested, so
+/// this only corrects it on a settled answer. An unreachable cloud lands on the
+/// setup page; an undecided session check keeps the user where they are.
+pub(crate) fn spawn_startup_probe(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         let shared = app.state::<Shared>();
         let epoch = shared.session.epoch.current();
-        let token = shared.session.token().await;
-        let reachable =
-            local_server::LocalServerManager::probe_base(&shared.http, &server_base).await;
-        if !shared.session.epoch.matches(epoch) {
+        let alive = || shared.session.epoch.matches(epoch);
+        let reachable = net::cloud_reachable(&shared.http, &shared.server_base, alive).await;
+        if !alive() {
             return;
         }
         if !reachable {
@@ -89,21 +122,12 @@ pub(crate) fn spawn_startup_probe(app: tauri::AppHandle, server_base: String, co
             }
             return;
         }
-        let Some(token) = token else {
+        let Some(token) = shared.session.token().await else {
             return;
         };
-        if auth::validate(&shared.http, &server_base, &cookie_name, &token).await {
-            return;
+        if verify_saved_session(&shared, epoch, &token).await == Some(SessionVerdict::Rejected) {
+            drop_rejected_session(&app, &shared, epoch).await;
         }
-        let Some(expected) = shared.session.epoch.advance_if_current(epoch) else {
-            return;
-        };
-        cancel_device_login(&shared);
-        clear_invalidated_session(&shared, expected).await;
-        if !shared.session.epoch.matches(expected) {
-            return;
-        }
-        navigate_session_windows(&app, &shared.login_idle_url());
     });
 }
 
@@ -140,42 +164,15 @@ pub(crate) fn spawn_local_session_restore(app: tauri::AppHandle) {
                 return;
             }
         }
-        // A server that has only just come up may still be slow to answer; only an
-        // explicit rejection costs the user their login.
-        let mut verdict = None;
-        for attempt in 0..3 {
-            if attempt > 0 {
-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-            }
-            verdict = auth::check(
-                &shared.http,
-                &shared.server_base,
-                &shared.cookie_name,
-                &token,
-            )
-            .await;
-            if verdict.is_some() || !shared.session.epoch.matches(epoch) {
-                break;
-            }
-        }
+        let verdict = verify_saved_session(&shared, epoch, &token).await;
         if !shared.session.epoch.matches(epoch) {
             return;
         }
         match verdict {
-            Some(true) => navigate_session_windows(&app, &shared.home_url()),
+            Some(SessionVerdict::Valid) => navigate_session_windows(&app, &shared.home_url()),
             // Undecided: keep the token, so the next launch can try again.
             None => navigate_session_windows(&app, &shared.login_idle_url()),
-            Some(false) => {
-                let Some(expected) = shared.session.epoch.advance_if_current(epoch) else {
-                    return;
-                };
-                cancel_device_login(&shared);
-                clear_invalidated_session(&shared, expected).await;
-                if !shared.session.epoch.matches(expected) {
-                    return;
-                }
-                navigate_session_windows(&app, &shared.login_idle_url());
-            }
+            Some(SessionVerdict::Rejected) => drop_rejected_session(&app, &shared, epoch).await,
         }
     });
 }
@@ -261,17 +258,35 @@ pub(crate) fn start_device_login(app: tauri::AppHandle) {
                 return;
             }
         };
-        let started = std::time::Instant::now();
-        let grant = match device_login::begin(&shared.http, &shared.server_base, &secret).await {
-            Ok(grant) => grant,
-            Err(message) => {
-                if login.generation() == generation {
-                    *login.view.write().await = device_login::View {
-                        status: "error".into(),
-                        message,
-                        ..Default::default()
-                    };
+        // A timeout may still have created a request server-side; repeating is safe because
+        // each POST yields a new request id and the orphan simply expires unclaimed.
+        let begun = net::retry_transient(
+            || login.generation() == generation,
+            || async {
+                let started = std::time::Instant::now();
+                match device_login::begin(&shared.http, &shared.server_base, &secret).await {
+                    Err(error @ LoginError::Unreachable) => {
+                        login.view.write().await.message = error.to_string();
+                        None
+                    }
+                    settled => Some(settled.map(|grant| (grant, started))),
                 }
+            },
+        )
+        .await;
+        let (grant, started) = match begun {
+            Some(Ok(begun)) => begun,
+            // A stale attempt's success still reaches the cancel below; its failure is moot.
+            _ if login.generation() != generation => return,
+            failure => {
+                *login.view.write().await = device_login::View {
+                    status: "error".into(),
+                    message: match failure {
+                        Some(Err(error)) => error.to_string(),
+                        _ => "无法连接登录服务器，请检查网络后重新登录。".into(),
+                    },
+                    ..Default::default()
+                };
                 return;
             }
         };
@@ -385,9 +400,9 @@ pub(crate) fn start_device_login(app: tauri::AppHandle) {
                         }
                     }
                 }
-                Err(message) if message == "expired" => break,
-                Err(message) => {
-                    login.view.write().await.message = message;
+                Err(LoginError::Expired) => break,
+                Err(error) => {
+                    login.view.write().await.message = error.to_string();
                     delay = (delay * 2).min(10);
                 }
             }

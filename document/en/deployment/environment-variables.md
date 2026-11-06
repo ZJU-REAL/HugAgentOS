@@ -231,7 +231,6 @@ the database has no value.
 | `OPENSANDBOX_USER_HEADROOM` | `2` | Slots pre-warm never takes (capped at capacity minus one) |
 | `OPENSANDBOX_SNAPSHOT_ENABLED` | `true` | Snapshot persistence master switch (snapshot+kill when idle, restore on reconnect) |
 | `OPENSANDBOX_SNAPSHOT_RETENTION_DAYS` | `7` | Snapshot retention (GC sweeps expired rows) |
-| `OPENSANDBOX_SNAPSHOT_WAIT_TIMEOUT_S` | `120` | Maximum poll for snapshot readiness (s) |
 
 ### CubeSandbox (E2B-compatible MicroVM, Enterprise Edition)
 

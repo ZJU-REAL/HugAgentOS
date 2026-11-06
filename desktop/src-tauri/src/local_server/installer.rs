@@ -1,6 +1,7 @@
 use super::backup::backup_local_data;
 use super::backup::prune_data_backups;
 use super::backup::restore_local_data;
+use super::runtime_download;
 use crate::local_payload;
 use crate::local_payload::PayloadPaths;
 use crate::local_server::LocalServerManager;
@@ -45,6 +46,58 @@ impl LocalServerManager {
         }
     }
 
+    /// Slim update packages carry an empty runtime placeholder. When this
+    /// dependency fingerprint is not unpacked yet, download its runtime.
+    async fn acquire_runtime(self: &Arc<Self>) -> Result<Option<std::path::PathBuf>, String> {
+        let Some(download) = local_payload::pending_runtime_download(&self.payload_paths())? else {
+            return Ok(None);
+        };
+        let total_mb = download.archive_size as f64 / 1_048_576.0;
+        self.append_log(format!(
+            "安装包未携带本机运行环境，开始下载 {}（{total_mb:.0} MB）",
+            download.name
+        ))
+        .await;
+        let sources = self.runtime_sources.get().cloned().unwrap_or_default();
+        let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel::<(u64, u64)>();
+        let cancelled = self.shutting_down.clone();
+        let task_download = download.clone();
+        let task = tauri::async_runtime::spawn(async move {
+            let mut last_percent = u64::MAX;
+            runtime_download::fetch_runtime(
+                &sources,
+                &task_download,
+                move |received, total| {
+                    let percent = received.saturating_mul(100) / total.max(1);
+                    if percent != last_percent {
+                        last_percent = percent;
+                        let _ = progress_tx.send((received, total));
+                    }
+                },
+                &cancelled,
+            )
+            .await
+        });
+        while let Some((received, total)) = progress_rx.recv().await {
+            let percent = (received.saturating_mul(100) / total.max(1)).min(100);
+            self.update(
+                "installing",
+                1,
+                format!(
+                    "正在下载本机运行环境… {percent}%（{:.0}/{:.0} MB）",
+                    received as f64 / 1_048_576.0,
+                    total as f64 / 1_048_576.0
+                ),
+            )
+            .await;
+        }
+        let path = task
+            .await
+            .map_err(|error| format!("运行时下载任务异常退出：{error}"))??;
+        self.append_log("本机运行环境下载完成，已通过校验").await;
+        Ok(Some(path))
+    }
+
     pub(super) async fn run_install(self: &Arc<Self>) -> Result<(), String> {
         if self.shutting_down.load(Ordering::SeqCst) {
             return Err("桌面端正在退出，已取消本机服务安装".to_string());
@@ -59,6 +112,12 @@ impl LocalServerManager {
         {
             return Err("安装包未携带本机服务资源，请重新下载完整安装包".to_string());
         }
+
+        // Download before stopping: the running version keeps serving meanwhile.
+        let runtime_archive = match self.acquire_runtime().await? {
+            Some(downloaded) => downloaded,
+            None => self.runtime_archive.clone(),
+        };
 
         let upgrading = self.is_installed();
         self.stop_server()?;
@@ -76,13 +135,14 @@ impl LocalServerManager {
         File::create(installer_log_path).map_err(|error| format!("重置安装日志失败：{error}"))?;
         self.status.write().await.logs.clear();
         self.update("installing", 2, "正在准备本机服务…").await;
-        self.append_log("开始离线安装本机服务；不会下载 Python 或项目依赖。")
+        self.append_log("开始安装本机服务；不会在本机下载或编译 Python 依赖。")
             .await;
 
         let root = self.root.clone();
         let source_archive = self.bundle_archive.clone();
         let source_manifest = self.bundle_manifest.clone();
-        let runtime_archive = self.runtime_archive.clone();
+        let downloaded_runtime =
+            (runtime_archive != self.runtime_archive).then(|| runtime_archive.clone());
         let runtime_manifest = self.runtime_manifest.clone();
         let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel();
         let cancelled = self.shutting_down.clone();
@@ -107,10 +167,14 @@ impl LocalServerManager {
             self.append_log(format!("HUGAGENT_PROGRESS|{progress}|{message}"))
                 .await;
         }
-        if let Err(error) = install_task
+        let install_result = install_task
             .await
-            .map_err(|error| format!("本机服务安装任务异常退出：{error}"))?
-        {
+            .map_err(|error| format!("本机服务安装任务异常退出：{error}"))?;
+        if let (Some(downloaded), Ok(_)) = (&downloaded_runtime, &install_result) {
+            // Unpacked into runtimes/<fingerprint>; the archive is no longer needed.
+            let _ = std::fs::remove_file(downloaded);
+        }
+        if let Err(error) = install_result {
             if self.is_installed() {
                 self.append_log("新版本安装失败，正在恢复原有本机服务…")
                     .await;

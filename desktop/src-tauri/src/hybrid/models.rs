@@ -76,7 +76,7 @@ pub(super) async fn fetch_model_payload(
         request = request.header(reqwest::header::IF_NONE_MATCH, format!("\"{revision}\""));
     }
     let resp = request
-        .timeout(std::time::Duration::from_secs(15))
+        .timeout(crate::net::CLOUD_REQUEST_TIMEOUT)
         .send()
         .await
         .map_err(|e| format!("模型能力清单请求失败: {e}"))?;

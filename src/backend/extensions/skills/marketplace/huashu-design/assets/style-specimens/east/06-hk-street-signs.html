@@ -1,0 +1,59 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>06 香港街招与招牌</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;900&family=Noto+Serif+TC:wght@900&family=Archivo+Black&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:1200px;height:750px;overflow:hidden;background:#0C0D16}
+body{position:relative;font-family:"Noto Sans TC",sans-serif}
+.wall{position:absolute;inset:0;background:
+ repeating-linear-gradient(90deg,rgba(255,255,255,.035) 0 2px,transparent 2px 120px),
+ repeating-linear-gradient(0deg,rgba(255,255,255,.035) 0 2px,transparent 2px 100px),
+ linear-gradient(180deg,#171826,#0C0D16)}
+.s{position:absolute;box-sizing:border-box;display:flex;align-items:center;justify-content:center}
+.v{writing-mode:vertical-rl;text-orientation:upright}
+/* A 紅底直招 */
+.A{left:96px;top:-10px;width:210px;height:610px;background:#D5201A;border:8px solid #FFF1C9;box-shadow:0 0 0 4px #D5201A,0 0 40px rgba(255,60,40,.55);}
+.A b{font:900 138px/1.02 "Noto Sans TC";color:#FFF6DA;text-shadow:6px 6px 0 #6D0F0B;letter-spacing:-.02em}
+/* B 黃底直招 壓在A右側 */
+.B{left:292px;top:70px;width:118px;height:380px;background:#F7C600;border:6px solid #1B1405;box-shadow:0 0 30px rgba(255,210,0,.4)}
+.B b{font:900 66px/1.1 "Noto Sans TC";color:#1B1405;letter-spacing:-.01em}
+/* C 橫招 */
+.C{left:452px;top:92px;width:640px;height:150px;background:#133B96;border:8px solid #FFF1C9;box-shadow:0 0 36px rgba(60,120,255,.5);flex-direction:column;gap:2px}
+.C b{font:900 84px/1 "Noto Serif TC";color:#FFE45C;text-shadow:5px 5px 0 #071A4A;letter-spacing:.04em}
+.C i{font:400 17px "Archivo Black";font-style:normal;color:#FFF1C9;letter-spacing:.34em}
+/* D 綠底 */
+.D{left:452px;top:262px;width:336px;height:92px;background:#0E8A55;border:5px solid #E8FFE9;box-shadow:0 0 28px rgba(40,240,140,.4)}
+.D b{white-space:nowrap;font:900 33px/1 "Noto Sans TC";color:#F4FFF2;letter-spacing:.08em;text-shadow:3px 3px 0 #05492B}
+/* E LED 小牌 */
+.E{left:802px;top:262px;width:290px;height:92px;background:#120808;border:4px solid #D5201A}
+.E b{white-space:nowrap;font:900 30px/1 "Noto Sans TC";color:#FF3B2E;letter-spacing:.14em;text-shadow:0 0 14px rgba(255,59,46,.9)}
+/* F 招牌条 */
+.F{left:452px;top:376px;width:640px;height:64px;background:#FFF1C9;border:4px solid #1B1405;justify-content:space-between;padding:0 22px}
+.F b{font:900 30px/1 "Noto Sans TC";color:#1B1405;letter-spacing:.02em}
+.F u{text-decoration:none;font:900 30px/1 "Noto Sans TC";color:#D5201A}
+/* G 鋪面 */
+.G{left:452px;top:462px;width:640px;height:268px;background:#201C28;border:6px solid #3B3447;flex-direction:column;align-items:stretch;justify-content:flex-start;padding:16px 20px;gap:10px}
+.G .row{display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px dashed rgba(255,241,201,.35);padding-bottom:6px}
+.G .row b{font:900 30px/1.2 "Noto Sans TC";color:#FFF1C9}
+.G .row span{font:900 30px/1.2 "Noto Sans TC";color:#F7C600;font-variant-numeric:tabular-nums}
+.G .tag{align-self:flex-start;font:500 14px "Noto Sans TC";color:#8E88A0;letter-spacing:.2em}
+/* 線 */
+.wire{position:absolute;height:2px;background:#050509;transform-origin:left}
+.cap{position:absolute;left:96px;bottom:40px;font:500 14px "Noto Sans TC";letter-spacing:.2em;color:#9993AD}
+.ph{position:absolute;left:96px;top:628px;width:300px;height:76px;background:#232234;color:#8B86A0;font:500 12px "Noto Sans TC";display:flex;align-items:center;padding-left:12px;box-sizing:border-box;letter-spacing:.1em}
+</style></head><body>
+<div class="wall"></div>
+<div class="wire" style="left:0;top:40px;width:470px;transform:rotate(1.2deg)"></div>
+<div class="wire" style="left:410px;top:68px;width:800px;transform:rotate(-.6deg)"></div>
+<div class="s A v"><b>新旺唱片</b></div>
+<div class="s B v"><b>收買二手</b></div>
+<div class="s C"><b>黑膠 · 卡式帶</b><i>SUN WONG RECORDS</i></div>
+<div class="s D"><b>日本版 · 懷舊金曲</b></div>
+<div class="s E"><b>營業至凌晨二時</b></div>
+<div class="s F"><b>舊唱片　現金即收</b><u>歡迎講價</u></div>
+<div class="s G">
+ <div class="tag">門口黑板</div>
+ <div class="row"><b>七十年代粵語流行　黑膠</b><span>$180 起</span></div>
+ <div class="row"><b>八十年代日本城市流行　CD</b><span>$60 起</span></div>
+ <div class="row"><b>卡式帶　一盒隨便揀</b><span>$10</span></div>
+</div>
+<div class="cap">旺角　西洋菜南街　新旺唱片行</div>
+</body></html>
