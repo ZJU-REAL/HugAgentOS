@@ -331,6 +331,48 @@ Regular users can add remote MCP servers visible **only to themselves** (`api/ro
 
 Implementation reuses the same `admin_mcp_servers` table: `owner_user_id` = current user for owner isolation, auto-generated `umcp_<hex>` server IDs to avoid clashes. HTTP header values are encrypted with Fernet at rest and decrypted only at runtime. The feature is gated by the per-user `can_add_mcp` permission flag (open by default in the single-tenant Community Edition; granted per user by organisation admins in the Enterprise Edition — see [editions](../editions/overview.md)).
 
+### Example: connect your own Baizhi Cloud Browser account
+
+[Baizhi Cloud Browser (also known as CapyBrowser)](https://baizhibrowser.cloud/)
+provides remote MCP tools for checking credentials and managing cloud browser sessions and profiles.
+Users who already have a service account can use the private MCP connector to manage their own resources
+without another plugin or backend changes. Cloud browser runs can incur service charges separately from model usage.
+
+In the capability center, add a connector. If this option is unavailable, ask your administrator to check
+the `can_add_mcp` permission. Use **Baizhi Cloud Browser** as the name, **Streamable HTTP** as the type,
+and `https://capybrowser.app.baizhi.cloud/mcp` as the URL. Choose **Headers / Token** authentication
+and enter this complete line in the headers field:
+
+```text
+Authorization=Bearer <YOUR_CAPY_API_KEY>
+```
+
+Replace `<YOUR_CAPY_API_KEY>` with your own complete key. This field separates the header name and value
+with `=`; keep one space after `Bearer`. `Authorization=Bearer` alone is incomplete. Environment variable
+placeholders are not expanded. The key passes through your HugAgentOS backend to the Baizhi service;
+a private connector does not mean credentials remain only on your computer.
+
+Adding the connector probes the endpoint and discovers tools. A failed probe does not save it.
+After adding it, select the capability in a personal conversation and ask:
+
+> Call browser_auth_check once. Report only success or failure, omit account details, and create no browser run.
+
+The connector belongs to the current HugAgentOS user. Each user should connect their own authorized
+Baizhi account. Application user isolation does not replace service authorization or turn one shared key
+into independent cloud accounts. Before creating runs, confirm the account, charges, and task scope.
+Only trusted MCP configuration held by the platform or administrator can set tool confirmation policies;
+do not assume remote tool annotations provide that protection.
+
+This MCP manages cloud resources. Page navigation and clicks require a separate compatible CDP client;
+it does not switch HugAgentOS's shared Chromium plugin to a cloud browser. See the
+[service setup and lifecycle guide](https://capybrowser.app.baizhi.cloud/docs/installation.md).
+
+Deleting the connector, closing a chat, or quitting the client does not stop cloud runs. Before removing
+the connector, stop only runs you created for this task and confirm `released`. If stopping fails, retain
+the run identifier and handle it in the Baizhi console. The credential-only check above creates no run.
+Related integration materials are maintained by [ctcbyzx](https://github.com/ctcbyzx/baizhi-cloud-browser);
+report integration issues in the [issue tracker](https://github.com/ctcbyzx/baizhi-cloud-browser/issues).
+
 ## MCP marketplace
 
 System marketplace governance lives at **`/config → MCP Tools`**. Matching Skill Management, the MCP server toolbar exposes two modal actions—MCP Marketplace and Listing Reviews—without another nested management tab; `/admin` has no duplicate entry. It lists and globally installs entries, reviews submissions, manages visibility, revalidates remote tools, suspends unsafe listings, and removes entries. It uses `CONFIG_TOKEN` or `can_system_config`.
