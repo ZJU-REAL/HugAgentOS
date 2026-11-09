@@ -126,6 +126,7 @@ async def test_local_start_waits_for_ports_and_verifies_plugin_tools(monkeypatch
         return next(port_probes, True)
 
     monkeypatch.setattr(startup, "_tcp_port_ready", fake_port_ready)
+    monkeypatch.setattr(startup, "_http_port_ready", fake_port_ready)
 
     await local_subprocess.start_local_sidecars()
 
@@ -392,6 +393,7 @@ async def test_cloud_tools_mode_starts_only_the_script_runner(monkeypatch):
     monkeypatch.setattr(startup, "_wait_for_mcp_ports", fail_wait)
     monkeypatch.setattr(startup, "_verify_required_plugin_tools", fail_wait)
     monkeypatch.setattr(startup, "_tcp_port_ready", fake_port_ready)
+    monkeypatch.setattr(startup, "_http_port_ready", fake_port_ready)
     monkeypatch.setattr(startup, "_start_watchdog", lambda: calls.append(("watchdog",)))
     monkeypatch.setattr(startup, "_PROCS", [])
     monkeypatch.setattr(
