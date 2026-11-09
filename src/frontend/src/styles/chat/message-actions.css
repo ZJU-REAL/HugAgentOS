@@ -13,25 +13,22 @@
   justify-content:flex-end;
 }
 
-/* 操作按钮 & 耗时小字：默认隐藏，hover 消息时淡入（时间小字不参与，始终常驻）。
+/* 操作按钮：默认隐藏，hover 消息时淡入（耗时与时间小字不参与，始终常驻）。
  * 用 opacity 而非 display:none，保留占位、避免 hover 时整行抖动。 */
 
-.jx-msgActionBtn,
-.jx-msgDuration{
+.jx-msgActionBtn{
   opacity:0;
   pointer-events:none;
   transition:opacity .15s ease;
 }
 
 .jx-msg:hover .jx-msgActionBtn,
-.jx-msg:hover .jx-msgDuration,
-.jx-msg:focus-within .jx-msgActionBtn,
-.jx-msg:focus-within .jx-msgDuration{
+.jx-msg:focus-within .jx-msgActionBtn{
   opacity:1;
   pointer-events:auto;
 }
 
-/* 「重新生成」旁的整体生成耗时小字 */
+/* 回答结束后的整轮耗时（「用时 41秒」），常驻在操作栏最前；进行中的计时在状态行末尾（TurnClock） */
 
 .jx-msgDuration{
   display:inline-flex;
@@ -328,5 +325,5 @@
 }
 
 @media (hover:none) {
-  .jx-msg .jx-msgActionBtn, .jx-msg .jx-msgDuration { opacity:1; pointer-events:auto; }
+  .jx-msg .jx-msgActionBtn { opacity:1; pointer-events:auto; }
 }

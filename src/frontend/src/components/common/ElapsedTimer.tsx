@@ -6,6 +6,8 @@ interface ElapsedTimerProps {
   startTs: number;
   /** Extra class for styling the <span>. */
   className?: string;
+  /** Seconds → text; defaults to M:SS. */
+  format?: (sec: number) => string;
 }
 
 
@@ -14,7 +16,7 @@ interface ElapsedTimerProps {
  * Used to give the user a sense of progress while the model/tool is working
  * alongside any available argument or result deltas.
  */
-export function ElapsedTimer({ startTs, className }: ElapsedTimerProps) {
+export function ElapsedTimer({ startTs, className, format = formatClock }: ElapsedTimerProps) {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -23,5 +25,5 @@ export function ElapsedTimer({ startTs, className }: ElapsedTimerProps) {
   }, []);
 
   const sec = Math.max(0, Math.floor((now - startTs) / 1000));
-  return <span className={className ?? 'jx-elapsedTimer'}>{formatClock(sec)}</span>;
+  return <span className={className}>{format(sec)}</span>;
 }

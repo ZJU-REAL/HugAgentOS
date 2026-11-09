@@ -22,16 +22,17 @@ import './src/styles/panel-loading.css';
 import './src/styles/chat.css';
 import './src/styles/tool.css';
 const ts=Date.now();
-const messages=[{uid:newMessageUid(true),role:'user',content:'帮我解释这个效果',ts},
- {uid:newMessageUid(true),role:'assistant',content:'我把重点整理好了。',ts}];
+const userUid=newMessageUid(true),assistantUid=newMessageUid(true);
 function Fixture(){
  const [done,setDone]=useState(false);
+ const messages=[{uid:userUid,role:'user',content:'帮我解释这个效果',ts},
+  {uid:assistantUid,role:'assistant',content:'我把重点整理好了。',ts,isStreaming:!done,...(done?{durationMs:1000}:{})}];
  const tool={id:'reference-tool',name:'Bash',input:{command:'pwd'},status:done?'success':'running',startTs:ts,endTs:done?ts+1000:undefined,output:done?'/workspace':undefined};
  const steps=[{kind:'tool',key:'tool',tool},{kind:'thinking',key:'thinking',content:'检查输入并整理线索',active:!done}];
  return <main>
  <button onClick={()=>setDone(true)}>完成</button>
  <section>{messages.map((m,i)=><MessageBubble key={m.uid} m={m} messageIndex={i} currentChatId='motion-fixture' send={()=>{}} exportChatRecord={async()=>{}}/>)}</section>
- {!done&&<TurnStatusIndicator startTs={ts}/>}
+ {!done&&<TurnStatusIndicator/>}
  <ToolRunShell steps={steps} isStreaming={!done}/>
  <PanelLoadingSkeleton/>
  </main>;
@@ -73,7 +74,11 @@ try{
   assert.ok(live.every(s=>s.band==='jxShimmerBand'&&s.glint==='jxShimmerGlint'&&s.duration==='2.8s'&&s.same&&s.hidden==='true'&&s.clip!=='text'),'all running labels use the same compositor-only scan');
   assert.equal(new Set(live.map(s=>s.color)).size,1,'tool.css must not override the shared glint colour');
   const summary=page.locator('.jx-trs-summary');
-  assert.equal(await summary.locator('.jx-trs-dur').count(),1);
+  assert.equal(await summary.locator('.jx-trs-dur').count(),0,'tool runs carry no clock of their own');
+  assert.equal(await page.locator('.jx-tcr-timer,.jx-turnStatus-clock').count(),0,'no per-tool or per-wait clocks');
+  const turnClock=page.locator('.jx-turnClock');
+  await turnClock.first().waitFor();
+  assert.equal(await turnClock.count(),1,'one whole-turn clock, trailing the live status row');
   assert.equal(await page.locator('.jx-trs-steps').count(),0,'the tool-kind chips replace the step count');
   assert.equal(await page.locator('.jx-trs-head .jx-kindChip').count(),1,'one chip per kind of action');
   assert.equal(await page.locator('.jx-trs-head .jx-kindChip.is-running').count(),1,'the running kind is lit');
@@ -82,14 +87,14 @@ try{
   assert.equal(await page.locator('.jx-trs-head .jx-kindStack .jx-kindChip.is-running').count(),1,'the lit chip carries the running state');
   const title=summary.locator('.jx-rollText-text.is-shimmer');
   const scan=await title.evaluate(el=>{const animation=el.querySelector('.jx-shimmer-band').getAnimations()[0];window.summaryScan=animation;return {start:animation.startTime};});
-  const before=await summary.locator('.jx-trs-dur').textContent();
+  const before=await turnClock.textContent();
   await page.waitForTimeout(1100);
   const tick=await title.evaluate(el=>{const a=el.querySelector('.jx-shimmer-band').getAnimations()[0];return {same:a===window.summaryScan,start:a.startTime};});
   assert.equal(tick.same,true,'timer ticks do not restart the title scan');
   assert.equal(tick.start,scan.start);
-  assert.notEqual(await summary.locator('.jx-trs-dur').textContent(),before,'elapsed seconds continue to update');
+  assert.notEqual(await turnClock.textContent(),before,'the turn clock keeps ticking');
   assert.equal(await summary.locator('.jx-shimmer-band').count(),1,'only the title scans; the clock stays plain');
-  const positions=await page.locator('.jx-turnStatus-label .jx-rollText-text').evaluate(el=>{const band=el.querySelector('.jx-shimmer-band'),glint=band.querySelector('.jx-shimmer-glint');const[a,b]=[band,glint].map(n=>n.getAnimations()[0]);a.pause();b.pause();const d=a.effect.getTiming().delay;return [0,280,1400,2500].map(t=>{a.currentTime=b.currentTime=t+d+2800;const x=new DOMMatrix(getComputedStyle(band).transform).m41,y=new DOMMatrix(getComputedStyle(glint).transform).m41;return {x,net:Math.abs(x+y)};});});
+  const positions=await page.locator('.jx-turnStatus-label .jx-rollText-text').last().evaluate(el=>{const band=el.querySelector('.jx-shimmer-band'),glint=band.querySelector('.jx-shimmer-glint');const[a,b]=[band,glint].map(n=>n.getAnimations()[0]);a.pause();b.pause();const d=a.effect.getTiming().delay;return [0,280,1400,2500].map(t=>{a.currentTime=b.currentTime=t+d+2800;const x=new DOMMatrix(getComputedStyle(band).transform).m41,y=new DOMMatrix(getComputedStyle(glint).transform).m41;return {x,net:Math.abs(x+y)};});});
   // Labels phase-lock to a shared clock through a negative delay; sample one full cycle in.
   assert.equal(positions[0].x,positions[1].x,'scan holds for the first 15%');assert.notEqual(positions[1].x,positions[2].x);
   assert.ok(positions.every(p=>p.net<0.01),'the glint counter-moves so the glyphs stay put');
@@ -105,7 +110,7 @@ try{
   await page.evaluate(theme=>{document.documentElement.dataset.theme=theme;},theme);
   const reduced=await page.locator('section').evaluate(el=>[...el.querySelectorAll('.jx-msg.assistant,.jx-bubble.user')].map(n=>({opacity:getComputedStyle(n).opacity,transform:getComputedStyle(n).transform})));
   assert.ok(reduced.every(s=>s.opacity==='1'&&['none','matrix(1, 0, 0, 1, 0, 0)'].includes(s.transform)),'reduced motion shows both message types immediately');
-  assert.equal(await page.locator('.jx-turnStatus-label .jx-shimmer-band').evaluate(el=>getComputedStyle(el).animationName),'jxShimmerBand');
+  assert.equal(await page.locator('.jx-turnStatus-label .jx-shimmer-band').last().evaluate(el=>getComputedStyle(el).animationName),'jxShimmerBand');
   await page.setViewportSize({width:390,height:844});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'no narrow-screen overflow');
   await page.screenshot({path:resolve(evidence,theme+'-mobile-reduced.png'),fullPage:true});

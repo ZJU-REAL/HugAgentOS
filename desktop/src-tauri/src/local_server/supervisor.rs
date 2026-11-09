@@ -188,22 +188,37 @@ impl LocalServerManager {
                 self.monitor_health();
                 return Ok(());
             }
-            let exited = {
+            let observed = {
                 let mut guard = self.child.lock().map_err(|_| "服务进程锁异常")?;
                 match guard.as_mut() {
                     Some(child) => child
                         .try_wait()
-                        .map_err(|e| format!("检查服务进程失败：{e}"))?
-                        .map(|status| status.to_string()),
-                    None => Some("进程不存在".to_string()),
+                        .map(|status| status.map(|status| status.to_string())),
+                    None => Ok(Some("进程不存在".to_string())),
+                }
+            };
+            let exited = match observed {
+                Ok(exited) => exited,
+                Err(error) => {
+                    // try_wait cleans up an exited backend itself; if that fails the
+                    // backend's own log still explains why it stopped.
+                    for line in tail_file(&self.log_path(), 30) {
+                        self.append_log(line).await;
+                    }
+                    return Err(format!("检查服务进程失败：{error}"));
                 }
             };
             if let Some(status) = exited {
-                self.stop_server()?;
+                // The backend's own last words come first: they are the cause, and a
+                // cleanup problem below must not be the only thing the user sees.
                 for line in tail_file(&self.log_path(), 30) {
                     self.append_log(line).await;
                 }
-                return Err(format!("本机服务提前退出（{status}），请查看安装日志"));
+                let exited = format!("本机服务提前退出（{status}），请查看安装日志");
+                return Err(match self.stop_server() {
+                    Ok(()) => exited,
+                    Err(stop_error) => format!("{exited}；清理进程失败：{stop_error}"),
+                });
             }
             self.update(
                 "starting",

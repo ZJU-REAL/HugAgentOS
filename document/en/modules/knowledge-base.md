@@ -17,7 +17,7 @@ In CE, the frontend shows only **Private Knowledge Base**, and `/v1/catalog` ret
                 ┌──────────── Capability center /v1/catalog ─────────────┐
                 │  api/routes/v1/catalog.py aggregates three kb sources:  │
                 │  · private self-hosted spaces (CE + EE)                  │
-                │  · Dify datasets (EE only, 60s in-process cache)         │
+                │  · Dify datasets (EE only, shared directory cache)       │
                 │  · admin public spaces (EE only, system_public_kb)       │
                 └──────────────────────────────────────────────────────────┘
 
@@ -185,7 +185,7 @@ The EE-only client is `src/backend/edition_ee/kb/dify.py`; shared routes call it
 2. Environment variable `KNOWLEDGE_BASE=dify`;
 3. Fallback: both `DIFY_URL` and `DIFY_API_KEY` are present.
 
-When enabled, `api/routes/v1/catalog.py` injects Dify datasets into the `/v1/catalog` response as `kb` items at request time (60-second in-process cache), marked `visibility=public`. Retrieval goes through the MCP tool `retrieve_dataset_content`: without an explicit `dataset_id`, it searches all allowed datasets, supports Dify retrieval parameters such as `hybrid_search`, sorts merged results by score, truncates to top-k, and applies a token-budget trim.
+When enabled, `api/routes/v1/catalog.py` injects the external datasets into the `/v1/catalog` response as `kb` items, marked `visibility=public`. Every read of "which external collections exist" (the catalog, the system prompt's KB section, the `list_datasets` tool, retrieval fallbacks, the grant admin page) shares the in-process directory in `edition_ee/kb/directory.py`: fresh for 60 seconds; once stale it returns the previous list immediately and refreshes once in the background (kept for up to 24 hours); only a cold process with no snapshot at all makes the catalog and tools wait on one shared refresh, and the system prompt never waits (it names the collections by id and fills in names on the next turn). A failed refresh keeps the old snapshot and backs off 5 seconds; changing the provider, endpoint, key or allowlist uses a separate cache entry. Retrieval goes through the MCP tool `retrieve_dataset_content`: without an explicit `dataset_id`, it searches all allowed datasets, supports Dify retrieval parameters such as `hybrid_search`, sorts merged results by score, truncates to top-k, and applies a token-budget trim.
 
 ```bash
 KNOWLEDGE_BASE=dify

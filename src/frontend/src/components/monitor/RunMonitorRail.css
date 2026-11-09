@@ -176,8 +176,6 @@ button.jx-runMonitor-row:active { background: var(--state-press); }
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
-/* ElapsedTimer brings its own left padding from tool.css when reused there. */
-.jx-runMonitor-row .jx-runMonitor-meta { padding-left: 0; }
 
 .jx-runMonitor-status {
   display: inline-grid;

@@ -17,7 +17,7 @@ import { updatePlanApi } from '../../api';
 import { quoteSourceLabel } from '../../utils/quotedFollowUp';
 import { markPlanDecision } from '../../hooks/usePlanMode';
 import { useActivityAge } from '../../hooks/useActivityAge';
-import { ACTIVITY_THRESHOLDS, TAIL_WAIT_MS, WAIT_CLOCK_MS, agentStateForPhase, runPhase, waitLabel } from '../../utils/turnActivity';
+import { ACTIVITY_THRESHOLDS, TAIL_WAIT_MS, agentStateForPhase, runPhase, waitLabel } from '../../utils/turnActivity';
 import { useMessageCitation } from './useMessageCitation';
 import type { ChatMessage } from '../../types';
 import { t } from '../../i18n';
@@ -58,7 +58,7 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
     if (currentPlanId === planId) setCurrentPlanId(null);
     updatePlanApi(planId, { status: 'cancelled' }, currentChatId).catch(() => { /* best-effort; the card is already marked */ });
   }, [currentChatId, m]);
-  // Track stream activity for the startup clock and output dots.
+  // Track stream activity for the wait labels and output dots.
   const streamedArgsLength = (m.toolCalls || []).reduce(
     (total, tool) => total + (tool.inputText?.length || 0),
     0,
@@ -74,12 +74,9 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
     0,
   );
   const stallSignature = `${(m.content || '').length}|${m.toolCalls?.length ?? 0}|${streamedArgsLength}|${streamedThinkingLength}|${m.segments?.length ?? 0}`;
-  // The startup clock anchors to the persisted activity stamp, so it keeps
-  // counting from the real start across remounts.
-  const turnStartTs = m.lastActivityTs ?? m.ts;
   // A tool finishing is activity too — it is what starts the "analysing results" wait.
   const settledTools = (m.toolCalls || []).filter((tool) => tool.status && tool.status !== 'running').length;
-  const activity = useActivityAge(
+  const idleMs = useActivityAge(
     `${stallSignature}|${settledTools}`,
     !!m.isStreaming,
     ACTIVITY_THRESHOLDS,
@@ -160,25 +157,21 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
                 s => s.type === 'text' && (s.content || '').trim().length > 0,
               );
               const tailSlot = `${m.uid}-tail`;
-              let tail: { label: string; startTs: number; clockAfterMs?: number } | null = null;
+              let tail: { label: string } | null = null;
               let agent: { slot: string; state: AgentMarkState } | null = null;
               if (liveTurn && tailRun) {
                 if (tailRun.tools.length === 0) {
-                  const phase = runPhase(tailRun.steps, { isStreaming: true, isTail: true, idleMs: activity.idleMs });
+                  const phase = runPhase(tailRun.steps, { isStreaming: true, isTail: true, idleMs });
                   agent = { slot: `${m.uid}-seg-${tailRun.anchor}`, state: agentStateForPhase(phase) };
                 }
               } else if (liveTurn && !hasVisibleProgress) {
                 // The genuine dead window: the bubble exists and nothing has streamed yet.
-                tail = { label: turnStatusLabel ?? t('正在处理…'), startTs: turnStartTs };
+                tail = { label: turnStatusLabel ?? t('正在处理…') };
                 agent = { slot: tailSlot, state: 'work' };
-              } else if (liveTurn && activity.idleMs >= TAIL_WAIT_MS && activity.since !== null) {
+              } else if (liveTurn && idleMs >= TAIL_WAIT_MS) {
                 // While words arrive the text speaks for itself — nothing under it.
                 // Once it pauses, say that the next step is being worked out.
-                tail = {
-                  label: waitLabel(activity.idleMs, t('正在思考下一步…')),
-                  startTs: activity.since,
-                  clockAfterMs: WAIT_CLOCK_MS,
-                };
+                tail = { label: waitLabel(idleMs, t('正在思考下一步…')) };
                 agent = { slot: tailSlot, state: 'think' };
               }
               // The first run takes over from the startup row only if nothing showed before it.
@@ -202,9 +195,10 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
                       steps={run.steps}
                       isStreaming={m.isStreaming}
                       isTail={liveTurn ? run === tailRun : undefined}
-                      idleMs={run === tailRun ? activity.idleMs : undefined}
+                      idleMs={run === tailRun ? idleMs : undefined}
                       agentSlotKey={agent?.slot === segKey ? segKey : undefined}
                       takeOverFrom={run === takeOver ? (turnStatusLabel ?? t('正在处理…')) : undefined}
+                      turnStartTs={liveTurn && run === tailRun ? m.ts : undefined}
                     />
                   );
                 }
@@ -304,10 +298,9 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
                 rendered.push(
                   <TurnStatusIndicator
                     key={tailSlot}
-                    startTs={tail.startTs}
                     label={tail.label}
-                    clockAfterMs={tail.clockAfterMs}
                     agentSlotKey={tailSlot}
+                    turnStartTs={m.ts}
                   />,
                 );
               }
@@ -328,6 +321,7 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
                 <ToolRunShell
                   steps={m.toolCalls.map((tool, idx) => ({ kind: 'tool' as const, tool, key: `${m.uid}-legacy-${idx}` }))}
                   isStreaming={m.isStreaming}
+                  turnStartTs={m.isStreaming && !m.content ? m.ts : undefined}
                 />
               </div>
             )}
@@ -344,7 +338,7 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
             )}
             {m.isStreaming && !m.content ? (
               !m.toolCalls?.length && !m.thinking?.some(block => block.content?.trim()) ? (
-                <TurnStatusIndicator startTs={turnStartTs} label={turnStatusLabel} />
+                <TurnStatusIndicator label={turnStatusLabel} turnStartTs={m.ts} />
               ) : null
             ) : (
             <div className={`jx-bubble ${m.role === 'user' ? 'user' : ''} jx-md ${m.isStreaming ? 'streaming' : ''}`}>

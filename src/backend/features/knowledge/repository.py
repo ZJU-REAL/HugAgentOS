@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import sqlalchemy as sa
-from features.knowledge.models import KBDocument, KBSpace
+from features.knowledge.models import KBChunk, KBDocument, KBSpace
 from features.knowledge.document_status import classify_document_status, empty_document_status_counts
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session
@@ -138,6 +138,21 @@ class KBRepository:
         )
 
         return documents, total
+
+    def document_char_counts(self, document_ids: List[str]) -> dict[str, int]:
+        """Characters of parsed text per document: the end offset of its last chunk.
+
+        Documents with no chunks yet (still indexing, or failed before chunking) are absent.
+        """
+        if not document_ids:
+            return {}
+        rows = (
+            self.db.query(KBChunk.document_id, func.max(KBChunk.char_end))
+            .filter(KBChunk.document_id.in_(document_ids))
+            .group_by(KBChunk.document_id)
+            .all()
+        )
+        return {document_id: int(end) for document_id, end in rows if end}
 
     def count_document_statuses(self, kb_id: str, keyword: Optional[str] = None) -> dict[str, int]:
         """Count indexing states across the full KB, independent of pagination."""

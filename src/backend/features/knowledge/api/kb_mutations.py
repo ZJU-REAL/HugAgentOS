@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 router = APIRouter()
 from typing import Optional
-from features.knowledge.edition import ReindexRequest
+from features.knowledge.request_models import ReindexRequest
 from core.auth.backend import UserContext, get_current_user
 from features.knowledge.wiki.config import index_modes_of
 from core.db.engine import get_db

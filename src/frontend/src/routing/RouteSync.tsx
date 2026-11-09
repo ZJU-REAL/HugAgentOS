@@ -7,8 +7,8 @@ import { t } from '../i18n';
 import { useChatStore } from '../stores';
 import { useAuthStore } from '../stores/authStore';
 import { useAutomationChatStore } from '../stores/automationChatStore';
-import { isAddressableChat } from '../stores/chatStore';
-import { navigateTo, pathForChat, pathForPanel, setConversationOwnerResolver } from './navigation';
+import { isAddressableChat, projectOverviewId } from '../stores/chatStore';
+import { navigateTo, openProjectFromUrl, pathForChat, pathForPanel, setConversationOwnerResolver } from './navigation';
 
 setConversationOwnerResolver(id => useChatStore.getState().store.chats[id]?.automationTaskId);
 
@@ -38,11 +38,34 @@ export function ChatRoute() {
     useAutomationChatStore.getState().exitAutomationChat();
     if (chatId) {
       if (chat.currentChatId !== chatId) chat.adoptChatFromUrl(chatId);
-    } else if (isAddressableChat(chat.currentChatId)) {
+    } else if (isAddressableChat(chat.currentChatId) || projectOverviewId(chat.currentChat())) {
       // 返回首页时恢复该入口的未发送草稿；已发送的首页草稿由 store 换成空白草稿。
+      // 从项目概览（`/projects/<id>`）后退到首页同理，不能把项目草稿留在首页上。
       chat.resumeHomeChat();
     }
   }, [chatId]);
+  return null;
+}
+
+/** `/projects/<项目id>`：地址指向项目概览时打开它（刷新、粘贴链接、前进后退）。
+ *  等会话列表恢复完再动手，否则 useChatInit 按地址（这里没有会话 id）收养的空白草稿
+ *  会把刚打开的概览顶掉。项目不存在或无权访问时提示并退回项目列表。 */
+export function ProjectRoute() {
+  const { projectId } = useParams();
+  const ready = useChatStore(s => !!s.currentUserId && !s.chatsLoading);
+  useEffect(() => {
+    if (!projectId || !ready) return;
+    const chat = useChatStore.getState();
+    if (projectOverviewId(chat.currentChat()) === projectId) return;
+    let cancelled = false;
+    useAutomationChatStore.getState().exitAutomationChat();
+    void openProjectFromUrl(projectId).catch(e => {
+      if (cancelled) return;
+      message.error(e instanceof Error ? e.message : t('加载失败'));
+      navigateTo(pathForPanel('projects'), { replace: true });
+    });
+    return () => { cancelled = true; };
+  }, [projectId, ready]);
   return null;
 }
 
@@ -77,7 +100,9 @@ export function AutomationChatRoute() {
     void restore().catch(e => {
       if (cancelled) return;
       message.error(e instanceof Error ? e.message : t('加载失败'));
-      navigateTo(pathForPanel('automation', taskId === 'new' ? null : taskId), { replace: true });
+      // Back to the task list, not the task's own page: when the task is gone that page
+      // would fetch it again and raise a second toast for the same failure.
+      navigateTo(pathForPanel('automation', null), { replace: true });
     });
     return () => { cancelled = true; };
   }, [taskId, chatId, userId]);

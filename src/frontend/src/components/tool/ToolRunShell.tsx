@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { CloseOutlined } from '@ant-design/icons';
 import type { ToolCall } from '../../types';
 import { AgentMark } from '../common/AgentMark';
+import { TurnClock } from '../common/TurnClock';
 import { RollingText } from '../common/RollingText';
 import { ToolCallRow } from './ToolCallRow';
 import { ThinkingStepRow } from './ThinkingStepRow';
@@ -26,59 +27,6 @@ export type ShellStep =
   | { kind: 'thinking'; content: string; active: boolean; key: string }
   | { kind: 'compaction'; progress: CompactionProgress; key: string };
 
-function formatDuration(totalSec: number): string {
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  if (m <= 0) return t('{n}秒', { n: s });
-  return t('{m}分{s}秒', { m, s: String(s).padStart(2, '0') });
-}
-
-/**
- * Total-elapsed counter for a step batch.
- *
- * While running it ticks live from the batch start. A batch that settles in
- * front of the user stops at the moment it settled — the run includes the
- * wait for the model's answer, so recomputing it from the tool spans would
- * make the clock jump back. Reloaded messages (which mount settled) show the
- * persisted span from the first call's start to the last call's finish, so the
- * same conversation renders the same value on any device.
- */
-function ShellTimer({
-  startTs,
-  endTs,
-  running,
-}: {
-  startTs: number;
-  endTs: number;
-  running: boolean;
-}) {
-  const [now, setNow] = useState(() => Date.now());
-  const [bornRunning] = useState(running);
-
-  useEffect(() => {
-    if (!running) return;
-    const id = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, [running]);
-
-  // Once the interval stops, `now` holds the last tick: that is when it settled.
-  const until = running || bornRunning ? now : endTs;
-  const sec = Math.max(0, Math.floor((until - startTs) / 1000));
-
-  if (!running && sec === 0) return null;
-  // One-shot settle scale the moment a live run completes; bornRunning keeps
-  // reloaded/historical messages static (they mount with running=false).
-  const settled = bornRunning && !running;
-  return (
-    <>
-      <span className="jx-trs-sep">·</span>
-      <span className={`jx-trs-dur${settled ? ' jx-trs-dur--settled' : ''}`}>
-        {formatDuration(sec)}
-      </span>
-    </>
-  );
-}
-
 interface ToolRunShellProps {
   /** Mixed steps (tool calls + thinking) belonging to one contiguous batch. */
   steps: ShellStep[];
@@ -98,6 +46,8 @@ interface ToolRunShellProps {
   agentSlotKey?: string;
   /** Line this run takes over from (the startup row it replaces); its title rolls in from it. */
   takeOverFrom?: string;
+  /** Start of the turn; while this run is live, the whole-turn clock trails its title. */
+  turnStartTs?: number;
 }
 
 /**
@@ -108,8 +58,7 @@ interface ToolRunShellProps {
  * 图标原地点亮，不做硬切；运行状态只靠点亮的图标和标题扫光表达。只有没有工具的一批
  * （纯思考、纯压缩）才在行首留智能体标记的槽位。
  */
-export function ToolRunShell({ steps, isStreaming, isTail, idleMs = 0, agentSlotKey, takeOverFrom }: ToolRunShellProps) {
-  const [mountTs] = useState(() => Date.now());
+export function ToolRunShell({ steps, isStreaming, isTail, idleMs = 0, agentSlotKey, takeOverFrom, turnStartTs }: ToolRunShellProps) {
   // 过程默认收起，跑起来也不自动展开——折叠那一行的文案已经说明了在做什么。
   const [open, setOpen] = useState(false);
   const toolDisplayNames = useChatStore((s) => s.toolDisplayNames);
@@ -123,14 +72,6 @@ export function ToolRunShell({ steps, isStreaming, isTail, idleMs = 0, agentSlot
   const lastCompaction = compactions[compactions.length - 1];
   const phase = runPhase(steps, { isStreaming: !!isStreaming, isTail, idleMs, anyToolRunning: toolStatuses.includes('running') });
   const running = phase !== 'done';
-
-  const timed = tools.filter((tool): tool is ToolCall & { timestamp: number } => typeof tool.timestamp === 'number');
-  const starts = [...timed.map(tool => tool.timestamp), ...compactions.map(p => p.started_at)];
-  const startTs = starts.length ? Math.min(...starts) : mountTs;
-  // 收尾时刻 = 最后一个跑完的调用的开始时刻 + 它的耗时。少了这个耗时，一批工具
-  // 的跨度就只数到"最后一个开始"为止，最后那次执行整段不算。
-  const ends = [...timed.map(tool => tool.timestamp + (tool.durationMs ?? 0)), ...compactions.map(p => p.ended_at || p.started_at)];
-  const endTs = ends.length ? Math.max(...ends) : mountTs;
 
   // MCP 连接器的名字是会话期动态下发的，先解析好再交给文案表——没登记在表里的
   // 工具就靠这个名字自报家门。
@@ -190,7 +131,7 @@ export function ToolRunShell({ steps, isStreaming, isTail, idleMs = 0, agentSlot
             rollFrom={takeOverFrom}
             className="jx-trs-title jx-turnStatusText"
           />
-          <ShellTimer startTs={startTs} endTs={endTs} running={running} />
+          {running && turnStartTs != null && <TurnClock startTs={turnStartTs} />}
           {runningNote && <span className="jx-trs-note">{runningNote}</span>}
         </span>
         <span className={`jx-trs-chev${open ? ' jx-trs-chev--open' : ''}`} aria-hidden="true" />

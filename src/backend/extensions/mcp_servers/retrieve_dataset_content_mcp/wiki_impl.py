@@ -137,9 +137,9 @@ def resolve_dataset_id(
         return external[0]
 
     try:
-        from features.knowledge.edition import list_collections
+        from features.knowledge.edition import get_collections
 
-        for item in list_collections() or []:
+        for item in get_collections():
             caps = item.get("capabilities") or {}
             if caps.get("wiki"):
                 return str(item.get("id") or "")

@@ -15,11 +15,9 @@ import { t } from '../i18n';
 export const HANDOFF_MS = 400;
 /** Text that has paused this long gets a "working out the next step" line under it. */
 export const TAIL_WAIT_MS = 600;
-/** Waits longer than this show their own clock. */
-export const WAIT_CLOCK_MS = 5_000;
 /** Waits longer than this say so plainly. */
 export const SLOW_WAIT_MS = 8_000;
-/** The idle steps a reply's own render depends on (the wait clock ticks in its own row). */
+/** The idle steps a reply's own render depends on. */
 export const ACTIVITY_THRESHOLDS = [HANDOFF_MS, TAIL_WAIT_MS, SLOW_WAIT_MS] as const;
 
 /**

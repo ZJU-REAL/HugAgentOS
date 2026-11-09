@@ -1,4 +1,5 @@
 """Capability catalog preference mutations."""
+import re
 from typing import Any, Dict, Optional
 from core.auth.backend import UserContext, get_current_user
 from core.capabilities.catalog.runtime import get_runtime_catalog
@@ -9,8 +10,41 @@ from core.capabilities.catalog.overrides import CatalogService
 from fastapi import APIRouter, Depends, Path
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+from starlette.convertors import Convertor, register_url_convertor
 from features.marketplace.api.catalog_ownership import _is_owned_capability
 router = APIRouter()
+
+# URL kind segment -> catalog kind. The bare ``kb`` segment is deliberately absent:
+# ``/v1/catalog/kb/**`` belongs to the knowledge-base router (rename, documents,
+# chunks, wiki…), so knowledge-base toggles use the ``knowledge_bases`` spelling.
+_KIND_MAP = {
+    "skill": "skill",
+    "skills": "skill",
+    "agent": "agent",
+    "agents": "agent",
+    "mcp": "mcp",
+    "mcp_server": "mcp",
+    "mcp_servers": "mcp",
+    "knowledge_base": "kb",
+    "knowledge_bases": "kb",
+}
+
+
+class _CatalogKindConvertor(Convertor):
+    """Match only the kinds this router owns, so a sibling router's literal path
+    under ``/v1/catalog`` is never swallowed by the ``{kind}`` wildcard, whatever
+    the registration order (guarded by tests/api/test_route_ownership.py)."""
+
+    regex = "|".join(sorted(map(re.escape, _KIND_MAP), key=len, reverse=True))
+
+    def convert(self, value: str) -> str:
+        return value
+
+    def to_string(self, value: str) -> str:
+        return value
+
+
+register_url_convertor("catalog_kind", _CatalogKindConvertor())
 
 # Request/Response Models
 class UpdateCatalogRequest(BaseModel):
@@ -31,9 +65,9 @@ class CatalogItemResponse(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
 
 
-@router.patch("/{kind}/{id}", summary="更新能力配置")
+@router.patch("/{kind:catalog_kind}/{id}", summary="更新能力配置")
 def update_catalog_item(
-    kind: str = Path(..., description="Item kind: skill, agent, mcp, or kb"),
+    kind: str = Path(..., description="Item kind: skills, agents, mcp, or knowledge_bases"),
     id: str = Path(..., description="Item ID"),
     request: UpdateCatalogRequest = ...,
     user: UserContext = Depends(get_current_user),
@@ -41,30 +75,12 @@ def update_catalog_item(
 ):
     """更新当前用户对某能力项的配置（启用状态 enabled 与配置覆盖 config）。
 
-    覆盖按用户独立存储，不影响其他用户或系统级默认值。kind 取值：skill / agent /
-    mcp / kb（kb 仅运行时开关，不落库）。管理员在目录层禁用的项不可被用户重新启用；
-    技能或工具变更会失效系统提示词缓存。
+    覆盖按用户独立存储，不影响其他用户或系统级默认值。kind 取值：skills / agents /
+    mcp / knowledge_bases（知识库仅运行时开关，不落库；`/v1/catalog/kb/**` 归知识库
+    路由，这里不接）。管理员在目录层禁用的项不可被用户重新启用；技能或工具变更会失效
+    系统提示词缓存。
     """
-    # Normalize kind
-    kind_map = {
-        "skill": "skill",
-        "skills": "skill",
-        "agent": "agent",
-        "agents": "agent",
-        "mcp": "mcp",
-        "mcp_server": "mcp",
-        "mcp_servers": "mcp",
-        "kb": "kb",
-        "knowledge_base": "kb",
-        "knowledge_bases": "kb",
-    }
-
-    normalized_kind = kind_map.get(kind.lower())
-    if not normalized_kind:
-        raise BadRequestError(
-            message="Invalid kind",
-            data={"allowed_kinds": ["skill", "agent", "mcp", "kb"], "provided_kind": kind},
-        )
+    normalized_kind = _KIND_MAP[kind]
 
     # Validate that at least one field is provided
     if request.enabled is None and request.config is None:

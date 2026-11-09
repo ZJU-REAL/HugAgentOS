@@ -10,11 +10,14 @@ must still be able to write to the database while an installer is rolling back.
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from typing import Any
 
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
+
+logger = logging.getLogger(__name__)
 
 
 def reconcile_local_chat_sequences(bind: Engine) -> dict[str, list[str]]:
@@ -129,6 +132,73 @@ def reconcile_local_chat_sequences(bind: Engine) -> dict[str, list[str]]:
                 "ON chat_messages (chat_id, chat_seq)"
             )
             report["indexes"].append(sequence_key_name)
+
+    for values in report.values():
+        values.sort()
+    return report
+
+
+_TASK_NUMBER_COLUMNS = (
+    # (table, column, DDL). ``task_no`` stays physically nullable for the same reason as
+    # ``chat_messages.chat_seq``: a rollback target that predates task numbers must still
+    # be able to insert runs, and every newer start numbers whatever it left behind.
+    ("chat_runs", "task_no", "VARCHAR(32)"),
+    ("chat_runs", "subtask_seq", "INTEGER NOT NULL DEFAULT 0"),
+    ("subagent_call_logs", "task_no", "VARCHAR(64)"),
+    ("subagent_call_logs", "child_seq", "INTEGER NOT NULL DEFAULT 0"),
+)
+_TASK_NO_UNIQUE = "uq_chat_runs_task_no"
+
+
+def reconcile_local_task_numbers(bind: Engine) -> dict[str, list[str]]:
+    """Add, backfill and protect task numbers on a legacy local database.
+
+    Mirrors the CE revision ``ce_0036`` for databases that never run Alembic. It must run
+    before the metadata reconciler, which refuses to add the model's non-null ``task_no``
+    to a populated table. Safe on a database a failed upgrade already half-created
+    (``task_number_counters`` present, columns missing) and on every later start.
+    """
+    from core.db.task_number_migration import backfill_task_numbers
+
+    report: dict[str, list[str]] = {"columns": [], "backfills": [], "indexes": []}
+    with bind.begin() as connection:
+        tables = set(inspect(connection).get_table_names())
+        if "chat_runs" not in tables:
+            return report  # fresh database: create_all builds the current schema
+        for table, column, ddl in _TASK_NUMBER_COLUMNS:
+            if table not in tables:
+                continue
+            existing = {item["name"] for item in inspect(connection).get_columns(table)}
+            if column not in existing:
+                connection.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+                report["columns"].append(f"{table}.{column}")
+        connection.exec_driver_sql(
+            "CREATE TABLE IF NOT EXISTS task_number_counters ("
+            "day VARCHAR(8) NOT NULL, last_seq INTEGER NOT NULL, PRIMARY KEY (day))"
+        )
+
+        counts = backfill_task_numbers(connection)
+        for name, count in counts.items():
+            if count:
+                report["backfills"].append(f"task_no.{name}:{count}")
+
+        inspector = inspect(connection)
+        names = {item.get("name") for item in inspector.get_unique_constraints("chat_runs")}
+        names |= {item.get("name") for item in inspector.get_indexes("chat_runs")}
+        if _TASK_NO_UNIQUE not in names:
+            duplicate = connection.exec_driver_sql(
+                "SELECT task_no FROM chat_runs WHERE task_no IS NOT NULL "
+                "GROUP BY task_no HAVING COUNT(*) > 1 LIMIT 1"
+            ).first()
+            if duplicate is None:
+                connection.exec_driver_sql(
+                    f"CREATE UNIQUE INDEX {_TASK_NO_UNIQUE} ON chat_runs (task_no)"
+                )
+                report["indexes"].append(_TASK_NO_UNIQUE)
+            else:
+                # Never block startup over the index: numbers keep working without it
+                # and the next start retries once the duplicate is gone.
+                logger.warning("chat_runs.task_no has duplicates (%s); unique index skipped", duplicate[0])
 
     for values in report.values():
         values.sort()

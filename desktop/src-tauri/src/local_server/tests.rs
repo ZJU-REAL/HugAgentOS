@@ -308,3 +308,84 @@ fn assert_orphan_cleanup(observe: bool) {
     assert!(!alive, "orphan descendant survived manager shutdown");
     manager.shutdown().unwrap();
 }
+
+/// A backend that dies on its own (e.g. a failed migration) leaves only its
+/// unreaped leader in the group. macOS reports EPERM for that group; observing
+/// the exit must still return the backend's status instead of a signal error,
+/// so the installer can show the real failure and roll back.
+#[cfg(unix)]
+#[test]
+fn exited_backend_reports_its_status_instead_of_a_signal_error() {
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::Command;
+    let manager = manager("exited-leader");
+    let mut command = Command::new("/bin/sh");
+    command.args(["-c", "exit 3"]);
+    super::process::configure_process_group(&mut command);
+    let mut child = ManagedProcess::spawn(&mut command).unwrap();
+    let status = (0..200)
+        .find_map(|_| {
+            let status = child
+                .try_wait()
+                .expect("observing an exited backend must not fail");
+            if status.is_none() {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            status
+        })
+        .expect("backend exits");
+    assert_eq!(status.code(), Some(3), "{:?}", status.signal());
+    *manager.child.lock().unwrap() = Some(child);
+    manager.stop_server().unwrap();
+}
+
+/// The EPERM rule must not let a TERM-ignoring sidecar outlive its exited leader.
+#[cfg(unix)]
+#[test]
+fn exited_leader_still_takes_live_descendants_down() {
+    use std::process::Command;
+    let manager = manager("exited-leader-descendant");
+    let marker = manager.root.parent().unwrap().join("descendant.pid");
+    let _ = std::fs::create_dir_all(marker.parent().unwrap());
+    let _ = std::fs::remove_file(&marker);
+    let script = format!(
+        "trap '' TERM; (trap '' TERM; exec sleep 60) & echo $! > '{}'; exit 0",
+        marker.display()
+    );
+    let mut command = Command::new("/bin/sh");
+    command.args(["-c", &script]);
+    super::process::configure_process_group(&mut command);
+    let mut child = ManagedProcess::spawn(&mut command).unwrap();
+    let pid = (0..300)
+        .find_map(|_| {
+            let pid = std::fs::read_to_string(&marker)
+                .ok()
+                .and_then(|text| text.trim().parse::<i32>().ok());
+            if pid.is_none() {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            pid
+        })
+        .expect("descendant started");
+    // The marker is written just before the leader's `exit 0`: wait for that exit.
+    let leader_exited = (0..300).any(|_| {
+        let exited = child.try_wait().unwrap().is_some();
+        if !exited {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        exited
+    });
+    assert!(leader_exited, "leader exits first");
+    let alive = (0..300).all(|_| {
+        let running = unsafe { libc::kill(pid, 0) } == 0;
+        if running {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        running
+    });
+    assert!(
+        !alive,
+        "TERM-ignoring descendant survived its exited leader"
+    );
+    manager.stop_server().unwrap();
+}

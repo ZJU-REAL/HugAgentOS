@@ -14,6 +14,7 @@ import { messageClipboard } from './messageClipboard';
 import { copyHtmlToClipboard } from '../../utils/clipboard';
 import { message } from 'antd';
 import { ForkChatButton } from './ForkChatButton';
+import { formatTurnSeconds } from '../../utils/elapsed';
 const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
 
 /** Format a message timestamp as local "YYYY-MM-DD HH:MM:SS", shown below each message. */
@@ -24,13 +25,17 @@ function formatMsgTime(ts: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-/** Format the total generation time (milliseconds) as "用时 X.X秒"; when over 1 minute, use "用时 N分M秒". 单位统一用「秒」。 */
-function formatDuration(ms?: number): string | null {
+/**
+ * The settled turn time as "用时 41秒" / "用时 1分05秒" — whole seconds, the same
+ * shape the live clock used while the reply streamed, so it doesn't change form
+ * at the end. The exact value lives in the tooltip.
+ */
+function formatDuration(ms?: number): { label: string; exact: string } | null {
   if (ms == null || !Number.isFinite(ms) || ms < 0) return null;
-  if (ms < 60_000) return t('用时 {sec}秒', { sec: (ms / 1000).toFixed(1) });
-  const min = Math.floor(ms / 60_000);
-  const sec = Math.round((ms % 60_000) / 1000);
-  return t('用时 {min}分{sec}秒', { min, sec });
+  return {
+    label: t('用时 {d}', { d: formatTurnSeconds(Math.round(ms / 1000)) }),
+    exact: t('本次回答整体生成耗时 {sec} 秒', { sec: (ms / 1000).toFixed(1) }),
+  };
 }
 
 /** Wait for the jx-expandWrap height animation to finish expanding before focusing the input */
@@ -87,6 +92,7 @@ interface MessageActionsProps {
   editAndResend?: (messageIndex: number, newContent: string) => void;
 }
 export function MessageActions({ m, messageIndex, currentChatId, exportChatRecord, regenerate, editAndResend }: MessageActionsProps) {
+  const duration = m.role === 'assistant' ? formatDuration(m.durationMs) : null;
   const copiedMsg = useChatStore((s) => s.copiedMsg);
   const setCopiedMsg = useChatStore((s) => s.setCopiedMsg);
   const feedbackMap = useChatStore((s) => s.feedbackMap);
@@ -154,6 +160,10 @@ export function MessageActions({ m, messageIndex, currentChatId, exportChatRecor
         {/* Message action bar */}
         {!m.isStreaming && !isEditing && (
           <div className={`jx-msgActions ${m.role === 'user' ? 'user' : ''}`}>
+            {/* 整轮耗时放在最前：按钮未 hover 时是透明占位，放后面会被它们推出一段空白。 */}
+            {duration && (
+              <span className="jx-msgDuration" title={duration.exact}>{duration.label}</span>
+            )}
             <button className={`jx-msgActionBtn${copiedMsg === m.uid ? ' copied' : ''}`}
               title={copiedMsg === m.uid ? t('已复制') : t('复制内容')}
               onClick={() => { void doCopy(); }}>
@@ -221,11 +231,6 @@ export function MessageActions({ m, messageIndex, currentChatId, exportChatRecor
               >
                 <ShareAltOutlined />
               </button>
-            )}
-            {m.role === 'assistant' && formatDuration(m.durationMs) && (
-              <span className="jx-msgDuration" title={t('本次回答整体生成耗时')}>
-                {formatDuration(m.durationMs)}
-              </span>
             )}
             {m.role === 'assistant' && regenerate && (
               <button className="jx-msgActionBtn" title={t('重新生成')}

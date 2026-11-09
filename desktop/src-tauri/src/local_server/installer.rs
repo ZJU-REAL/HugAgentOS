@@ -196,10 +196,22 @@ impl LocalServerManager {
                 Ok(())
             }
             Err(start_error) => {
-                self.stop_server()?;
-                if local_payload::restore_previous(&self.root)? {
+                // Every failure on the way back keeps start_error: it is why we are here.
+                // A process that cannot be stopped may still hold the data files, so
+                // nothing is restored over it.
+                self.stop_server().map_err(|stop_error| {
+                    format!("新版本启动失败（{start_error}），且无法停止新版本进程，未执行回滚（{stop_error}）")
+                })?;
+                let restored = local_payload::restore_previous(&self.root).map_err(|error| {
+                    format!("新版本启动失败（{start_error}），恢复原有版本失败（{error}）")
+                })?;
+                if restored {
                     if let Some(backup) = data_backup.as_deref() {
-                        restore_local_data(&self.data_root, backup)?;
+                        restore_local_data(&self.data_root, backup).map_err(|error| {
+                            format!(
+                                "新版本启动失败（{start_error}），恢复升级前数据失败（{error}）"
+                            )
+                        })?;
                     }
                     self.append_log(format!("新版本启动失败，已回滚原有版本：{start_error}"))
                         .await;

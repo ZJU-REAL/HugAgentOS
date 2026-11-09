@@ -213,25 +213,8 @@
   background: color-mix(in srgb, var(--color-text-secondary) 28%, transparent);
 }
 
-/* ── Elapsed timer (running tool card + pending indicator) ── */
-.jx-tcr-timer,
-.jx-elapsedTimer {
-  padding-left: var(--space-sm);
-  font-family: var(--font-family-number);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: var(--color-text-tertiary);
-  flex-shrink: 0;
-}
-/* Tool-call-row header: push the timer to the right edge, before the arrow. */
-.jx-tcr-timer {
-  margin-left: auto;
-}
 .jx-tcr-arrow {
   flex-shrink: 0;
-}
-.jx-tcr-timer + .jx-tcr-arrow {
-  margin-left: var(--space-sm);
 }
 
 /* ── Live progress note on a long-running tool card (batch job n/m) ── */
@@ -246,10 +229,6 @@
   text-overflow: ellipsis;
   flex-shrink: 1;
   min-width: 0;
-}
-/* 有进度文案时由它吃掉右推的空间，计时器紧随其后，不再各自 auto 把两者扯开 */
-.jx-tcr-progress + .jx-tcr-timer {
-  margin-left: var(--space-sm);
 }
 
 /* ── Tool call list container ── */
@@ -273,11 +252,6 @@
 .jx-trs-body > * {
   --fadeInUp-distance: -4px;
   animation: jx-kf-fadeInUp .18s ease-out both;
-}
-/* 计时器完成定格：与品牌 loader 同款 settle */
-.jx-trs-dur--settled {
-  display: inline-block;
-  animation: jxBrandSettle .24s ease-out both;
 }
 /* 历史回放 / 非流式渲染豁免：壳、步骤行、标题一律静态 */
 .jx-trs--static,
@@ -315,16 +289,6 @@
   font-weight: 500;
   letter-spacing: 0.01em;
   color: color-mix(in srgb, var(--color-text) 78%, transparent);
-}
-.jx-trs-sep {
-  color: color-mix(in srgb, var(--color-text) 25%, transparent);
-  font-size: 12px;
-}
-.jx-trs-dur {
-  font-family: var(--font-family-number);
-  font-size: 12.5px;
-  font-variant-numeric: tabular-nums;
-  color: color-mix(in srgb, var(--color-text) 50%, transparent);
 }
 /* 折叠态里那行实时进度（批量作业 n/m）——比步骤数显眼一档，它是这段时间唯一在动的字 */
 .jx-trs-note {

@@ -171,6 +171,15 @@ async def _startup_preload():
 
         await _run_sync("Prompt cache", warmup_prompt_cache)
 
+        # 5b. Start the external knowledge directory refresh so the first catalog
+        #     load and the first chat's KB prompt section read it from memory.
+        def _warm_knowledge_directory() -> None:
+            from features.knowledge.edition import warm_collections
+
+            warm_collections()
+
+        await _run_sync("Knowledge directory", _warm_knowledge_directory)
+
         # 6. Idempotent backfill of navigation entries that were added to
         #    DEFAULT_PAGE_CONFIG after this env first seeded its page_config
         #    row. See _NAV_BACKFILL_ENTRIES in content_blocks.py — append a

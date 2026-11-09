@@ -1,3 +1,13 @@
+/** Saves an in-memory blob as a local file: ObjectURL → simulated `<a download>` click → release. */
+export function saveBlob(blob: Blob, filename: string): void {
+  const blobUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = blobUrl;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(blobUrl);
+}
+
 /**
  * Downloads a URL to a local file with Bearer authentication.
  *
@@ -7,11 +17,5 @@
 export async function downloadWithAuth(url: string, filename: string, token: string): Promise<void> {
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const blob = await res.blob();
-  const blobUrl = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = blobUrl;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(blobUrl);
+  saveBlob(await res.blob(), filename);
 }

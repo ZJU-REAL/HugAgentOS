@@ -274,7 +274,10 @@ def vectorise_document_background(
 
     except Exception as exc:
         logger.error("Background vectorisation failed for document %s: %s", document_id, exc, exc_info=True)
-        update_document_status(document_id, "failed", error=f"{type(exc).__name__}: {exc}")
+        from features.knowledge.vector_client import VectorStoreUnavailableError
+
+        error = str(exc) if isinstance(exc, VectorStoreUnavailableError) else f"{type(exc).__name__}: {exc}"
+        update_document_status(document_id, "failed", error=error)
 
 
 def persist_document_assets(

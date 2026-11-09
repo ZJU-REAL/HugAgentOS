@@ -1,6 +1,6 @@
 import { CloseOutlined, MinusOutlined } from '@ant-design/icons';
 import { ToolIcon } from './toolIcons';
-import { ElapsedTimer, ShimmerText } from '../common';
+import { ShimmerText } from '../common';
 import { t } from '../../i18n';
 import { compactionLabel, type CompactionProgress } from '../../utils/compactionProgress';
 
@@ -18,7 +18,6 @@ export function CompactionStepRow({ progress }: { progress: CompactionProgress }
         <span className="jx-tcr-label">
           <ShimmerText text={t(compactionLabel(progress))} active={running} className="jx-tcr-prefix" activeClassName="jx-tcr-prefix--shimmer" />
         </span>
-        {running && <ElapsedTimer startTs={progress.started_at} className="jx-tcr-timer" />}
       </div>
       <div style={{ padding: '2px 0 6px 30px', fontSize: 12, color: 'var(--color-text-secondary)' }}>
         {t(running ? '整理较早的对话，保留关键内容。'

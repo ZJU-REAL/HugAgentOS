@@ -13,8 +13,24 @@ def get_provider_cache_identity(provider_name: str | None = None) -> str:
     return f"{provider_name or 'ce'}:disabled"
 
 
-def list_collections(*args, **kwargs) -> list:
+class CollectionDirectoryUnavailable(RuntimeError):
+    pass
+
+
+def collection_snapshot() -> list:
     return []
+
+
+def get_collections(*args, **kwargs) -> list:
+    return []
+
+
+async def get_collections_async(*args, **kwargs) -> list:
+    return []
+
+
+def warm_collections() -> None:
+    return None
 
 
 def list_documents(*args, **kwargs) -> list:
@@ -22,6 +38,10 @@ def list_documents(*args, **kwargs) -> list:
 
 
 def get_document_detail(*args, **kwargs):
+    return None
+
+
+def open_original_document(*args, **kwargs):
     return None
 
 
@@ -48,14 +68,19 @@ def wiki_module():
 
 
 __all__ = [
+    "CollectionDirectoryUnavailable",
+    "collection_snapshot",
     "get_allowed_collection_ids",
+    "get_collections",
+    "get_collections_async",
     "get_document_detail",
+    "open_original_document",
     "get_provider_cache_identity",
     "get_provider_name",
     "is_enabled",
-    "list_collections",
     "list_documents",
     "runtime_request_context",
     "supports_wiki",
+    "warm_collections",
     "wiki_module",
 ]

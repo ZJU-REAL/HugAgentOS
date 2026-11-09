@@ -7,7 +7,7 @@ import type { ComponentType } from 'react';
 import { PauseCircleOutlined } from '@ant-design/icons';
 import type { ToolCall } from '../../types';
 import { useChatStore, useUIStore } from '../../stores';
-import { ElapsedTimer, ShimmerText } from '../common';
+import { ShimmerText } from '../common';
 import { renderToolOutputBody } from './ToolOutputRenderer';
 import { ThinkingStepRow } from './ThinkingStepRow';
 import { extractCodeFromInput, extractCodeFromStreamingArgs } from '../../utils/codeExecParser';
@@ -21,7 +21,6 @@ import { t } from '../../i18n';
 import { useCollapseHeight } from '../../hooks/useCollapseHeight';
 import { EDITION_STEP_ICONS, getEditionToolRowLabel } from '../../toolEdition';
 import { ToolIcon } from './toolIcons';
-import { formatClock } from '../../utils/elapsed';
 import { toolIconKind } from '../../utils/toolActionLabel';
 import {
   resolvePluginToolLabel,
@@ -334,11 +333,6 @@ function StandardToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
             没有这行，卡片上就只有一个转不完的菊花，用户判断不出是在跑还是已僵死 */}
         {running && tool.progressNote ? (
           <span className="jx-tcr-progress">{tool.progressNote}</span>
-        ) : null}
-        {running && tool.timestamp ? (
-          <ElapsedTimer startTs={tool.timestamp} className="jx-tcr-timer" />
-        ) : !running && (tool.durationMs ?? 0) >= 1000 ? (
-          <span className="jx-tcr-timer">{formatClock(tool.durationMs! / 1000)}</span>
         ) : null}
         {canExpand && (
           <span className={`jx-tcr-arrow${expanded ? ' jx-tcr-arrow--open' : ''}`} />
