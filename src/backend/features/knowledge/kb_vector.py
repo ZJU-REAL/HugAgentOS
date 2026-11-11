@@ -1,9 +1,14 @@
 """kb vector responsibilities."""
 from __future__ import annotations
 import json
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from features.knowledge import kb_vector_state
 from features.knowledge import vector_client
+
+RRF_K = 60
+# Sparse half of a hybrid query; the dense half runs on the caller's thread.
+_SUB_SEARCH_POOL = ThreadPoolExecutor(max_workers=16, thread_name_prefix="kb-sparse-search")
 
 def hit_to_dict(ent, score: float) -> dict:
     """Build the shared KB search-result row. ``ent`` is any entity accessor with
@@ -41,8 +46,6 @@ def hybrid_search(
     filtered by ``kb_id`` only (no owner check), since public KBs are global and
     ``kb_id`` is globally unique.
     """
-    from pymilvus import AnnSearchRequest, MilvusClient, RRFRanker
-
     vector_client.get_or_create_collection(timeout=timeout)
     client = vector_client.get_client()
 
@@ -83,35 +86,40 @@ def hybrid_search(
             hit_to_dict(hit.get("entity", hit), hit.get("distance", 0.0)) for hit in lite_res[0]
         ]
 
-    # Dense vector search request
-    dense_req = AnnSearchRequest(
-        data=[query_vec],
-        anns_field="dense_embedding",
-        param={"metric_type": "IP", "params": {"nprobe": 10}},
-        limit=top_k * 3,
-        expr=expr,
-    )
+    # Retrieve each ranking with its payload in the same RPC, then fuse locally.
+    # Milvus 2.5 combined hybrid_search always requeries payloads by primary key,
+    # and that requery can miss rows under concurrent writes (code 2200,
+    # "inconsistent requery result"; milvus-io/milvus#38126). A plain search with
+    # scalar output fields returns payloads inline and never requeries.
+    # Both rankings keep the identical access scope and run concurrently, so the
+    # wall time stays close to a single search and each honours the same timeout.
+    def _ranking(field: str, data: list, search_params: dict) -> list:
+        return client.search(
+            collection_name=kb_vector_state.COLLECTION_NAME,
+            data=data,
+            anns_field=field,
+            search_params=search_params,
+            limit=top_k * 3,
+            filter=expr,
+            output_fields=output_fields,
+            timeout=timeout,
+        )[0]
 
-    # Sparse search request — bag-of-words vector
-    sparse_vec = text_to_sparse(query)
-    sparse_req = AnnSearchRequest(
-        data=[sparse_vec],
-        anns_field="sparse_embedding",
-        param={"metric_type": "IP"},
-        limit=top_k * 3,
-        expr=expr,
+    sparse_future = _SUB_SEARCH_POOL.submit(
+        _ranking, "sparse_embedding", [text_to_sparse(query)], {"metric_type": "IP"}
     )
-
-    results = client.hybrid_search(
-        collection_name=kb_vector_state.COLLECTION_NAME,
-        reqs=[dense_req, sparse_req],
-        ranker=RRFRanker(k=60),
-        limit=top_k * 2,
-        output_fields=output_fields,
-        timeout=timeout,
+    dense_hits = _ranking(
+        "dense_embedding", [query_vec], {"metric_type": "IP", "params": {"nprobe": 10}}
     )
+    sparse_hits = sparse_future.result()
 
-    return [hit_to_dict(hit.entity, hit.score) for hit in results[0]]
+    fused: dict[str, dict[str, Any]] = {}
+    for hits in (dense_hits, sparse_hits):
+        for rank, hit in enumerate(hits, start=1):
+            entity = hit.get("entity", hit)
+            row = fused.setdefault(entity["chunk_id"], hit_to_dict(entity, 0.0))
+            row["score"] += 1.0 / (RRF_K + rank)
+    return sorted(fused.values(), key=lambda row: row["score"], reverse=True)[: top_k * 2]
 
 
 def build_sparse_text(content: str, tags: list[str]) -> str:

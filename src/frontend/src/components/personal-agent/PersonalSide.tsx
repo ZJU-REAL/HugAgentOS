@@ -56,7 +56,7 @@ export function PersonalSide({ monitor, name, open, onClose, onProfile, onSettin
     </header>
     <ChannelEntry agentName={name} conversations={conversations} selectedChatId={selectedChatId} onSelectChat={onSelectChat} />
     <section className="pa-side-section" data-monitor-section="computers"><h3>{t('电脑')}</h3>
-      <PersonalComputers agentName={name} devices={monitor?.devices || []} status={monitor?.agent?.computer_status} onChange={onRefresh} />
+      <PersonalComputers agentName={name} devices={monitor?.devices || []} devicesLoaded={!!monitor} status={monitor?.agent?.computer_status} onChange={onRefresh} />
     </section>
     {/* A section with nothing in it is left out. */}
     {!!tasks.length && <section className="pa-side-section" data-monitor-section="tasks"><h3>{t('任务')}</h3><RecentActivity tasks={tasks} onOpen={onOpenTask} onDone={onRefresh} onError={onError} /></section>}

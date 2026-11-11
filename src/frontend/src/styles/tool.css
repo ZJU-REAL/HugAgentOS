@@ -1896,10 +1896,13 @@
 }
 
 /* §13 我的空间写操作确认浮条 —— 悬浮在输入框上方（借鉴 Claude 桌面版） */
+/* 文案列有最小宽度：放不下按钮组时，按钮组整体换到下一行右对齐，而不是把文案挤成一列一两个字。
+   按容器宽度而非视口宽度判断——同一张卡会出现在主对话、Personal Agent 侧栏旁和任务弹窗里。 */
 .jx-confirmBar{
   display:flex;
+  flex-wrap:wrap;
   align-items:flex-start;
-  gap:var(--space-md);
+  gap:12px var(--space-md);
   margin:0 0 var(--space-sm);
   width:100%;
   padding:14px var(--space-md);
@@ -1928,7 +1931,7 @@
   color:var(--color-primary);
   font-size:18px;
 }
-.jx-confirmBar-body{ flex:1; min-width:0; }
+.jx-confirmBar-body{ flex:1 1 max(260px, 50%); min-width:0; overflow-wrap:anywhere; }
 .jx-confirmBar-title{
   font-size:14px; font-weight:600; color:var(--color-text);
   line-height:1.5;
@@ -1960,10 +1963,14 @@
 .jx-confirmBar-actions{
   flex:none;
   display:flex; align-items:center; gap:var(--space-sm);
+  flex-wrap:wrap; justify-content:flex-end;
+  max-width:100%;
+  margin-left:auto;
   align-self:center;
 }
 .jx-confirmBar-btn{
   display:inline-flex; align-items:center; gap:4px;
+  max-width:100%;
   font-size:13px; font-weight:500;
   padding:7px 16px;
   border-radius:var(--radius-sm);
@@ -1987,8 +1994,7 @@
 }
 .jx-confirmBar-btn--ghost:not(:disabled):hover{ color:var(--color-error); border-color:var(--color-error); }
 @media (max-width:640px){
-  .jx-confirmBar{ flex-wrap:wrap; }
-  .jx-confirmBar-actions{ width:100%; justify-content:flex-end; flex-wrap:wrap; }
+  .jx-confirmBar-actions{ width:100%; }
 }
 
 /* 建站设计三选一选择卡 —— 悬浮在输入框上方（与 .jx-confirmBar 同位同语） */
@@ -2135,7 +2141,7 @@
   font-weight:500;
   line-height:22px;
 }
-.jx-askQ-headerActions{
+.jx-askQ-headerActions{ /* layout-ok: icon-only buttons */
   display:flex;
   align-items:center;
   gap:4px;
@@ -2344,11 +2350,13 @@
   --jx-askQ-field-padding:0;
 }
 .jx-askQ-field--block:focus-within{ border-color:var(--color-primary); }
+/* The feedback line keeps a minimum width; when pager, feedback and buttons don't fit, the buttons wrap below. */
 .jx-askQ-footer{
   display:flex;
+  flex-wrap:wrap;
   align-items:center;
   justify-content:space-between;
-  gap:12px;
+  gap:8px 12px;
   flex-shrink:0;
   margin-top:12px;
   padding:0 12px 0 16px;
@@ -2367,7 +2375,8 @@
   white-space:nowrap;
 }
 .jx-askQ-feedback{
-  flex:1;
+  flex:1 1 140px;
+  min-width:0;
   min-height:16px;
   color:var(--color-error);
   font-size:12px;
@@ -2376,9 +2385,13 @@
 }
 .jx-askQ-actions{
   display:flex;
+  flex-wrap:wrap;
+  justify-content:flex-end;
   align-items:center;
   gap:8px;
   flex-shrink:0;
+  max-width:100%;
+  margin-left:auto;
 }
 @media (max-width:640px){
   .jx-askQ{ margin-top:8px; border-radius:var(--radius-sm); }

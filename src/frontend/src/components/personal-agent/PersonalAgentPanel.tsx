@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type UIEvent } from 'react';
 import { Alert, Button, Input } from 'antd';
 import { ArrowUpOutlined, CloseOutlined, HeartOutlined, PlusOutlined, SearchOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { uploadFile } from '../../api';
+import { distanceFromBottom, SCROLL_TO_BOTTOM_BTN_THRESHOLD, scrollElementToBottom } from '../../utils/scroll';
 import { PersonalSettings } from './settings/PersonalSettings';
 import { AttentionBar } from './tasks/AttentionBar';
 import { PersonalConfirmBar } from './tasks/PersonalConfirmBar';
@@ -55,14 +56,40 @@ function ConversationPanel({ chatId, onSelectChat, savedDraft, saveDraft }: { ch
   const requestKey = savedDraft?.requestKey;
   const setRequestKey = (key: string | undefined) => saveDraft(chatId || 'main', previous => ({ ...previous, requestKey: key }));
   usePersonalResultRead(messageViewport, chatId ? [] : messages);
-  const lastLength = messages[messages.length - 1]?.content.length;
   // Follow new output only while the reader is at the bottom; scrolling up to read or select text stops it.
   const onScroll = (event: UIEvent<HTMLDivElement>) => {
-    const box = event.currentTarget;
-    autoScroll.current = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+    autoScroll.current = distanceFromBottom(event.currentTarget) < SCROLL_TO_BOTTOM_BTN_THRESHOLD;
   };
+  // Like a chat app, a reply shows only once it is complete; until then a typing line sits under the last message.
+  // A heartbeat check usually ends quiet: it shows no typing line unless it writes an alert.
+  const visible = messages.filter(row => !row.streaming);
+  const lastVisibleId = visible[visible.length - 1]?.id;
+  const typing = !!monitor?.turns?.some(turn => !turn.heartbeat) || messages.some(row => row.streaming && row.content.trim());
+  const seenLastId = useRef<string | undefined>(undefined);
   // Scroll the viewport itself: the composer docked at its bottom would cover a scrolled-into-view end marker.
-  useEffect(() => { if (autoScroll.current && messageViewport) messageViewport.scrollTop = messageViewport.scrollHeight; }, [messageViewport, messages.length, lastLength, monitor?.turns?.length]);
+  useEffect(() => {
+    const box = messageViewport;
+    if (!box) return;
+    const previous = seenLastId.current;
+    seenLastId.current = lastVisibleId;
+    if (!autoScroll.current) return;
+    // A reply arrives whole. One taller than the view opens at its first line instead of jumping to its last.
+    const start = previous && lastVisibleId !== previous ? visible.findIndex(row => row.id === previous) : -1;
+    const reply = start >= 0 ? visible.slice(start + 1).find(row => row.role !== 'user') : undefined;
+    const node = reply && box.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(reply.id)}"]`);
+    const top = node ? node.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 16 : Infinity;
+    if (top < box.scrollHeight - box.clientHeight) box.scrollTop = top;
+    else scrollElementToBottom(box);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when a row or the typing line appears; `visible` is only read to find the row.
+  }, [messageViewport, lastVisibleId, typing]);
+  // A confirmation or question docking above the composer resizes the dock over the last message: stay pinned while following.
+  const [dock, setDock] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!dock || !messageViewport || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => { if (autoScroll.current) scrollElementToBottom(messageViewport); });
+    observer.observe(dock);
+    return () => observer.disconnect();
+  }, [dock, messageViewport]);
   const agent = monitor?.agent;
   const name = agent?.config.name || DEFAULT_AGENT_NAME;
   // Navigation lists outside the panel follow a rename made here or by the agent.
@@ -105,10 +132,6 @@ function ConversationPanel({ chatId, onSelectChat, savedDraft, saveDraft }: { ch
 
   const tasks = monitor?.tasks || [];
   const status = workSummary(tasks, monitor?.attention, checkedAt);
-  // Like a chat app, a reply shows only once it is complete; until then a typing line sits under the last message.
-  // A heartbeat check usually ends quiet: it shows no typing line unless it writes an alert.
-  const visible = messages.filter(row => !row.streaming);
-  const typing = !!monitor?.turns?.some(turn => !turn.heartbeat) || messages.some(row => row.streaming && row.content.trim());
   const typingLine = <span className="pa-typing" role="status" aria-label={t('{name} 正在回复', { name })}>
     <span className="pa-typing-dots" aria-hidden="true"><i /><i /><i /></span>
   </span>;
@@ -133,7 +156,7 @@ function ConversationPanel({ chatId, onSelectChat, savedDraft, saveDraft }: { ch
         {visible.map(row => <PersonalMessageRow key={row.id} row={row} author={author(row)} />)}
         {typing && <div className="pa-typing-row" data-testid="pa-typing">{typingLine}</div>}
         </div>
-        <div className="pa-dock">
+        <div ref={setDock} className="pa-dock">
           <PersonalConfirmBar tasks={tasks} onDone={refreshRef.current} onError={fail} />
           <AttentionBar tasks={tasks} attention={monitor?.attention} chatId={chatId} now={checkedAt} onDone={refreshRef.current} onError={fail} onOpen={setSelectedTask} />
           <div className="pa-composer">

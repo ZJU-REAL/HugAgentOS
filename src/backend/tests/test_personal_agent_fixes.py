@@ -188,7 +188,7 @@ async def test_old_screenshots_are_pruned_from_context():
     from tests.orchestration.hook_support import make_adapter
     adapter = make_adapter(screenshot_pruning_hook())
     image = {"type": "base64", "media_type": "image/png", "data": "AAAA"}
-    messages = [Msg(name="agent", role="assistant", content=[ToolResultBlock(id=str(i), name="pa_computer_observe",
+    messages = [Msg(name="agent", role="assistant", content=[ToolResultBlock(id=str(i), name="pa_computer_read",
         output=[TextBlock(text="observation " + str(i)), DataBlock(source=image)])]) for i in range(4)]
     agent = SimpleNamespace(state=SimpleNamespace(context=messages))
     async def reasoning(**kwargs):
@@ -326,6 +326,51 @@ async def test_approval_while_run_is_ending_requeues_instead_of_completing(sessi
         assert row.status == "queued" and row.owner is None
         assert not row.checkpoint.get("pending_approval") and not row.checkpoint.get("decided_during_run")
         assert row.checkpoint["approved_action_payloads"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("decided", [False, True])
+async def test_a_run_waiting_on_its_approval_does_not_also_ask_in_words(sessions, monkeypatch, decided):
+    """The run requested an approval and also reported blocked with "please approve". Deciding the
+    approval while the run is ending answers that question: the task runs again instead of waiting
+    for a reply (which would void the approval)."""
+    from personal_agent.tasks import approvals
+    from personal_agent.tools import tools
+    from tests.test_personal_agent_worker import end_run, launched, make_world, report
+    world = make_world(sessions, monkeypatch)
+    for target in (approvals, tools): monkeypatch.setattr(target, "SessionLocal", sessions)
+    action = {"kind": "computer.steps", "target": "device:d1", "app": "TextEdit", "window": "1:2",
+              "snapshot_id": "s00000001", "steps": [{"type": "type", "element": "s00000001:1", "text": "hi"}]}
+    task_id, asg_id, run_id = await launched(world, "Type into the note", "one")
+    digest, _ = approvals.authorize(task_id, "owner", action)
+    if decided:
+        with sessions() as db:
+            approvals.approve(AgentContext(db, "owner"), task_id, digest, True)
+    await report(world, task_id, "blocked", "Waiting for approval", "请批准这次在 TextEdit 正文输入的操作")
+    if not decided:
+        with sessions() as db:
+            approvals.approve(AgentContext(db, "owner"), task_id, digest, True)
+    end_run(world, run_id)
+    await world.executor.step(asg_id)
+    with sessions() as db:
+        row = db.get(PersonalWorkItem, task_id)
+        assert row.status == "queued" and digest in row.checkpoint["approved_action_payloads"]
+        assert not row.checkpoint.get("pending_question") and not row.checkpoint.get("task_wait_reason")
+
+
+@pytest.mark.asyncio
+async def test_a_question_without_an_approval_still_waits(sessions, monkeypatch):
+    from personal_agent.tools import tools
+    from tests.test_personal_agent_worker import end_run, launched, make_world, report
+    world = make_world(sessions, monkeypatch)
+    monkeypatch.setattr(tools, "SessionLocal", sessions)
+    task_id, asg_id, run_id = await launched(world, "Type into the note", "one")
+    await report(world, task_id, "blocked", "Need the file name", "Which file?")
+    end_run(world, run_id)
+    await world.executor.step(asg_id)
+    with sessions() as db:
+        row = db.get(PersonalWorkItem, task_id)
+        assert row.status == "waiting" and row.checkpoint["pending_question"]["text"] == "Which file?"
 
 
 def test_live_stream_drops_input_while_watching():

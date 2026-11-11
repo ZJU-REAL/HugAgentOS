@@ -22,7 +22,7 @@
 .hg-delivery-hint { display: none; }
 .hg-delivery-file:hover .hg-delivery-description:not([role="status"]) .hg-delivery-secondary { display: none; }
 .hg-delivery-file:hover .hg-delivery-description:not([role="status"]) .hg-delivery-hint { display: inline; }
-.hg-delivery-actions { display: inline-flex; flex: none; pointer-events: auto; }
+.hg-delivery-actions { /* layout-ok: one download button; the card stacks by @container */ display: inline-flex; flex: none; pointer-events: auto; }
 .hg-deliveries-toggle { align-self: center; display: inline-flex; align-items: center; gap: 4px; min-width: 0; padding: 1px 11px; border: 0; border-radius: 8px; background: transparent; color: var(--delivery-tertiary); cursor: pointer; font: inherit; font-size: 12px; line-height: 18px; }
 .hg-deliveries-toggle:hover { background: var(--delivery-control-hover); }
 .hg-deliveries-toggle svg { flex: none; width: 14px; height: 14px; }

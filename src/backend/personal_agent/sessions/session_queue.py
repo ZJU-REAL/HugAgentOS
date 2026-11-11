@@ -1,4 +1,9 @@
-"""Owner-only durable operations. Sent writes are never redelivered."""
+"""Owner-only durable operations. Sent writes are never redelivered.
+
+A sent read whose answer has not come back after REDELIVER_AFTER is handed out again:
+the reply carrying it may have been lost on the way, and reading twice changes nothing.
+The device's own journal still refuses an id it has already started.
+"""
 
 import json
 import time
@@ -6,8 +11,13 @@ import uuid
 from sqlalchemy import select, update, func
 from sqlalchemy.exc import IntegrityError
 from hugagent_cli.contract import validate
-from personal_agent.computer.devices import authenticate
+from personal_agent.computer.devices import authenticate, is_online
+from hugagent_cli.contract import READS
 from personal_agent.models import PersonalDevice, PersonalSessionOperation as Operation, PersonalWorkItem
+
+REDELIVER_AFTER = 15
+# Finished reads are kept this long, then removed.
+KEEP_SECONDS = 24 * 3600
 
 def public(row):
     status = row.status
@@ -48,7 +58,12 @@ def submit(
             task_id,
         ):
             raise ValueError("Request key already has different arguments")
-        return public(old)
+        if not (old.status == "queued" and old.deadline < time.time()):
+            return public(old)
+        # Expired while still queued: no device ever saw it, so it certainly did not run.
+        # Asking again queues it again, instead of answering "expired" forever.
+        db.delete(old)
+        db.flush()
     device = None
     if target != "cloud":
         if not target.startswith("device:"):
@@ -62,7 +77,7 @@ def submit(
             raise LookupError("Device not found")
         if not device.sessions_enabled or "hugagent.sessions" not in device.capabilities:
             raise ValueError("Enable session management on the local device")
-        if not device.last_seen or device.last_seen < time.time() - 20:
+        if not is_online(device):
             raise ValueError("Device offline")
     if (
         db.scalar(
@@ -120,6 +135,20 @@ def submit(
         return submit(db, uid, target, operation, args, request_key, task_id, run_id, task_scope)
     return public(row)
 
+def prune(db):
+    """Remove reads that ended long ago: their results can hold whole chat histories. Writes stay:
+    their row is the receipt a task finds instead of repeating the write. Run by the background
+    maintenance loop, not on every submit."""
+    from sqlalchemy import delete
+    db.execute(
+        delete(Operation).where(
+            Operation.operation.in_(sorted(READS)),
+            Operation.deadline < time.time() - KEEP_SECONDS,
+        )
+    )
+    db.commit()
+
+
 def active_task(db, row):
     if not row.work_item_id:
         return True
@@ -134,33 +163,56 @@ def active_task(db, row):
     )
 
 def poll(db, ident, token):
+    """Protocol 1: the next session operation, if any."""
     device = authenticate(db, ident, token)
     db.refresh(device, with_for_update=True)
-    device.last_seen = time.time()
+    now = time.time()
+    device.last_seen = now
+    result = take_operation(db, device, now)
+    db.commit()
+    return result
+
+
+def take_operation(db, device, now):
+    """Mark the device's next session operation sent and return it, or None. The caller commits."""
     if not device.sessions_enabled:
-        db.commit()
         return None
+    lost_read = (
+        (Operation.status == "sent")
+        & Operation.operation.in_(sorted(READS))
+        & ((Operation.claimed_at.is_(None)) | (Operation.claimed_at < now - REDELIVER_AFTER))
+    )
     row = db.scalar(
         select(Operation)
         .where(
-            Operation.device_id == ident,
+            Operation.device_id == device.id,
             Operation.epoch == device.session_epoch,
-            Operation.status == "queued",
-            Operation.deadline > time.time(),
+            (Operation.status == "queued") | lost_read,
+            Operation.deadline > now,
         )
         .order_by(Operation.created_at)
         .with_for_update(skip_locked=True)
         .limit(1)
     )
-    result = None
-    if row:
-        if not active_task(db, row):
-            row.status = "revoked"
-        else:
-            row.status = "sent"
-            result = {**public(row), "args": row.args, "epoch": row.epoch}
-    db.commit()
-    return result
+    if row is None:
+        return None
+    if not active_task(db, row):
+        row.status = "revoked"
+        return None
+    row.status, row.claimed_at = "sent", now
+    return {**public(row), "args": row.args, "epoch": row.epoch}
+
+
+def set_sessions(db, device, enabled):
+    """Withdrawing session consent revokes every operation not yet answered, under a new epoch."""
+    if not enabled and device.sessions_enabled:
+        device.session_epoch += 1
+        db.execute(
+            update(Operation)
+            .where(Operation.device_id == device.id, Operation.status.in_(["queued", "sent"]))
+            .values(status="revoked")
+        )
+    device.sessions_enabled = int(enabled)
 
 def acknowledge(db, ident, token, operation_id, result):
     device = authenticate(db, ident, token)
@@ -180,7 +232,8 @@ def acknowledge(db, ident, token, operation_id, result):
         return {"accepted": True}
     if row.status != "sent" or row.deadline < time.time() or not active_task(db, row):
         raise ValueError("Operation expired or revoked")
-    if len(json.dumps(result).encode()) > 2 * 1024 * 1024:
+    # Measured as UTF-8, as the device measures it: escaped CJK would count double.
+    if len(json.dumps(result, ensure_ascii=False).encode()) > 2 * 1024 * 1024:
         raise ValueError("Receipt exceeds limit")
     row.result = result
     row.status = "completed"
@@ -192,14 +245,7 @@ def consent(db, ident, token, enabled):
     db.refresh(device, with_for_update=True)
     if "hugagent.sessions" not in device.capabilities:
         raise ValueError("Session capability not paired")
-    if not enabled:
-        device.session_epoch += 1
-        db.execute(
-            update(Operation)
-            .where(Operation.device_id == ident, Operation.status.in_(["queued", "sent"]))
-            .values(status="revoked")
-        )
-    device.sessions_enabled = int(enabled)
+    set_sessions(db, device, enabled)
     device.last_seen = time.time()
     db.commit()
     return {"sessions_enabled": bool(device.sessions_enabled), "epoch": device.session_epoch}

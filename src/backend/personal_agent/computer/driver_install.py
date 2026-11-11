@@ -16,9 +16,9 @@ DRIVER_PATH = "/opt/personal-agent/driver-" + DIGEST[:16] + ".py"
 INSTALL = ("import base64,os,sys;p=sys.argv[2];t=p+'.tmp'\n"
            "open(t,'wb').write(base64.b64decode(sys.argv[1]));os.chmod(t,0o755);os.replace(t,p)\n")
 
-async def ensure_driver(provider, box, uid):
+async def ensure_driver(provider, box, uid, session=None):
     """Return the root-owned driver path for the current backend driver version."""
     command = (SANDBOX_PYTHON + " -I -c " + shlex.quote(INSTALL) + " "
                + shlex.quote(base64.b64encode(CONTENT).decode()) + " " + shlex.quote(DRIVER_PATH))
-    await install_once(provider, box, uid, "driver", DIGEST, command)
+    await install_once(provider, box, uid, "driver", DIGEST, command, session=session)
     return DRIVER_PATH

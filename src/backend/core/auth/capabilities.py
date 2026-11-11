@@ -80,6 +80,24 @@ ALL_APPS: str = "*"
 # The only difference from feature-module flags: ``super_admin`` implies both are True.
 PAGE_ADMIN_FLAGS: tuple[str, ...] = ("can_system_config", "can_content_manage")
 
+# Marker key on a default layer meaning "this layer is authoritative": when present
+# (truthy), resolution uses that layer alone — every boolean flag the layer does not
+# grant resolves to ``False``, and personal explicit values, lower layers and system
+# defaults are all ignored. ``allowed_apps`` comes from the layer too (absent = all).
+# Enterprise sets it on the role layer of users configured "by role".
+AUTHORITATIVE_LAYER_KEY: str = "__authoritative__"
+
+
+def strip_layer_markers(layer: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Return a copy of a default layer without internal marker keys (for API payloads)."""
+    if not isinstance(layer, dict):
+        return {}
+    return {k: v for k, v in layer.items() if k != AUTHORITATIVE_LAYER_KEY}
+
+
+def is_authoritative_layer(layer: Optional[Dict[str, Any]]) -> bool:
+    return isinstance(layer, dict) and bool(layer.get(AUTHORITATIVE_LAYER_KEY))
+
 
 def page_admin_flags(
     meta: Optional[Dict[str, Any]],
@@ -111,12 +129,24 @@ def resolve_capabilities(
     ``resolve_capabilities(meta, role_defaults, team_defaults)``, i.e.
     "personal → role union → team default → system default".
 
+    If any layer carries ``AUTHORITATIVE_LAYER_KEY``, that layer alone decides
+    (ungranted flags are ``False``; personal values and lower layers are ignored).
+
     Backward compatible: the old call
     ``resolve_capabilities(meta, team_defaults)`` keeps its single-layer
     "personal → team → system" semantics unchanged.
     """
     meta = meta if isinstance(meta, dict) else {}
     layers = [d if isinstance(d, dict) else {} for d in default_layers]
+
+    authoritative = next((layer for layer in layers if is_authoritative_layer(layer)), None)
+    if authoritative is not None:
+        # Authoritative layer: exactly what it grants, nothing inherited or overridden.
+        apps = authoritative.get("allowed_apps")
+        return {
+            **{key: bool(authoritative.get(key, False)) for key in BOOL_CAPABILITY_DEFAULTS},
+            "allowed_apps": [str(x) for x in apps] if isinstance(apps, list) else None,
+        }
 
     result: Dict[str, Any] = {}
     for key, sys_default in BOOL_CAPABILITY_DEFAULTS.items():

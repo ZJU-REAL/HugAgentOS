@@ -71,6 +71,7 @@ def sections(ident, *, task_id=None, skill_ids=(), seed_missing=True, rules_part
     if rules_part == "platform_rules":
         # Generated, not part of the editable rules: an edited or older rules version still gets it.
         from personal_agent.identity.config import skill_summaries
+        # The run's skills come from capability_ids, which always includes the computer skills.
         listed = skill_summaries(list(skill_ids or []))
         out.append({"kind": "platform", "title": "Available Skills",
                     "content": "## Available skills\n" + ("\n".join(listed) if listed else "None.")})

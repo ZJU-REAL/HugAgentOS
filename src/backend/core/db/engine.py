@@ -179,6 +179,22 @@ def _merge_duplicate_identities() -> None:
 
 def init_db():
     """Initialize or reconcile the database schema for the active edition."""
+    from sqlalchemy import inspect
+
+    # SQLite schemas are evolved here rather than by Alembic. When this run creates the
+    # chat read-position table, seed it the way the chatread01 migration does.
+    tables = set(inspect(engine).get_table_names()) if engine.dialect.name == "sqlite" else set()
+    seed_read_states = "chat_sessions" in tables and "chat_read_states" not in tables
+    _init_schema()
+    if seed_read_states:
+        from core.chat.read_state import seed_read_states as seed
+
+        with engine.begin() as connection:
+            seeded = seed(connection)
+        logger.info("Chat read positions seeded for %d existing chats", seeded)
+
+
+def _init_schema():
     if engine.dialect.name == "sqlite":
         from core.db.batch_retirement import retire_batch_execution
         from sqlalchemy import inspect

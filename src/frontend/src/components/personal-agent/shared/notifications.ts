@@ -5,7 +5,9 @@ import { useAuthStore } from '../../../stores/authStore';
 import { useTaskNotificationStore, normalizeTaskStatus } from '../../../stores/taskNotificationStore';
 import { personalRequest, type PersonalTask } from '../api';
 
-interface PersonalSidebarStatus {tasks:Array<PersonalTask & {result_seq?:number}>;replying:boolean;latest_seq:number;unread_count:number}
+interface PersonalSidebarStatus {tasks:Array<PersonalTask & {result_seq?:number}>;replying:boolean;latest_seq:number;unread_count:number;
+  /** Server read position shared by every client; absent on backends that do not track it. */
+  read_seq?:number}
 export function usePersonalAgentNotifications() {
   const available=useAuthStore(s=>s.authUser?.can_use_personal_agent===true);
   const scope=useTaskNotificationStore(s=>s.scope);
@@ -19,15 +21,21 @@ export function usePersonalAgentNotifications() {
         const data=await personalRequest<PersonalSidebarStatus>('/v1/personal-agent/sidebar-status?after_seq='+after,{signal:controller.signal});
         const store=useTaskNotificationStore.getState();
         if(controller.signal.aborted||store.scope!==scope)return;
-        const baselining=!store.personalBaselineReady;
-        if(baselining)store.establishPersonalBaseline(data.latest_seq);
+        const serverRead=Number.isSafeInteger(data.read_seq)?data.read_seq as number:null;
+        // A backend without server read state falls back to a one-time local baseline.
+        const baselining=serverRead===null&&!store.personalBaselineReady;
+        if(serverRead!==null)store.applyPersonalServerRead(serverRead);
+        else if(baselining)store.establishPersonalBaseline(data.latest_seq);
+        const readSeq=useTaskNotificationStore.getState().personalReadSeq;
         store.observe(data.tasks.map(task=>({key:'personal:'+task.id,id:task.id+':'+(task.run_id||'queued'),
           status:task.status!=='failed'&&(task.pending_approval||needsResultCheck(task))?'waiting':normalizeTaskStatus(task.status),
           messageId:task.result_seq?String(task.result_seq):undefined,
+          read:serverRead!==null&&task.result_seq?task.result_seq<=readSeq:undefined,
           startedAt:0,updatedAt:Date.parse(task.updated_at||'')||0})));
-        // Reading while this request is pending invalidates only its unread count.
+        // The server counted from max(after, its own position). Reading while this
+        // request was pending moves the local position on and invalidates the count.
         if(baselining)store.setPersonal(0,data.replying);
-        else if(store.personalReadSeq===after)store.setPersonal(data.unread_count,data.replying);
+        else if(useTaskNotificationStore.getState().personalReadSeq===Math.max(after,serverRead??0))store.setPersonal(data.unread_count,data.replying);
       }catch{ /* Keep existing reminders across network failures; retry on the next tick. */ }
       finally{inflight=false;}
     };

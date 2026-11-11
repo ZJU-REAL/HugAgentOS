@@ -32,6 +32,8 @@ export function createChatRunActions({ set, get }: ChatActionsContext): Pick<Cha
     useTaskNotificationStore.getState().observe(statuses.map(row => ({
       key: 'chat:' + row.chat_id, id: row.run_id, messageId: row.message_id,
       status: normalizeTaskStatus(row.status), startedAt: Date.parse(row.created_at), updatedAt: Date.parse(row.updated_at),
+      // Mark-read goes back to the backend that reported the run (desktop dual mode).
+      target: row.target, read: row.read,
     })));
     const running = new Set(items.map((item) => item.chat_id));
     const lit = get().remoteRunningChatIds;

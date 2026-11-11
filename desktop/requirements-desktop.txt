@@ -87,3 +87,6 @@ tqdm>=4.66.0
 
 # Browser automation driver; Chromium is bundled separately by the runtime builder.
 playwright==1.59.0
+
+# Embedded macOS computer-use driver (accessibility tree, background input); see docs/personal-agent-refactor/computer-use-cua-driver-plan.md
+cua-driver==0.46.1; sys_platform == "darwin"

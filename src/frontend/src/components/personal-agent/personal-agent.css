@@ -6,7 +6,7 @@
 .pa-header{width:100%;max-width:760px;margin:0 auto;box-sizing:border-box;display:flex;align-items:center;gap:10px;padding:10px 4px 14px;font-size:16px}
 .pa-header strong{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pa-side-toggle{display:none;margin-left:auto}
-.pa-header>.pa-header-action{flex-shrink:0;color:var(--color-text-secondary)}
+.pa-header>.pa-header-action{ /* layout-ok: icon-only button */flex-shrink:0;color:var(--color-text-secondary)}
 .pa-header>.pa-header-action:first-of-type{margin-left:auto}
 .pa-header-action~.pa-side-toggle{margin-left:0}
 
@@ -69,8 +69,7 @@
 .pa-composer-files .ant-btn{max-width:100%;height:auto;white-space:normal;overflow-wrap:anywhere}
 .pa-composer-preferences{width:100%;max-width:760px;align-self:center;box-sizing:border-box;padding:8px 16px 12px}
 .pa-composer-preferences .jx-composerChip{font-size:11px;color:var(--color-text-tertiary)}
-.pa-confirmBar--full{flex-wrap:wrap}
-.pa-confirmBar--full .jx-confirmBar-actions{width:100%;justify-content:flex-end;flex-wrap:wrap}
+.pa-confirmBar--full .jx-confirmBar-actions{width:100%}
 .pa-confirmBar-unasked{margin-top:4px;font-size:12px;font-weight:500;line-height:1.6;color:var(--color-text-secondary)}
 .pa-confirmBar-lines{margin:4px 0 0;padding:0;list-style:none;font-size:13px;line-height:1.6;color:var(--color-text);overflow-wrap:anywhere}
 .pa-confirmBar-bodyLabel{margin-top:8px;font-size:12px;line-height:1.6;color:var(--color-text-tertiary)}
@@ -186,16 +185,18 @@ button.pa-side-row:disabled{cursor:default}
 .pa-set-hero>.anticon{color:var(--color-text-placeholder)}
 .pa-set-group h3{margin:0 0 8px 4px;font-size:13px;font-weight:500;color:var(--color-text-tertiary)}
 .pa-set-card{border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-bg-container);overflow:hidden}
-.pa-set-row{display:flex;align-items:center;gap:14px;padding:14px 16px}
+/* The label keeps a minimum width; on a narrow screen the control wraps below it instead of squeezing it. */
+.pa-set-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:14px 16px}
 .pa-set-row+.pa-set-row{border-top:1px solid var(--color-border)}
-.pa-set-row--stacked{flex-wrap:wrap}
 .pa-set-row--stacked .pa-set-control{flex-basis:100%;padding-left:34px}
 .pa-set-icon{display:flex;flex-shrink:0;width:20px;justify-content:center;font-size:18px;color:var(--color-text-tertiary)}
-.pa-set-text{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.pa-set-text{display:flex;flex-direction:column;gap:2px;flex:1 1 160px;min-width:0}
 .pa-set-text strong{font-size:14px;font-weight:500;color:var(--color-text)}
 .pa-set-text span{font-size:12px;color:var(--color-text-tertiary);line-height:1.5}
-.pa-set-control{flex-shrink:0}
-.pa-set-action{margin-left:auto;flex-shrink:0}
+/* layout-ok: one control per row; the row wraps, so the control moves below the label */
+.pa-set-control{flex-shrink:0;max-width:100%;margin-left:auto}
+/* layout-ok: one control per row; the row wraps, so the control moves below the label */
+.pa-set-action{margin-left:auto;flex-shrink:0;max-width:100%}
 .pa-set-model-options{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .pa-set-model-options>.ant-select{flex:1;min-width:150px}
 .pa-set-effort{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--color-text-tertiary)}

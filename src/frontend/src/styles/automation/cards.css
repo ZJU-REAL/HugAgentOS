@@ -89,7 +89,7 @@
   font-size: 11px;
 }
 
-.jx-automation-card-actions {
+.jx-automation-card-actions { /* layout-ok: icon-only buttons */
   display: flex;
   gap: 2px;
   flex-shrink: 0;

@@ -66,11 +66,16 @@ def render_session_input(message: Mapping[str, Any], *, created_seq: int) -> Msg
     """Render one pending positional row at an explicit live request sequence."""
     context_adapter = adapter.AgentScopeContextAdapter()
     items = context_adapter.items_from_session_dict(message, created_seq=0)
+    # A live input occupies a new request lane, even when replay metadata
+    # contains an old identity. Rebasing only its sequence leaves session:0
+    # IDs behind and collides with the first history row on background wakes.
     positioned = [
         replace(
             item,
+            item_id=f"request:{created_seq}:block:{index}",
             created_seq=created_seq + index,
             message_group=f"request:{created_seq}",
+            unit_id=f"request:{created_seq}:{item.unit_id}",
         )
         for index, item in enumerate(items)
     ]

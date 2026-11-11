@@ -7,6 +7,10 @@ from personal_agent.models import PersonalWorkItem
 BUSY_REASON = "该电脑正在被其他任务或用户使用"
 STATUS = "computer_wait"
 
+def flag(ident):
+    """Short-lived note that ``mark`` ran for this task, so a later call clears it only then."""
+    return "pa:computer-wait:" + ident
+
 def mark(ident, uid, lease_key):
     from personal_agent.context import AgentContext
     from personal_agent.tasks.guards import owned_task

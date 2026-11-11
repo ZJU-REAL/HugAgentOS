@@ -90,8 +90,10 @@ async def test_action_not_dispatched_or_marked_unknown_while_desktop_busy(sessio
         db.commit()
     kit = Toolkit()
     computer.register_computer_tools(kit, item["id"], "owner")
+    await computer.remember(item["id"], {"snapshot_id": "screen", "mode": "pixels", "window": "screen"})
+    act = lambda: kit.functions["pa_computer_act"]("cloud", [{"type": "key", "key": "enter"}], "screen")
     await state.hold(key, "human", ttl=45)
-    result = json.loads((await kit.functions["pa_computer_action"]({"type": "key", "key": "enter", "observation_id": "screen"})).content[0].text)
+    result = json.loads((await act()).content[0].text)
     assert result["automatic_retry"] and calls == []
     with sessions() as db:
         row = db.get(PersonalWorkItem, item["id"])
@@ -105,9 +107,13 @@ async def test_action_not_dispatched_or_marked_unknown_while_desktop_busy(sessio
         assert row.status == "queued"
         row.status, row.owner, row.lease_until = "running", "worker", time.time()+90
         db.commit()
-    result = json.loads((await kit.functions["pa_computer_action"]({"type": "key", "key": "enter", "observation_id": "screen"})).content[0].text)
+    result = json.loads((await act()).content[0].text)
     assert result["status"] == "input_executed" and len(calls) == 1
     assert await state.get(key) is None
+    with sessions() as db:
+        # The busy mark is cleared by the call that finally got the desktop, and only then.
+        assert "computer_wait" not in (db.get(PersonalWorkItem, item["id"]).checkpoint or {})
+    assert await state.get(computer_wait.flag(item["id"])) is None
 
 @pytest.mark.asyncio
 async def test_legacy_busy_wait_requeues_without_manual_retry(sessions, monkeypatch):

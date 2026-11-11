@@ -99,10 +99,9 @@ def _consume_payload(db, ident, digest):
     row = db.get(PersonalWorkItem, ident)
     state = dict(row.checkpoint or {})
     remaining = dict(state.get("approved_action_payloads", {})); remaining.pop(digest, None)
-    question = state.get("pending_question") or {}
-    if question and state.get("task_wait_reason") == (question.get("text") or "")[:300] and not state.get("pending_approval"):
-        # The question was asked while this action waited for approval. The action has now run, so the task
-        # runs again and says what happened; it asks again if the question still stands.
+    from personal_agent.tasks.worker import waits_only_on_its_question
+    if waits_only_on_its_question(state):
+        # The question was asked while this action waited for approval; the action has now run.
         state.pop("task_wait_reason", None); state.pop("pending_question", None)
     state["approved_action_payloads"] = remaining; row.checkpoint = state; db.commit()
     return not (state.get("pending_approval") or state.get("task_wait_reason"))
@@ -116,9 +115,7 @@ async def dispatch_approved(ident, uid):
     if not payloads: return
     tools = []
     from personal_agent.tools.email import register_email_tools
-    from personal_agent.computer.computer import register_computer_tools
     register_email_tools(tools, ident, uid)
-    register_computer_tools(tools, ident, uid)
     functions = {tool.name: tool._func for tool in tools}
     for digest, action in payloads.items():
         if action["kind"] == "email.send":
@@ -127,8 +124,10 @@ async def dispatch_approved(ident, uid):
         elif action["kind"] == "hugagent.session":
             from personal_agent.sessions.session_manager import dispatch_approved as dispatch_session
             await dispatch_session(ident, uid, action)
-        elif action["kind"] == "computer.action":
-            await functions["pa_computer_action"](action["action"], action["target"])
+        elif action["kind"] in ("computer.steps", "computer.action"):
+            # The stored identity, not a rebuilt one: its fingerprint is what the user approved.
+            from personal_agent.computer.computer import replay
+            await replay(ident, uid, action)
         if not await run_in_session(_consume_payload, ident, digest): break
 
 

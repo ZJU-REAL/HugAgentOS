@@ -19,6 +19,11 @@ class Message(BaseModel):
     artifact_ids: list[str] = Field(default_factory=list, max_length=10)
 
 
+class ReadPosition(BaseModel):
+    """The conversation sequence the user has read up to."""
+    seq: int = Field(ge=0)
+
+
 class ActiveHours(BaseModel):
     start: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     end: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")

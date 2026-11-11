@@ -48,6 +48,20 @@ export function createStreamRecovery(ctx: Pick<StreamingContext, 'abortControlle
   }
 
 
+  /** The chat has no local stream and no live run, yet its last assistant bubble
+   *  still says isStreaming (the stream dropped, then the run was stopped or ended
+   *  server-side). Wind it down so the turn clock stops. Returns whether it did. */
+  function windDownStaleStreamingBubble(chatId: string, runStatus: string): boolean {
+    const store = useChatStore.getState();
+    if (store.sendingChatIds.has(chatId) || store.activeRuns[chatId]) return false;
+    const msgs = store.store.chats[chatId]?.messages || [];
+    const last = msgs[msgs.length - 1];
+    if (!(last?.role === 'assistant' && last.isStreaming)) return false;
+    cleanupZombieRunState(chatId, runStatus);
+    return true;
+  }
+
+
   /**
    * Resume an in-flight backend run after page refresh / chat switch.
    * Looks up the active run for this chat and pipes the SSE replay through
@@ -128,9 +142,19 @@ export function createStreamRecovery(ctx: Pick<StreamingContext, 'abortControlle
     } catch {
       return false;
     }
-    if (!active?.run_id || (active.status !== 'running' && active.status !== 'pending')) return true;
+    if (!active?.run_id || (active.status !== 'running' && active.status !== 'pending')) {
+      // 本地没有流、后端也没有活的 run，最后一条助手气泡却还挂着 isStreaming：
+      // 那一轮已经停了（被停止 / 断流后在服务端结束），收掉它，否则计时器会一直走。
+      if (windDownStaleStreamingBubble(chatId, active?.status || 'completed')) {
+        await reloadChatHistory(chatId);
+      }
+      return true;
+    }
     // 用户按过停止的那一轮：后端可能还没落终态，但用户的意图是终局的，不许重挂
-    if (isRunCancelledByUser(active.run_id)) return true;
+    if (isRunCancelledByUser(active.run_id)) {
+      windDownStaleStreamingBubble(chatId, 'cancelled');
+      return true;
+    }
     // 自己刚跑完那一轮的残影（本地流已收尾、后端还没落终态）——认错了会把同一轮重放成两个气泡
     if (hasStreamedRun(active.run_id)) return true;
     // 这轮的用户侧消息（唤醒指令）和助手行都是后端落的库；resumeRunIfAny 会先把历史
@@ -166,6 +190,7 @@ export function createStreamRecovery(ctx: Pick<StreamingContext, 'abortControlle
     await reconcileLoopBar(chatId, active);
 
     if (!active || !active.run_id) {
+      windDownStaleStreamingBubble(chatId, 'completed');
       ctx.settleQueuedMessageAfterRun(chatId, undefined, false);
       return true;
     }

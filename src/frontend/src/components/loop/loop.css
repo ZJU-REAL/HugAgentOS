@@ -150,7 +150,7 @@
     overflow-wrap: anywhere;
   }
 
-  .loop-actions {
+  .loop-actions { /* layout-ok: a single short button */
     flex: none;
   }
 

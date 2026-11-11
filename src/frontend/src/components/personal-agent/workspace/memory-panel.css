@@ -4,7 +4,11 @@
 .pa-mem-pad{padding:8px 12px}
 .pa-mem-srOnly{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 .pa-mem-banner{margin-bottom:12px}
-.pa-mem-confirmActions{display:inline-flex;align-items:center;gap:8px;flex-shrink:0}
+/* A banner with buttons: they wrap under the message instead of squeezing it. */
+.pa-mem-banner.ant-alert{flex-wrap:wrap;row-gap:8px}
+.pa-mem-banner .ant-alert-content{flex:1 1 200px}
+.pa-mem-banner .ant-alert-action{margin-left:auto}
+.pa-mem-confirmActions{display:inline-flex;flex-wrap:wrap;align-items:center;gap:8px;flex-shrink:0;max-width:100%}
 
 /* Wiki: page list on the left, the page on the right */
 .pa-mem-wiki{display:flex;gap:16px;min-height:520px}
@@ -33,11 +37,11 @@
 
 /* A rendered page */
 .pa-mem-page{max-width:760px}
-.pa-mem-pageHead{display:flex;align-items:flex-start;gap:12px}
-.pa-mem-pageTitle{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.pa-mem-pageHead{display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px 12px}
+.pa-mem-pageTitle{flex:1 1 240px;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .pa-mem-pageTags{display:inline-flex;gap:4px}
 .pa-mem-pageTags .ant-tag{margin:0}
-.pa-mem-pageActions{display:inline-flex;align-items:center;gap:4px;flex-shrink:0}
+.pa-mem-pageActions{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;flex-shrink:0;max-width:100%;margin-left:auto}
 .pa-mem-desc{margin:8px 0 0;color:var(--color-text-secondary)}
 .pa-mem-meta{display:flex;flex-wrap:wrap;gap:12px;margin:4px 0 0;font-size:12px;color:var(--color-text-tertiary)}
 .pa-mem-body{margin-top:16px;line-height:1.7}

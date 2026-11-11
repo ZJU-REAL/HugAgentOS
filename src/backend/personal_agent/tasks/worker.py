@@ -18,6 +18,17 @@ def resumable(row):
     return not (row.unconfirmed() or state.get("pending_approval") or state.get("approved_action_payloads")
         or state.get("task_wait_reason")) and state.get("auto_resumes", 0) < MAX_AUTO_RESUMES
 
+def waits_only_on_its_question(state):
+    """True when the task waits on the question its run asked and no approval is left undecided.
+
+    A decided approval answers such a question: the run asked while its action waited for the user
+    (often "please approve"), so once the action is decided the task runs again and says what
+    happened, asking again only if the question still stands.
+    """
+    question = state.get("pending_question") or {}
+    return bool(question) and not state.get("pending_approval") and \
+        state.get("task_wait_reason") == (question.get("text") or "")[:300]
+
 def blocked(row):
     """Why the task must wait for the user before (or instead of) finishing, or None."""
     state = row.checkpoint or {}

@@ -3,7 +3,7 @@ from core.harness.events import thaw_value
 from core.harness.hooks import Decision, FailureMode, HookSpec, HookStage
 
 KEEP = 2
-PLACEHOLDER = "[An older screenshot was removed. Use the latest observation.]"
+PLACEHOLDER = "[An older screenshot was removed. Use the latest read or act result.]"
 
 
 def prune(messages, keep=KEEP):

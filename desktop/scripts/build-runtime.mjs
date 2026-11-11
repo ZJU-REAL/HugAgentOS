@@ -148,6 +148,12 @@ export function buildDesktopRuntime({ desktopDir, repoRoot, sourceRoot, python }
   for (const name of ["OfficeCLI-LICENSE.txt", "Pandoc-COPYING.md", "Office-runtime-NOTICES.txt", "Git-Bash-NOTICES.txt"]) {
     copyFileSync(join(desktopDir, "licenses", name), join(runtimeRoot, "licenses", name));
   }
+  if (pruneCuaDriver(pythonRoot)) {
+    // The wheel carries neither the repository license nor the Rust notices.
+    for (const name of ["Cua-Driver-LICENSE.md", "Cua-Driver-THIRD_PARTY_NOTICES.md"]) {
+      copyFileSync(join(desktopDir, "licenses", name), join(runtimeRoot, "licenses", name));
+    }
+  }
   const nativeTools = readJson(join(runtimeRoot, "native-tools.json"));
 
   copyFileSync(
@@ -203,6 +209,18 @@ export function buildDesktopRuntime({ desktopDir, repoRoot, sourceRoot, python }
     `[desktop] Offline runtime ready: ${target}, ${(manifest.archive_size / 1048576).toFixed(1)} MiB`,
   );
   return manifest;
+}
+
+// macOS only: the Personal Agent device link embeds the Cua Driver SDK library in the
+// local backend. The wheel also ships the standalone `cua-driver` executable, with its own
+// telemetry, update checks and history, and a console script that starts it. The desktop
+// never runs either, so neither is shipped (or signed). True when the SDK is installed.
+export function pruneCuaDriver(pythonRoot) {
+  const sdk = join(pythonRoot, "lib", "python3.11", "site-packages", "cua_driver");
+  if (!existsSync(sdk)) return false;
+  rmSync(join(sdk, "bin"), { recursive: true, force: true });
+  rmSync(join(pythonRoot, "bin", "cua-driver"), { force: true });
+  return true;
 }
 
 function isCachedRuntime(cached, target, dependencyFingerprint, archive) {

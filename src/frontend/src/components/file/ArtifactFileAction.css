@@ -1,5 +1,5 @@
 /* A labelled action sizes to its content. The surrounding filename may shrink. */
-.jx-artifactAction {
+.jx-artifactAction { /* layout-ok: a single short button */
   display: inline-flex;
   align-items: center;
   width: auto;

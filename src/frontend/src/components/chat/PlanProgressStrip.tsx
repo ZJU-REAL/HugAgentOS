@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  CheckCircleFilled, CloseCircleFilled, LoadingOutlined, RightOutlined,
+  CheckCircleFilled, CloseCircleFilled, LoadingOutlined, PauseCircleOutlined, RightOutlined,
 } from '@ant-design/icons';
 import { CollapseHeight } from '../common/CollapseHeight';
 import { DUR, EASE } from '../../utils/motionTokens';
-import { useChatStore } from '../../stores';
+import { usePlanView } from './usePlanView';
 import { t } from '../../i18n';
 
 /* ───────────────────────────────────────────
@@ -16,10 +16,14 @@ import { t } from '../../i18n';
    inside the conversation. Collapsed: one 40px row
    with a determinate progress ring; click to
    expand the step checklist.
+   When the run monitor rail is visible the same
+   plan shows there instead (RunMonitorRail
+   PlanCard) and CSS hides this strip; it stays as
+   the fallback when the rail drops out.
    ─────────────────────────────────────────── */
 
 /** Determinate progress ring (HIG: prefer determinate when total is known). */
-function ProgressRing({ completed, total }: { completed: number; total: number }) {
+export function ProgressRing({ completed, total }: { completed: number; total: number }) {
   const R = 7;
   const C = 2 * Math.PI * R;
   const frac = total > 0 ? Math.min(1, completed / total) : 0;
@@ -38,7 +42,14 @@ function ProgressRing({ completed, total }: { completed: number; total: number }
   );
 }
 
-function StepIcon({ status }: { status: 'pending' | 'in_progress' | 'completed' | 'failed' }) {
+export function StepIcon({ status, stopped = false }: {
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  /** The plan's run has ended: an in-progress step was interrupted, not still running. */
+  stopped?: boolean;
+}) {
+  if (stopped && status === 'in_progress') {
+    return <PauseCircleOutlined className="jx-planStrip-stepIcon jx-planStrip-stepIcon--stopped" />;
+  }
   switch (status) {
     case 'completed':
       return <CheckCircleFilled className="jx-planStrip-stepIcon jx-planStrip-stepIcon--done" />;
@@ -52,24 +63,13 @@ function StepIcon({ status }: { status: 'pending' | 'in_progress' | 'completed' 
 }
 
 export function PlanProgressStrip({ chatId }: { chatId: string }) {
-  const progress = useChatStore((s) => s.planProgress[chatId]);
+  const view = usePlanView(chatId);
   const [expanded, setExpanded] = useState(false);
-
-  // Manual plan mode already owns a full plan card in the message stream.
-  // Showing the same steps here would duplicate that UI above the composer;
-  // keep this compact strip for model-initiated update_plan progress only.
-  const visibleProgress = progress?.source === 'agent' ? progress : null;
-
-  const steps = visibleProgress?.steps ?? [];
-  const completed = steps.filter((s) => s.status === 'completed').length;
-  const failed = steps.filter((s) => s.status === 'failed').length;
-  const total = steps.length;
-  const current = steps.find((s) => s.status === 'in_progress');
-  const allDone = !!visibleProgress?.done || (total > 0 && completed + failed === total);
+  const { title, steps = [], completed = 0, failed = 0, total = 0, current, allDone = false, stopped = false } = view ?? {};
 
   return (
     <AnimatePresence initial={false}>
-      {visibleProgress && total > 0 && (
+      {view && (
         <motion.div
           key="planStrip"
           className="jx-planStrip"
@@ -92,8 +92,14 @@ export function PlanProgressStrip({ chatId }: { chatId: string }) {
                 ? <CloseCircleFilled className="jx-planStrip-doneIcon jx-planStrip-doneIcon--fail" />
                 : <CheckCircleFilled className="jx-planStrip-doneIcon" />)
               : <ProgressRing completed={completed} total={total} />}
-            <span className="jx-planStrip-title">{visibleProgress.title || t('任务计划')}</span>
-            {!allDone && current && (
+            <span className="jx-planStrip-title">{title || t('任务计划')}</span>
+            {stopped && (
+              <>
+                <span className="jx-planStrip-sep" aria-hidden>·</span>
+                <span className="jx-planStrip-current">{t('已中断')}</span>
+              </>
+            )}
+            {!allDone && !stopped && current && (
               <>
                 <span className="jx-planStrip-sep" aria-hidden>·</span>
                 <span className="jx-planStrip-current">{current.title}</span>
@@ -123,7 +129,7 @@ export function PlanProgressStrip({ chatId }: { chatId: string }) {
                   key={i}
                   className={`jx-planStrip-step jx-planStrip-step--${s.status}`}
                 >
-                  <StepIcon status={s.status} />
+                  <StepIcon status={s.status} stopped={stopped} />
                   <span className="jx-planStrip-stepTitle">{s.title}</span>
                 </li>
               ))}

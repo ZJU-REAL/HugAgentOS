@@ -56,7 +56,13 @@ export interface DeviceLink { device_id: string; name: string; control_enabled: 
 export interface DeviceLinkStatus {
   platform: string; default_name: string; capabilities: string[]; control_supported: boolean;
   permissions: { screen: boolean; input: boolean } | null; link: DeviceLink | null;
-  state: 'unlinked' | 'connected' | 'offline' | 'unavailable';
+  /** The worse of what the heartbeat and the mailbox pass last saw. */
+  /** signed_out: the desktop's cloud sign-in is missing; only state and link are set then. */
+  state: 'unlinked' | 'connecting' | 'connected' | 'offline' | 'error' | 'unavailable' | 'signed_out';
+  error?: string | null;
+  last_contact?: number | null;
+  /** The action this computer is running for the agent right now, if any. */
+  activity?: { kind: 'command' | 'session'; id: string; since: number } | null;
 }
 export type DeviceConsent = Partial<Pick<DeviceLink, 'control_enabled' | 'sessions_enabled'>>;
 export interface PersonalOutput { id: string; name: string; mime_type: string; size_bytes: number; task_id?: string; url: string; created_at: string }

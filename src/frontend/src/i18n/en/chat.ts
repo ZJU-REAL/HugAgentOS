@@ -379,6 +379,7 @@ export const CHAT_DICT: Record<string, string> = {
   '已放弃此计划。可继续描述需求，重新生成计划。': 'Plan discarded. Describe your needs again to generate a new plan.',
   '确认后将按步骤执行此计划；也可回复文字修改需求。': 'Confirm to execute this plan step by step, or reply to modify the requirements.',
   '任务计划': 'Task plan',
+  '任务计划：{done}/{total} 步已完成': 'Task plan: {done}/{total} steps completed',
   '任务计划：{done}/{total} 步已完成，点击{action}': 'Task plan: {done}/{total} steps completed, click to {action}',
   '{n} 步失败': '{n} step(s) failed',
   '查看大图：{name}': 'View image: {name}',

@@ -80,14 +80,16 @@ print('EXECUTION_BOUNDARY_VERIFIED')
     await provider.close_session(box)
     assert await provider.current_sandbox_id(box) == first
     print("PASS: permanent sandbox, dedicated volume and file read/write", flush=True)
-    from personal_agent.computer.computer import operate
-    observed = await operate(task_id, uid, "cloud", {"type": "observe"})
-    assert observed.get("image_base64") and observed.get("observation_id")
+    from personal_agent.computer import computer
+    observed = await computer.read(task_id, uid, "cloud")
+    assert observed.get("image_base64") and observed.get("snapshot_id")
     print("PASS: real computer screenshot", observed["width"], observed["height"], flush=True)
     await asyncio.sleep(1.1)
-    moved = await operate(task_id, uid, "cloud", {"type": "move", "x": 500, "y": 300,
-        "observation_id": observed["observation_id"]})
-    assert moved.get("status") == "input_executed", moved
+    with SessionLocal() as db:
+        # The batch runs at once: this script stands in for the user's approval.
+        AgentContext(db, uid).identity.configure({"approval_mode": "full"})
+    moved = await computer.act(task_id, uid, "cloud", [{"type": "move", "x": 500, "y": 300}], observed["snapshot_id"])
+    assert moved.get("ok") and moved.get("after", {}).get("snapshot_id"), moved
     print("PASS: real computer input and verification screenshot", flush=True)
     if mailbox_file:
         account = json.loads(Path(mailbox_file).read_text())

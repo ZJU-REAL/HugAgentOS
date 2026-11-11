@@ -8,17 +8,28 @@ from personal_agent.context import AgentContext
 def fingerprint(action):
     return hashlib.sha256(json.dumps(action, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
+COMPUTER_KINDS = ("computer.steps", "computer.action")
+# Where on the screen, and which screen, change with every read; a rejection is about what was asked.
+POSITION_FIELDS = ("x", "y", "element", "observation_id")
+
+def _unplaced(step):
+    return {key: value for key, value in step.items() if key not in POSITION_FIELDS} if isinstance(step, dict) else step
+
 def intent(action):
-    """The action without per-attempt fields. A rejection applies to every retry of the same action."""
+    """The action without per-attempt fields. A rejection applies to every retry of the same action:
+    for the computer that is (target, app, step types, text), wherever the screen puts it."""
     core = {key: value for key, value in action.items() if key != "request_key"}
-    if isinstance(core.get("action"), dict):
-        core["action"] = {key: value for key, value in core["action"].items() if key != "observation_id"}
+    if core.get("kind") in COMPUTER_KINDS:
+        for key in ("snapshot_id", "generation"): core.pop(key, None)
+        if isinstance(core.get("steps"), list): core["steps"] = [_unplaced(step) for step in core["steps"]]
+        if isinstance(core.get("action"), dict): core["action"] = _unplaced(core["action"])
     return core
 
 def scope_key(action):
-    """The class of actions a user can allow for one task. Email is never task-scoped."""
-    if action.get("kind") == "computer.action":
-        return "computer:" + str(action.get("target"))
+    """The class of actions a user can allow for one task. Email is never task-scoped.
+    For the computer it is one app on one computer; a pixels screen, which names no app, is the whole computer."""
+    if action.get("kind") in COMPUTER_KINDS:
+        return "computer:" + str(action.get("target")) + ":" + str(action.get("app") or "*")
     if action.get("kind") == "hugagent.session":
         return "session:" + str(action.get("target")) + ":" + str(action.get("operation"))
     return None

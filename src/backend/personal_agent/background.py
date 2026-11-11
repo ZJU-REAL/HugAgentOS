@@ -168,6 +168,13 @@ class BackgroundServices:
             if time.monotonic() - last_cleanup > PROACTIVE_CLEANUP_SEC:
                 with SessionLocal() as db:
                     heartbeat.cleanup(db)
+                # Finished computer commands and session reads carry screenshots and chat histories.
+                from personal_agent.computer.devices import prune_commands
+                from personal_agent.sessions.session_queue import prune
+                with SessionLocal() as db:
+                    prune_commands(db)
+                with SessionLocal() as db:
+                    prune(db)
                 last_cleanup = time.monotonic()
 
         async def maintain():

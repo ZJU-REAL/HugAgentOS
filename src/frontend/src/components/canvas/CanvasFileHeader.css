@@ -4,7 +4,7 @@
 .jx-filePath[data-path-clipped] { mask-image: linear-gradient(to right, transparent, black 28px); }
 .jx-filePath-text { flex: none; margin-right: auto; }
 .jx-filePath-directory { color: var(--color-text-tertiary); }
-.jx-fileHeader-actions { display: flex; flex: none; align-items: center; gap: 4px; min-width: 0; }
+.jx-fileHeader-actions { /* layout-ok: icon-only buttons */ display: flex; flex: none; align-items: center; gap: 4px; min-width: 0; }
 .jx-canvas-fileHeader .jx-canvas-actionBtn { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 28px; height: 28px; min-height: 0; padding: 6px; border: 0; border-radius: 6px; background: transparent; color: var(--color-text-secondary); line-height: 1; font-size: 15px; cursor: pointer; }
 .jx-canvas-fileHeader .jx-canvas-actionBtn svg { width: 15px; height: 15px; }
 .jx-canvas-fileHeader .jx-canvas-actionBtn:hover { color: var(--color-text); background: var(--color-bg-gray); }

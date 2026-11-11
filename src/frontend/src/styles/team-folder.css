@@ -159,7 +159,7 @@
   min-width: 0;
 }
 
-.jx-team-workspace-actions {
+.jx-team-workspace-actions { /* layout-ok: labels hide by @container teamfiles */
   display: flex;
   align-items: center;
   gap: 8px;

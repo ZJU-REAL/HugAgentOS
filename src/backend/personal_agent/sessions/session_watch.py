@@ -6,6 +6,7 @@ nothing needs to stay in a task waiting for it. A run the task followed to its e
 itself (see session_tool.observed) is not reported again.
 """
 import json
+import time
 import uuid
 from datetime import timedelta
 from sqlalchemy import select
@@ -24,11 +25,15 @@ STATE_PROJECTS = 10
 REPLY_CHARS = 6000
 ACTIVE = ("queued", "running", "waiting", "computer_wait")
 EVENT = "session_run_finished"
+# A run on the user's computer is asked about through the device queue, at most this often.
+DEVICE_CHECK_SEC = 60
+WATCH_PREFIX = "watch:"
 
-def started_runs(db, since):
-    """Cloud runs that a task started with the session tool."""
+def started_runs(db, since, cloud=True):
+    """Runs that a task started with the session tool: in the cloud, or on the user's computers."""
+    where = Operation.target == "cloud" if cloud else Operation.target != "cloud"
     rows = db.scalars(select(Operation).where(Operation.operation == "chat.send", Operation.status == "completed",
-        Operation.target == "cloud", Operation.request_key.like(KEY_PREFIX + "%"), Operation.work_item_id.is_not(None),
+        where, Operation.request_key.like(KEY_PREFIX + "%"), Operation.work_item_id.is_not(None),
         Operation.created_at >= since).order_by(Operation.created_at)).all()
     for row in rows:
         run_id = (row.result or {}).get("run_id") if isinstance(row.result, dict) else None
@@ -49,8 +54,60 @@ def describe_run(db, run):
         text += "\nError: " + run.error_message[:500]
     return text
 
+def describe_device_run(target, status):
+    run = status if isinstance(status, dict) else {}
+    state = run.get("status")
+    if state == "completed": head = "finished"
+    elif state == "needs_attention": head = "is waiting for the user in that chat (for example a confirmation)"
+    else: head = "ended with status " + str(state)
+    text = ("The HugAgentOS chat on the user's computer (" + target + ") that this task started " + head + "."
+            "\nRead its reply with pa_hugagent chat.history on that target.")
+    if run.get("error_message"):
+        text += "\nError: " + str(run["error_message"])[:500]
+    return text
+
+
+def device_run_ended(db, op, run_id):
+    """The run's terminal status once the computer has reported it; meanwhile ask it, now and then.
+
+    The run lives in the HugAgentOS on the user's computer, which only the device queue
+    reaches. Each check is a read the device answers when it is online.
+    """
+    from personal_agent.computer.devices import is_online
+    from personal_agent.models import PersonalDevice
+    from personal_agent.sessions import session_queue
+    last = db.scalars(select(Operation).where(Operation.user_id == op.user_id,
+        Operation.request_key.like(WATCH_PREFIX + run_id + ":%")).order_by(Operation.created_at.desc()).limit(1)).first()
+    if last and last.status == "completed" and isinstance(last.result, dict) and last.result.get("status") in RUN_TERMINAL:
+        return last.result
+    if last and last.status in ("queued", "sent") and last.deadline > time.time():
+        return None
+    device = db.get(PersonalDevice, op.device_id) if op.device_id else None
+    if device is None or device.revoked or not device.sessions_enabled or not is_online(device):
+        return None  # Ask once the computer can answer; a refused submit would only cost queries.
+    bucket = int(time.time() // DEVICE_CHECK_SEC)
+    # Its own session: submit commits, and a refusal must not expire the watcher's rows.
+    with SessionLocal() as own:
+        try:
+            session_queue.submit(own, op.user_id, op.target, "run.status", {"run_id": run_id},
+                                 WATCH_PREFIX + run_id + ":" + str(bucket))
+        except (ValueError, LookupError):
+            own.rollback()
+    return None
+
+
 def report_finished():
     """One watcher cycle. Idempotent across workers: one event per run and agent."""
+    with SessionLocal() as db:
+        for op, run_id in list(started_runs(db, utc_now() - timedelta(hours=WATCH_HOURS), cloud=False)):
+            task = db.get(PersonalWorkItem, op.work_item_id)
+            if task is None or task.status in ACTIVE: continue
+            if run_id in (task.checkpoint or {}).get("observed_runs", []): continue
+            key = ("run:" + run_id)[:100]
+            if db.scalar(select(PersonalMessageInbox.message_id).where(PersonalMessageInbox.agent_id == task.agent_id,
+                    PersonalMessageInbox.request_key == key)): continue
+            status = device_run_ended(db, op, run_id)
+            if status: report(task.id, task.agent_id, run_id, key, describe_device_run(op.target, status))
     with SessionLocal() as db:
         found = []
         for op, run_id in started_runs(db, utc_now() - timedelta(hours=WATCH_HOURS)):
@@ -66,21 +123,28 @@ def report_finished():
             found.append((task.id, task.agent_id, run_id, key))
     for task_id, agent_id, run_id, key in found:
         with SessionLocal() as db:
-            agent = db.get(PersonalAgent, agent_id)
             run = db.get(ChatRun, run_id)
-            if agent is None or agent.status != "ready" or run is None: continue
-            from personal_agent.conversation.conversations import task_chat
-            source = task_chat(db, agent, db.get(PersonalWorkItem, task_id))
-            event = ChatMessageRepository(db).create({"message_id": "pa_evt_" + uuid.uuid4().hex, "chat_id": source,
-                "role": "system", "content": describe_run(db, run),
-                "extra_data": {"work_item_id": task_id, "event": EVENT, "run_id": run_id}}, commit=False)
-            from personal_agent.conversation.router.triggers import enqueue
-            enqueue(db, agent, kind="session_run", message=event, request_key=key,
-                payload={"kind": "task_event", "task_id": task_id, "event": EVENT, "run_id": run_id})
-            try:
-                db.commit()
-            except IntegrityError:
-                db.rollback()  # Another worker reported it.
+            text = describe_run(db, run) if run is not None else None
+        if text: report(task_id, agent_id, run_id, key, text)
+
+
+def report(task_id, agent_id, run_id, key, text):
+    """Tell the agent that a run its task started has ended."""
+    with SessionLocal() as db:
+        agent = db.get(PersonalAgent, agent_id)
+        if agent is None or agent.status != "ready": return
+        from personal_agent.conversation.conversations import task_chat
+        source = task_chat(db, agent, db.get(PersonalWorkItem, task_id))
+        event = ChatMessageRepository(db).create({"message_id": "pa_evt_" + uuid.uuid4().hex, "chat_id": source,
+            "role": "system", "content": text,
+            "extra_data": {"work_item_id": task_id, "event": EVENT, "run_id": run_id}}, commit=False)
+        from personal_agent.conversation.router.triggers import enqueue
+        enqueue(db, agent, kind="session_run", message=event, request_key=key,
+            payload={"kind": "task_event", "task_id": task_id, "event": EVENT, "run_id": run_id})
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()  # Another worker reported it.
 
 def projects(db, uid):
     """The user's most recently active projects, with the same visibility as the projects page."""

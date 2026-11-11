@@ -25,7 +25,7 @@ export function PersonalMessageRow({ row, author }: Props) {
     else message.error(t('复制失败，请手动复制'));
   }
   const user = row.role === 'user';
-  return <article className={'pa-message pa-message-' + row.role} data-delivery={row.artifacts?.length ? true : undefined} data-task-id={row.work_item_id} data-task-ids={row.work_item_ids?.join(',')}>
+  return <article className={'pa-message pa-message-' + row.role} data-message-id={row.id} data-delivery={row.artifacts?.length ? true : undefined} data-task-id={row.work_item_id} data-task-ids={row.work_item_ids?.join(',')}>
     {author}
     <div className="pa-message-bubble">
       <div ref={body} className="jx-md pa-message-text">

@@ -228,7 +228,7 @@ def test_enabled_plugins_join_with_their_components(sessions, monkeypatch):
         config = svc.identity.ensure()["config"]
         # Only the plugin the user keeps on, with only its enabled components.
         assert config["plugins"] == [{"id": "feishu@owner", "name": "Feishu", "skill_ids": ["feishu-doc"], "mcp_ids": ["feishu_mcp"]}]
-        assert identity_capabilities.capability_ids(config) == (["officecli-docx", "feishu-doc"], ["internet_search", "feishu_mcp"])
+        assert identity_capabilities.capability_ids(config) == (["officecli-docx", "feishu-doc", *identity_capabilities.COMPUTER_SKILL_IDS], ["internet_search", "feishu_mcp"])
         # An unreadable plugin listing keeps the last known set instead of breaking the agent.
         monkeypatch.setattr('core.capabilities.plugins.management.list_installed', lambda db, **kw: 1 / 0)
         assert svc.identity.ensure()["config"]["plugins"][0]["id"] == "feishu@owner"

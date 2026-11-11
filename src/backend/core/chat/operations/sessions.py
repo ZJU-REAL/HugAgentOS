@@ -163,6 +163,13 @@ def get_chat(chat_id, user=None, db=None):
     )
 
 
+def mark_chat_read(chat_id, message_id, user=None, db=None):
+    """Mark the chat read up to ``message_id`` for the current user (never moves back)."""
+    from core.chat.read_state import mark_chat_read as mark
+
+    return success_response(data=mark(db, str(user.user_id), chat_id, message_id))
+
+
 def update_chat(chat_id, request, user=None, db=None):
     """更新当前用户有权修改的会话元信息。"""
     chat_service = chat_services_ChatService_module.ChatService(db)

@@ -26,6 +26,9 @@ DESKTOP_PRIVATE = "/run/pa-desktop"
 DESKTOP_RUN = {"uid": 1001, "gid": 1001, "working_directory": DESKTOP_HOME,
                "envs": {"EXECD_ACCESS_TOKEN": "", "DISPLAY": ":99", "XAUTHORITY": DESKTOP_PRIVATE + "/.Xauthority", "HOME": DESKTOP_HOME}}
 STREAM_PORT = 6090
+# A computer confirmed alive this recently is used without asking the controller again: every
+# action used to cost two get_info round trips. A command that fails drops the confirmation.
+ALIVE_SECONDS = 30
 
 def controller():
     """The authenticated Personal Agent sandbox controller: (domain, api_key)."""
@@ -35,12 +38,12 @@ def controller():
         raise SandboxError("Configure an authenticated Personal Agent sandbox controller on a separate compute network")
     return domain, key
 
-async def install_once(provider, box, uid, name, digest, command):
+async def install_once(provider, box, uid, name, digest, command, session=None):
     """Run a root install command once per computer and asset version. Concurrent callers wait."""
     import secrets
     from opensandbox.models.execd import RunCommandOpts
     from core.infra.ephemeral import get_ephemeral_state
-    session = await provider._get_or_create_session(box, uid)
+    session = session or await provider._get_or_create_session(box, uid)
     state = get_ephemeral_state()
     ready = "pa:" + name + "-ready:" + session.sandbox.id
     if await state.get(ready) == digest: return
@@ -127,10 +130,16 @@ class PersonalSandboxProvider(OpenSandboxProvider):
         async with lock:
             cached = self._sessions.get(session_id)
             if cached and cached.sandbox.id == sandbox_id:
+                import time
+                alive = getattr(self, "_alive_at", None)
+                if alive is None: alive = self._alive_at = {}
+                if alive.get(session_id, 0) > time.monotonic() - ALIVE_SECONDS: return cached
                 try:
                     await self._check_alive(cached.sandbox)
+                    alive[session_id] = time.monotonic()
                     return cached
                 except Exception as exc:
+                    alive.pop(session_id, None)
                     if not _gone(exc): raise
             if cached:
                 self._sessions.pop(session_id, None)
@@ -153,7 +162,14 @@ class PersonalSandboxProvider(OpenSandboxProvider):
             session = _Session(sandbox=sandbox,
                                user_id=user_id, setup_done=True, pool_source="none")
             self._sessions[session_id] = session
+            import time
+            if getattr(self, "_alive_at", None) is None: self._alive_at = {}
+            self._alive_at[session_id] = time.monotonic()
             return session
+
+    def forget_alive(self, session_id):
+        """Ask the controller again next time: a command just failed on this computer."""
+        getattr(self, "_alive_at", {}).pop(session_id, None)
 
     async def _check_alive(self, sandbox):
         """Confirm the instance still exists; a missing one raises a 404 the caller recovers from.

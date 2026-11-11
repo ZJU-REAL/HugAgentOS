@@ -305,3 +305,36 @@ button.jx-runMonitor-row:disabled { cursor: default; }
   --ripple-color: var(--color-primary);
   --ripple-scale: 2.5;
 }
+
+/* ── Task plan (agent update_plan) ── */
+.jx-runMonitor-planDone { color: var(--color-success); font-size: 16px; }
+.jx-runMonitor-planDone[data-failed] { color: var(--color-error); }
+.jx-runMonitor-planSteps {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  flex-direction: column;
+  list-style: none;
+}
+.jx-runMonitor-planStep {
+  display: flex;
+  min-width: 0;
+  padding: 6px 8px;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 20px;
+}
+/* Long steps wrap instead of truncating, so the full step is readable. */
+.jx-runMonitor-planStepTitle {
+  min-width: 0;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+.jx-runMonitor-planStep[data-status='in_progress'] .jx-runMonitor-planStepTitle { color: var(--color-text); font-weight: 500; }
+.jx-runMonitor-planStep[data-status='completed'] .jx-runMonitor-planStepTitle { color: var(--color-text-tertiary); }
+
+/* While the rail shows, the plan lives here, not in the strip above the composer. */
+@container conversation-column (min-width: 1120px) {
+  .jx-conversationColumn--runMonitor .jx-chatFooter .jx-planStrip { display: none; }
+}

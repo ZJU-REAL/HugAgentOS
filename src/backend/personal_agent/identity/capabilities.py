@@ -5,6 +5,9 @@ DEFAULT_MCP_IDS = ("internet_search", "web_fetch")
 DEFAULT_SKILL_IDS = (
     "officecli-docx", "officecli-xlsx", "officecli-pptx", "pdf-editing",
 )
+# How to operate a computer, one skill per mode of pa_computer_read (its "skill" field names the one to
+# read). Always available to tasks, whatever the user selected: they only describe the computer tools.
+COMPUTER_SKILL_IDS = ("pa-computer-macos", "pa-computer-pixels")
 SELECTION_KEYS = ("skill_ids", "mcp_ids", "plugin_ids")
 
 def blocked(ident):
@@ -126,7 +129,8 @@ def capability_ids(config):
     def merged(key):
         return list(dict.fromkeys(i for i in [*(config or {}).get(key, []),
             *(i for plugin in plugins for i in plugin.get(key, []))] if not blocked(i)))
-    return merged("skill_ids"), merged("mcp_ids")
+    # The computer skills come last: listed and readable with pa_skill_read in every task.
+    return list(dict.fromkeys([*merged("skill_ids"), *COMPUTER_SKILL_IDS])), merged("mcp_ids")
 
 def front_mcp_ids(config):
     """The main conversation only gets selected lookup tools; tasks get the full selection."""

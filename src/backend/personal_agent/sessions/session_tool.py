@@ -44,8 +44,8 @@ needs what you do not have: knowledge bases ("my knowledge base" means these), d
 specialist skills you were not given, connectors outside your plugins, publishing a site, batch runs or
 very long research. To delegate: chat.create with a clear title (with project_id when the user names a
 project, so the chat follows its instructions and files), then chat.send with the complete instruction.
-The run works on its own and its result is reported to the user automatically when it ends, so you may
-finish once it has started. When this task needs the result, call run.status with wait_seconds until the
+The run works on its own and its result is reported to the user automatically when it ends (for a run
+on the user's computer, once the computer is online to say so), so you may finish once it has started. When this task needs the result, call run.status with wait_seconds until the
 run ends, then read chat.history. Writes can return pending_approval: then stop and say what waits for
 the user's approval. Never repeat a write whose outcome is unknown; check it with a read first."""
 
@@ -143,7 +143,8 @@ def build(uid, task_id=None, output_chars=OUTPUT_CHARS):
 
     async def pa_hugagent(operation: str, args: dict | None = None, target: str = "cloud", wait_seconds: int = 0):
         try:
-            if writes and operation == "run.status" and wait_seconds > 0 and target == "cloud":
+            # On the user's computer too: each status read goes through the device queue.
+            if writes and operation == "run.status" and wait_seconds > 0:
                 result = await follow(uid, args or {}, target, task_id, wait_seconds)
             else:
                 result = await call(uid, operation, args, target, task_id)
@@ -161,7 +162,7 @@ def build(uid, task_id=None, output_chars=OUTPUT_CHARS):
     pa_hugagent.__annotations__["operation"] = Literal[tuple(operations(writes))]
     args_doc = ["operation: the operation to run", "args: the operation's arguments, as listed for it",
         "target: cloud, or device:<id> for HugAgentOS on one of the user's computers"]
-    if writes: args_doc.append("wait_seconds: run.status only, on cloud: wait up to this many seconds (at most 600) for the run to end")
+    if writes: args_doc.append("wait_seconds: run.status only: wait up to this many seconds (at most 600) for the run to end")
     else: args_doc.append("wait_seconds: not used in a conversation turn")
     pa_hugagent.__doc__ = describe(writes) + "\n\nArgs:\n" + "\n".join("    " + line for line in args_doc)
     return pa_hugagent

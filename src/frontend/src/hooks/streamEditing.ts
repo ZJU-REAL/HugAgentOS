@@ -166,6 +166,28 @@ export function createStreamEditing(ctx: Pick<StreamingContext, 'abortController
   }
 
 
+  function windDownStreamingBubble(chatId: string) {
+    const store = useChatStore.getState();
+    store.updateStore((prev) => {
+      const c = prev.chats[chatId];
+      if (!c) return { chats: prev.chats, order: prev.order };
+      const msgs = [...(c.messages || [])];
+      const last = msgs[msgs.length - 1];
+      if (last?.role !== 'assistant' || !last.isStreaming) return { chats: prev.chats, order: prev.order };
+      msgs[msgs.length - 1] = {
+        ...last,
+        isStreaming: false,
+        inFlight: undefined,
+        toolCalls: last.toolCalls?.map((tc) => (tc.status === 'running' ? { ...tc, status: 'interrupted' as const } : tc)),
+        durationMs: last.durationMs ?? (last.ts ? Date.now() - last.ts : undefined),
+      };
+      return { chats: { ...prev.chats, [chatId]: { ...c, messages: msgs } }, order: prev.order };
+    });
+    store.removeSendingChatId(chatId);
+    store.clearActiveRun(chatId);
+  }
+
+
   /** Abort the stream for a specific chat (defaults to the currently viewed chat).
    *  Actually kills the background task: first call /v1/chat-runs/{run_id}/cancel, then abort
    *  the local SSE connection.
@@ -196,6 +218,10 @@ export function createStreamEditing(ctx: Pick<StreamingContext, 'abortController
     if (controller) {
       controller.abort();
       ctx.abortControllersRef.current.delete(targetId);
+    } else {
+      // 没有本地流可断（断流后、或跟随权在别的窗口）：流的收尾逻辑不会跑，
+      // 气泡会一直停在 isStreaming，轮次计时器也就一直走。这里直接收掉它。
+      windDownStreamingBubble(targetId);
     }
 
     // 计划模式：把后端的计划和它的 run 一并取消。只 abort 本地 SSE 是不够的——计划在

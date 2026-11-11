@@ -202,7 +202,7 @@
   flex: 1;
 }
 
-.jx-canvasTabs-actions {
+.jx-canvasTabs-actions { /* layout-ok: icon-only buttons */
   display: flex;
   align-items: center;
   gap: 2px;
@@ -498,7 +498,7 @@
 }
 
 /* ── Header actions ── */
-.jx-canvas-header-actions {
+.jx-canvas-header-actions { /* layout-ok: icon-only buttons */
   display: flex;
   align-items: center;
   gap: 2px;

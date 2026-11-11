@@ -137,6 +137,19 @@ def get_chat(
     return operation(chat_id=chat_id, user=user, db=db)
 
 
+@router.post("/{chat_id}/read", summary="标记会话已读到某条消息")
+def mark_chat_read(
+    chat_id: str,
+    request: chat_models.MarkChatReadRequest,
+    user: UserContext = Depends(auth_backend.get_current_user),
+    db: Session = Depends(db_engine.get_db),
+):
+    """把当前用户在该会话的已读位置推进到 ``message_id``；只前进不后退，旧请求不会把已读改回未读。"""
+    from core.chat.operations.sessions import mark_chat_read as operation
+
+    return operation(chat_id=chat_id, message_id=request.message_id, user=user, db=db)
+
+
 @router.patch("/{chat_id}", summary="更新会话")
 def update_chat(
     chat_id: str,

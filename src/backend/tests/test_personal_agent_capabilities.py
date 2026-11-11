@@ -2,7 +2,10 @@
 import pytest
 from tests.test_personal_agent import sessions, personal_agent_on
 from personal_agent.context import AgentContext
-from personal_agent.identity.capabilities import capability_ids
+from personal_agent.identity.capabilities import COMPUTER_SKILL_IDS, capability_ids
+
+# The computer skills are part of every task, whatever the owner selected or was granted.
+COMPUTER = list(COMPUTER_SKILL_IDS)
 
 @pytest.fixture
 def available(monkeypatch):
@@ -26,7 +29,7 @@ def test_browser_excluded_from_defaults_and_stale_runtime_config(sessions, avail
     stale = {"skill_ids": ["browser-automation-browser-automation-u"],
              "mcp_ids": ["browser_runtime"],
              "plugins": [{"id": "browser-automation@owner", "skill_ids": [], "mcp_ids": ["browser-automation-browser_runtime-u"]}]}
-    assert capability_ids(stale) == ([], [])
+    assert capability_ids(stale) == (COMPUTER, [])
 
 def test_selection_survives_reopen_and_new_plugin(sessions, available):
     with sessions() as db:
@@ -36,9 +39,9 @@ def test_selection_survives_reopen_and_new_plugin(sessions, available):
         available[1].append({"install_id": "new@owner", "slug": "new", "enabled": True,
                              "skills": ["plugin-skill"], "mcp": []})
         config = AgentContext(db, "owner").identity.ensure()["config"]
-        assert capability_ids(config) == ([], [])
+        assert capability_ids(config) == (COMPUTER, [])
         config = svc.identity.configure({"skill_ids": ["custom-skill"], "mcp_ids": ["web_fetch"], "plugin_ids": ["sample@owner"]})["config"]
-        assert capability_ids(config) == (["custom-skill", "plugin-skill"], ["web_fetch", "plugin-tool"])
+        assert capability_ids(config) == (["custom-skill", "plugin-skill", *COMPUTER], ["web_fetch", "plugin-tool"])
 
 def test_invalid_selection_is_atomic_and_revocation_removes_execution(sessions, available):
     with sessions() as db:
@@ -61,16 +64,16 @@ def test_execution_rechecks_grants_without_opening_settings(sessions, available)
         saved = svc.identity.configure({"skill_ids": [], "mcp_ids": ["custom-tool", "web_fetch"], "plugin_ids": []})["config"]
         assert front_mcp_ids(saved) == ["web_fetch"]
         available[0]["mcps"] = ["web_fetch"]
-        assert capability_ids(runtime_config(db, "owner", saved)) == ([], ["web_fetch"])
+        assert capability_ids(runtime_config(db, "owner", saved)) == (COMPUTER, ["web_fetch"])
         available[0]["mcps"] = None
-        assert capability_ids(runtime_config(db, "owner", saved)) == ([], [])
+        assert capability_ids(runtime_config(db, "owner", saved)) == (COMPUTER, [])
 
 def test_settings_api_accepts_empty_lists(sessions, available):
     from personal_agent.api.schemas import Settings; from personal_agent.api.identity import configure; from personal_agent.api.identity import capability_options
     with sessions() as db:
         svc = AgentContext(db, "owner")
         configure(Settings(skill_ids=[], mcp_ids=[], plugin_ids=[]), svc=svc)
-        assert capability_ids(svc.identity.ensure()["config"]) == ([], [])
+        assert capability_ids(svc.identity.ensure()["config"]) == (COMPUTER, [])
         options = capability_options(svc=svc)
         assert "browser-automation" not in str({k: v for k, v in options["data"].items() if k != "plugin_component_ids"})
 
@@ -129,7 +132,7 @@ def test_stale_session_cannot_restore_removed_binding(sessions, available):
         current.identity.configure({"skill_ids": [], "mcp_ids": [], "plugin_ids": []})
         old.identity.configure({"timezone": "UTC"})
         first.refresh(stale)
-        assert capability_ids(old.identity.view()["config"]) == ([], [])
+        assert capability_ids(old.identity.view()["config"]) == (COMPUTER, [])
 
 
 def test_plugin_components_only_execute_through_selected_plugin(sessions, available):
@@ -145,10 +148,10 @@ def test_plugin_components_only_execute_through_selected_plugin(sessions, availa
                 svc.identity.configure(patch)
         config = svc.identity.configure({"skill_ids": [], "mcp_ids": [], "plugin_ids": ["sample@owner"]})["config"]
         assert config["skill_ids"] == config["mcp_ids"] == []
-        assert capability_ids(runtime_config(db, "owner", config)) == (["plugin-skill"], ["plugin-tool"])
+        assert capability_ids(runtime_config(db, "owner", config)) == (["plugin-skill", *COMPUTER], ["plugin-tool"])
         # Legacy direct bindings must not survive removal of their plugin.
         stale = {**config, "capability_selection": {"skill_ids": ["plugin-skill"], "mcp_ids": ["plugin-tool"], "plugin_ids": []}}
-        assert capability_ids(runtime_config(db, "owner", stale)) == ([], [])
+        assert capability_ids(runtime_config(db, "owner", stale)) == (COMPUTER, [])
         row = svc.identity.agent()
         row.config = stale
         db.commit()

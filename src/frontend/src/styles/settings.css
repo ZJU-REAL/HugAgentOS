@@ -165,9 +165,11 @@
 }
 .jx-conn-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  max-width: 100%;
 }
 
 /* pending：二维码 + 授权说明 */
@@ -1200,16 +1202,18 @@
   border-radius: 999px;
 }
 
+/* The title column keeps a minimum width; when the card is narrow (canvas open) the buttons move below it. */
 .jx-shareRecordTop {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 20px;
+  gap: 14px 20px;
 }
 
 .jx-shareRecordMain {
   min-width: 0;
-  flex: 1;
+  flex: 1 1 max(240px, 50%);
 }
 
 .jx-shareRecordTitleRow {
@@ -1332,6 +1336,8 @@
   align-content: start;
   justify-content: end;
   flex-shrink: 0;
+  max-width: 100%;
+  margin-left: auto;
 }
 
 .jx-shareRecordViewsMain {

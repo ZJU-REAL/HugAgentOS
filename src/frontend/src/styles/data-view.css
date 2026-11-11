@@ -31,8 +31,10 @@
 }
 
 /* ── 顶栏：规模 / 出处 + 视图开关 ── */
+/* The summary keeps a minimum width; in a narrow chat or canvas the buttons wrap below it. */
 .jx-dv-bar{
   display:flex;
+  flex-wrap:wrap;
   align-items:center;
   justify-content:space-between;
   gap:8px;
@@ -41,13 +43,15 @@
   background:color-mix(in srgb, var(--color-bg-container) 55%, transparent);
 }
 .jx-dv-barMeta{
+  flex:1 1 160px;
+  min-width:0;
   font-size:11.5px;
   color:var(--color-text-tertiary);
   white-space:nowrap;
   overflow:hidden;
   text-overflow:ellipsis;
 }
-.jx-dv-barActions{ display:flex; align-items:center; gap:4px; flex-shrink:0; }
+.jx-dv-barActions{ display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:4px; flex-shrink:0; max-width:100%; margin-left:auto; }
 .jx-dv-barBtn{
   display:inline-flex;
   align-items:center;

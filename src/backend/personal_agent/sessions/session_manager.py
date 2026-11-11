@@ -31,6 +31,17 @@ def _complete(db, job_id, result):
     db.commit()
 
 
+def _never_sent(db, uid, receipt, task_id):
+    """True when an approved write's receipt is an operation that expired before any device
+    took it. It certainly did not run, so asking again queues it again (see submit)."""
+    if not (isinstance(receipt, dict) and receipt.get("id") and receipt.get("status") in {"queued", "expired"}):
+        return False
+    try:
+        return session_queue.view(db, uid, receipt["id"], task_id)["status"] == "expired"
+    except LookupError:
+        return False
+
+
 async def dispatch(user, target, operation, args, request_key, grant=None):
     """Queue a session operation; cloud targets run here, local ones through the device.
 
@@ -54,7 +65,7 @@ async def dispatch(user, target, operation, args, request_key, grant=None):
             "request_key": request_key,
         }
         digest, result = await run_db(authorize, task_id, user.user_id, action)
-        if result:
+        if result and not await run_in_session(_never_sent, user.user_id, result, task_id):
             return result
     job = await run_in_session(
         session_queue.submit, user.user_id, target, operation, args, request_key, task_id, run_id, grant
