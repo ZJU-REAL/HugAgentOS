@@ -34,7 +34,7 @@ takeover and is meant for trials only.
 | Capability | Description | Edition |
 |---|---|---|
 | Durable runs | Every request is a persisted run executed in the background; resumable streams and mid-run steering; lease takeover and startup reconciliation; tool side effects record intent and receipt, and unknown outcomes are never replayed automatically | CE |
-| Personal Agent | One conversation, parallel background tasks, a permanent cloud computer, schedules and heartbeats, IM channels, action approvals, file-based memory with Dreaming, and connecting your own computer | CE (authorization governance and cross-device session management are EE) |
+| Personal Agent | One conversation, parallel background tasks, a permanent cloud computer, schedules and heartbeats, IM channels, action approvals, a topic memory wiki with nightly Dreaming, and connecting your own computer | CE (authorization governance and cross-device session management are EE) |
 | Autonomous loop | Goals survive across turns until done; a worker does the work, a read-only reviewer verifies it, and command-checkable requirements are verified by the driver; resumable after interruption | CE |
 | Chat and Plan Mode | SSE streaming, ReAct tool orchestration, deep thinking, Plan Mode, citations, context compaction checkpoints, chat forks | CE |
 | Sub-agents | Built-in explorer, worker and reviewer, user-created sub-agents, automatic routing or `@` mentions | CE (organization agent library is EE) |

@@ -15,6 +15,17 @@ import '../../styles/sites.css';
 
 const SHARE_RECORDS_CACHE_KEY = 'hugagent_share_records_cache';
 
+/** Link glyph drawn with currentColor so it follows the theme (the old gray SVG asset was fixed to one color). */
+function ShareLinkIcon() {
+  return (
+    <svg className="jx-shareRecordJumpIcon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M6.1 9.9L9.9 6.1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M6 5.15H4.95C3.51406 5.15 2.35 6.31406 2.35 7.75C2.35 9.18594 3.51406 10.35 4.95 10.35H6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M10 5.15H11.05C12.4859 5.15 13.65 6.31406 13.65 7.75C13.65 9.18594 12.4859 10.35 11.05 10.35H10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 /** Published sites are also a kind of outbound share link — show a compact list at the top of the share records page. */
 function SiteShareSection() {
   const [sites, setSites] = useState<SiteItem[]>([]);
@@ -129,7 +140,8 @@ interface ShareRecordsPageProps {
 export default function ShareRecordsPage({ embedded = false, hideEmbeddedDesc = false }: ShareRecordsPageProps) {
   const authUserId = useAuthStore((s) => s.authUser?.user_id ?? null);
   const [records, setRecords] = useState<ChatShareRecord[]>(() => loadCachedShareRecords(authUserId));
-  const [loading, setLoading] = useState(true);
+  // Cached records render immediately; the skeleton only shows when there is nothing to display yet.
+  const [loading, setLoading] = useState(() => records.length === 0);
   const [keyword, setKeyword] = useState('');
   const [messageApi, contextHolder] = message.useMessage();
   const loadingCardCount = useMemo(() => {
@@ -162,7 +174,8 @@ export default function ShareRecordsPage({ embedded = false, hideEmbeddedDesc = 
   };
 
   useEffect(() => {
-    void loadRecords();
+    void loadRecords({ silent: records.length > 0 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once on mount
   }, []);
 
   const sortedRecords = useMemo(
@@ -350,7 +363,7 @@ export default function ShareRecordsPage({ embedded = false, hideEmbeddedDesc = 
                         {getShareStatusLabel(record)}
                       </Tag>
                     </motion.span>
-                    <Tag style={{ background: 'var(--color-primary-light)', borderColor: '#DBE9FF', color: 'var(--color-primary)' }}>
+                    <Tag className="jx-shareRecordExpiryTag">
                       {getShareExpiryLabel(record)}
                     </Tag>
                     <button
@@ -358,8 +371,9 @@ export default function ShareRecordsPage({ embedded = false, hideEmbeddedDesc = 
                       className="jx-shareRecordJumpBtn"
                       onClick={() => handleJumpToOriginChat(record)}
                       title={t('跳转关联会话记录')}
+                      aria-label={t('跳转关联会话记录')}
                     >
-                      <img src="/home/share-link-gray.svg" alt={t('跳转关联会话记录')} className="jx-shareRecordJumpIcon" />
+                      <ShareLinkIcon />
                     </button>
                   </div>
                   <div className="jx-shareRecordMeta">

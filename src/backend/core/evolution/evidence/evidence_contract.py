@@ -32,8 +32,6 @@ MANIFEST_SCHEMA_VERSION = "2"
 LAYER_PROFILE = "profile"
 LAYER_PROCEDURE = "procedure"
 LAYER_GRAPH = "graph"
-LAYER_EPISODE = "episode"
-EVIDENCE_LAYERS = (LAYER_PROFILE, LAYER_PROCEDURE, LAYER_GRAPH, LAYER_EPISODE)
 
 # ── Graph roles: what an L3 relation may contribute to a skill ───────────────
 # A closed set, and ``step`` is deliberately absent: a graph fact may bound

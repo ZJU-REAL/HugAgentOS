@@ -96,7 +96,7 @@ function ConversationPanel({ chatId, onSelectChat, savedDraft, saveDraft }: { ch
     finally { setUploading(false); if (fileInput.current) fileInput.current.value = ''; }
   }
   function author(row: PersonalMessage) {
-    if (row.role === 'assistant') return row.heartbeat ? <span className="pa-message-author"><HeartOutlined aria-hidden="true" />{t('心跳提醒')}</span> : null;
+    if (row.role === 'assistant') return row.heartbeat ? <span className="pa-message-author"><HeartOutlined aria-hidden="true" />{t('主动服务')}</span> : null;
     if (row.origin === 'schedule') return <span className="pa-message-author">{t('定时任务')}</span>;
     const channel = CHANNELS.find(item => item.type === row.channel_type);
     // Your own messages sit on the right without a name; only an outside channel is labelled.

@@ -104,7 +104,9 @@ async def _start_script_runner(py: str) -> None:
     # 但 _spawn 只看拉起瞬间——这里显式等端口就绪，问题在启动期暴露，
     # 而不是等到用户第一次执行命令才报「无法连接脚本执行服务」。
     runner_deadline = asyncio.get_event_loop().time() + host._ready_timeout_seconds()
-    while not await host._tcp_port_ready("127.0.0.1", runner_port):
+    # Wait for an HTTP response before closing the probe. A bare connect-and-close
+    # can abort Windows AcceptEx and leave the new runner unable to accept.
+    while not await host._http_port_ready("127.0.0.1", runner_port):
         if runner.returncode is not None:
             await stop_local_sidecars()
             raise RuntimeError(

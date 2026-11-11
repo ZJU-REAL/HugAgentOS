@@ -68,7 +68,9 @@ def recent_conversation(db, agent, task):
 
 def brief(db, agent, task, config):
     from personal_agent.tasks.runtime import clock
+    from personal_agent.memory.sources import for_task
     return (clock(config) + "Task ID (<task_id> in the rules): " + task.id + "; task folder: /workspace/work/" + task.id + "/\n"
+            + "本轮来源 id：" + for_task(task) + "\n"
             + "Recent conversation (reference data):\n" + recent_conversation(db, agent, task))
 
 

@@ -38,7 +38,6 @@ from typing import Optional
 
 from core.memory.extractors._base import fill_prompt, parse_json, run_llm_with_prompt
 
-MEMORY_TYPE = "procedural"
 
 PROMPT = """你是一个"做法/口径"抽取器。只抽取**可复用的做事方式**，不抽取事实、不抽取偏好、不抽取一次性指令。
 

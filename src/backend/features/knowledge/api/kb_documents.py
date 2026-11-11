@@ -174,6 +174,7 @@ def list_documents(
         )
 
     documents, total = kb_repo.list_documents(kb_id, page, page_size, keyword=keyword)
+    char_counts = kb_repo.document_char_counts([d.document_id for d in documents])
     items = [
         {
             "id": d.document_id,
@@ -185,6 +186,9 @@ def list_documents(
             "storage_key": d.storage_key,
             "uploaded_at": d.uploaded_at.isoformat(),
             "indexing_status": getattr(d, "indexing_status", "processing"),
+            # Why a failed document failed, shown on its status badge.
+            "indexing_error": (d.extra_data or {}).get("indexing_error"),
+            "word_count": char_counts.get(d.document_id),
         }
         for d in documents
     ]
@@ -252,3 +256,73 @@ def get_document_detail(
         },
         message="Document detail retrieved successfully",
     )
+
+
+# 原文预览只内联这些类型；其余（尤其 html/svg 这类可执行内容）一律按附件下发
+_ORIGINAL_INLINE_TYPES = {
+    "pdf": "application/pdf",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "doc": "application/msword",
+    "xls": "application/vnd.ms-excel",
+    "ppt": "application/vnd.ms-powerpoint",
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "webp": "image/webp",
+    "txt": "text/plain; charset=utf-8",
+    "md": "text/plain; charset=utf-8",
+    "csv": "text/plain; charset=utf-8",
+}
+
+
+@router.get("/{kb_id}/documents/{document_id}/original", summary="获取外接知识库文档的原始文件")
+def get_document_original(
+    kb_id: str = Path(..., description="External knowledge collection ID"),
+    document_id: str = Path(..., description="Document ID"),
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """代理外接知识库（目前为 WeKnora）的原文件下载，返回 Word / PDF 等原始二进制，
+    供「内容预览」按原版式展示。仅对当前用户可见的数据集开放。"""
+    from urllib.parse import quote
+
+    from fastapi.responses import StreamingResponse
+    from features.knowledge.edition import get_dataset_levels, is_enabled, open_original_document
+    from features.knowledge.repository import KBRepository
+
+    if KBRepository(db).get_space(kb_id) or not is_enabled():
+        raise ResourceNotFoundError(resource_type="kb_original", resource_id=document_id)
+    if kb_id not in get_dataset_levels(db, user.user_id, [kb_id]):
+        raise AccessDeniedError(message="Access denied", reason="No access to this knowledge base")
+
+    opened = open_original_document(kb_id, document_id)
+    if not opened:
+        raise ResourceNotFoundError(resource_type="kb_original", resource_id=document_id)
+
+    resp = opened["response"]
+    filename = opened["filename"]
+    ext = (opened.get("file_type") or os.path.splitext(filename)[1].lstrip(".")).lower()
+    media_type = _ORIGINAL_INLINE_TYPES.get(ext)
+    disposition = "inline" if media_type else "attachment"
+
+    def _stream():
+        try:
+            for chunk in resp.iter_content(chunk_size=64 * 1024):
+                if chunk:
+                    yield chunk
+        finally:
+            resp.close()
+
+    headers = {
+        "Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(filename)}",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "sandbox",
+        "Cache-Control": "private, max-age=300",
+    }
+    upstream_len = resp.headers.get("Content-Length")
+    if upstream_len:
+        headers["Content-Length"] = upstream_len
+    return StreamingResponse(_stream(), media_type=media_type or "application/octet-stream", headers=headers)

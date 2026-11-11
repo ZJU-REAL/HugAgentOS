@@ -27,7 +27,6 @@ from typing import Any, Dict, List, Optional, Sequence
 logger = logging.getLogger(__name__)
 
 OP_REINFORCE = "reinforce_relation"
-OP_CREATE = "create_relation"
 OP_MERGE_ALIAS = "merge_alias"
 OP_REWEIGHT = "reweight_relation"
 OP_SUPERSEDE = "supersede_relation"

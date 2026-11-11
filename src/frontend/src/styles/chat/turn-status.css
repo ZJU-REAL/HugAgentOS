@@ -43,10 +43,8 @@
   text-overflow:ellipsis;
 }
 
-.jx-trs--turnStatus .jx-trs-dur{white-space:nowrap;flex-shrink:0;}
-
-/* Title, timer and live note on one line. Only the title scans (RollingText);
-   timer ticks never remount it, so the scan does not restart every second. */
+/* Title, turn clock and live note on one line. Only the title scans (RollingText);
+   clock ticks never remount it, so the scan does not restart every second. */
 .jx-trs .jx-trs-summary{
   display:inline-flex;
   align-items:center;
@@ -95,15 +93,6 @@
   /* motion-keep: Text scanning is an activity signal while a request is running. */
   animation-name:jxShimmerGlint;
 }
-.jx-turnStatus-clock{
-  flex-shrink:0;
-  margin-left:2px;
-  font-size:12px;
-  font-weight:400;
-  font-variant-numeric:tabular-nums;
-  color:var(--color-text-secondary);
-}
-
 /* Constant speed across the label: an eased sweep crawls in from the left
    and then rushes, which reads as a stall. The pause sits off-label. */
 @keyframes jxShimmerBand{
@@ -113,4 +102,21 @@
 @keyframes jxShimmerGlint{
   0%,15%{transform:translateX(100%);}
   85%,100%{transform:translateX(-100%);}
+}
+
+/* Whole-turn clock trailing the live status row ("正在执行命令 · 36秒").
+   The row gap is 9px; the dot pulls in a little so the three read as one phrase. */
+.jx-turnClock-sep{
+  flex-shrink:0;
+  margin:0 -3px;
+  font-size:12px;
+  color:color-mix(in srgb, var(--color-text) 25%, transparent);
+}
+.jx-turnClock{
+  flex-shrink:0;
+  white-space:nowrap;
+  font-family:var(--font-family-number);
+  font-size:12.5px;
+  font-variant-numeric:tabular-nums;
+  color:color-mix(in srgb, var(--color-text) 50%, transparent);
 }

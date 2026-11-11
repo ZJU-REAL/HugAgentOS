@@ -125,7 +125,8 @@ async def monitor(svc=Depends(service)):
             "turns": pending(svc),
             "attention": attention(svc) if agent else {"turns": [], "deliveries": []},
             "schedules": schedule_listing(agent["config"]) if agent else [],
-            "heartbeat": heartbeat_view(agent["config"]) if agent else None,
+            # With the session and the agent row, the view also says which list items cannot be done now.
+            "heartbeat": heartbeat_view(agent["config"], svc.db, svc.identity.agent()) if agent else None,
             "email_connected": bool(email and email.status == "connected"),
         }
 

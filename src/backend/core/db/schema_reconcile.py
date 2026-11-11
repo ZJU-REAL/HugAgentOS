@@ -16,6 +16,8 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.schema import CreateColumn
 
+from core.db.orphan_columns import relax_orphan_not_null_columns
+
 logger = logging.getLogger(__name__)
 
 SchemaItem = Tuple[str, str]
@@ -114,6 +116,32 @@ def _patch_file_edit_constraints_sqlite(connection: Connection) -> list[str]:
     return patched
 
 
+def _server_default(table_name: str, column: Column, defaults: Mapping[SchemaItem, Any]) -> Any:
+    if column.server_default is not None and column.computed is None:
+        return column.server_default.arg
+    return defaults.get((table_name, column.name))
+
+
+def _columns_without_safe_default(
+    connection: Connection,
+    metadata: MetaData,
+    present: set[str],
+    defaults: Mapping[SchemaItem, Any],
+) -> list[str]:
+    """Missing non-null columns of existing tables that cannot be added safely."""
+    unsafe = []
+    inspector = inspect(connection)
+    for table_name, table in metadata.tables.items():
+        if table_name not in present:
+            continue
+        existing = {item["name"] for item in inspector.get_columns(table_name)}
+        for column in table.columns:
+            if (column.name not in existing and not column.nullable
+                    and _server_default(table_name, column, defaults) is None):
+                unsafe.append(f"{table_name}.{column.name}")
+    return sorted(unsafe)
+
+
 def reconcile_metadata_schema(
     bind: Engine | Connection,
     metadata: MetaData,
@@ -125,7 +153,10 @@ def reconcile_metadata_schema(
     ``MetaData.create_all`` only creates missing tables; it never evolves an
     existing table.  This function fills that gap without dropping or rewriting
     user data.  A non-null column without a server default is rejected because
-    adding it to a populated table would be unsafe.
+    adding it to a populated table would be unsafe; that check runs before any
+    change, because SQLite DDL is not transactional and a refusal halfway would
+    leave a partly upgraded database behind.  Leftover NOT NULL columns the
+    models no longer write are made nullable (``core.db.orphan_columns``).
     """
 
     defaults = dict(bootstrap_server_defaults or {})
@@ -135,10 +166,19 @@ def reconcile_metadata_schema(
         "indexes": [],
         "constraints": [],
         "skipped_indexes": [],
+        "relaxed_columns": [],
     }
 
     with connection_scope(bind) as connection:
         before_tables = set(inspect(connection).get_table_names())
+        unsafe = _columns_without_safe_default(connection, metadata, before_tables, defaults)
+        if unsafe:
+            raise RuntimeError(
+                "Cannot safely add non-null column without a server default: "
+                + ", ".join(unsafe)
+                + ". Add a server default, a bootstrap default, or a startup repair "
+                "that adds and backfills it before the reconciler runs."
+            )
         metadata.create_all(bind=connection, checkfirst=True)
         after_tables = set(inspect(connection).get_table_names())
         report["tables"] = sorted(after_tables - before_tables)
@@ -157,18 +197,7 @@ def reconcile_metadata_schema(
                 if column.name in existing_columns:
                     continue
 
-                server_default = (
-                    column.server_default.arg
-                    if column.server_default is not None and column.computed is None
-                    else None
-                )
-                if server_default is None:
-                    server_default = defaults.get((table_name, column.name))
-                if not column.nullable and server_default is None:
-                    raise RuntimeError(
-                        "Cannot safely add non-null column without a server default: "
-                        f"{table_name}.{column.name}"
-                    )
+                server_default = _server_default(table_name, column, defaults)
 
                 # SQLite cannot ALTER ADD a STORED generated column. A VIRTUAL
                 # projection has the same read semantics and preserves old rows.
@@ -212,6 +241,7 @@ def reconcile_metadata_schema(
                 report["indexes"].append(index.name)
 
         report["constraints"].extend(_patch_file_edit_constraints_sqlite(connection))
+        report["relaxed_columns"] = relax_orphan_not_null_columns(connection, metadata)
 
     for values in report.values():
         values.sort()

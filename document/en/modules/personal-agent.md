@@ -31,7 +31,7 @@ Background tasks, main conversation turns, and heartbeat checks have no total ex
 
 When you add instructions during a run, the service discards the old result and runs the task again with the latest instructions.
 
-Each model request includes the current time in the user's timezone, the task goal, recent task updates, a saved checkpoint, and bounded conversation history. It reads USER.md, MEMORY.md and recent daily notes from the workspace. Older conversation messages use pagination.
+Each model request includes the current time in the user's timezone, the task goal, recent task updates, a saved checkpoint, and bounded conversation history. Every turn it reads USER.md, the pinned section of MEMORY.md and the head of the memory index from the workspace; topic pages are read when needed. Older conversation messages use pagination.
 
 The model completes the task and submits its final explanation with `pa_finish`. The public conversation does not show process narration or internal identifiers. If the model does not call it, one tool-free model call cleans the final text. Images and files use the independent `pa_deliver` tool and appear in the main conversation while the task continues, without waiting for completion.
 
@@ -100,10 +100,12 @@ The Personal Agent keeps its persona, user profile and memory in Markdown files 
 ├── AGENTS.md        Operating manual: conventions, memory rules, red lines
 ├── SOUL.md          Persona: character, tone, boundaries
 ├── IDENTITY.md      Identity: name, vibe, signature emoji (kept in sync with the name in settings, both ways)
-├── USER.md          User profile: stable preferences as dated directives
-├── MEMORY.md        Long-term memory: curated facts and decisions
+├── USER.md          User profile: stable preferences, in the owner's own words only
+├── MEMORY.md        Pinned memory: what the owner asked to remember, plus a line pointing at the index
 ├── BOOTSTRAP.md     First-run ritual (introduce itself, learn about the user, settle a style); the platform removes it when done
-├── memory/          Daily notes memory/YYYY-MM-DD.md
+├── memory/          Memory wiki: rules _schema.md, index _index.md and topic pages
+├── journal/         Daily records journal/YYYY-MM-DD.md written by the platform; append-only, not injected
+├── DREAMS.md        The report of each Dreaming run
 ├── work/<task>/     Files of each task
 ├── outputs/
 └── scratch/
@@ -116,9 +118,9 @@ The first time a new agent is opened, it wakes up on its own: it sends a greetin
 Each task's system prompt has two parts:
 
 1. **Platform rules**: they cover safety, approvals, tool use and finishing, and take precedence.
-2. **Workspace files**: injected in the order `AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `USER.md`, `BOOTSTRAP.md`, `MEMORY.md`, then yesterday's and today's daily notes. Each file is limited to 20,000 characters, `USER.md` to 4,000, a daily note to 6,000, and all files together to 60,000. Longer content is truncated with a marker. A missing required file is injected as a one-line marker.
+2. **Workspace files**: injected in the order `AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `USER.md`, `BOOTSTRAP.md`, then memory: the `## 置顶` (pinned) section of `MEMORY.md` and the head of the index `memory/_index.md`. Each file is limited to 20,000 characters, `USER.md` to 4,000, the pinned section and the index head to 6,000 each, and all together to 60,000. Longer content is truncated with a marker. A missing required file is injected as a one-line marker. Topic pages and journals are not injected but read when needed; see Memory below.
 
-The agent updates these files with `pa_read_file` / `pa_write_file` to build memory. Web pages, emails and file contents are never a reason to change them. Workspace files describe the persona and the user; they never grant new permissions.
+The agent may update the persona and user files with its file tools. Web pages, emails and file contents are never a reason to change them. Workspace files describe the persona and the user; they never grant new permissions.
 
 In **My Space → Personal agent** you can browse the workspace file tree, preview and edit these Markdown files. An edit is rejected if the agent changed the file in the meantime. Saved changes apply from the next task. The backend never follows symbolic links when it reads the workspace.
 
@@ -161,7 +163,7 @@ The Settings window is grouped by purpose:
 - **Connectors**: MySpace is on by default. Connect, reconnect, or disconnect an email account right here, without going to the global settings.
 - **Runtime**: model (selectable when the administrator allows model switching; used for conversation, tasks, and heartbeat checks; empty follows the system default), concurrent tasks, and time zone.
 - **Heartbeat**: see Heartbeat below.
-- **Memory**: USER.md, MEMORY.md and daily file locations, pending journal writes and retry status, with a shortcut to view and edit the files in MySpace → Personal Agent.
+- **Memory**: turn Dreaming on or off, choose the daily time, run it now, see pending journal writes and retry status, and open the memory panel (see Memory below).
 
 ## Appearance and channels
 
@@ -169,7 +171,7 @@ The Settings window is grouped by purpose:
 
 - Select the avatar on the right to change the agent's avatar and name. Choose a built-in avatar or upload an image (cropped to a square and compressed, at most 256 KiB).
 - The agent is named **Hugo** by default (after HugAgentOS). Rename it in settings, tell it a new name in the conversation (it offers this on its first run), or edit the name line of `IDENTITY.md` in My Space. The new name then shows in the sidebar entry, the My Space list, the conversation title and `IDENTITY.md`.
-- Select Connect a channel and choose DingTalk, Lark, WeChat or WeCom. Channel binding opens below the selected channel card. Enter credentials or scan the QR code there. New bots route to Personal Agent automatically. A connected bot shows “Bound successfully”. While the dialog is open, connection status refreshes every 5 seconds and credentials are checked every 30 seconds. Expired QR codes, binding failures and connection errors appear inline with retry controls. Select "Let {name} handle it" to connect an existing bot. Messages use an independent conversation per bot connection and contact or group. Replies, task reports and file deliveries return to that source conversation. Connect a channel shows no connected-channel count. Select Channel conversation under its channel card to switch, read and reply; internal session IDs are hidden while preserving per-conversation drafts. Hugo's identity, capabilities, persona and file memory are shared. Existing mixed history remains in the main chat; new messages use the isolated histories. Approvals still happen in the web page; the IM conversation receives a notice.
+- Select Connect a channel and choose DingTalk, Lark, WeChat or WeCom. Channel binding opens below the selected channel card. Enter credentials or scan the QR code there. New bots route to Personal Agent automatically. A connected bot shows “Bound successfully”. While the dialog is open, connection status refreshes every 5 seconds and credentials are checked every 30 seconds. Expired QR codes, binding failures and connection errors appear inline with retry controls. Select "Let {name} handle it" to connect an existing bot. Messages use an independent conversation per bot connection and contact or group. Replies, task reports and file deliveries return to that source conversation. Connect a channel shows no connected-channel count. Select Channel conversation under its channel card to switch, read and reply; internal session IDs are hidden while preserving per-conversation drafts. Hugo's identity, capabilities, persona and memory are shared. Existing mixed history remains in the main chat; new messages use the isolated histories. Approvals still happen in the web page; the IM conversation receives a notice.
 - The composer has no task selector. Personal Agent decides whether to answer directly or hand the work to a background task. A background task handles web lookups, everyday documents and its bound skills and plugins itself; work that needs an unbound capability, such as a knowledge base, a database or a specialist skill, goes to a normal HugAgentOS chat, and the task reports the result. Chat writes still need approval.
 
 ## Scheduled tasks
@@ -322,26 +324,88 @@ Desktop contention waits automatically without an attention prompt. If a short w
 
 The thinking effort selector sits beside the model in settings and defaults to Fast (no extra thinking). It applies to conversation, background tasks, and heartbeat checks; available effort levels follow the model configuration. Each capability section has its own marketplace import button at the top right.
 
-## File memory
+## Memory
 
-Personal Agent uses `USER.md` for stable preferences, `MEMORY.md` for curated facts and decisions, and `memory/YYYY-MM-DD.md` for daily records. It no longer reads or writes the ordinary-chat L1/L2/L3 memory stores or settings. Ordinary chat remains unchanged. Existing memories are not migrated or deleted.
+Personal Agent's memory is a wiki organized by topic. During the day the agent writes what is worth keeping into topic pages while it works. Each night Dreaming reads the day's conversations, adds what was missed, verifies the day's changes and tidies the whole wiki. One person, project or decision has one page, and opening it shows its current state.
 
-Conversation completion and completed, failed or cancelled tasks durably enqueue a daily record in the same transaction as the outcome. A worker writes the input and result using the user's timezone, redacts recognizable credentials, and retries unavailable workspaces after restart without duplicate entries. Tool output and reasoning are not copied. Earlier history is not backfilled.
+### Memory files
 
-Long-term memory is updated through the agent's file tools or the workspace editor and read in subsequent turns. Read existing files before replacing them; concurrent changes require rereading and merging. Daily logs are not automatically promoted wholesale to long-term memory. Settings show the file-memory locations, pending writes and retry status, with a link to view and edit the files.
+| Location | Content | Injected every turn |
+| --- | --- | --- |
+| `USER.md` | Stable preferences, in the owner's own words only | Whole file |
+| `MEMORY.md` | The `## 置顶` (pinned) section holds only what the owner explicitly asked to remember, followed by one line pointing at the index | Pinned section only |
+| `memory/_schema.md` | Writing rules. Written by the platform; nobody can change it, and the platform restores it if it changes | No |
+| `memory/_index.md` | The index: `## Where to start` first, then one line per page grouped by type; new pages wait under `## 待整理` | Head and group headings only |
+| `memory/<type>-<name>.md` | Topic pages, such as `person-zhang-san.md` or `project-q4-budget.md` | No, read when needed |
+| `journal/YYYY-MM-DD.md` | Daily records written by the platform, append-only | No, searchable |
+| `journal/legacy-memory.md` | The old `MEMORY.md` text moved out by the migration | No |
+| `DREAMS.md` | The report of each Dreaming run | No |
 
+There are five page types: person, org (company or team), project (project or ongoing matter), topic (knowledge and decisions) and procedure (reusable ways of working and lessons). File names use lowercase letters, digits and hyphens; Chinese names use pinyin, with the original name in `aliases`. The frontmatter holds the name, a one-line description (what it is and when to read it), aliases, type, status (active or archived) and the date of the last update.
 
-## Scheduled Dreaming
+Each fact is one line ending with its source and date, for example `- Direct manager [src: conv-… | as-of: 2026-10-02]`. Something the owner never said and the agent inferred is marked "（agent 观察）". A superseded fact is not deleted but rewritten as `was X until <date>`. When it is unclear which side is right, both stay, written as `CONFLICT: …` with who said what. Credentials, keys and verification codes are never written; only their names are.
 
-Memory settings provide a Dreaming toggle, daily hour (03:00 in the agent timezone by default), last/next run and retry status, manual run/retry, and a `DREAMS.md` viewer. Journals are still written after conversation/task completion, not at midnight. Restart coalesces missed schedules into one sweep; backlog continues in bounded batches.
+### What is injected every turn
 
-Inspired by OpenClaw Light → REM → Deep, the worker collects current evidence, asks the selected Personal Agent model for a bounded tool-free structured proposal, then validates and writes exact evidence. It does not reproduce OpenClaw recall scoring/query-diversity gates. Reports show sources, reflections, changes, duplicates and conflicting old/new text. Reports are neither injected into normal prompts nor treated as extraction evidence.
+Every turn gets three small, trusted pieces: `USER.md`, the pinned section of `MEMORY.md` and the head of the index. They do not grow with the wiki. When the agent needs a topic it reads the index, then the first 60 lines of the page (a large page starts with a `## Current picture` summary), and searches for a specific passage only if that is not enough. Yesterday's and today's journals are no longer injected; recent context comes from the recent conversation.
 
-Only unchanged platform journal blocks are eligible. Manual notes and edited/deleted blocks are not automatically promoted; changed blocks are reported for manual review. Both MEMORY.md and USER.md promotion require explicit owner memory statements in the web main conversation. Mixed task instructions, quotations, translations and requests not to save remain review-only; task results, assistant output and external-channel speakers stay in journals/reports rather than becoming durable facts. Conservative syntax checks are not a universal semantic safety guarantee. Semantic duplication/conflict classification depends on model judgment; the host enforces evidence, versions and write conditions. Only an unchanged managed entry may be superseded using newer explicit user evidence and the exact prior body. Other conflicts need owner review.
+### Writing during the day
 
-Checkpoints, workspace locks, preimage checks and source identifiers protect replay and concurrent edits. Failures back off for 1, 2, 4 and 8 minutes, up to five automatic attempts, then await manual retry. If disk is unavailable, durable failure status remains available through settings even when a failure report cannot be written. Each collection pass scans at most 100 receipts and reads at most 32 MiB of journals (16 MiB per file), sending at most 24 chunks/48,000 characters to the model. Oversized entries are processed in chunks. Memory files above 256 KiB or reports above 16 MiB stop consolidation visibly and remain intact for manual maintenance. Existing prompt injection budgets still apply. Ordinary-chat memory is unchanged.
+The web conversation, external channel sessions and background tasks can all write topic pages while they work: search by name and alias first, update the page if it exists, create one if not, and correct a mistake in place. The tools are:
 
-Daily journal writes are capped at 16 MiB per file. Oversized files preserve pending receipts and retry, but require owner archival before delivery can resume. Receipts for deleted conversations are skipped so they cannot block other conversations.
+| Tool | Purpose |
+| --- | --- |
+| `pa_memory_search` | Search `memory/` and `journal/`, aliases included; returns files and line numbers |
+| `pa_memory_read` | Read a page, the first 60 lines by default |
+| `pa_memory_write` | Create a page or rewrite it whole; an existing page must be read first |
+| `pa_memory_edit` | Replace one unique passage of a page |
+
+On every write the platform takes a lock, checks that the page has not changed since it was read, checks its format and sources (each source must be a real conversation, channel session or task), and records the change. A write that fails is refused and the agent is told why. A new page is listed under "待整理" in the index and placed that night by Dreaming. The agent cannot delete pages; a page that is no longer useful is set to archived, and deleting and merging are left to Dreaming.
+
+Only when the owner says "remember: …" does the agent write `USER.md` or the pinned section of `MEMORY.md`, and only the owner's exact words. Preferences the agent infers go into topic pages, never into the files injected every turn. Instructions found in web pages, emails and files are never recorded.
+
+While Dreaming runs (a few minutes), daytime writes and editor saves are refused with a message to try later. Nothing is lost: the conversation itself is recorded, and the next Dreaming run picks it up.
+
+The journal does not depend on the model calling a tool. When a reply or task finishes, the platform writes the input and result into that day's `journal/YYYY-MM-DD.md` in the user's timezone, redacting recognizable credentials and leaving out full tool output and reasoning. An unavailable workspace is retried, also after a restart, and a record is never appended twice. A file is capped at 16 MiB.
+
+### Nightly Dreaming
+
+In Settings → Memory you can turn Dreaming on or off, choose the daily time (03:00 in the user's timezone by default), run it now, see the last and next run and the retry status, and open `DREAMS.md`. When many conversations are waiting, Dreaming runs early; a failed run retries with backoff.
+
+Each run does this, in order:
+
+1. **Collect**: the conversations and tasks that finished since the last run, each with the changes it made to memory during the day; ones still running wait for the next run. `memory/` is snapshotted first.
+2. **Analyze each source**: first verify the day's changes from that source. Changes with evidence stay; weak ones are marked "（agent 观察）" or reverted; overturned facts become `was X until`. The agent's own inference never overrides what the owner said; it can only mark a CONFLICT. Then add the names, numbers, dates, methods and lessons the day missed.
+3. **Organize the wiki**: merge duplicate pages (keeping every fact), flag conflicts across pages, write a `Current picture` for large pages, archive pages with no new source for 90 days, and rebuild the index.
+4. **Finish**: check the whole wiki's format and sources and that `_schema.md` is unchanged. A serious problem rolls the whole run back to the snapshot, and the next run takes the same sources again. Finally `DREAMS.md` lists the sources processed, the pages created, changed and merged, how many daytime changes were kept, corrected or reverted, and new conflicts and failures.
+
+Analysis and organizing are done by restricted agents: they can only read the sources and read and write pages under `memory/`, with no network or shell, and cannot change `USER.md`, `MEMORY.md` or `_schema.md`. Sources and existing memory are treated as data, never as instructions.
+
+Updates to `USER.md` and the pinned section keep the old strict rule: only an explicit memory statement by the owner in the web conversation ("remember: …") is copied, word for word. Task results, assistant replies and other people in external channels never are.
+
+### Change log, revert and snapshots
+
+The memory panel lists every change to a memory file: which file, who changed it (a daytime conversation or task, Dreaming, the owner, or the platform), from which conversation, and when. Changes are kept for 30 days.
+
+- **Revert one change**: the platform writes a new version that puts the content back; the history is never rewritten. One-click revert works only while the file has not changed again since; otherwise edit it by hand in the editor.
+- **Go back to before a Dreaming run**: the snapshot taken before each run is kept, the latest 14. Pick one in the memory panel to restore the whole `memory/` to how it was. Snapshots live outside the workspace, where the agent cannot see them.
+
+Editing a topic page in the editor goes the same way as a daytime write: lock, check for changes, record the change.
+
+### One-off migration for existing users
+
+Earlier versions wrote daily logs to `memory/YYYY-MM-DD.md`, and `MEMORY.md` mixed entries from the old Dreaming with text the agent wrote. After the upgrade the platform migrates once, the first time it prepares the workspace:
+
+- `memory/YYYY-MM-DD.md` moves unchanged to `journal/YYYY-MM-DD.md`. If `journal/` already has that day, the two are merged without repeating a record. A symbolic link in `memory/` is left where it is, never read or moved.
+- Entries the old Dreaming wrote into `MEMORY.md` (the owner's own words) move to the `## 置顶` section; everything else moves unchanged to `journal/legacy-memory.md` and is no longer injected. `MEMORY.md` takes the new shape: the pinned section plus a line pointing at the index.
+- Every change is recorded in the change log with the platform as the writer.
+- It runs once. The platform marks the agent as migrated in its configuration and skips the step afterwards.
+
+The migration creates no topic pages. When there were old logs or memory, the platform asks the next Dreaming run for a **genesis replay** first: starting from the oldest old log (at most 90 days back), it processes old logs, old memory entries and the conversations and tasks of that period in time order, building the first wiki in batches and resuming from its checkpoint after an interruption. New users have no old content; their first pages are written in conversation and tidied by that night's Dreaming.
+
+Ordinary-chat memory is neither migrated nor deleted.
+
+Personal Agent no longer reads or writes the ordinary-chat L1/L2/L3 memory stores or settings. Ordinary chat remains unchanged.
 
 ## Source and edition boundaries
 

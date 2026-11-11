@@ -7,7 +7,15 @@ import posixpath
 
 import stat
 
+import threading
+
+import time
+
+from contextlib import contextmanager
+
 from pathlib import Path
+
+from personal_agent.memory import layout
 
 class WorkspaceUnavailable(RuntimeError):
     """The permanent workspace volume is not configured on this backend."""
@@ -32,11 +40,20 @@ def relative(path):
     return path
 
 def editable(rel):
+    """What the owner may edit in the workspace editor. Memory files among them are saved
+    through personal_agent.memory.store; memory/_schema.md and journal/ are platform-written."""
     from personal_agent.workspace.constants import CONTEXT_FILES
     from personal_agent.workspace.constants import HEARTBEAT_FILE
     if rel in CONTEXT_FILES or rel == HEARTBEAT_FILE: return True
-    parts = rel.split("/")
-    return len(parts) == 2 and parts[0] == "memory" and parts[1].endswith(".md") and not parts[1].startswith(".")
+    return layout.is_wiki(rel) and rel != layout.SCHEMA
+
+def _writable(rel):
+    """What _write_file may replace: editable files and the wiki's own files (seeded by the platform)."""
+    return editable(rel) or layout.is_wiki(rel)
+
+def _tail(rel):
+    """The journal and the Dreaming report grow at the end: read their latest part."""
+    return rel.split("/")[0] == layout.JOURNAL_DIR or rel == layout.REPORT
 
 def _open_dir(root, parts, create=False):
     """Walk directories without following links; returns an fd for the last one."""
@@ -78,7 +95,7 @@ def read_text(ident, rel):
     """The file's text, or None when it does not exist, is a link or is not a regular file."""
     from personal_agent.workspace.constants import READ_MAX_BYTES
     try:
-        data, _ = _read(local_workspace(ident), rel, READ_MAX_BYTES, tail=rel.startswith("memory/") or rel == "DREAMS.md")
+        data, _ = _read(local_workspace(ident), rel, READ_MAX_BYTES, tail=_tail(rel))
     except (FileNotFoundError, NotADirectoryError, IsADirectoryError, OSError):
         return None
     return data[:READ_MAX_BYTES].decode("utf-8", errors="replace")
@@ -95,7 +112,7 @@ def read_file(ident, path):
     if not rel: raise IsADirectoryError("Path is a directory")
     root = local_workspace(ident)
     try:
-        data, info = _read(root, rel, READ_MAX_BYTES, tail=rel.startswith("memory/") or rel == "DREAMS.md")
+        data, info = _read(root, rel, READ_MAX_BYTES, tail=_tail(rel))
     except FileNotFoundError:
         raise LookupError("File not found") from None
     except OSError as exc:
@@ -111,12 +128,46 @@ def read_file(ident, path):
             if truncated: text = data.decode("utf-8", errors="ignore")
             else: binary = True
     return {"path": WORKSPACE + "/" + rel, "size": info.st_size, "modified": info.st_mtime,
-            "binary": binary, "truncated": truncated, "content": ("[Earlier daily records omitted; showing the latest records.]\n" + text if truncated and rel.startswith("memory/") and text is not None else text), "etag": etag(data),
+            "binary": binary, "truncated": truncated, "content": ("[Earlier records omitted; showing the latest records.]\n" + text if truncated and _tail(rel) and text is not None else text), "etag": etag(data),
             "editable": editable(rel) and not binary and info.st_size <= EDIT_MAX_BYTES, "role": ROLES.get(rel)}
 
+LOCK_WAIT_SECONDS = 5
+_held = threading.local()
+
+
+@contextmanager
+def workspace_lock(ident, wait=None):
+    """Serialize memory writes, editor saves and Dreaming across processes (flock on the workspace).
+
+    Re-entrant within a thread. Waits up to `wait` seconds, then raises BlockingIOError,
+    which memory.store reports as a 409."""
+    import fcntl
+    held = _held.__dict__.setdefault("idents", {})
+    if held.get(ident):
+        held[ident] += 1
+        try: yield
+        finally: held[ident] -= 1
+        return
+    fd = _open_dir(local_workspace(ident), [])
+    try:
+        deadline = time.monotonic() + (LOCK_WAIT_SECONDS if wait is None else wait)
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline: raise
+                time.sleep(0.05)
+        held[ident] = 1
+        try: yield
+        finally: held.pop(ident, None)
+    finally:
+        os.close(fd)
+
 def write_file(ident, path, content, expected=None):
-    """Replace one persona file atomically. expected is the etag the editor started from."""
-    from personal_agent.workspace.file_memory import workspace_lock
+    """Replace one persona file atomically. expected is the etag the editor started from.
+    Memory files (USER.md, MEMORY.md, memory/) go through personal_agent.memory.store."""
+    if layout.is_memory(relative(path)): raise PermissionError("Memory files are written through the memory store")
     with workspace_lock(ident):
         return _write_file(ident, path, content, expected)
 
@@ -124,7 +175,7 @@ def _write_file(ident, path, content, expected=None):
     from personal_agent.workspace.constants import EDIT_MAX_BYTES
     from personal_agent.workspace.constants import READ_MAX_BYTES
     rel = relative(path)
-    if not editable(rel): raise PermissionError("Only workspace persona and memory files can be edited")
+    if not _writable(rel): raise PermissionError("Only workspace persona and memory files can be edited")
     data = content.encode("utf-8")
     if len(data) > EDIT_MAX_BYTES: raise ValueError("File exceeds 256 KiB")
     root = local_workspace(ident)
@@ -137,7 +188,7 @@ def _write_file(ident, path, content, expected=None):
             with os.fdopen(fd, "rb") as handle:
                 info = os.fstat(handle.fileno())
                 if not stat.S_ISREG(info.st_mode): raise ValueError("Memory is not a regular file")
-                if info.st_size > EDIT_MAX_BYTES: raise ValueError("Large memory files cannot be replaced; append new daily entries instead")
+                if info.st_size > EDIT_MAX_BYTES: raise ValueError("Files over 256 KiB cannot be replaced")
                 current = etag(handle.read(READ_MAX_BYTES))
         except FileNotFoundError:
             current = None

@@ -25,16 +25,20 @@ class ActiveHours(BaseModel):
 
 
 class HeartbeatSettings(BaseModel):
+    """Proactive checks. active_hours holds the morning (start) and the evening (end) time."""
+    # Accepted from older clients and ignored: proactive checks are on for every Personal Agent.
     enabled: bool | None = None
     every_minutes: int | None = Field(default=None, ge=1, le=1440)
     active_hours: ActiveHours | None = None
-    # null or "" sends alerts to the web conversation only.
+    # null or "": the bot of the owner's latest direct chat. "none": the web conversation only.
     channel_id: str | None = Field(default=None, max_length=64)
 
 
 class DreamingSettings(BaseModel):
     enabled: bool | None = None
     hour: int | None = Field(default=None, ge=0, le=23)
+    # A cheaper model for Dreaming; "" goes back to the agent's own model.
+    model_provider_id: str | None = Field(default=None, max_length=64)
 
 
 class Settings(BaseModel):

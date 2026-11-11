@@ -41,7 +41,6 @@ logger = get_logger(__name__)
 # 状态取值
 STATUS_QUEUED = "processing"
 STATUS_RUNNING = "indexing"
-STATUS_DONE = "completed"
 STATUS_FAILED = "failed"
 
 # 心跳停摆多久算僵尸。索引单篇可以跑很久（逐块 LLM 抽词/造问都是网络等待），

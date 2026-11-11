@@ -73,7 +73,7 @@ On every chat, `core/chat/context.py::resolve_enabled_capabilities()` writes the
 `api/routes/v1/catalog.py`:
 
 - `GET /v1/catalog`: returns the **user's view** — base + user overrides + the user's private items — consumed by `src/frontend/src/api.ts::getCatalog()`.
-- `PATCH /v1/catalog/{kind}/{id}`: writes a user override (kind ∈ `skill / agent / mcp / kb`; kb toggles are runtime-only and not persisted). Skill/tool changes cascade-invalidate the system-prompt cache.
+- `PATCH /v1/catalog/{kind}/{id}`: writes a user override (kind ∈ `skills / agents / mcp / knowledge_bases`; knowledge-base toggles are runtime-only and not persisted). `kind` matches only these spellings: `/v1/catalog/kb/**` belongs to the knowledge-base router (rename, documents, chunks…) and never reaches this route. Skill/tool changes cascade-invalidate the system-prompt cache.
 
 **KB items are injected at runtime** and never persisted in catalog.json:
 

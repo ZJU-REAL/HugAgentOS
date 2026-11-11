@@ -43,7 +43,6 @@ router = APIRouter(prefix="/v1/artifacts", tags=["artifacts"])
 # scan body runs at most once per user per process; concurrent polls skip it (the
 # listing still works off whatever is already committed).
 _BACKFILL_MARKER = "artifacts_backfilled_at"
-_BACKFILL_BATCH = 500
 _backfilled_users: set = set()
 _backfilling_users: set = set()
 _backfill_lock = threading.Lock()

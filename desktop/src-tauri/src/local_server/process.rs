@@ -51,19 +51,41 @@ pub(super) fn exited_unreaped(child: &Child) -> std::io::Result<bool> {
     Ok(unsafe { info.si_pid() } != 0)
 }
 
+/// Signal the group led by our own (possibly exited, still unreaped) child.
+///
+/// macOS answers `EPERM` rather than `ESRCH` when the only member left is that
+/// zombie leader: there is nothing alive to signal. While any member is alive
+/// the call succeeds, so `EPERM` after the leader exited means the group is gone.
+/// Treating it as an error used to abort every stop of a backend that had
+/// already died (e.g. on a failed migration), which hid the backend's own
+/// error and skipped the installer's rollback.
+#[cfg(unix)]
+fn signal_owned_group(child: &Child, signal: i32) -> Result<(), String> {
+    let result = unsafe { libc::kill(-(child.id() as i32), signal) };
+    if result == 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    match error.raw_os_error() {
+        Some(libc::ESRCH) => Ok(()),
+        Some(libc::EPERM) if exited_unreaped(child).unwrap_or(false) => Ok(()),
+        _ => Err(format!("发送进程组信号失败：{error}")),
+    }
+}
+
 #[cfg(unix)]
 pub(super) fn stop_live_process_group(child: &mut Child) -> Result<(), String> {
-    signal_process_group(child.id(), libc::SIGTERM)?;
+    signal_owned_group(child, libc::SIGTERM)?;
     for _ in 0..30 {
         if exited_unreaped(child).map_err(|error| format!("等待本机服务退出失败：{error}"))?
         {
             // The leader exiting does not imply its children exited. Sidecars
             // may ignore TERM and retain the group after Python exits. Keep its zombie reserved until group cleanup.
-            return signal_process_group(child.id(), libc::SIGKILL);
+            return signal_owned_group(child, libc::SIGKILL);
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    signal_process_group(child.id(), libc::SIGKILL)
+    signal_owned_group(child, libc::SIGKILL)
 }
 
 #[cfg(target_os = "windows")]

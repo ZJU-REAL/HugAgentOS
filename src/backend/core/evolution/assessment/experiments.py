@@ -297,7 +297,6 @@ def expected_attribution(perturbation: str) -> str:
 SPLIT_TRAIN = "train_replay"
 SPLIT_HOLDOUT = "holdout"
 SPLIT_GOLD = "gold"
-ALL_SPLITS = (SPLIT_TRAIN, SPLIT_HOLDOUT, SPLIT_GOLD)
 
 
 @dataclass

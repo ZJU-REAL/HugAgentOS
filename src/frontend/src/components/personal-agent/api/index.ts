@@ -2,7 +2,13 @@ import { apiRequest, unwrapData } from '../../../api';
 import { ApiResponseError } from '../../../utils/apiError';
 import { t } from '../../../i18n';
 import type { ArtifactRef } from '../../chat/DeliveredFiles';
-export interface PersonalTask { id: string; chat_id?: string; goal: string; title?: string; progress?: string | null; status: string; run_id?: string | null; waiting_reason?: string; result?: string; uncertain_actions?: string[]; pending_approval?: { id: string; action: Record<string, unknown> }; question?: string | null; outcome?: string | null; updated_at?: string }
+/**
+ * What the approval card shows before the owner decides. target: "cloud", "device:<id>" or null; place: the same in words;
+ * chat_title: the chat a session action changes; lines: every field of the action as "label：value"; body: all of the text that would go out.
+ */
+export interface ApprovalDetail { target?: string | null; place?: string | null; chat_title?: string | null; lines?: string[]; body?: string }
+/** proactive: a proactive run started the task; its actions are approved one by one, never for the whole task. */
+export interface PersonalTask { id: string; chat_id?: string; goal: string; title?: string; progress?: string | null; status: string; run_id?: string | null; waiting_reason?: string; result?: string; uncertain_actions?: string[]; proactive?: boolean; pending_approval?: { id: string; action: Record<string, unknown>; at?: number | string | null; detail?: ApprovalDetail | null }; question?: string | null; outcome?: string | null; updated_at?: string }
 export interface PersonalMessage { id: string; seq: number; role: 'user' | 'assistant'; content: string; origin?: string; channel_type?: ChannelType; work_item_id?: string; work_item_ids: string[]; task_links: { work_item_id: string; relation: string }[]; attachments?: { id: string; name: string; url: string }[]; artifacts?: ArtifactRef[]; reply_to?: string | null; streaming?: boolean; activity?: string | null; heartbeat?: boolean }
 export interface PersonalAgent { id: string; chat_id: string; status: string; computer_status: string; generation: number; config: { capability_selection?: { skill_ids: string[]; mcp_ids: string[]; plugin_ids: string[] }; concurrency: number; email_enabled: boolean; skill_ids: string[]; mcp_ids: string[]; plugins?: { id: string; name: string; skill_ids: string[]; mcp_ids: string[] }[]; model_provider_id?: string | null; thinking_effort?: 'fast' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'; timezone?: string; name?: string; avatar?: string; channel_ids?: string[]; approval_mode?: ApprovalMode } }
 export interface PersonalCapabilityOptions {
@@ -28,12 +34,21 @@ export type PersonalSchedulePatch = Partial<Pick<PersonalSchedule, "title" | "in
 export type MessageIntent = "auto" | "new" | "update" | "status" | "pause" | "resume" | "cancel";
 /** A message the agent is still answering, or a finished task it is still reporting. */
 export interface PersonalTurn { message_id: string; status: string; work_item_ids: string[]; heartbeat?: boolean }
-/** Outcome of the last heartbeat check. "skipped" comes with a reason and made no model call. */
-export type HeartbeatOutcome = 'quiet' | 'alert' | 'delegated' | 'duplicate' | 'failed' | 'stale' | 'skipped';
+/** Outcome of the last proactive run. "skipped" comes with a reason and made no model call. */
+export type HeartbeatOutcome = 'quiet' | 'alert' | 'delegated' | 'duplicate' | 'failed' | 'stale' | 'skipped' | 'reported' | 'nothing' | 'task_failed';
+/** A checklist topic that cannot be served now: no mailbox connected, or no direct chat to send to. */
+export type HeartbeatUnavailable = 'email' | 'channel';
+/**
+ * Proactive service settings and state. It has no switch: it runs for every Personal Agent.
+ * active_hours.start is the morning run and .end the evening run.
+ * channel_id: empty sends to the bot of the latest direct chat, "none" keeps results on the web, else a bot id.
+ */
 export interface PersonalHeartbeat {
-  enabled: boolean; every_minutes: number; active_hours: { start: string; end: string }; channel_id?: string | null;
+  active_hours: { start: string; end: string }; channel_id?: string | null;
   next_run?: string | null; last?: { at?: string | null; outcome: HeartbeatOutcome; reason?: string | null } | null;
-  stats: Partial<Record<HeartbeatOutcome, number>>; min_minutes: number; daily_max: number;
+  stats?: Record<string, number>; /** backoff: 0 every run, 1 no idle runs, 2 the morning run only (the owner left the last summaries unanswered). */
+  proactive?: { backoff?: number; ignored?: number; reported_at?: number | null } | null;
+  unavailable?: HeartbeatUnavailable[];
 }
 export interface PersonalDevice { id: string; name: string; platform: string; online: boolean; control_enabled: boolean; sessions_enabled: boolean }
 /** This computer's own link, served by the desktop execution plane. */
@@ -47,11 +62,34 @@ export type DeviceConsent = Partial<Pick<DeviceLink, 'control_enabled' | 'sessio
 export interface PersonalOutput { id: string; name: string; mime_type: string; size_bytes: number; task_id?: string; url: string; created_at: string }
 export interface OutputPage { total: number; images: number; documents: number; other: number; has_more: boolean; items: PersonalOutput[] }
 export interface PersonalDreamingStatus {
-  enabled: boolean; hour: number; timezone: string; next_run: number; run_id?: string | null;
+  hour: number; timezone: string; next_run: number; run_id?: string | null;
   status?: 'pending' | 'running' | 'retry' | 'failed' | 'done' | null;
   started_at?: number | null; completed_at?: number | null; attempts?: number | null;
   next_retry?: number | null; error?: string | null; outcomes?: string[] | null;
 }
+/** One topic page of the memory wiki, as /memory/pages describes it. */
+export type MemoryPageType = 'person' | 'org' | 'project' | 'topic' | 'procedure';
+export interface MemoryPage {
+  path: string; rel: string; name: string; type: MemoryPageType | string; description: string; aliases: string[];
+  status: 'active' | 'archived' | string; updated: string | null; size: number; sources: number;
+  pending: boolean; moved_to: string | null; links: string[];
+}
+export interface MemoryPages {
+  available: boolean; pages?: MemoryPage[]; index_head?: string; where_to_start?: string;
+  index_path?: string; schema_path?: string; report_path?: string; types?: { key: string; label: string }[]; busy?: boolean;
+}
+/** Who wrote a memory change: the agent's turn, Dreaming's two passes, the owner, or the platform. */
+export type MemoryWriter = 'online' | 'analyzer' | 'organizer' | 'user' | 'system';
+export interface MemoryVersion {
+  id: string; path: string; file: string; writer: MemoryWriter | string; source_id: string | null; run_id: string | null;
+  created: boolean; deleted: boolean; bytes_changed: number; reverted_by: string | null; created_at: string | null;
+  revertable: boolean; before?: string | null; after?: string | null;
+}
+export interface MemoryVersionPage { items: MemoryVersion[]; page: number; page_size: number; has_more: boolean; available?: boolean }
+export interface MemoryVersionQuery { path?: string; source_id?: string; writer?: string; page?: number; page_size?: number }
+export interface MemorySnapshot { id: string; at: number | null; note: string; files: number }
+export interface MemoryLintFinding { level: 'block' | 'warn' | string; rule: string; path: string; detail: string }
+export interface MemoryLint { available: boolean; findings?: MemoryLintFinding[]; blocking?: number; warnings?: number }
 /** A message the agent failed to answer, or a reply that did not reach its IM conversation. */
 export interface AttentionTurn { message_id: string; chat_id: string; preview: string; kind: string; at: string }
 export interface AttentionDelivery { message_id: string; chat_id: string; preview: string; channel_type?: ChannelType; at: string }
@@ -71,8 +109,14 @@ const SERVER_MESSAGES: Record<string, string> = {
   'Cloud computer is currently in use': '另一个窗口或任务正在使用这台电脑，请稍后再试。',
   'Cloud computer is not ready': '云电脑还在准备中。',
   'Control session expired': '接管已超时，请重新接管。',
-  'HEARTBEAT.md has no items to check': '心跳清单为空。请先在清单里写下要检查的事项。',
-  'Wait a minute before the next heartbeat': '请稍等一分钟再运行。',
+  'HEARTBEAT.md has no items to check': '主动服务清单为空。请先在清单里写下要留意的事。',
+  'Wait a minute before the next proactive check': '请稍等一分钟再运行。',
+  'The previous proactive check has not ended': '上一次主动服务还没结束，请稍后再试。',
+  'The daily limit of proactive checks is reached': '今天的主动服务次数已达上限，请明天再试。',
+  'Personal Agent is not enabled for this account': '此账号没有开通 Personal Agent，请联系管理员。',
+  'The morning and evening times must differ': '早上和晚上的时间不能相同，请换一个时间。',
+  'Give a morning and an evening time': '请同时选择早上和晚上的时间。',
+  'The bot is not connected to Personal Agent': '这个机器人还没有接入 Personal Agent，请先在频道里接入。',
   'The agent is answering a message; try again in a moment': '正在回复消息，请稍后再试。',
   'Personal Agent is paused': '智能体已暂停。',
   'Only a message that failed can be processed again': '这条消息已经在处理或已处理完成。',
@@ -141,7 +185,19 @@ export const personalApi = {
   runDreaming: () => personalRequest<PersonalDreamingStatus>(base + '/dreaming/run', { method: 'POST' }),
   runHeartbeat: () => personalRequest<{ started: boolean; message_id: string }>(base + '/heartbeat/run', { method: 'POST' }),
   settings: (body: object) => personalRequest<PersonalAgent>(base + '/settings', { method: 'PATCH', body: JSON.stringify(body) }),
+  memoryPages: (signal?: AbortSignal) => personalRequest<MemoryPages>(base + '/memory/pages', { signal }),
+  memoryVersions: (query: MemoryVersionQuery = {}, signal?: AbortSignal) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== '') params.set(key, String(value));
+    const text = params.toString();
+    return personalRequest<MemoryVersionPage>(base + '/memory/versions' + (text ? '?' + text : ''), { signal });
+  },
+  memoryVersion: (id: string, signal?: AbortSignal) => personalRequest<MemoryVersion>(base + '/memory/versions/' + encodeURIComponent(id), { signal }),
+  revertMemoryVersion: (id: string) => personalRequest<{ reverted: string; file: string }>(base + '/memory/versions/' + encodeURIComponent(id) + '/revert', { method: 'POST' }),
+  memorySnapshots: (signal?: AbortSignal) => personalRequest<{ available: boolean; items?: MemorySnapshot[] }>(base + '/memory/snapshots', { signal }),
+  restoreMemorySnapshot: (id: string) => personalRequest<{ restored: string; changed: string[] }>(base + '/memory/snapshots/' + encodeURIComponent(id) + '/restore', { method: 'POST' }),
+  memoryLint: (signal?: AbortSignal) => personalRequest<MemoryLint>(base + '/memory/lint', { signal }),
   workspaceTree: () => personalRequest<WorkspaceTree>(base + '/workspace/tree'),
-  workspaceFile: (path: string) => personalRequest<WorkspaceFile>(base + '/workspace/file?path=' + encodeURIComponent(path)),
+  workspaceFile: (path: string, signal?: AbortSignal) => personalRequest<WorkspaceFile>(base + '/workspace/file?path=' + encodeURIComponent(path), { signal }),
   saveWorkspaceFile: (path: string, content: string, etag?: string) => personalRequest<WorkspaceFile>(base + '/workspace/file', { method: 'PUT', body: JSON.stringify({ path, content, etag }) }),
 };

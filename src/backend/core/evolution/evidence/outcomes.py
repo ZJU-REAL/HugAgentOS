@@ -30,8 +30,6 @@ SIG_REVIEWER = "reviewer_verdict"
 SIG_ARTIFACT = "artifact_openable"
 SIG_TOOL_ERRORS = "tool_errors"
 SIG_ONTOLOGY = "ontology_risk"
-SIG_COST = "cost"
-SIG_LATENCY = "latency"
 SIG_USER_REPORT = "user_report"
 
 # How much each signal may move the quality score. Forgeable signals are

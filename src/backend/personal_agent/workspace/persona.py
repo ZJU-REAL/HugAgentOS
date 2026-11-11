@@ -50,7 +50,7 @@ def seed(ident, name=None):
             try: os.stat(rel, dir_fd=fd, follow_symlinks=False)
             except FileNotFoundError: return False
             return True
-        fresh = not any(exists(rel) for rel in ("AGENTS.md", "SOUL.md", "IDENTITY.md", "USER.md", "memory"))
+        fresh = not any(exists(rel) for rel in ("AGENTS.md", "SOUL.md", "IDENTITY.md", "USER.md", "memory", "journal"))
         wrote = False
         for rel, part_id in TEMPLATE_PARTS.items():
             if rel == "BOOTSTRAP.md" and not fresh: continue
@@ -60,18 +60,31 @@ def seed(ident, name=None):
             with os.fdopen(out, "wb") as handle: handle.write(body.encode("utf-8"))
             _own(rel, fd)
             wrote = True
-        return wrote
     finally:
         os.close(fd)
+    _seed_memory(ident)
+    return wrote
+
+def _seed_memory(ident, config=None):
+    """The wiki's own files (memory/_schema.md, memory/_index.md) and the old-layout migration.
+    Runs for every workspace, new or old; a concurrent write holding the lock defers it to the next turn."""
+    from personal_agent.memory import seed as memory_seed
+    try: memory_seed.seed(ident, config)
+    except BlockingIOError: pass
 
 def ensure_seeded(ident):
-    """Seed once; the flag keeps a deliberately deleted file from coming back."""
+    """Seed the persona files once (the flag keeps a deliberately deleted file from coming back);
+    the wiki's own files are checked every time."""
     from core.db.engine import SessionLocal
     from personal_agent.models import PersonalAgent
     with SessionLocal() as db:
         row = db.get(PersonalAgent, ident)
-        if row is None or (row.config or {}).get("workspace_seeded"): return False
-        name = (row.config or {}).get("name")
+        if row is None: return False
+        config = dict(row.config or {})
+        seeded, name = config.get("workspace_seeded"), config.get("name")
+    if seeded:
+        _seed_memory(ident, config)
+        return False
     seed(ident, name)
     # What the profile files looked like when seeded: a change to one of them ends the first run.
     hashes = {rel: etag(data) for rel in PROFILE_FILES if (data := _raw(ident, rel)) is not None}

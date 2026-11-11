@@ -3,18 +3,25 @@
 from typing import Any, Dict, List, Optional
 
 from croniter import croniter
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from core.auth.backend import get_current_user, UserContext
 from core.db.engine import get_db
+from core.infra.exceptions import AccessDeniedError, AppException, BadRequestError
 from core.infra.responses import success_response, created_response
 from features.automation import notifications as notifications
 from features.automation.service import AutomationService, SUMMARY_LIMIT_LIST
 from core.infra.logging import get_logger, quiet_access_log
 
 logger = get_logger(__name__)
+
+
+
+def _not_found(message: str) -> AppException:
+    """404 in the response envelope with a message the UI can show as is."""
+    return AppException(code=40001, message=message, status_code=404, data={"resource_type": "automation"})
 
 router = APIRouter(prefix="/v1/automations", tags=["Automations"])
 
@@ -75,26 +82,26 @@ def create_automation(
     """创建一个定时自动化任务。支持 prompt / plan 两种任务类型，需提供合法的 cron 表达式；plan 类型还需校验 plan_id 归属。"""
     # Validate cron expression
     if not croniter.is_valid(req.cron_expression):
-        raise HTTPException(status_code=400, detail="无效的 cron 表达式")
+        raise BadRequestError("无效的 cron 表达式")
 
     # Validate task content
     if req.task_type == "prompt" and not req.prompt:
-        raise HTTPException(status_code=400, detail="提示词类型任务必须提供 prompt")
+        raise BadRequestError("提示词类型任务必须提供 prompt")
     if req.task_type == "plan":
         if not req.plan_id:
-            raise HTTPException(status_code=400, detail="计划类型任务必须提供 plan_id")
+            raise BadRequestError("计划类型任务必须提供 plan_id")
         from core.chat.plans import PlanService
         plan_svc = PlanService(db)
         plan = plan_svc.get_plan(req.plan_id, user.user_id)
         if not plan:
-            raise HTTPException(status_code=404, detail="计划不存在或无权访问")
+            raise _not_found("计划不存在或无权访问")
 
     if req.task_type == "loop":
         if not req.loop_id:
-            raise HTTPException(status_code=400, detail="循环类型任务必须提供 loop_id")
+            raise BadRequestError("循环类型任务必须提供 loop_id")
         from features.automation.loops import LoopService
         if not LoopService(db).get_loop(req.loop_id, user_id=user.user_id):
-            raise HTTPException(status_code=404, detail="循环不存在或无权访问")
+            raise _not_found("循环不存在或无权访问")
 
     schedule_type = req.schedule_type or "recurring"
 
@@ -106,7 +113,7 @@ def create_automation(
         from integrations.channels.repository import ChannelConnectionRepository
         conn = ChannelConnectionRepository(db).get_by_id(req.channel_id)
         if conn is None or conn.owner_user_id != str(user.user_id):
-            raise HTTPException(status_code=403, detail="无权投递到该渠道机器人")
+            raise AccessDeniedError("无权投递到该渠道机器人")
         task_metadata = {**(task_metadata or {}),
                          "delivery_targets": [{"type": "inapp"}, {"type": "channel",
                          "channel_id": req.channel_id, "conversation_id": req.conversation_id}]}
@@ -118,7 +125,7 @@ def create_automation(
         execution_metadata(db, user.user_id, location=req.execution_location,
                            project_id=req.project_id, prompt=req.prompt)
     except (ValueError, pytz.UnknownTimeZoneError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from None
+        raise BadRequestError(str(exc)) from None
     svc = AutomationService(db)
     task = svc.create_task(
         user_id=user.user_id,
@@ -173,7 +180,7 @@ def get_automation(
     svc = AutomationService(db)
     task = svc.get_task(task_id, user.user_id)
     if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise _not_found("任务不存在")
     return success_response(data=AutomationService.task_to_dict(task))
 
 
@@ -186,7 +193,7 @@ def update_automation(
 ):
     """更新自动化任务的名称、描述、cron 表达式、任务内容等字段；若改 cron 会校验合法性，无更新字段返回 400。"""
     if req.cron_expression and not croniter.is_valid(req.cron_expression):
-        raise HTTPException(status_code=400, detail="无效的 cron 表达式")
+        raise BadRequestError("无效的 cron 表达式")
 
     updates = req.model_dump(exclude_none=True)
     # The delivery target lives in extra_data (not a task column), handled separately: covers "rebind channel" and "switch back to in-site".
@@ -194,13 +201,13 @@ def update_automation(
     updates.pop("channel_id", None)
     updates.pop("conversation_id", None)
     if not updates and not deliver_touched:
-        raise HTTPException(status_code=400, detail="无更新字段")
+        raise BadRequestError("无更新字段")
 
     svc = AutomationService(db)
     if deliver_touched:
         task0 = svc.get_task(task_id, user.user_id)
         if not task0:
-            raise HTTPException(status_code=404, detail="任务不存在")
+            raise _not_found("任务不存在")
         new_ed = dict(task0.extra_data or {})
         # Replace channel targets while retaining the other delivery destinations.
         if isinstance(new_ed.get("delivery_targets"), list):
@@ -215,7 +222,7 @@ def update_automation(
             from integrations.channels.repository import ChannelConnectionRepository
             conn = ChannelConnectionRepository(db).get_by_id(req.channel_id)
             if conn is None or conn.owner_user_id != str(user.user_id):
-                raise HTTPException(status_code=403, detail="无权投递到该渠道机器人")
+                raise AccessDeniedError("无权投递到该渠道机器人")
             new_ed.setdefault("delivery_targets", [{"type": "inapp"}]).append({
                 "type": "channel", "channel_id": req.channel_id,
                 "conversation_id": req.conversation_id,
@@ -225,9 +232,9 @@ def update_automation(
     try:
         task = svc.update_task(task_id, user.user_id, **updates)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from None
+        raise BadRequestError(str(exc)) from None
     if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise _not_found("任务不存在")
     return success_response(data=AutomationService.task_to_dict(task))
 
 
@@ -241,7 +248,7 @@ def delete_automation(
     svc = AutomationService(db)
     deleted = svc.delete_task(task_id, user.user_id)
     if not deleted:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise _not_found("任务不存在")
     return success_response(message="已删除")
 
 
@@ -255,7 +262,7 @@ def pause_automation(
     svc = AutomationService(db)
     task = svc.pause_task(task_id, user.user_id)
     if not task:
-        raise HTTPException(status_code=400, detail="任务不存在或不可暂停")
+        raise BadRequestError("任务不存在或不可暂停")
     return success_response(data=AutomationService.task_to_dict(task))
 
 
@@ -269,7 +276,7 @@ def resume_automation(
     svc = AutomationService(db)
     task = svc.resume_task(task_id, user.user_id)
     if not task:
-        raise HTTPException(status_code=400, detail="任务不存在或不可恢复")
+        raise BadRequestError("任务不存在或不可恢复")
     return success_response(data=AutomationService.task_to_dict(task))
 
 
@@ -286,9 +293,9 @@ def trigger_automation(
     svc = AutomationService(db)
     task = svc.get_task(task_id, user.user_id)
     if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise _not_found("任务不存在")
     if task.status not in ("active", "paused"):
-        raise HTTPException(status_code=400, detail=f"任务状态为 '{task.status}'，无法手动触发")
+        raise BadRequestError(f"任务状态为 '{task.status}'，无法手动触发")
 
     svc.request_manual_trigger(task)
     return success_response(message="已触发执行")
@@ -304,7 +311,7 @@ def activate_sidebar(
     svc = AutomationService(db)
     task = svc.activate_sidebar(task_id, user.user_id)
     if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        raise _not_found("任务不存在")
     return success_response(data=AutomationService.task_to_dict(task))
 
 

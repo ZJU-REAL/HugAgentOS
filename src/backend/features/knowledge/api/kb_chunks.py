@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 router = APIRouter()
 from typing import Optional
-from features.knowledge.edition import UpdateChunkRequest
+from features.knowledge.request_models import UpdateChunkRequest
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
 from core.infra.exceptions import AccessDeniedError, BadRequestError, ResourceNotFoundError

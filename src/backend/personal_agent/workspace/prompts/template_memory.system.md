@@ -1,5 +1,5 @@
-# MEMORY.md - 长期记忆
+# MEMORY.md - 置顶记忆
 
-精选的长期事实、决定和经验教训。详细日志写在 `memory/YYYY-MM-DD.md`。
+记忆的主体是 `memory/` 里的主题页，目录见 `memory/_index.md`。
 
-（暂无内容）
+## 置顶

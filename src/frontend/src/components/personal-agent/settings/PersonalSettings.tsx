@@ -95,11 +95,11 @@ export function PersonalSettings({ open, monitor, name, onClose, onProfile, onCh
             onChange={value => void save({ timezone: value })} />} />
       </SettingGroup>
 
-      {monitor?.heartbeat && <SettingGroup title={t('心跳')}>
+      {monitor?.heartbeat && <SettingGroup title={t('主动服务')}>
         <PersonalHeartbeat heartbeat={monitor.heartbeat} name={name} save={save} onChange={onChange} />
       </SettingGroup>}
 
-      <PersonalMemory onClose={onClose} status={monitor?.file_memory} />
+      <PersonalMemory status={monitor?.file_memory} />
     </div>}
   </Modal>;
 }

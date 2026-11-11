@@ -1,5 +1,5 @@
 import {
-ArrowLeftOutlined,CloseOutlined,DeleteOutlined,EditOutlined,EyeOutlined,
+ArrowLeftOutlined,CloseOutlined,DeleteOutlined,EditOutlined,
 InboxOutlined,LoadingOutlined,PlusOutlined,
 ReloadOutlined,
 SafetyCertificateOutlined,
@@ -10,7 +10,7 @@ Button,
 Collapse,
 Empty,Input,
 InputNumber,message,
-Modal,Pagination,Popconfirm,Radio,Select,Switch,Tag,Typography,
+Modal,Pagination,Popconfirm,Radio,Select,Switch,Tag,Tooltip,Typography,
 Upload,
 } from 'antd';
 import { AnimatePresence,motion } from 'motion/react';
@@ -57,6 +57,8 @@ import { parseSeparators } from '../../utils/separators';
 import { KBChunkImages,WikiPanel } from '../kb';
 import IndexModePicker from '../kb/IndexModePicker';
 import { ContinuousLoadSentinel } from '../common';
+import { kbOriginalKindOf } from './kbOriginal';
+import { KbOriginalDownloadButton, KbOriginalPreview } from './KbOriginalPreview';
 
 type KBTabKey = 'public' | 'private';
 
@@ -129,7 +131,8 @@ function mapDocument(raw: KBDocumentItem): KBDocument {
   const createdAt = parseDocumentTimestamp(createdAtRaw);
   const wordCount = typeof raw?.word_count === 'number'
     ? raw.word_count
-    : Number.isFinite(Number(raw?.word_count))
+    // null（尚未分块）不能被 Number() 变成 0 字
+    : raw?.word_count != null && Number.isFinite(Number(raw.word_count))
       ? Number(raw.word_count)
       : undefined;
   const sizeBytes = typeof raw?.size_bytes === 'number'
@@ -148,9 +151,12 @@ function mapDocument(raw: KBDocumentItem): KBDocument {
     desc: raw?.desc ?? raw?.filename ?? undefined,
     content: typeof raw?.content === 'string' ? raw.content : undefined,
     indexing_status: raw?.indexing_status ?? undefined,
+    indexing_error: typeof raw?.indexing_error === 'string' ? raw.indexing_error : undefined,
     word_count: wordCount,
     size_bytes: sizeBytes,
     created_at: createdAt && !Number.isNaN(createdAt) ? createdAt : undefined,
+    filename: raw?.filename || undefined,
+    original_available: raw?.original_available === true,
   };
 }
 
@@ -220,17 +226,9 @@ function formatKbSummaryDesc(description?: string) {
   return summary.trim();
 }
 
-/** Filter out technical/internal tags that shouldn't be shown to users. */
-function filterDisplayTags(tags?: string[]): string[] {
-  if (!Array.isArray(tags)) return [];
-  return tags.filter((tag) => {
-    if (!tag || typeof tag !== 'string') return false;
-    // Hide provider-internal paths such as "vendor/protocol/...".
-    if (tag.includes('/')) return false;
-    // Hide technical quality flags
-    if (tag === 'high_quality' || tag === 'economy') return false;
-    return true;
-  });
+/** 展示用标签：只有管理员填写的自定义标签；检索能力 / 嵌入模型等技术信息后端不再放进 tags。 */
+function filterDisplayTags(item: Pick<KBItem, 'tags'>): string[] {
+  return Array.isArray(item.tags) ? item.tags.filter((tag) => typeof tag === 'string' && tag) : [];
 }
 
 export function CatalogPanel() {
@@ -285,6 +283,8 @@ export function CatalogPanel() {
   const [detailDescOverflow, setDetailDescOverflow] = useState(false);
   // LLM Wiki：仅当知识库后端提供这层产物、且当前库确实生成过 Wiki 时才出现入口
   const [wikiBackendReady, setWikiBackendReady] = useState(false);
+  // 内容预览：外接知识库有原文件时默认看原文（PDF / Word 原版式），可切回解析文本
+  const [docContentView, setDocContentView] = useState<'original' | 'parsed'>('original');
   const [wikiPageCount, setWikiPageCount] = useState(0);
   const [wikiGenerating, setWikiGenerating] = useState(false);
   // Wiki 现状是否已问到后端。没问到之前一律按「未知」处理——初值 0 页 / 未生成只是
@@ -768,8 +768,17 @@ export function CatalogPanel() {
     }
   };
 
+  // 只读知识库（公共 / 外接）既不能重新索引也不能删除，不再留一整列空的「操作」
+  const docHasActions = !!(selectedItem?.editable || selectedItem?.deletable);
+
+  // 外接知识库（WeKnora）的上传类文档可取回原文件：能按原版式预览的默认看原文，其余只给「下载原文」
+  const hasOriginal = !!(activeKbDoc?.original_available && selectedId);
+  const originalKind = hasOriginal ? kbOriginalKindOf(activeKbDoc?.filename || activeKbDoc?.title || '') : null;
+  const showOriginal = docDetailTab === 'content' && !!originalKind && docContentView === 'original';
+
   const openKbDocumentDetail = async (doc: KBDocument) => {
     setActiveKbDoc(doc);
+    setDocContentView('original');
     if (!selectedId || doc.content) return;
     if (kbDocDetailLoadingId === doc.id) return;
 
@@ -1001,7 +1010,7 @@ export function CatalogPanel() {
                         >
                           {item.enabled ? t('已启用') : t('未启用')}
                         </Tag>
-                        {filterDisplayTags(item.tags).map((tag) => (
+                        {filterDisplayTags(item).map((tag) => (
                           <span
                             key={`${item.id}-${tag}`}
                             className={`jx-kbPill${tag === '系统托管' ? ' jx-kbPill-orange' : ''}`}
@@ -1047,7 +1056,7 @@ export function CatalogPanel() {
                     >
                       {selectedItem.enabled ? t('已启用') : t('未启用')}
                     </Tag>
-                    {filterDisplayTags(selectedItem.tags).map((tag) => (
+                    {filterDisplayTags(selectedItem).map((tag) => (
                       <span
                         key={`${selectedItem.id}-${tag}`}
                         className={`jx-kbPill${tag === '系统托管' ? ' jx-kbPill-orange' : ''}`}
@@ -1224,13 +1233,13 @@ export function CatalogPanel() {
                 </div>
               </div>
 
-              <div className="jx-kbDocTable">
+              <div className={`jx-kbDocTable${docHasActions ? '' : ' jx-kbDocTable-noActions'}`}>
                 <div className="jx-kbDocTableHead">
                   <div>{t('文件名')}</div>
                   <div>{t('字符数')}</div>
                   <div>{t('上传时间')}</div>
                   <div>{t('状态')}</div>
-                  <div>{t('操作')}</div>
+                  {docHasActions && <div>{t('操作')}</div>}
                 </div>
 
                 {kbDocsLoadingId === selectedItem.id ? (
@@ -1247,9 +1256,11 @@ export function CatalogPanel() {
                         <div className="jx-skeletonBlock jx-kbSkDocMeta" />
                         <div className="jx-skeletonBlock jx-kbSkDocMeta" />
                         <div className="jx-skeletonBlock jx-kbSkDocStatus" />
-                        <div className="jx-kbDocActions">
-                          <div className="jx-skeletonBlock jx-kbSkDocAction" />
-                        </div>
+                        {docHasActions && (
+                          <div className="jx-kbDocActions">
+                            <div className="jx-skeletonBlock jx-kbSkDocAction" />
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1274,7 +1285,15 @@ export function CatalogPanel() {
                       <div className="jx-kbDocNameCell">
                         {getDocumentBadge(doc.title || doc.id)}
                         <div className="jx-kbDocNameMain">
-                          <div className="jx-kbDocName">{doc.title || doc.id}</div>
+                          {/* 点文件名即打开预览卡片（原文 / 解析文本 / 分块） */}
+                          <button
+                            type="button"
+                            className="jx-kbDocName jx-kbDocNameLink"
+                            onClick={() => void openKbDocumentDetail(doc)}
+                            title={t('预览文档')}
+                          >
+                            {doc.title || doc.id}
+                          </button>
                         </div>
                       </div>
                       <div className="jx-kbDocCellMuted">{formatDocWordCount(doc)}</div>
@@ -1285,11 +1304,14 @@ export function CatalogPanel() {
                             <LoadingOutlined /> {t('索引中')}
                           </span>
                         ) : isFailedStatus(doc.indexing_status) ? (
-                          <span className="jx-kbStatusPill jx-kbStatusPill-failed">{t('索引失败')}</span>
+                          <Tooltip title={doc.indexing_error}>
+                            <span className="jx-kbStatusPill jx-kbStatusPill-failed">{t('索引失败')}</span>
+                          </Tooltip>
                         ) : (
                           <span className="jx-kbStatusPill jx-kbStatusPill-success">{t('索引完成')}</span>
                         )}
                       </div>
+                      {docHasActions && (
                       <div className="jx-kbDocActions">
                         <span className="jx-kbDocActionSlot">
                           {selectedItem.editable && isFailedStatus(doc.indexing_status) ? (
@@ -1303,15 +1325,6 @@ export function CatalogPanel() {
                           ) : (
                             <span className="jx-kbDocActionPlaceholder" aria-hidden="true" />
                           )}
-                        </span>
-                        <span className="jx-kbDocActionSlot">
-                          <Button
-                            type="text"
-                            icon={<EyeOutlined />}
-                            onClick={() => void openKbDocumentDetail(doc)}
-                            aria-label={t('查看索引分块情况')}
-                            title={t('查看索引分块情况')}
-                          />
                         </span>
                         <span className="jx-kbDocActionSlot">
                           {selectedItem.deletable ? (
@@ -1350,6 +1363,7 @@ export function CatalogPanel() {
                           )}
                         </span>
                       </div>
+                      )}
                     </div>
                   ))}
                   </div>
@@ -1509,7 +1523,41 @@ export function CatalogPanel() {
                 {t('分块列表')}{docChunks.length > 0 ? ` (${docChunks.length})` : ''}
               </button>
             </div>
-            {docDetailTab === 'content' ? (
+            {docDetailTab === 'content' && hasOriginal && selectedId && (
+              <div className="jx-kbOriginalBar">
+                {originalKind ? (
+                  <div className="jx-kbViewSwitch jx-kbViewSwitch--sm" role="tablist">
+                    {(['original', 'parsed'] as const).map((view) => (
+                      <button
+                        key={view}
+                        type="button"
+                        role="tab"
+                        aria-selected={docContentView === view}
+                        className={`jx-kbViewSwitchBtn${docContentView === view ? ' is-active' : ''}`}
+                        onClick={() => setDocContentView(view)}
+                      >{view === 'original' ? t('原文') : t('解析文本')}</button>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="jx-kbOriginalHint">{t('该格式暂不支持原版预览，可下载原文查看')}</span>
+                )}
+                <KbOriginalDownloadButton
+                  kbId={selectedId}
+                  docId={activeKbDoc.id}
+                  filename={activeKbDoc.filename || activeKbDoc.title}
+                />
+              </div>
+            )}
+            {showOriginal && originalKind && selectedId ? (
+              <div className="jx-kbDocModalBody jx-kbDocModalBody-original">
+                <KbOriginalPreview
+                  kbId={selectedId}
+                  docId={activeKbDoc.id}
+                  name={activeKbDoc.filename || activeKbDoc.title}
+                  kind={originalKind}
+                />
+              </div>
+            ) : docDetailTab === 'content' ? (
               <div className="jx-kbDocModalBody">
                 {kbDocDetailLoadingId === activeKbDoc.id ? (
                   <div className="jx-kbDocLoading"><LoadingOutlined /> {t('正在加载文档正文…')}</div>

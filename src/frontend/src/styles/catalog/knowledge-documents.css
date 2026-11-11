@@ -103,7 +103,8 @@
 
 .jx-kbDocTable{
   width:100%;
-  --jx-kb-doc-cols:minmax(0,1.45fr) 88px 112px 88px 104px;
+  --jx-kb-doc-cols:minmax(0,1.45fr) 88px 112px 88px;
+  --jx-kb-doc-actions-col:104px;
 }
 
 .jx-kbDocPagination{
@@ -247,7 +248,7 @@
 .jx-kbDocTableHead,
 .jx-kbDocRow{
   display:grid;
-  grid-template-columns:var(--jx-kb-doc-cols);
+  grid-template-columns:var(--jx-kb-doc-cols) var(--jx-kb-doc-actions-col);
   align-items:center;
   column-gap:18px;
   row-gap:12px;
@@ -313,6 +314,11 @@
   flex:1;
   display:flex;
   flex-direction:column;
+}
+
+/* 只读知识库没有「操作」列 */
+.jx-kbDocTable.jx-kbDocTable-noActions{
+  --jx-kb-doc-actions-col: ;
 }
 
 .jx-kbDocName{
@@ -409,7 +415,7 @@
 
 .jx-kbDocActions{
   display:grid;
-  grid-template-columns:repeat(3, 28px);
+  grid-template-columns:repeat(2, 28px);
   align-items:center;
   gap:6px;
   justify-content:center;
@@ -470,4 +476,61 @@
   border:1px solid color-mix(in srgb, var(--color-primary) 8%, transparent);
   border-radius:10px;
   background:color-mix(in srgb, var(--color-bg-container) 60%, transparent);
+}
+
+/* ── 外接知识库原文预览（PDF / Word 原版式） ── */
+.jx-kbOriginalBar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin:0 0 10px;
+}
+
+.jx-kbOriginalHint{
+  font-size:12px;
+  color:var(--color-text-placeholder);
+}
+
+/* 原文渲染器（pdf.js 等）需要固定高度，沿用正文区 52vh 上限保证「关闭」在视口内 */
+.jx-kbDocModalBody.jx-kbDocModalBody-original{
+  height:52vh;
+  padding:0;
+  overflow:auto;
+}
+
+.jx-kbDocModalBody-original .jx-pdfViewer{
+  height:100%;
+}
+
+.jx-kbViewSwitch--sm .jx-kbViewSwitchBtn{
+  padding:4px 12px;
+  font-size:12px;
+}
+
+.jx-kbOriginalImage{
+  display:block;
+  max-width:100%;
+  margin:0 auto;
+  padding:12px;
+}
+
+/* 文件名即预览入口 */
+.jx-kbDocNameLink{
+  appearance:none;
+  border:none;
+  background:none;
+  padding:0;
+  margin:0;
+  text-align:left;
+  cursor:pointer;
+  font-family:inherit;
+  transition:var(--motion-transition-hover);
+}
+
+.jx-kbDocNameLink:hover,
+.jx-kbDocNameLink:focus-visible{
+  color:var(--color-primary);
+  text-decoration:underline;
+  text-underline-offset:2px;
 }

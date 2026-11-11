@@ -6,13 +6,11 @@ Kept in a separate module to avoid circular imports between the two.
 from __future__ import annotations
 
 import json
-import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 CATALOG_PATH = Path(os.environ.get("CATALOG_PATH", str(Path(__file__).resolve().parents[2] / "config" / "catalog.json")))
-_LOGGER = logging.getLogger(__name__)
 
 
 def _normalize_kind(kind: str) -> str:

@@ -33,7 +33,7 @@ def test_routes_registration():
         '/v1/users/{user_id}/preferences',
         # Catalog
         '/v1/catalog',
-        '/v1/catalog/{kind}/{id}',
+        '/v1/catalog/{kind:catalog_kind}/{id}',
         # Knowledge Base
         '/v1/catalog/kb',
         '/v1/catalog/kb/{kb_id}/documents',

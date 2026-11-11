@@ -22,14 +22,14 @@ def run_heartbeat(svc=Depends(service)):
 
 @router.get("/dreaming")
 def dreaming_status(svc=Depends(service)):
-    from personal_agent.workspace.dreaming import view
+    from personal_agent.memory.dreaming.runs import view
 
     return perform(lambda: view(svc.db, svc.identity.agent()))
 
 
 @router.post("/dreaming/run")
 def run_dreaming(svc=Depends(service)):
-    from personal_agent.workspace.dreaming import run_now
+    from personal_agent.memory.dreaming.runs import run_now
 
     def run():
         svc.identity.ensure()

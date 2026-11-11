@@ -33,6 +33,7 @@ from personal_agent import access
 from personal_agent.computer import computer_wait
 from personal_agent.identity.config import concurrency
 from personal_agent.models import PersonalAgent, PersonalAssignment, PersonalWorkItem
+from personal_agent.scheduling import proactive_guard, proactive_tasks
 from personal_agent.worker import activation, inputs, settle
 
 log = logging.getLogger(__name__)
@@ -98,6 +99,11 @@ def _consume_payload(db, ident, digest):
     row = db.get(PersonalWorkItem, ident)
     state = dict(row.checkpoint or {})
     remaining = dict(state.get("approved_action_payloads", {})); remaining.pop(digest, None)
+    question = state.get("pending_question") or {}
+    if question and state.get("task_wait_reason") == (question.get("text") or "")[:300] and not state.get("pending_approval"):
+        # The question was asked while this action waited for approval. The action has now run, so the task
+        # runs again and says what happened; it asks again if the question still stands.
+        state.pop("task_wait_reason", None); state.pop("pending_question", None)
     state["approved_action_payloads"] = remaining; row.checkpoint = state; db.commit()
     return not (state.get("pending_approval") or state.get("task_wait_reason"))
 
@@ -117,7 +123,7 @@ async def dispatch_approved(ident, uid):
     for digest, action in payloads.items():
         if action["kind"] == "email.send":
             await functions["pa_email_send"](action["to"], action["subject"], action["body"],
-                [item["path"] for item in action.get("attachments", [])])
+                [item["path"] for item in action.get("attachments", [])], action.get("reply_to_uid", ""))
         elif action["kind"] == "hugagent.session":
             from personal_agent.sessions.session_manager import dispatch_approved as dispatch_session
             await dispatch_session(ident, uid, action)
@@ -183,7 +189,9 @@ class Executor:
                 ran = set(db.scalars(select(PersonalAssignment.work_item_id).where(
                     PersonalAssignment.work_item_id.in_([row.id for row in queued]))).all())
                 follow_ups = {row.id for row in queued if row.id in ran and inputs.unread(db, row)}
-                for row in sorted(queued, key=lambda row: row.id not in follow_ups):
+                from personal_agent.scheduling.schedules import is_proactive
+                # Follow-ups first; a proactive task, which nobody waits for, after the user's own tasks.
+                for row in sorted(queued, key=lambda row: (row.id not in follow_ups, is_proactive(row))):
                     if used < limit: slot = "task"
                     elif row.id in follow_ups and not extra: slot = "follow_up"
                     else: continue
@@ -232,6 +240,13 @@ class Executor:
             db.commit()
             return not (reason or parked)
 
+    def _guard(self, task_id):
+        """Before a proactive task runs, keep a copy of the files it must leave as they are (proactive_guard)."""
+        from personal_agent.scheduling.schedules import is_proactive
+        with SessionLocal() as db:
+            task = db.get(PersonalWorkItem, task_id)
+            if is_proactive(task): proactive_guard.take(task.agent_id, task.id)
+
     async def launch(self, asg_id):
         try:
             started = await asyncio.to_thread(self._begin, asg_id)
@@ -239,13 +254,14 @@ class Executor:
             task_id, uid = started
             await dispatch_approved(task_id, uid)
             if not await asyncio.to_thread(self._ready, asg_id): return
+            await asyncio.to_thread(self._guard, task_id)
             await self.activate(asg_id)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             from core.runs.tool_effects.errors import find_tool_outcome_unknown
             log.warning("Personal task launch failed: %s (%s)", asg_id, type(exc).__name__, exc_info=True)
-            await asyncio.to_thread(self._settle, asg_id, settle.failed, str(exc), unknown=find_tool_outcome_unknown(exc) is not None)
+            await asyncio.to_thread(self._settle, asg_id, self._fail, str(exc), unknown=find_tool_outcome_unknown(exc) is not None)
 
     async def activate(self, asg_id, note=None):
         """Admit and start one activation; a run that became live meanwhile gets the input as a steer."""
@@ -277,6 +293,13 @@ class Executor:
             if task.status == "running" and task.run_id != asg.id:
                 # Another Assignment runs the task now and owns whatever runs on its session.
                 return Step("stop", **base)
+            from personal_agent.scheduling.schedules import is_proactive
+            if task.status == "running" and is_proactive(task) and proactive_tasks.revoked(db, agent):
+                # Nobody asked for this task, and the owner may no longer have the agent work: stop it now,
+                # not at the end of its run. An ordinary task finishes the run the user started.
+                proactive_tasks.cancel(db, task, proactive_tasks.REVOKED)
+                db.commit()
+                proactive_tasks.settled(agent.id, "task_failed")
             if task.status != "running" or task.run_id != asg.id:
                 return Step("stop", run_id=live.run_id if live else "",
                             commands=[c for c in commands_of(db, asg.chat_id) if c["status"] in settle.LIVE_COMMANDS], **base)
@@ -341,22 +364,52 @@ class Executor:
             asg = db.scalar(select(PersonalAssignment).where(PersonalAssignment.id == asg_id).with_for_update())
             if asg is None or asg.status != "running" or asg.owner != self.identity: return
             task = db.scalar(select(PersonalWorkItem).where(PersonalWorkItem.id == asg.work_item_id).with_for_update())
+            # A run of the task is over: what its command line changed in the persona and the memory is put back.
+            proactive_guard.close(db, task)
             if task.status != "running" or task.run_id != asg.id:
+                self._tell_guard(db, task)
                 settle.stopped(asg)
             else:
                 action(db, asg, task, *args, **kwargs)
             db.commit()
+            self._release_guard(task)
+
+    def _tell_guard(self, db, task):
+        # The task was stopped or has failed: no summary will say that files were put back.
+        if task.status in ("failed", "cancelled"): proactive_guard.tell(db, task)
+
+    def _release_guard(self, task):
+        from personal_agent.identity.config import TERMINAL
+        if task.status in TERMINAL: proactive_guard.discard(task.agent_id, task.id)
 
     def _finish(self, db, asg, task, fallback):
+        if proactive_tasks.fails_quietly(task, asg, fallback):
+            return proactive_tasks.fail_quietly(db, asg, task)
         uid = db.get(PersonalAgent, task.agent_id).user_id
-        settle.finished(db, asg, task, uid, self.identity, fallback)
+        settle.finished(db, asg, task, uid, self.identity, proactive_guard.noted(task, fallback))
+
+    def _fail(self, db, asg, task, reason, unknown=False):
+        """``settle.failed``; a proactive task that nothing holds for the user fails without a notice."""
+        if not unknown and proactive_tasks.fails_quietly(task, asg):
+            return proactive_tasks.fail_quietly(db, asg, task, reason)
+        settle.failed(db, asg, task, reason, unknown=unknown)
+
+    def _halt(self, db, asg, task, action, *args):
+        """``settle.cancelled`` or ``settle.over_budget``; a proactive task they would pause with a notice fails quietly."""
+        if proactive_tasks.gives_up(task, resumes=action is settle.cancelled):
+            return proactive_tasks.fail_quietly(db, asg, task, proactive_tasks.INTERRUPTED)
+        action(db, asg, task, *args)
 
     def _end(self, asg_id, reason):
         with SessionLocal() as db:
             asg = db.get(PersonalAssignment, asg_id)
             if asg is not None and asg.status == "running" and asg.owner == self.identity:
+                task = db.get(PersonalWorkItem, asg.work_item_id)
+                proactive_guard.close(db, task)
+                self._tell_guard(db, task)
                 settle.end(asg, reason)
                 db.commit()
+                self._release_guard(task)
 
     async def step(self, asg_id):
         try:
@@ -370,7 +423,7 @@ class Executor:
             if self.failures[asg_id] < STEP_FAILURES: raise
             self.failures.pop(asg_id, None)
             log.warning("Personal assignment step keeps failing: %s (%s)", asg_id, type(exc).__name__)
-            await asyncio.to_thread(self._settle, asg_id, settle.failed, f"{type(exc).__name__}: {exc}"[:300])
+            await asyncio.to_thread(self._settle, asg_id, self._fail, f"{type(exc).__name__}: {exc}"[:300])
         else:
             self.failures.pop(asg_id, None)
 
@@ -388,14 +441,14 @@ class Executor:
         elif s.kind == "retry":
             await self.activate(asg_id, activation.RETRY.format(reason=s.reason))
         elif s.kind == "fail":
-            await asyncio.to_thread(self._settle, asg_id, settle.failed, s.reason)
+            await asyncio.to_thread(self._settle, asg_id, self._fail, s.reason)
         elif s.kind == "needs_attention":
-            await asyncio.to_thread(self._settle, asg_id, settle.failed, s.reason, unknown=True)
+            await asyncio.to_thread(self._settle, asg_id, self._fail, s.reason, unknown=True)
         elif s.kind == "cancelled":
-            await asyncio.to_thread(self._settle, asg_id, settle.cancelled)
+            await asyncio.to_thread(self._settle, asg_id, self._halt, settle.cancelled)
         elif s.kind == "budget":
             await self.cancel_commands(s)
-            await asyncio.to_thread(self._settle, asg_id, settle.over_budget, s.commands)
+            await asyncio.to_thread(self._settle, asg_id, self._halt, settle.over_budget, s.commands)
         elif s.kind == "settle":
             fallback = ""
             if not s.final and s.text.strip():

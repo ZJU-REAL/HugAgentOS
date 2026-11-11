@@ -27,7 +27,6 @@ from typing import Any, Dict, Optional, Tuple
 _FACT_HEADER = "## 关于该用户的已知背景信息（来自历史会话记忆）"
 _RELATION_HEADER = "\n## 用户相关实体关系"
 
-LAYER_PROFILE = "profile"
 LAYER_FACT = "fact"
 LAYER_GRAPH = "graph"
 

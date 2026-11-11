@@ -7,7 +7,7 @@ import type { ChatActionsContext } from './chatSupport';
 import { chatDraftKey, useComposerStore } from './composerStore';
 import { isDraftChatId, newDraftChatId } from '../storage';
 import { chatIdFromPath } from '../routing/navigation';
-import { flushChatStore, loadChatStore, mergeChatStores, nowId, purgeLegacyUnscopedKeys, registerDeletedChatId, subscribeChatStoreChanges } from '../storage';
+import { flushChatStore, loadChatStore, mergeChatStores, purgeLegacyUnscopedKeys, registerDeletedChatId, subscribeChatStoreChanges } from '../storage';
 import { applyDefaultChatMode, loadPendingScrollMessageTs, loadQueuedMessages } from './chatSupport';
 
 let unsubscribeExternalChanges: (() => void) | null = null;
@@ -166,7 +166,7 @@ export function createChatLifecycleActions({ set, get, initializeDraftRunTarget,
           homeDraftId: null,
           store: { chats: {}, order: [] },
           storeRef: { chats: {}, order: [] },
-          currentChatId: nowId('chat'),
+          currentChatId: '',
           sending: false,
           sendingChatIds: new Set(),
           remoteRunningChatIds: new Set(),

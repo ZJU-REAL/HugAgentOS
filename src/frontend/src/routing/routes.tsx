@@ -1,6 +1,6 @@
 import { createBrowserRouter,Navigate } from 'react-router';
-import { AutomationChatRoute,ChatRoute,Shell } from './RouteSync';
-import { AUTOMATION_CHAT_PATTERN,CHAT_PATTERN,ROUTED_PANELS } from './navigation';
+import { AutomationChatRoute,ChatRoute,ProjectRoute,Shell } from './RouteSync';
+import { AUTOMATION_CHAT_PATTERN,CHAT_PATTERN,PROJECT_PATTERN,ROUTED_PANELS } from './navigation';
 
 // 面板路由只负责让地址存在（面板由 usePanel 从地址算），所以元素是空的。
 const routes = [
@@ -11,6 +11,8 @@ const routes = [
       { index: true, element: <ChatRoute /> },
       { path: CHAT_PATTERN.slice(1), element: <ChatRoute /> },
       { path: AUTOMATION_CHAT_PATTERN.slice(1), element: <AutomationChatRoute /> },
+      // 项目概览落在聊天界面上，`/projects` 本身是项目列表面板（下面按面板声明）
+      { path: PROJECT_PATTERN.slice(1), element: <ProjectRoute /> },
       // 每个面板都再开一层：`/<面板>/<二级页>`（能力中心类别、我的空间模块、
       // 设置子菜单、定时任务的某个任务…）
       ...ROUTED_PANELS.flatMap(([, slug]) => [

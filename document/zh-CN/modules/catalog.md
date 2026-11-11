@@ -73,7 +73,7 @@ get_enabled_ids("mcp")                 # 某类全部启用 id
 `api/routes/v1/catalog.py`：
 
 - `GET /v1/catalog`：返回四类能力的**用户视角**合并结果（base + 用户覆盖 + 用户私有项），前端 `src/frontend/src/api.ts::getCatalog()` 调用。
-- `PATCH /v1/catalog/{kind}/{id}`：写用户覆盖（kind 取 `skill / agent / mcp / kb`；kb 仅运行时开关不落库）。技能/工具变更会级联失效系统提示词缓存。
+- `PATCH /v1/catalog/{kind}/{id}`：写用户覆盖（kind 取 `skills / agents / mcp / knowledge_bases`；知识库仅运行时开关不落库）。`kind` 只匹配这几个写法：`/v1/catalog/kb/**` 归知识库路由（改名、文档、分块等），不经过这里。技能/工具变更会级联失效系统提示词缓存。
 
 **KB 项为运行时注入**，不持久化在 catalog.json：
 

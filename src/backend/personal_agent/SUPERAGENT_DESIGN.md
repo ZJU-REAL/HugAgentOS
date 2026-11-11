@@ -438,7 +438,7 @@ personal_agent/
 1. **core 改动的影响面**：§17 列出的三处 core 改动都以参数形式加入、默认值不变，但 `SteerQueue` 和 `SteeringHook` 是普通聊天的核心路径，第 0 阶段必须先跑完普通聊天的回归测试再继续。
 2. **`inject` 的实现**：core 里没有"只记录"的投递方式（`next_run` 会唤醒）。本文改为直接写 `context_only` 的 ChatMessage，不新增 steer 模式。
 3. **个人电脑沙箱与 core Bash 的差异**：用户身份、`/workspace` 路径、禁止的桌面凭证访问（platform_rules 中的 scrot / Xauthority 禁令）需要在 Worker profile 的 Bash 包装中保留。
-4. **memory 文件并发**：Worker 持久化后可能有多个 Worker 同时写 `memory/YYYY-MM-DD.md`。现有 etag 乐观锁需要覆盖到 Worker 侧。
+4. **memory 文件并发**：Worker 持久化后可能有多个 Worker 同时写记忆页。已由 `personal_agent.memory.store` 统一处理（工作区锁、etag、版本记录）。
 5. **提示词缓存**：ChannelProfile 和 Task 列表都放在 turn_context，system prompt 保持不变。
 6. **压缩与任务状态**：持久 Worker Session 被压缩后，原始 Trigger 和 Router note 必须作为固定上下文项保留（`truncation_policy=never`）。
 7. **Watchdog 的权限**：它需要一个服务账号和最小权限的动作 API，不能复用用户身份。

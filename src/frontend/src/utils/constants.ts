@@ -4,16 +4,6 @@ import { EDITION_TOOL_NAME_OVERRIDES } from '../toolEdition';
 
 export type CatalogKind = Exclude<PanelKey, 'chat' | 'docs' | 'app_center' | 'share_records' | 'settings'>;
 
-/** Host tools whose output opens in the right-side panel (not inline).
- *  Plugin tools declare their own placement via ``canvas_views`` instead. */
-export const PANEL_TOOL_NAMES = new Set([
-  'query_database',
-  'retrieve_dataset_content',
-  'retrieve_local_kb',
-  'list_datasets',
-  'internet_search',
-]);
-
 /** Icons for host-owned tools (under /icons/).
  *  A plugin tool's icon comes from its ``tool_meta`` contribution; see
  *  ``resolveToolIcon`` in ``utils/toolMeta.ts``. */
@@ -29,7 +19,7 @@ export const TOOL_ICONS: Record<string, string> = {
 /**
  * AgentScope 2.0 used to name MCP tools as `mcp__<server>__<tool>` (the backend now restores the bare
  * name at the source, but older session histories persisted the prefixed tool_name / tool_display_name).
- * Display and mapping (TOOL_NAME_OVERRIDES / toolDisplayNames / TOOL_ICONS / PANEL_TOOL_NAMES)
+ * Display and mapping (TOOL_NAME_OVERRIDES / toolDisplayNames / TOOL_ICONS)
  * always match on the server-side bare name, so messages are normalized through this function on ingest.
  */
 export function stripMcpToolPrefix(name: string): string {

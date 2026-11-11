@@ -188,6 +188,3 @@ KIND_SPECS: Dict[str, KindSpec] = {
 
 
 BUILTIN_KINDS = tuple(KIND_SPECS)
-
-
-VALID_KINDS = BUILTIN_KINDS

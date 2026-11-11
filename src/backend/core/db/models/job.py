@@ -44,12 +44,6 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# 终态：驱动不再推进，token 失效
-JOB_TERMINAL_STATUSES = ("completed", "failed", "cancelled")
-# 活跃态：进程重启后需要对账（归位 interrupted 或按需续跑）
-JOB_LIVE_STATUSES = ("pending", "running")
-
-
 class Job(Base):
     """一次批量作业。"""
     __tablename__ = "jobs"

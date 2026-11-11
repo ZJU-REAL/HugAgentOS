@@ -26,6 +26,8 @@ RUN_TERMINAL = {"completed", "failed", "cancelled", "needs_attention"}
 MAX_WAIT = 600
 POLL_SEC = 5
 OUTPUT_CHARS = 20000
+# A proactive task reads several chats in one run, and every result stays in its context (PROACTIVE_DESIGN §4.2).
+PROACTIVE_OUTPUT_CHARS = 6000
 
 COMMON = """The user's own HugAgentOS: their projects, chats and the runs working in those chats.
 target is cloud (the user's web HugAgentOS, the default) or device:<id> (HugAgentOS on one of the
@@ -85,10 +87,10 @@ def request_key(task_id, target, operation, args):
     body = json.dumps([task_id, target, operation, args], sort_keys=True, ensure_ascii=False)
     return KEY_PREFIX + hashlib.sha256(body.encode()).hexdigest()[:48]
 
-def bounded(value):
+def bounded(value, limit=OUTPUT_CHARS):
     text = json.dumps(value, ensure_ascii=False, default=str)
-    if len(text) <= OUTPUT_CHARS: return text
-    return text[:OUTPUT_CHARS] + "\n[truncated: ask for fewer items with page_size]"
+    if len(text) <= limit: return text
+    return text[:limit] + "\n[truncated: ask for fewer items with page_size]"
 
 async def call(uid, operation, args, target="cloud", task_id=None, wait=60):
     """Run one operation as the owner. task_id binds it to a running task and its approvals;
@@ -134,8 +136,9 @@ def observed(task_id, uid, run_id):
         task.checkpoint = state
         db.commit()
 
-def build(uid, task_id=None):
-    """The tool function for one context: a task (task_id) or a conversation turn."""
+def build(uid, task_id=None, output_chars=OUTPUT_CHARS):
+    """The tool function for one context: a task (task_id) or a conversation turn.
+    output_chars bounds the text of one result."""
     writes = bool(task_id)
 
     async def pa_hugagent(operation: str, args: dict | None = None, target: str = "cloud", wait_seconds: int = 0):
@@ -153,7 +156,7 @@ def build(uid, task_id=None):
             result = {"error": str(exc)}
         from agentscope.message import TextBlock
         from agentscope.tool._response import ToolChunk
-        return ToolChunk(content=[TextBlock(type="text", text=bounded(result))])
+        return ToolChunk(content=[TextBlock(type="text", text=bounded(result, output_chars))])
 
     pa_hugagent.__annotations__["operation"] = Literal[tuple(operations(writes))]
     args_doc = ["operation: the operation to run", "args: the operation's arguments, as listed for it",

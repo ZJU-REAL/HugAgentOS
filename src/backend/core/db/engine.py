@@ -208,7 +208,10 @@ def init_db():
             if has_ontology_data(connection):
                 logger.info("Ontology data retired: %s", retire_ontology(connection))
         if settings.deploy.is_local:
-            from core.db.local_schema_upgrade import reconcile_local_chat_sequences
+            from core.db.local_schema_upgrade import (
+                reconcile_local_chat_sequences,
+                reconcile_local_task_numbers,
+            )
 
             # 本机库的数据修复都在这里，且都排在下面的 schema 调和之前。
             _merge_duplicate_identities()
@@ -220,6 +223,9 @@ def init_db():
             local_report = reconcile_local_chat_sequences(engine)
             if any(local_report.values()):
                 logger.info("Local database compatibility schema reconciled: %s", local_report)
+            task_report = reconcile_local_task_numbers(engine)
+            if any(task_report.values()):
+                logger.info("Local task numbers reconciled: %s", task_report)
 
         from core.db.edition import ce_reconcile_schema
 
@@ -227,6 +233,12 @@ def init_db():
         if any(report.values()):
             logger.info("CE database schema reconciled: %s", report)
         if settings.deploy.is_local:
+            from core.db.local_personal_inbox_upgrade import reconcile_local_personal_inbox
+
+            # Needs the router columns the reconciler just added (ce_0037's data half).
+            inbox_report = reconcile_local_personal_inbox(engine)
+            if any(inbox_report.values()):
+                logger.info("Local personal inbox reconciled: %s", inbox_report)
             # 桌面本机单机库：再补一次全量 create_all，把共享树 metadata 里的全部表
             # 建齐。EE 风格树（如 HugAgentOS）在 CE 运行时下仍会触达团队等 EE 查询
             # 路径——空表让其自然返回空结果，而不是 sqlite "no such table" 500。

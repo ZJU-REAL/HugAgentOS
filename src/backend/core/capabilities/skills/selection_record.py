@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 # Why a candidate did not make the cut.
 REASON_NOT_RELEVANT = "not_relevant"
 REASON_RANKED_OUT = "ranked_out"  # relevant enough, but outside top-K
-REASON_FILTERED = "filtered"  # ownership / permission / disabled
 REASON_SELECTOR_UNAVAILABLE = "selector_unavailable"
 
 

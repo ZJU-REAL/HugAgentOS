@@ -6,9 +6,13 @@ export interface KBDocument {
   desc?: string;
   content?: string;
   indexing_status?: string;  // normalized local/external indexing status
+  indexing_error?: string;   // why indexing failed (local KBs), shown on the failed badge
   word_count?: number;
   size_bytes?: number;
   created_at?: number;
+  /** 外接知识库（WeKnora）的原始文件信息：可经 /original 取回 Word / PDF 原件 */
+  filename?: string;
+  original_available?: boolean;
 }
 
 export interface KBChunk {

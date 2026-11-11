@@ -8,6 +8,7 @@ from core.db.models import ChatMessage, Artifact
 
 from personal_agent.models import PersonalAgent, PersonalWorkItem, PersonalDeviceCommand, TITLE_LENGTH
 from personal_agent.identity.config import TERMINAL
+from personal_agent.scheduling import proactive_tasks
 from personal_agent.tasks.views import task_view
 
 class TaskService:
@@ -75,13 +76,16 @@ class TaskService:
         return [task_view(row) for row in rows]
 
     def cancel(self, ident):
+        from personal_agent.scheduling.schedules import is_proactive
         row = self.get(ident, lock=True)
         if row.status not in TERMINAL:
+            proactive = is_proactive(row)
             row.status = "cancelled"
             self.db.execute(update(PersonalDeviceCommand).where(PersonalDeviceCommand.work_item_id == ident, PersonalDeviceCommand.status == "queued").values(status="revoked"))
             from personal_agent.workspace.file_memory import record_task
             record_task(self.db, row, self.context.identity.agent())
             self.db.commit()
+            if proactive: proactive_tasks.settled(row.agent_id, "task_failed")
         return task_view(row)
 
     def steer(self, ident, text, request_key, artifact_ids=None):
@@ -126,7 +130,9 @@ class TaskService:
         row.result = result
         row.checkpoint = {**checkpoint, **({"source_chat_id": row.checkpoint["source_chat_id"]} if (row.checkpoint or {}).get("source_chat_id") else {})}
         row.status = "completed"
-        if (checkpoint.get("report") or {}).get("status") == "dropped":
+        from personal_agent.scheduling.schedules import is_proactive
+        dropped = (checkpoint.get("report") or {}).get("status") == "dropped"
+        if dropped:
             # Nothing for the user to act on: the result stays on the task and nobody is messaged.
             row.checkpoint = {**row.checkpoint, "outcome": "dropped"}
         else:
@@ -134,7 +140,20 @@ class TaskService:
             from personal_agent.conversation.router.triggers import announce
             announce(self.context, row, result)
         self.db.commit()
+        # A proactive check that found nothing ends here; one with a result is counted by its result turn.
+        if dropped and is_proactive(row): proactive_tasks.settled(row.agent_id, "nothing")
         return task_view(row)
+
+    def drop_failed(self, row, reason):
+        """A proactive task failed (PROACTIVE_DESIGN §6.4). Nobody asked for it: the task shows the
+        failure, and there is no notice and no result turn, as for a dropped one. ``row`` is locked."""
+        row.status, row.waiting_reason = "failed", (reason.strip() or proactive_tasks.FAILED)[:300]
+        row.checkpoint = {**(row.checkpoint or {}), "outcome": "dropped"}
+        # Quiet about the failure, not about files that were put back.
+        from personal_agent.scheduling import proactive_guard
+        proactive_guard.tell(self.db, row)
+        self.db.commit()
+        proactive_tasks.settled(row.agent_id, "task_failed")
 
     def retry(self, ident):
         row = self.get(ident, lock=True)

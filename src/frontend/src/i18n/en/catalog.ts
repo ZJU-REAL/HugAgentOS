@@ -1,5 +1,6 @@
 /** 英文字典（catalog 域）：key 为中文原文，value 为英文译文。 */
 export const CATALOG_DICT: Record<string, string> = {
+  '下载原文': 'Download Source',
   '账号连接位置': 'Account connection location',
   '本机服务尚未就绪，请稍候重试。': 'The local service is not ready. Please try again shortly.',
   '技能标识已存在，未覆盖原技能': 'Skill ID already exists; the original was not overwritten',
@@ -87,7 +88,6 @@ export const CATALOG_DICT: Record<string, string> = {
   '索引失败': 'Index Failed',
   '索引完成': 'Indexed',
   '重新索引文档': 'Reindex Document',
-  '查看索引分块情况': 'View Index Chunks',
   '确定删除此文档？': 'Delete this document?',
   '文档已删除': 'Document deleted',
   '删除文档': 'Delete Document',
@@ -163,6 +163,13 @@ export const CATALOG_DICT: Record<string, string> = {
   '分块列表': 'Chunk List',
   '正在加载文档正文…': 'Loading document content…',
   '当前文档暂无正文内容。': 'No content available for this document.',
+  '原文': 'Original',
+  '预览文档': 'Preview document',
+  '解析文本': 'Parsed text',
+  '原文下载失败': 'Failed to download the original file',
+  '原文预览失败': 'Failed to preview the original file',
+  '正在加载原文…': 'Loading original file…',
+  '该格式暂不支持原版预览，可下载原文查看': 'This format cannot be previewed; download the original to view it',
   '正在加载分块列表…': 'Loading chunk list…',
   '暂无分块数据。': 'No chunk data available.',
   '标签': 'Tags',

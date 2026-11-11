@@ -2,7 +2,7 @@
 from __future__ import annotations
 from fastapi import APIRouter
 router = APIRouter()
-from features.knowledge.edition import CreateKBSpaceRequest, PolishKBDescriptionRequest, UpdateKBSpaceRequest
+from features.knowledge.request_models import CreateKBSpaceRequest, PolishKBDescriptionRequest, UpdateKBSpaceRequest
 from core.auth.backend import UserContext, get_current_user
 from core.config.settings import settings
 from features.knowledge.wiki.config import normalize_index_modes

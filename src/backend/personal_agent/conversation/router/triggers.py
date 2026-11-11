@@ -19,6 +19,8 @@ from personal_agent.tasks import task_ops
 OPEN = ("pending", "claimed")
 # A long result is delivered as it is: rewriting it would cost a slow model call and risk losing content.
 LONG_RESULT = 8000
+# Ends the event of a proactive task's report that was longer than that.
+CUT = "[The report is cut here. Summarize what is above; the full report stays on the task.]"
 HATCH = "醒醒，我的朋友！"
 
 
@@ -83,17 +85,23 @@ def announce(svc, task, result):
     """A finished task reports to the agent, which tells the user in its own words.
 
     The result stays on the task (card and private conversation) in full. A long result,
-    or one that the agent cannot rewrite, is posted to the user unchanged.
+    or one that the agent cannot rewrite, is posted to the user unchanged. Not so the report of a
+    proactive task: it is written for the agent (tags, paths, what mail and pages said), so the
+    agent always writes the summary, from the start of a report that is too long.
     """
+    from personal_agent.scheduling.schedules import is_proactive
     from personal_agent.workspace.file_memory import admit as admit_memory
     agent = svc.identity.agent()
-    if len(result) > LONG_RESULT:
+    shown = result
+    if is_proactive(task):
+        if len(result) > LONG_RESULT: shown = result[:LONG_RESULT] + "\n" + CUT
+    elif len(result) > LONG_RESULT:
         message = svc.conversation.append(agent, "assistant", result, task.id)
         admit_memory(message, agent, "task_completed", input_text=task.goal)
         return
     from personal_agent.conversation.conversations import task_chat
     event = ChatMessageRepository(svc.db).create({"message_id": "pa_evt_" + uuid.uuid4().hex, "chat_id": task_chat(svc.db, agent, task),
-        "role": kinds.EVENT_ROLE, "content": result, "extra_data": {"work_item_id": task.id, "event": "task_completed"}}, commit=False)
+        "role": kinds.EVENT_ROLE, "content": shown, "extra_data": {"work_item_id": task.id, "event": "task_completed"}}, commit=False)
     admit_memory(event, agent, "task_completed", input_text=task.goal)
     # The result is the task's final message: its private conversation imports it from this link.
     task_ops.link(svc.db, event.message_id, task.id, "final", result)

@@ -98,6 +98,10 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
         {/* Artifact cards */}
         {m.role === 'assistant' && <MessageArtifacts m={m} currentChatId={currentChatId} />}
 
+        {/* 操作栏（含整轮耗时）紧跟回答本身，推荐追问等附加卡片排在它下面 */}
+        {!publicChat && <MessageActions m={m} messageIndex={messageIndex} currentChatId={currentChatId}
+          exportChatRecord={exportChatRecord} regenerate={regenerate} editAndResend={editAndResend} />}
+
         {/* Follow-up questions */}
         {m.role === 'assistant' && m.followUpQuestions && m.followUpQuestions.length > 0 && (
           <motion.div
@@ -134,8 +138,6 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
 
         {inherited && <MessageInheritedCards m={m} />}
         {!publicChat && selectionMenu}
-        {!publicChat && <MessageActions m={m} messageIndex={messageIndex} currentChatId={currentChatId}
-          exportChatRecord={exportChatRecord} regenerate={regenerate} editAndResend={editAndResend} />}
       </div>
       </div>
     </div>

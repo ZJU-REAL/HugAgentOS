@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { createContext, useCallback, useContext, useEffect } from 'react';
 import { create } from 'zustand';
 import { useCanvasPane } from './useCanvasPane';
 
@@ -61,13 +61,21 @@ export function stepZoom(tabId: string, dir: 1 | -1) {
 }
 
 /**
+ * True when renderers are mounted outside the canvas pane (e.g. a modal preview):
+ * they then render at 'fit' and never touch the canvas tab's zoom state.
+ */
+export const StandaloneZoomContext = createContext(false);
+
+/**
  * Called by a renderer that honours the zoom contract. Registers the pane's
  * current tab as zoomable while mounted (so the header shows the control) and
  * returns that tab's zoom plus a callback to report what 'fit' resolved to.
  */
 export function useCanvasZoomTarget(enabled = true) {
   // 经 useCanvasPane 取页签：面板退出动画期间保持关闭前的页签，缩放不会中途跳变
-  const tabId = useCanvasPane((s) => s.activeTabId);
+  const standalone = useContext(StandaloneZoomContext);
+  const paneTabId = useCanvasPane((s) => s.activeTabId);
+  const tabId = standalone ? null : paneTabId;
   const zoom = useCanvasZoom(tabId);
   useEffect(() => {
     if (!enabled || !tabId) return;

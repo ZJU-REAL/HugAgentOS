@@ -17,7 +17,7 @@ HugAgentOS 支持自建与外部知识库。公有检索按平台配置选择一
                     ┌──────────────── 能力中心 /v1/catalog ───────────────┐
                     │  api/routes/v1/catalog.py 运行时聚合三类 kb item：    │
                     │  · 私有自建知识库（CE + EE）                          │
-                    │  · Dify datasets（仅 EE，启用时注入，60s 缓存）       │
+                    │  · Dify datasets（仅 EE，启用时注入，共享目录缓存）   │
                     │  · 管理员公共知识库（仅 EE，system_public_kb）        │
                     └──────────────────────────────────────────────────────┘
 
@@ -170,7 +170,7 @@ ASR 转写写进 `text_content`，其后的索引与检索完全复用。
 2. 环境变量 `KNOWLEDGE_BASE=dify`；
 3. 兜底：`DIFY_URL` + `DIFY_API_KEY` 同时存在。
 
-启用后 `api/routes/v1/catalog.py` 在 `/v1/catalog` 响应中实时注入 Dify datasets 为 `kb` 条目（60 秒进程内缓存），标记 `visibility=public`。检索走 MCP 工具 `retrieve_dataset_content`：不指定 `dataset_id` 时默认并发搜索全部允许的数据集，支持 `hybrid_search` 等 Dify 检索方法参数，结果按 score 排序截断并做 token 上限裁剪。
+启用后 `api/routes/v1/catalog.py` 在 `/v1/catalog` 响应中注入外部 datasets 为 `kb` 条目，标记 `visibility=public`。所有“有哪些外部知识库”的读取（目录、系统提示词的知识库段、`list_datasets` 工具、检索兜底、授权管理页）共用 `edition_ee/kb/directory.py` 的进程内目录：60 秒内视为新鲜；过期后先返回旧列表并在后台刷新一次（最长保留 24 小时）；只有冷启动且尚无任何快照时，目录与工具才会等一次共享刷新，而系统提示词从不等待（此时只写知识库 id，下一轮补全名称）。刷新失败保留旧快照并退避 5 秒；切换 provider、地址、密钥或白名单会换一份缓存，不会串用。检索走 MCP 工具 `retrieve_dataset_content`：不指定 `dataset_id` 时默认并发搜索全部允许的数据集，支持 `hybrid_search` 等 Dify 检索方法参数，结果按 score 排序截断并做 token 上限裁剪。
 
 ```bash
 KNOWLEDGE_BASE=dify

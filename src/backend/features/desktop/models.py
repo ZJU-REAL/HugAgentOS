@@ -8,7 +8,6 @@ from sqlalchemy import Boolean, Column, Index, Integer, String, Text
 from datetime import datetime, timezone
 from sqlalchemy import JSON, BigInteger, Boolean, Column, Index, Integer, String, Text
 
-INSTALL_STATES = ("pending", "preparing", "ready", "failed", "removed")
 
 class DeviceCapabilityInstallation(Base):
     """One (profile, kind, key) on this device: intent, resolved revision and state.
@@ -146,4 +145,4 @@ class DesktopSyncDevice(Base):
     reconciling = Column(Boolean, nullable=False, default=False)
     __table_args__ = (Index("idx_desktop_devices_user", "user_id"),)
 
-__all__ = ['DeviceCapabilityInstallation', 'DeviceCapabilityNamePreference', 'DeviceCapabilityTransaction', 'DeviceCapabilityComponent', 'DesktopOutbox', 'DesktopRecord', 'DesktopSyncDevice', 'INSTALL_STATES']
+__all__ = ['DeviceCapabilityInstallation', 'DeviceCapabilityNamePreference', 'DeviceCapabilityTransaction', 'DeviceCapabilityComponent', 'DesktopOutbox', 'DesktopRecord', 'DesktopSyncDevice']

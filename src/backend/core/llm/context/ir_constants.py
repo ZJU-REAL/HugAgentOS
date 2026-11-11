@@ -47,12 +47,6 @@ KIND_COMPACTION = "compaction_summary"
 KIND_ATTACHMENT = "attachment"
 
 
-KIND_STEER = "steer"
-
-
-KIND_REFERENCE = "reference"
-
-
 POLICY_NEVER = "never"
 
 

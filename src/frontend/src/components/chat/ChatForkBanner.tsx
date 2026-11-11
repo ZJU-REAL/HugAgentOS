@@ -9,8 +9,11 @@ import '../../styles/chat-fork.css';
 /** Source metadata is a historical label; access to the original is checked separately. */
 export function ChatForkBanner({ chatId }: { chatId: string }) {
   const actor = useChatStore((state) => state.currentUserId);
+  // 服务端还没有这段对话（新草稿、首条消息还在发）时问详情必然 404；建档后再问。
+  const known = useChatStore((state) => state.backendSessionIds.has(chatId));
   const [state, setState] = useState<{ chatId: string; actor: string | null; origin: ChatForkOrigin; accessible: boolean } | null>(null);
   useEffect(() => {
+    if (!known) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -28,7 +31,7 @@ export function ChatForkBanner({ chatId }: { chatId: string }) {
       } catch { /* Ordinary chats and unavailable metadata need no banner. */ }
     })();
     return () => { cancelled = true; };
-  }, [chatId, actor]);
+  }, [chatId, actor, known]);
   if (!state || state.chatId !== chatId || state.actor !== actor) return null;
   return (
     <div className="jx-chatForkBanner" role="status">

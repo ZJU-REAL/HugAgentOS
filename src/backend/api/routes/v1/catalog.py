@@ -1,11 +1,7 @@
 """Catalog management API routes (v1)."""
 
-import asyncio
 import logging
-from copy import deepcopy
-from threading import Lock
-from time import monotonic
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from core.auth.backend import UserContext, get_current_user
 from core.capabilities.catalog.runtime import get_runtime_catalog
@@ -14,141 +10,11 @@ from core.db.threads import run_in_session
 from features.knowledge.repository import KBRepository
 from core.infra.exceptions import BadRequestError
 from core.infra.responses import success_response
-from features.knowledge.edition import get_provider_cache_identity, get_provider_name, is_enabled, list_collections
+from features.knowledge.edition import get_collections_async, is_enabled
 from core.capabilities.catalog.overrides import CatalogService
 from fastapi import APIRouter, Depends, Path
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from starlette.concurrency import run_in_threadpool
-
-# ── External knowledge collection cache ──
-_external_cache_lock = Lock()
-_external_cache: Dict[str, tuple[float, List[Dict[str, Any]]]] = {}
-_external_cache_refreshing: set[str] = set()
-_external_cache_async_lock: Optional[asyncio.Lock] = None
-_external_cache_async_lock_loop: Optional[asyncio.AbstractEventLoop] = None
-_EXTERNAL_CACHE_TTL = 30.0
-_EXTERNAL_CACHE_FAILURE_TTL = 5.0
-_EXTERNAL_CACHE_CONTEXT_RETRIES = 2
-
-
-def _external_cache_context() -> tuple[str, str]:
-    provider = get_provider_name() or "dify"
-    return provider, get_provider_cache_identity(provider)
-
-
-def _retry_after_cache_context_change(
-    cache_identity: str,
-    context_retry: int,
-) -> List[Dict[str, Any]]:
-    with _external_cache_lock:
-        _external_cache_refreshing.discard(cache_identity)
-    if context_retry >= _EXTERNAL_CACHE_CONTEXT_RETRIES:
-        raise RuntimeError("Knowledge provider configuration changed repeatedly during refresh")
-    return _list_datasets_cached(_context_retry=context_retry + 1)
-
-
-def _prune_external_cache_locked(now: float, preserve: str) -> None:
-    expired = [
-        identity
-        for identity, (expires_at, _) in _external_cache.items()
-        if identity != preserve and expires_at <= now and identity not in _external_cache_refreshing
-    ]
-    for identity in expired:
-        del _external_cache[identity]
-
-
-def _list_datasets_cached(*, _context_retry: int = 0) -> List[Dict[str, Any]]:
-    """Cache collections by provider config and discard in-flight stale snapshots."""
-    provider, cache_identity = _external_cache_context()
-    now = monotonic()
-    with _external_cache_lock:
-        _prune_external_cache_locked(now, cache_identity)
-        cached = _external_cache.get(cache_identity)
-        if cached is not None:
-            expires_at, items = cached
-            if now < expires_at:
-                return deepcopy(items)
-
-        stale_items = cached[1] if cached is not None else None
-        if cache_identity in _external_cache_refreshing:
-            if stale_items is not None:
-                return deepcopy(stale_items)
-            # Async route callers wait for the shared cold refresh before reaching here.
-            return []
-
-        _external_cache_refreshing.add(cache_identity)
-
-    try:
-        items = list_collections(
-            page=1,
-            limit=100,
-            raise_on_error=True,
-            provider_name=provider,
-        )
-        cache_items = deepcopy(items)
-    except Exception as exc:
-        if _external_cache_context() != (provider, cache_identity):
-            return _retry_after_cache_context_change(cache_identity, _context_retry)
-        fallback_items = deepcopy(stale_items) if stale_items is not None else []
-        with _external_cache_lock:
-            _external_cache[cache_identity] = (
-                monotonic() + _EXTERNAL_CACHE_FAILURE_TTL,
-                deepcopy(fallback_items),
-            )
-            _external_cache_refreshing.discard(cache_identity)
-        if stale_items is not None:
-            logger.warning("External catalog refresh failed; serving stale cache: %s", exc)
-            return fallback_items
-        raise
-
-    if _external_cache_context() != (provider, cache_identity):
-        return _retry_after_cache_context_change(cache_identity, _context_retry)
-
-    with _external_cache_lock:
-        _external_cache[cache_identity] = (monotonic() + _EXTERNAL_CACHE_TTL, cache_items)
-        _external_cache_refreshing.discard(cache_identity)
-    return deepcopy(cache_items)
-
-
-def _external_cache_is_fresh() -> bool:
-    _, cache_identity = _external_cache_context()
-    with _external_cache_lock:
-        cached = _external_cache.get(cache_identity)
-        return cached is not None and monotonic() < cached[0]
-
-
-def _get_external_cache_async_lock() -> asyncio.Lock:
-    """Return a refresh lock bound to the active Uvicorn event loop."""
-    global _external_cache_async_lock, _external_cache_async_lock_loop
-
-    loop = asyncio.get_running_loop()
-    with _external_cache_lock:
-        if _external_cache_async_lock is None or _external_cache_async_lock_loop is not loop:
-            _external_cache_async_lock = asyncio.Lock()
-            _external_cache_async_lock_loop = loop
-        return _external_cache_async_lock
-
-
-def _prepare_external_cache_sync() -> None:
-    if settings.edition.edition != "ce" and is_enabled():
-        _list_datasets_cached()
-
-
-async def _ensure_external_cache_ready() -> None:
-    """Share a cold refresh without parking follower requests in worker threads."""
-    if _external_cache_is_fresh():
-        return
-
-    async with _get_external_cache_async_lock():
-        if _external_cache_is_fresh():
-            return
-        try:
-            await run_in_threadpool(_prepare_external_cache_sync)
-        except Exception as exc:
-            # The synchronous helper installs a short failure cache before raising.
-            logger.warning("Failed to prepare external knowledge cache: %s", exc)
-
 
 router = APIRouter(prefix="/v1/catalog", tags=["Catalog"])
 logger = logging.getLogger(__name__)
@@ -177,7 +43,9 @@ def _kb_capabilities(space) -> Dict[str, bool]:
 from features.marketplace.api.catalog_ownership import _load_owned_capability_items, _plugin_component_ids, _is_owned_capability
 
 
-def _get_catalog_items_sync(user: UserContext, db: Session):
+def _get_catalog_items_sync(
+    user: UserContext, db: Session, external_items: List[Dict[str, Any]]
+):
     """获取完整能力目录，含技能（skills）、子智能体（agents）、MCP 服务及知识库（KB）。
 
     在系统默认配置的基础上叠加当前用户的个性化覆盖：每项的启用状态与配置优先返回
@@ -279,9 +147,8 @@ def _get_catalog_items_sync(user: UserContext, db: Session):
 
     # ── Externally managed public knowledge collections ───────────────────────
     public_kb_items: List[Dict[str, Any]] = []
-    if not is_ce and is_enabled():
+    if not is_ce and external_items:
         try:
-            external_items = _list_datasets_cached()
             # Permission assignment: narrow to datasets visible to the current user (public + granted scoped; defaults to public when unset).
             from features.knowledge.edition import get_dataset_levels
 
@@ -318,15 +185,13 @@ def _get_catalog_items_sync(user: UserContext, db: Session):
         tags = [tag] if tag else []
         modes = _index_modes_of(space)
         capabilities = _kb_capabilities(space)
-        if capabilities.get("wiki"):
-            tags = [*tags, "LLM Wiki"]
         private_kb_items.append(
             {
                 "id": space.kb_id,
                 "kind": "knowledge_base",
                 "name": space.name,
-                "description": space.description or "无简介",
-                "desc": space.description or "无简介",
+                "description": space.description or "",
+                "desc": space.description or "",
                 "enabled": True,
                 "version": "local",
                 "provider": "HugAgentOS-KB",
@@ -383,15 +248,13 @@ def _get_catalog_items_sync(user: UserContext, db: Session):
                 tag = str(extra.get("tag") or "").strip()
                 shared_tags = [tag] if tag else []
                 shared_caps = _kb_capabilities(space)
-                if shared_caps.get("wiki"):
-                    shared_tags = [*shared_tags, "LLM Wiki"]
                 public_local_kb_items.append(
                     {
                         "id": space.kb_id,
                         "kind": "knowledge_base",
                         "name": space.name,
-                        "description": space.description or "无简介",
-                        "desc": space.description or "无简介",
+                        "description": space.description or "",
+                        "desc": space.description or "",
                         "enabled": True,
                         "version": "local",
                         "provider": "HugAgentOS-KB",
@@ -462,8 +325,19 @@ async def get_catalog_items(
     user: UserContext = Depends(get_current_user),
 ):
     """Build the synchronous catalog outside the Uvicorn event loop."""
-    await _ensure_external_cache_ready()
-    return await run_in_session(lambda db: _get_catalog_items_sync(user, db))
+    external_items = await _external_collections()
+    return await run_in_session(lambda db: _get_catalog_items_sync(user, db, external_items))
+
+
+async def _external_collections() -> List[Dict[str, Any]]:
+    """Shared directory read: memory when cached, a joined async wait only when cold."""
+    if settings.edition.edition == "ce" or not is_enabled():
+        return []
+    try:
+        return await get_collections_async()
+    except Exception as exc:  # noqa: BLE001 - the catalog still lists local items
+        logger.warning("Failed to load external knowledge collections: %s", exc)
+        return []
 
 
 

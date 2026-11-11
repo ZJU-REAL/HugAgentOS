@@ -137,15 +137,4 @@ export function formatTimezone(tz?: string | null): string {
   return TIMEZONE_LABEL[tz] || tz;
 }
 
-/** Cron preset options for the UI. */
-export const CRON_PRESETS = [
-  { label: t('每天 09:00'), value: '0 9 * * *' },
-  { label: t('工作日 09:00'), value: '0 9 * * 1-5' },
-  { label: t('每周一 09:00'), value: '0 9 * * 1' },
-  { label: t('每小时'), value: '0 * * * *' },
-  { label: t('每 2 小时'), value: '0 */2 * * *' },
-  { label: t('每 6 小时'), value: '0 */6 * * *' },
-  { label: t('自定义'), value: '' },
-];
-
 export const SCHEDULE_TYPE_LABEL = { recurring: t('周期执行'), once: t('单次执行'), manual: t('手动执行') };

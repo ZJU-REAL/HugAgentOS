@@ -1,4 +1,6 @@
 """Explicit Personal Agent tool surface; all targets derive from authenticated task."""
+import asyncio
+
 from core.llm.factory.tools.definitions import function_tool
 import personal_agent.workspace.files as _pa_files
 
@@ -10,7 +12,10 @@ from agentscope.tool._response import ToolChunk
 from core.db.engine import SessionLocal
 from sqlalchemy import select
 from core.db.models import ChatMessage
-from personal_agent.models import PersonalWorkItem
+
+from personal_agent.memory import layout, store
+from personal_agent.memory.sources import for_task
+from personal_agent.models import PersonalAgent, PersonalWorkItem
 from personal_agent.computer.sandbox import get_personal_sandbox_provider
 from core.db.threads import off_loop
 
@@ -20,6 +25,19 @@ def register_personal_tools(toolkit, request, loader=None):
     known = set()
     versions = {}
     from personal_agent.workspace import persona
+    from personal_agent.scheduling.proactive_tasks import draft_path
+    from personal_agent.scheduling.schedules import is_proactive, is_unattended_run
+    from personal_agent.sessions.session_tool import OUTPUT_CHARS, PROACTIVE_OUTPUT_CHARS
+    with SessionLocal() as db:
+        task = db.get(PersonalWorkItem, ident)
+        scheduled = is_unattended_run(task)
+        # Nobody is there during a proactive check (PROACTIVE_DESIGN §6.1): the file tools write drafts only,
+        # and the tools that reach other people, the user's computer or the memory are not registered.
+        # The run after a follow-up from the user is an ordinary one again.
+        proactive = is_proactive(task)
+        # The tools of a core run act only for the Assignment the run was built for.
+        from personal_agent.tasks.execution import bind
+        if getattr(request, "run_id", None) and task.status == "running": bind(task)
 
     @off_loop
     def pa_task_status() -> ToolChunk:
@@ -31,14 +49,39 @@ def register_personal_tools(toolkit, request, loader=None):
             return response({"goal": task.goal,
                 "updates": instructions(db, state["chat"], ident, 100), "checkpoint": task.checkpoint})
 
+    def hosted(target):
+        """Persona and memory files are read and written on the host, never through the sandbox."""
+        rel = _pa_files.relative(target)
+        return _pa_files.editable(rel) or store.is_memory(rel)
+
+    def platform_only(target):
+        """journal/ and DREAMS.md are written by the platform: Dreaming reads the journal as its queue."""
+        rel = _pa_files.relative(target)
+        if rel.split("/")[0] == layout.JOURNAL_DIR or rel == layout.REPORT:
+            raise PermissionError(rel + " 由平台写入，只能读")
+
+    def remember(target, content, expected):
+        """Save a memory file through the store as this task (writer ONLINE, source task-<id>)."""
+        with SessionLocal() as db:
+            task = db.get(PersonalWorkItem, ident)
+            data = store.write(db, db.get(PersonalAgent, task.agent_id), target, content, expected,
+                               writer=layout.ONLINE, source_id=for_task(task))
+            data.pop("version")
+            db.commit()
+        versions[target] = data["etag"]
+        return data
+
     async def pa_read_file(path: str) -> ToolChunk:
-        """Read UTF-8 text from the dedicated cloud workspace, with a bounded result."""
+        """Read UTF-8 text from the dedicated cloud workspace, with a bounded result. Memory pages,
+        USER.md, MEMORY.md and the persona files are read from the workspace itself."""
         state = owned_task(ident, uid)
         target = workspace_path(path)
-        if _pa_files.editable(_pa_files.relative(target)):
+        if hosted(target):
             data = _pa_files.read_file(state["agent_id"], target)
             versions[target] = data["etag"]
             known.add(target)
+            from personal_agent.memory import usage
+            await asyncio.to_thread(usage.touch, state["agent_id"], [target])
             return response({"path": path, "content": data["content"], "truncated": data["truncated"]})
         content = await get_personal_sandbox_provider().get_file(state["box"], target, user_id=uid)
         if len(content) > 2*1024*1024: raise ValueError("Use Bash to inspect a large file")
@@ -46,14 +89,19 @@ def register_personal_tools(toolkit, request, loader=None):
         return response({"path": path, "content": content.decode("utf-8")[:50000]})
 
     async def pa_write_file(path: str, content: str) -> ToolChunk:
-        """Write a task file in the dedicated workspace; does not write to MySpace."""
+        """Write a task file in the dedicated workspace; does not write to MySpace. A memory page
+        (memory/<type>-<name>.md) is checked and versioned: search for it with pa_memory_search first,
+        read it before replacing it, and end each fact line with [src: <本轮来源 id> | as-of: <YYYY-MM-DD>]."""
         state = owned_task(ident, uid)
         if len(content.encode()) > 2*1024*1024: raise ValueError("File too large")
-        target = workspace_path(path)
-        if _pa_files.editable(_pa_files.relative(target)):
+        target = draft_path(path) if proactive else workspace_path(path)
+        if store.is_memory(_pa_files.relative(target)):
+            await asyncio.to_thread(remember, target, content, versions.get(target, ""))
+        elif _pa_files.editable(_pa_files.relative(target)):
             data = _pa_files.write_file(state["agent_id"], target, content, versions.get(target, ""))
             versions[target] = data["etag"]
         else:
+            platform_only(target)
             await get_personal_sandbox_provider().put_file(state["box"], target, content, user_id=uid)
         known.add(workspace_path(path))
         return response({"path": path, "saved": True})
@@ -62,12 +110,12 @@ def register_personal_tools(toolkit, request, loader=None):
         """Replace exact text in a workspace file, such as one entry of USER.md or MEMORY.md.
         Read the file with pa_read_file first. old_string must match exactly and be unique unless replace_all is true."""
         state = owned_task(ident, uid)
-        target = workspace_path(path)
+        target = draft_path(path) if proactive else workspace_path(path)
         if target not in known: raise ValueError("Read the file with pa_read_file before editing it")
         if not old_string: raise ValueError("old_string must not be empty")
         if old_string == new_string: raise ValueError("old_string and new_string are identical")
         provider = get_personal_sandbox_provider()
-        memory_file = _pa_files.editable(_pa_files.relative(target))
+        memory_file = hosted(target)
         if memory_file:
             current = _pa_files.read_file(state["agent_id"], target)
             content = (current["content"] or "").encode()
@@ -81,12 +129,24 @@ def register_personal_tools(toolkit, request, loader=None):
         if count > 1 and not replace_all: raise ValueError("old_string occurs " + str(count) + " times; add context or set replace_all")
         updated = text.replace(old_string, new_string) if replace_all else text.replace(old_string, new_string, 1)
         if len(updated.encode()) > 2*1024*1024: raise ValueError("File too large")
-        if memory_file:
+        if memory_file and store.is_memory(_pa_files.relative(target)):
+            await asyncio.to_thread(remember, target, updated, current["etag"])
+        elif memory_file:
             data = _pa_files.write_file(state["agent_id"], target, updated, current["etag"])
             versions[target] = data["etag"]
         else:
+            platform_only(target)
             await provider.put_file(state["box"], target, updated, user_id=uid)
         return response({"path": path, "replacements": count if replace_all else 1})
+
+    @off_loop
+    def pa_memory_search(query: str) -> ToolChunk:
+        """Search the memory wiki and the daily records (journal/) for words: pages whose name,
+        description or aliases match, matching page lines and journal lines. Search before you
+        create a memory page, and update the page that exists."""
+        state = owned_task(ident, uid)
+        from personal_agent.memory.search import search
+        return response(search(state["agent_id"], query[:200], used=True))
 
     @off_loop
     def pa_history_search(query: str, limit: int = 20):
@@ -158,27 +218,23 @@ def register_personal_tools(toolkit, request, loader=None):
         with SessionLocal() as db:
             return response(delete(db, uid, schedule_id))
 
-    from personal_agent.scheduling.schedules import is_unattended_run
-    with SessionLocal() as db:
-        task = db.get(PersonalWorkItem, ident)
-        scheduled = is_unattended_run(task)
-        # The tools of a core run act only for the Assignment the run was built for.
-        from personal_agent.tasks.execution import bind
-        if getattr(request, "run_id", None) and task.status == "running": bind(task)
     # A scheduled run does its work now. Without these tools it cannot schedule itself again.
     managing = () if scheduled else (pa_schedule_create, pa_schedule_update, pa_schedule_delete)
-    for fn in (pa_task_status, pa_read_file, pa_write_file, pa_edit_file, pa_history_search, pa_skill_read,
-               pa_set_name, pa_schedule_list, *managing):
+    # pa_set_name rewrites IDENTITY.md, a persona file.
+    naming = () if proactive else (pa_set_name,)
+    for fn in (pa_task_status, pa_read_file, pa_write_file, pa_edit_file, pa_memory_search, pa_history_search, pa_skill_read,
+               *naming, pa_schedule_list, *managing):
         toolkit.append(function_tool(fn))
     from personal_agent.worker.tools import register_bash, register_report
     register_report(toolkit, ident, uid)
     register_bash(toolkit, request, loader, ident, uid)
     from personal_agent.delivery.delivery import build as delivery_tool
-    toolkit.append(function_tool(delivery_tool(ident, uid)))
+    # What a proactive check produces reaches the user as the one summary, not as delivered files.
+    if not proactive: toolkit.append(function_tool(delivery_tool(ident, uid)))
     # The user's HugAgentOS sessions; writes wait for the user's approval.
     from personal_agent.sessions.session_tool import build as session_tool
-    toolkit.append(function_tool(session_tool(uid, ident)))
+    toolkit.append(function_tool(session_tool(uid, ident, PROACTIVE_OUTPUT_CHARS if proactive else OUTPUT_CHARS)))
     from personal_agent.tools.email import register_email_tools
     from personal_agent.computer.computer import register_computer_tools
     register_email_tools(toolkit, ident, uid)
-    register_computer_tools(toolkit, ident, uid)
+    if not proactive: register_computer_tools(toolkit, ident, uid)

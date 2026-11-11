@@ -28,7 +28,6 @@ import hashlib
 import json
 import logging
 import os
-import re
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
@@ -41,7 +40,6 @@ from core.infra.crypto import decrypt_secret
 logger = logging.getLogger(__name__)
 
 from integrations.channels.adapters.lark_settings import LARK_API_BASE
-_MENTION_RE = re.compile(r"@_user_\d+")
 
 
 # ── lark_oapi ws event-loop isolation (supports multiple coexisting bots) ────

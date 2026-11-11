@@ -30,16 +30,10 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
-ROLE_GENERATOR = "generator"
-ROLE_EVALUATOR = "evaluator"
-ROLE_APPROVER = "approver"
-ROLE_RUNTIME_GATE = "runtime_gate"
 
 LENS_QUALITY = "quality"
 LENS_COST = "cost"
 LENS_RISK = "risk"
-LENS_GENERALISATION = "generalisation"
-ALL_LENSES = (LENS_QUALITY, LENS_COST, LENS_RISK, LENS_GENERALISATION)
 
 VERDICT_APPROVE = "approve"
 VERDICT_REJECT = "reject"

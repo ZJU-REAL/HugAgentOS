@@ -46,11 +46,6 @@ from integrations.dingtalk.parsing import make_qr_data_uri
 
 logger = logging.getLogger(__name__)
 
-# Fixed working directory inside the sandbox (matches
-# _opensandbox_internals._YIDA_WORKSPACE_MOUNT / SKILL.md; not imported directly
-# to avoid pulling in the opensandbox dependency chain — a test keeps the two in sync)
-YIDA_WORKSPACE_MOUNT = "/home/ubuntu/yida-workspace"
-
 # session_file / corp_id only allow a conservative character set, eliminating the injection surface when spliced into shell commands
 _SESSION_FILE_RE = re.compile(r"^[A-Za-z0-9._/-]{1,256}$")
 _CORP_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")

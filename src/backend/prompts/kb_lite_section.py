@@ -1,108 +1,89 @@
 """Lightweight KB-catalog section for system-prompt injection.
 
-Builds a minimal (name+description) KB list per the user's enabled KBs, cached.
-Extracted from prompts/prompt_runtime.py; that module re-exports these.
+Lists the run's enabled knowledge bases (name + description) so the model knows
+when to search them. External collection names come from the shared in-memory
+directory (``features.knowledge.edition.collection_snapshot``) and never wait on
+the provider; private KB names come from one indexed DB query. Callers run this
+off the event loop (the agent factory overlaps it with MCP connection).
 """
 
 from __future__ import annotations
 
-from threading import Lock
-from time import monotonic
-from typing import Dict, List, Optional, Tuple
+import logging
+from typing import List, Optional
 
-# ---------------------------------------------------------------------------
-# Lightweight KB catalog — name + description only (no document lists).
-# Injected into system prompt per user's enabled_kbs, from cached data.
-# ---------------------------------------------------------------------------
-_kb_lite_cache_lock = Lock()
-# key: frozenset of enabled_kb_ids -> (expires_at, section_text)
-_kb_lite_cache: Dict[frozenset, Tuple[float, str]] = {}
-_KB_LITE_CACHE_TTL = 300.0  # 5 minutes
+logger = logging.getLogger(__name__)
+
+_HEADER = (
+    "## 当前启用的知识库\n"
+    "当用户提问涉及以下知识库名称或简介中的关键词时，应**主动**调用对应检索工具，无需等待用户显式要求。\n"
+    "调用 `list_datasets` 可获取更详细的文档列表。\n\n"
+)
 
 
-def invalidate_kb_lite_cache() -> None:
-    """Clear lightweight KB catalog cache."""
-    with _kb_lite_cache_lock:
-        _kb_lite_cache.clear()
+def _external_lines(external_ids: List[str]) -> List[str]:
+    from features.knowledge.edition import collection_snapshot, is_enabled
 
-
-def _build_kb_lite_section(enabled_kb_ids: Optional[List[str]]) -> str:
-    """Build a minimal KB catalog (name + description) for system prompt injection.
-
-    Uses a cached external collection list plus fast local DB queries.
-    Typical output: 3-10 lines, 300-800 chars.
-    """
-    if not enabled_kb_ids:
-        return ""
-
-    cache_key = frozenset(enabled_kb_ids)
-    now = monotonic()
-
-    with _kb_lite_cache_lock:
-        cached = _kb_lite_cache.get(cache_key)
-        if cached is not None:
-            expires_at, text = cached
-            if now < expires_at:
-                return text
-
-    import logging
-
-    _log = logging.getLogger(__name__)
-
-    external_ids = [kid for kid in enabled_kb_ids if not kid.startswith("kb_")]
-    local_ids = [kid for kid in enabled_kb_ids if kid.startswith("kb_")]
-
+    if not is_enabled():
+        return []
+    datasets = collection_snapshot()
+    if datasets is None:
+        # Nothing cached yet (cold process; a refresh is now running). Name the
+        # collections by id so the model still knows they exist; the next turn
+        # renders the full names from the refreshed directory.
+        return [f"- 外部知识库（公有，dataset_id: `{ds_id}`）" for ds_id in external_ids]
+    by_id = {str(ds.get("id", "")).strip(): ds for ds in datasets}
     lines: List[str] = []
+    for ds_id in external_ids:
+        ds = by_id.get(ds_id)
+        if ds is None:
+            continue
+        name = ds.get("name", ds_id)
+        desc = ds.get("description") or ds.get("desc") or ""
+        desc_part = f"：{desc[:120]}" if desc else ""
+        lines.append(f"- {name}（公有，dataset_id: `{ds_id}`）{desc_part}")
+    return lines
 
-    # ── Externally managed shared collections — cached, no extra HTTP calls ──
+
+def _local_lines(local_ids: List[str]) -> List[str]:
+    from core.db.engine import SessionLocal
+    from features.knowledge.models import KBSpace
+
+    with SessionLocal() as db:
+        spaces = (
+            db.query(KBSpace)
+            .filter(KBSpace.kb_id.in_(local_ids), KBSpace.deleted_at.is_(None))
+            .all()
+        )
+        by_id = {space.kb_id: space for space in spaces}
+    lines: List[str] = []
+    for kb_id in local_ids:
+        space = by_id.get(kb_id)
+        if space is None:
+            continue
+        desc_part = f"：{space.description[:120]}" if space.description else ""
+        lines.append(f"- {space.name}（私有，kb_id: `{space.kb_id}`）{desc_part}")
+    return lines
+
+
+def build_kb_catalog_section(enabled_kb_ids: Optional[List[str]]) -> str:
+    """Render the section for ``enabled_kb_ids``; empty when none resolve. Blocking (DB)."""
+    # Sorted: the section is part of the system prompt, and its bytes must not
+    # depend on the order a client happened to send the ids in (LLM prefix cache).
+    ids = sorted({str(kid).strip() for kid in enabled_kb_ids or [] if str(kid).strip()})
+    if not ids:
+        return ""
+    lines: List[str] = []
+    external_ids = [kid for kid in ids if not kid.startswith("kb_")]
+    local_ids = [kid for kid in ids if kid.startswith("kb_")]
     if external_ids:
         try:
-            from features.knowledge.edition import is_enabled, list_collections
-
-            if is_enabled():
-                external_set = set(external_ids)
-                datasets = list_collections(page=1, limit=100, timeout=(1, 2))
-                for ds in datasets:
-                    ds_id = str(ds.get("id", "")).strip()
-                    if ds_id and ds_id in external_set:
-                        name = ds.get("name", ds_id)
-                        desc = ds.get("description") or ds.get("desc") or ""
-                        desc_part = f"：{desc[:120]}" if desc else ""
-                        lines.append(f"- {name}（公有，dataset_id: `{ds_id}`）{desc_part}")
-        except Exception as exc:
-            _log.debug("[kb_lite] external collection list failed: %s", exc)
-
-    # ── Private KBs — fast DB query ───────────────────────────────────────
+            lines += _external_lines(external_ids)
+        except Exception as exc:  # noqa: BLE001 - the prompt is still usable without it
+            logger.warning("[kb_catalog] external collection names unavailable: %s", exc)
     if local_ids:
         try:
-            from core.db.engine import SessionLocal
-            from features.knowledge.models import KBSpace
-
-            with SessionLocal() as db:
-                spaces = (
-                    db.query(KBSpace)
-                    .filter(
-                        KBSpace.kb_id.in_(local_ids),
-                        KBSpace.deleted_at.is_(None),
-                    )
-                    .all()
-                )
-                for s in spaces:
-                    desc_part = f"：{s.description[:120]}" if s.description else ""
-                    lines.append(f"- {s.name}（私有，kb_id: `{s.kb_id}`）{desc_part}")
-        except Exception as exc:
-            _log.debug("[kb_lite] DB query failed: %s", exc)
-
-    if not lines:
-        return ""
-
-    result = (
-        "## 当前启用的知识库\n"
-        "当用户提问涉及以下知识库名称或简介中的关键词时，应**主动**调用对应检索工具，无需等待用户显式要求。\n"
-        "调用 `list_datasets` 可获取更详细的文档列表。\n\n" + "\n".join(lines)
-    )
-
-    with _kb_lite_cache_lock:
-        _kb_lite_cache[cache_key] = (monotonic() + _KB_LITE_CACHE_TTL, result)
-
-    return result
+            lines += _local_lines(local_ids)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[kb_catalog] private KB lookup failed: %s", exc)
+    return _HEADER + "\n".join(lines) if lines else ""

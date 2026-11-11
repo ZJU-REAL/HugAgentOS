@@ -9,6 +9,7 @@ from typing import Any, Mapping, Optional
 
 from core.db.engine import SessionLocal
 from core.db.models import ChatRun, ChatSession
+from core.db.reserved_chats import BACKGROUND_CHAT_PREFIX
 from core.db.threads import run_db
 from core.harness.log_context import current_message_id
 from core.infra.logging import run_id_var
@@ -94,7 +95,7 @@ async def durable_run_binding(
 
     from core.runs.journal import RunJournal
 
-    actual_chat_id = str(chat_id or f"internal_{uuid.uuid4().hex[:24]}")
+    actual_chat_id = str(chat_id or f"{BACKGROUND_CHAT_PREFIX}{uuid.uuid4().hex[:24]}")
     run_id = str(binding_run_id or f"run_{uuid.uuid4().hex}")
     message_id = f"msg_{uuid.uuid4().hex}"
     owner = f"{kind}:{uuid.uuid4().hex}"

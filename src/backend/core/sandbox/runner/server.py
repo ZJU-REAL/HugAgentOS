@@ -71,7 +71,6 @@ WORKSPACE_ROOT = os.getenv("SCRIPT_RUNNER_WORKSPACE", "/workspace")
 # Skills reach this container as two read-only mounts (see docker-compose.yml):
 # the shared tree, and the root holding every user's per-user view. A session
 # gets its own user's view linked in as ``<workspace>/skills``.
-SESSION_WORKSPACES_DIR = ".sessions"
 MAX_SCRIPT_SIZE = 512 * 1024  # 512KB
 MAX_ARTIFACT_EXPORT_BYTES = max(
     1, int(os.getenv("SANDBOX_ARTIFACT_MAX_BYTES", str(100 * 1024 * 1024)))

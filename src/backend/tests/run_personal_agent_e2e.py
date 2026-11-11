@@ -120,9 +120,9 @@ print('EXECUTION_BOUNDARY_VERIFIED')
         print("PASS: real SMTP attachment send and duplicate-send prevention", flush=True)
         for _ in range(20):
             messages = data(await tools.tools["pa_email_list"]())
-            if messages["message_uids"]: break
+            if messages["messages"]: break
             await asyncio.sleep(1)
-        message_uid = messages["message_uids"][-1]
+        message_uid = messages["messages"][0]["uid"]
         metadata = data(await tools.tools["pa_email_read"](message_uid))
         assert metadata["attachments"][0]["filename"] == "verification.txt"
         downloaded = data(await tools.tools["pa_email_download"](message_uid, 0, "/workspace/work/mail-return.txt"))

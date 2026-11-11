@@ -84,11 +84,10 @@ export interface ChatMessage {
   /** Total generation duration of this agent answer (ms): total wall-clock time from
    *  initiating the answer to the end of streaming output. Only carried by locally
    *  newly-generated assistant messages; backend history messages lack this field. Used
-   *  to show "took X.Xs" next to "regenerate" in the action bar. */
+   *  to show the settled whole-turn time ("用时 41秒") at the start of the action bar. */
   durationMs?: number;
-  /** Wall-clock ms of the last streaming activity (content / tool / meta event).
-   *  Anchors the stall clock to a persisted value so it survives component
-   *  remounts on session switch / page refresh instead of resetting to zero. */
+  /** Wall-clock ms of the last streaming activity (content / tool / meta event),
+   *  persisted so it survives remounts; part of the ontology panel's stream fingerprint. */
   lastActivityTs?: number;
   attachments?: Array<{
     origin?: 'local' | 'cloud';

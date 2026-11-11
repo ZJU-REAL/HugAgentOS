@@ -5,8 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict
 
-from core.config.settings import settings as _settings
-from extensions.mcp_servers._ports import PORTS as _MCP_PORTS
 
 _WORKFLOW_MODE_HINT = (
     "\n\n## 工作流模式（用户已主动进入）\n"
@@ -91,10 +89,6 @@ _WORKFLOW_MODE_HINT = (
     "一旦写入，「哪些还没做」就不再可判定。\n"
 )
 
-
-KB_MCP_HTTP_URL = (
-    f"http://{_settings.server.mcp_host}:{_MCP_PORTS['retrieve_dataset_content']}/mcp/"
-)
 
 DYNAMIC_BLOCK_HEADER = "## 动态补充（由能力进化沉淀，可在进化控制台停用）"
 

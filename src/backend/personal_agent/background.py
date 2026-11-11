@@ -14,11 +14,19 @@ SCHEDULE_INTERVAL_SEC = 15
 CHANNEL_INTERVAL_SEC = 3
 SESSION_WATCH_INTERVAL_SEC = 10
 MAINTENANCE_INTERVAL_SEC = 60
-HEARTBEAT_INTERVAL_SEC = 60
-HEARTBEAT_CLEANUP_SEC = 600
-DREAMING_INTERVAL_SEC = 30
+PROACTIVE_CLEANUP_SEC = 600
+DREAMING_BEAT_SEC = 600   # the Dreaming loop sleeps until the next due time and beats in between
 FILE_MEMORY_INTERVAL_SEC = 3
+MEMORY_PRUNE_INTERVAL_SEC = 3600
 TURN_BEAT_SEC = 10
+
+
+def prune_memory_versions():
+    """The write log keeps 30 days (memory.versions.KEEP_DAYS), each file's newest version always."""
+    from personal_agent.memory import versions
+    with SessionLocal() as db:
+        while versions.prune(db):
+            db.commit()
 
 
 class BackgroundServices:
@@ -30,18 +38,18 @@ class BackgroundServices:
 
     def start(self):
         from personal_agent.conversation.turn_worker import loop as turn_loop
-        from personal_agent.workspace.dreaming import tick as dream_tick
         from personal_agent.workspace.file_memory import drain
 
         loops = [
             self.watch("turn", turn_loop(self.owner)),
             self.schedule_loop(),
             self.channel_loop(),
-            self.beat_loop(),
+            self.prepare_schedules(),
             self.session_watch_loop(),
             self.maintenance_loop(),
-            self.every(DREAMING_INTERVAL_SEC, "dreaming", dream_tick),
+            self.dreaming_loop(),
             self.every(FILE_MEMORY_INTERVAL_SEC, "file memory", lambda: asyncio.to_thread(drain)),
+            self.every(MEMORY_PRUNE_INTERVAL_SEC, "memory versions", lambda: asyncio.to_thread(prune_memory_versions)),
         ]
         self.tasks = [asyncio.create_task(loop) for loop in loops]
 
@@ -94,6 +102,22 @@ class BackgroundServices:
         finally:
             task.cancel()
 
+    async def dreaming_loop(self):
+        """Not a fixed interval: runs when an agent is due and sleeps until the next one."""
+        from personal_agent.memory.dreaming.pipeline import serve
+        health = await self.register("dreaming", DREAMING_BEAT_SEC)
+
+        async def beat():
+            if health.beat_due: await asyncio.to_thread(health.beat)
+
+        while not self.stopping:
+            try:
+                await serve(lambda: self.stopping, beat)
+            except Exception as exc:
+                log.warning("Personal dreaming cycle failed (%s)", type(exc).__name__)
+                await asyncio.to_thread(health.error, f"{type(exc).__name__}: {exc}")
+                await asyncio.sleep(60)
+
     async def schedule_loop(self):
         from personal_agent.scheduling.schedules import fire_due
 
@@ -103,22 +127,21 @@ class BackgroundServices:
 
         await self.every(SCHEDULE_INTERVAL_SEC, "schedule", lambda: asyncio.to_thread(fire))
 
-    async def beat_loop(self):
-        """Admit due heartbeat checks; now and then remove the rows of quiet ones."""
-        from personal_agent.scheduling import heartbeat
+    async def prepare_schedules(self):
+        """Once, at start: fill next_due_at where it is missing and schedule the agents that existed before
+        proactive checks did. Not a loop: afterwards new agents are scheduled when they are created."""
+        from personal_agent.scheduling import heartbeat, schedules
 
-        last_cleanup = 0.0
-
-        def cycle():
-            nonlocal last_cleanup
+        def prepare():
             with SessionLocal() as db:
-                heartbeat.fire_due(db)
-            if time.monotonic() - last_cleanup > HEARTBEAT_CLEANUP_SEC:
-                with SessionLocal() as db:
-                    heartbeat.cleanup(db)
-                last_cleanup = time.monotonic()
+                schedules.backfill(db)
+            with SessionLocal() as db:
+                heartbeat.seed_all(db)
 
-        await self.every(HEARTBEAT_INTERVAL_SEC, "heartbeat", lambda: asyncio.to_thread(cycle))
+        try:
+            await asyncio.to_thread(prepare)
+        except Exception as exc:
+            log.warning("Personal schedule preparation failed (%s)", type(exc).__name__)
 
     async def channel_loop(self):
         from personal_agent.channels.channel_bridge import deliver_pending
@@ -134,7 +157,27 @@ class BackgroundServices:
         )
 
     async def maintenance_loop(self):
-        await self.every(MAINTENANCE_INTERVAL_SEC, "computer maintenance", self.maintain_computers)
+        last_cleanup = 0.0
+
+        def proactive():
+            """Void the approvals a proactive task asked for that nobody answered for a day; now and then remove the rows of quiet checks and old drafts."""
+            nonlocal last_cleanup
+            from personal_agent.scheduling import heartbeat, proactive_tasks
+            with SessionLocal() as db:
+                proactive_tasks.expire(db)
+            if time.monotonic() - last_cleanup > PROACTIVE_CLEANUP_SEC:
+                with SessionLocal() as db:
+                    heartbeat.cleanup(db)
+                last_cleanup = time.monotonic()
+
+        async def maintain():
+            try:
+                await asyncio.to_thread(proactive)
+            except Exception as exc:
+                log.warning("Personal proactive maintenance failed (%s)", type(exc).__name__)
+            await self.maintain_computers()
+
+        await self.every(MAINTENANCE_INTERVAL_SEC, "computer maintenance", maintain)
 
     async def maintain_computers(self):
         def _computer_bindings(db):

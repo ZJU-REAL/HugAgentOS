@@ -20,7 +20,26 @@ from core.db.threads import off_loop
 def response(value):
     return ToolChunk(content=[TextBlock(type="text", text=json.dumps(value, ensure_ascii=False, default=str))])
 
+def proactive_note(payload, now=None):
+    """The last line of a proactive task's goal: which check started it and the period it covers.
+    The task sees the goal, not the check's context, and its rules differ by the time of day."""
+    import time
+    payload = payload or {}
+    window, since = payload.get("window"), (payload.get("found") or {}).get("since")
+    if window == "idle" and since:
+        hours = str(max(1, -int(-((now or time.time()) - since) // 3600)))
+        return ("This is an idle proactive check: look only at what is new in the last " + hours
+                + " hours (for mail, since_hours=" + hours + ").")
+    return {"morning": "This is the morning proactive check.", "evening": "This is the evening proactive check.",
+            "idle": "This is an idle proactive check: look only at what is new since the last check.",
+            "manual": "The user started this proactive check by hand.",
+            "audit": "This is the weekly full proactive check, in the evening: look at the mail of the last 14 days "
+                     "(since_hours=336).",
+            }.get(window)
+
 def register_front_tools(toolkit, request, loader=None):
+    from personal_agent.conversation.router import kinds
+    from personal_agent.scheduling import proactive_tasks
     from personal_agent.conversation.router.kinds import EVENT_ROLE, speaker_role
     from personal_agent.conversation.router.turn import current_turn, owned
     from personal_agent.workspace.constants import WORKSPACE
@@ -29,12 +48,13 @@ def register_front_tools(toolkit, request, loader=None):
     from personal_agent.scheduling.schedules import create, delete, listing
     from personal_agent.scheduling.heartbeat import KEY_PREFIX as BEAT_PREFIX
     from personal_agent.context import AgentContext
+    from personal_agent.memory import layout, store
     ident, uid = request.profile_ref, str(request.current_user_id)
     versions = {}
 
     def turn(changes_tasks=False, beat_ok=False):
         """The running turn. changes_tasks: only the user's messages may change tasks; beat_ok also lets
-        a heartbeat check start its one task."""
+        a proactive check start its one task."""
         state = current_turn.get()
         if not state or state.id != ident: raise PermissionError("This conversation turn is not active")
         if changes_tasks and not state.grants.change_tasks and not (beat_ok and state.grants.create_one_task):
@@ -74,15 +94,25 @@ def register_front_tools(toolkit, request, loader=None):
         comes from; omitted, all of them. Files attached to those messages go to the task."""
         state = turn(changes_tasks=True, beat_ok=True)
         beat = not state.grants.change_tasks
-        if beat and state.count >= 1: raise PermissionError("A heartbeat check starts at most one task")
+        if beat and state.count >= 1: raise PermissionError("A proactive check starts at most one task")
         # The key repeats on a retried turn, so the same task is not started twice.
         # A heartbeat's key marks the task as unattended: its result may stay quiet.
         key = (BEAT_PREFIX + "task:" + state.head) if beat else "turn:" + state.head + ":" + str(state.count)
+        if beat and (goal or "").strip():
+            # The worker's system prompt is the same for every task (a shared cache prefix), so the
+            # rules of a proactive task follow its goal.
+            from personal_agent.workspace.prompting import prompt_part
+            goal = (goal or "").rstrip() + "\n\n" + prompt_part("task_proactive")
+            note = proactive_note(state.triggers[0].payload)
+            if note: goal += "\n\n" + note
         sources = state.sources(from_messages)
         with changing(state, sources) as (svc, message):
             task = task_ops.create(svc, message, goal, key[:100],
                 attachments=state.attachments(sources), related=related_task_ids or [], title=title)
             attribute(svc.db, task, sources[1:], context=True)
+            # What a proactive check prepared is the agent's own idea: a task that acts on it asks first.
+            if not beat and (proactive_tasks.DRAFTS.rstrip("/") in goal or kinds.answers_summary(svc.db, state.chat_id, state.messages)):
+                proactive_tasks.mark_followup(task)
             result = {"started": True, "task_id": task.id, "title": task.label_text}
         state.count += 1
         return response(result)
@@ -139,6 +169,11 @@ def register_front_tools(toolkit, request, loader=None):
                 .order_by(ChatMessage.chat_seq.desc()).limit(max(1, min(30, limit)))).all()
             return response([{"role": speaker_role(m), "at": m.created_at, "content": m.content[:3000]} for m in rows])
 
+    def attended():
+        """Refuse a change of memory, persona or the list in a turn nobody attends: what a proactive
+        check or its task read on the internet, in mail or in chats must not be written down as fact."""
+        if turn().grants.unattended: raise PermissionError("A proactive turn does not change memory, persona files or the list")
+
     def workspace():
         """The agent whose workspace files the turn may change."""
         state = turn()
@@ -150,19 +185,54 @@ def register_front_tools(toolkit, request, loader=None):
             with SessionLocal() as db: AgentContext(db, uid).identity.adopt_identity_name(data.get("content") or "")
         return response({"path": data["path"], "saved": True})
 
+    def remember(change):
+        """Save a memory file through the store as this turn (writer ONLINE, the turn's source id)."""
+        state = turn()
+        with checked(state) as db:
+            data = change(db, db.get(PersonalAgent, state.agent_id), state.source_id)
+            version = data.pop("version")
+            db.commit()
+        versions[data["path"]] = data["etag"]
+        return response({"path": data["path"], "saved": True, "changed": version is not None})
+
     @off_loop
-    def pa_memory_read(path: str) -> ToolChunk:
-        """Read a workspace persona or memory file, for example USER.md, MEMORY.md or memory/2026-10-10.md."""
+    def pa_memory_read(path: str, offset: int = 0, limit: int = 60) -> ToolChunk:
+        """Read a memory page or a workspace file. A page under memory/ or journal/ is read by lines:
+        offset is the first line (0-based), limit the number of lines (default the first 60; a large
+        page starts with its ## Current picture). USER.md, MEMORY.md and the persona files
+        (AGENTS.md, SOUL.md, IDENTITY.md, HEARTBEAT.md, BOOTSTRAP.md) are returned whole."""
         data = read_file(workspace(), path)
         versions[data["path"]] = data["etag"]
         text = data["content"] or ""
-        daily = data["path"].startswith(WORKSPACE + "/memory/")
-        return response({"path": data["path"], "content": text[-50000:] if daily else text[:50000],
-                         "truncated": data["truncated"] or len(text) > 50000, "slice": "tail" if daily else "head"})
+        rel = data["path"][len(WORKSPACE) + 1:]
+        if rel.split("/")[0] not in (layout.DIR, layout.JOURNAL_DIR):
+            return response({"path": data["path"], "content": text[:50000], "truncated": data["truncated"] or len(text) > 50000})
+        from personal_agent.memory import usage
+        usage.touch(workspace(), [rel])
+        lines = text.splitlines()
+        start, count = max(0, offset), max(1, min(limit, 400))
+        part = "\n".join(lines[start:start + count])[:50000]
+        return response({"path": data["path"], "content": part, "offset": start, "lines": len(lines),
+                         "more": start + count < len(lines), "truncated": data["truncated"]})
+
+    @off_loop
+    def pa_memory_search(query: str) -> ToolChunk:
+        """Search the memory wiki and the daily records (journal/) for words. Returns the pages whose
+        name, description or aliases match, the matching lines of pages (path and line number) and
+        matching journal lines, newest day first. Search before you create a page."""
+        from personal_agent.memory.search import search
+        return response(search(workspace(), query[:200], used=True))
 
     @off_loop
     def pa_memory_edit(path: str, old_string: str, new_string: str) -> ToolChunk:
-        """Replace one exact, unique passage of a persona or memory file. Read the file first."""
+        """Replace one exact, unique passage of a memory page (memory/<type>-<name>.md), USER.md,
+        MEMORY.md or a persona file. Read the file first. A fact line you add or change ends with
+        [src: <本轮来源 id> | as-of: <YYYY-MM-DD>]; correct an outdated fact as "was X until <date>"."""
+        from personal_agent.workspace.files import relative
+        attended()
+        if store.is_memory(relative(path)):
+            return remember(lambda db, agent, sid: store.edit(db, agent, path, old_string, new_string,
+                                                              writer=layout.ONLINE, source_id=sid))
         agent = workspace()
         current = read_file(agent, path)
         text = current["content"] or ""
@@ -173,9 +243,16 @@ def register_front_tools(toolkit, request, loader=None):
 
     @off_loop
     def pa_memory_write(path: str, content: str) -> ToolChunk:
-        """Create or replace a persona or memory file, for example a new daily note memory/YYYY-MM-DD.md."""
+        """Create a memory page, or replace one you have read: memory/<type>-<name>.md with the
+        frontmatter and fact lines that memory/_schema.md describes. Also creates or replaces USER.md,
+        MEMORY.md or a persona file. Search first and update the page that exists instead of making
+        another. memory/_index.md, memory/_schema.md and journal/ are written by the platform."""
         from personal_agent.workspace.files import relative
+        attended()
         target = WORKSPACE + "/" + relative(path)
+        if store.is_memory(relative(path)):
+            return remember(lambda db, agent, sid: store.write(db, agent, path, content, versions.get(target, ""),
+                                                               writer=layout.ONLINE, source_id=sid))
         data = write_file(workspace(), path, content, versions.get(target, ""))
         versions[target] = data["etag"]
         return saved(data)
@@ -183,6 +260,7 @@ def register_front_tools(toolkit, request, loader=None):
     @off_loop
     def pa_set_name(name: str) -> ToolChunk:
         """Change your own name when the user gives you a new one."""
+        attended()
         with checked(turn()) as db:
             return response({"name": AgentContext(db, uid).identity.configure({"name": name})["config"]["name"]})
 
@@ -219,9 +297,9 @@ def register_front_tools(toolkit, request, loader=None):
 
     @off_loop
     def pa_stay_quiet(reason: str) -> ToolChunk:
-        """Send nothing to the user for this scheduled result or heartbeat check, because it has nothing new or noteworthy."""
+        """Send nothing to the user for this scheduled result or proactive check, because it has nothing new or noteworthy."""
         state = turn()
-        # Only a scheduled result or a heartbeat check may end without telling the user. A requested
+        # Only a scheduled result or a proactive check may end without telling the user. A requested
         # result is always reported, and a user's message always answered, also when they share the turn.
         if not state.grants.quiet:
             if state.messages: raise PermissionError("The user wrote in this turn; answer them")
@@ -229,15 +307,48 @@ def register_front_tools(toolkit, request, loader=None):
         with checked(state): state.quiet = True
         return response({"quiet": True, "next": "Stop now. Do not write a message."})
 
+    @off_loop
+    def pa_proactive_dismiss(refs: list[str] | None = None) -> ToolChunk:
+        """Stop raising one matter that a proactive message told the user about, when the user says they do
+        not want to hear of that matter again. Call it without refs to list the matters told lately (ref,
+        title, what was said, date); then call it with the ref of each matter the user means. A whole kind
+        of matter is not dismissed here: change its item in HEARTBEAT.md instead."""
+        from personal_agent.scheduling import heartbeat
+        # Only the user says what not to raise again: a result or a check cannot silence a matter.
+        state = turn(changes_tasks=True)
+        if refs:
+            with checked(state): pass
+            done = heartbeat.dismiss_told(state.agent_id, refs)
+            if not done: raise ValueError("No told matter has this ref; call the tool without refs to list them")
+            return response({"dismissed": done})
+        with checked(state) as db:
+            agent = db.get(PersonalAgent, state.agent_id)
+            said = {}
+            for row in db.scalars(select(ChatMessage).where(ChatMessage.chat_id == agent.chat_id, ChatMessage.role == "assistant")
+                                  .order_by(ChatMessage.chat_seq.desc()).limit(200)):
+                for item in (row.extra_data or {}).get("proactive_refs") or []: said.setdefault(item["ref"], item["text"])
+            listed = []
+            for item in heartbeat.told_list(agent.config)[:40]:
+                # A tag is kept as the model wrote it, sometimes only the id that the matter's ref carries.
+                text = next((text for ref, text in said.items() if ref == item["ref"] or ref in item["ref"].split(":")), None)
+                listed.append({"ref": item["ref"], "title": item.get("title"), "said": text, "told": item["at"], "dismissed": item["dismissed"]})
+            return response({"told": listed})
+
     state = current_turn.get()
     if state is not None and state.id == ident and state.grants.readonly:
-        # A heartbeat check reads, notes and may start one task. It never changes the user's tasks or schedules.
-        tools = [pa_task_create, pa_task_get, pa_history_search, pa_memory_read, pa_memory_edit, pa_memory_write,
-            pa_schedule_list, pa_stay_quiet]
+        # A proactive check reads and may start one task. It never changes the user's tasks or schedules, and
+        # it writes no memory, persona file or list: nobody is there, and what it read is not the user's word.
+        tools = [pa_task_create, pa_task_get, pa_history_search, pa_memory_read, pa_memory_search, pa_schedule_list, pa_stay_quiet]
+    elif state is not None and state.id == ident and state.grants.unattended:
+        # The result of a proactive task, with nobody there: as an ordinary turn, without the tools that
+        # write memory, persona or the list. Its other task and schedule tools refuse when called.
+        tools = [pa_task_create, pa_task_update, pa_task_control, pa_task_get, pa_history_search, pa_memory_read, pa_memory_search,
+            pa_schedule_create, pa_schedule_list, pa_schedule_update, pa_schedule_delete, pa_stay_quiet]
     else:
         # The same tools every turn keep the prompt cache warm; pa_stay_quiet checks the turn when called.
-        tools = [pa_task_create, pa_task_update, pa_task_control, pa_task_get, pa_history_search, pa_memory_read, pa_memory_edit,
-            pa_memory_write, pa_set_name, pa_schedule_create, pa_schedule_list, pa_schedule_update, pa_schedule_delete, pa_stay_quiet]
+        tools = [pa_task_create, pa_task_update, pa_task_control, pa_task_get, pa_history_search, pa_memory_read, pa_memory_search, pa_memory_edit,
+            pa_memory_write, pa_set_name, pa_schedule_create, pa_schedule_list, pa_schedule_update, pa_schedule_delete, pa_stay_quiet,
+            pa_proactive_dismiss]
     # The user's HugAgentOS projects, chats and runs: reads only in a conversation turn.
     from personal_agent.sessions.session_tool import build as session_tool
     tools.append(session_tool(uid))

@@ -644,7 +644,10 @@ export async function updateCatalogItem(
   itemId: string,
   enabled: boolean
 ): Promise<void> {
-  await apiRequest(`/v1/catalog/${kind}/${itemId}`, {
+  // `/v1/catalog/kb/**` 归知识库路由（改名、文档、分块…）；知识库开关走通用目录
+  // 路由的 `knowledge_bases` 写法，两者不共用同一个 URL。
+  const segment = kind === 'kb' ? 'knowledge_bases' : kind;
+  await apiRequest(`/v1/catalog/${segment}/${itemId}`, {
     method: 'PATCH',
     body: JSON.stringify({ enabled }),
   });
@@ -1446,8 +1449,11 @@ export interface KBDocumentItem {
   size?: number;
   size_bytes?: number;
   indexing_status?: string;
+  indexing_error?: string | null;
   enabled?: boolean;
   data_source_type?: string;
+  /** 外接知识库（WeKnora）文档是否有可经 /original 取回的原文件 */
+  original_available?: boolean;
   created_at?: number | string;
   uploaded_at?: number | string;
   createdAt?: number | string;

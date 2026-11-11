@@ -39,16 +39,6 @@ ASSET_PROMPT: AssetKind = "prompt"
 ASSET_MODEL: AssetKind = "model"
 ASSET_KB: AssetKind = "kb"
 
-ASSET_KINDS: Tuple[AssetKind, ...] = (
-    ASSET_MEMORY,
-    ASSET_SKILL,
-    ASSET_WORKFLOW,
-    ASSET_ONTOLOGY,
-    ASSET_PROMPT,
-    ASSET_MODEL,
-    ASSET_KB,
-)
-
 
 @dataclass(frozen=True)
 class AssetRef:
@@ -234,9 +224,6 @@ def build_bundle(
     )
 
 
-EMPTY_BUNDLE = AssetBundle(bundle_id="bundle_empty", refs=(), partial=True)
-
-
 def bundle_checksum(bundle: AssetBundle) -> str:
     """Stable checksum over the full serialized bundle, for audit records."""
     payload = json.dumps(bundle.to_dict(), sort_keys=True, ensure_ascii=False)
@@ -248,7 +235,6 @@ def as_json(bundle: AssetBundle) -> str:
 
 
 __all__ = [
-    "ASSET_KINDS",
     "ASSET_KB",
     "ASSET_MEMORY",
     "ASSET_MODEL",
@@ -259,7 +245,6 @@ __all__ = [
     "AssetBundle",
     "AssetKind",
     "AssetRef",
-    "EMPTY_BUNDLE",
     "as_json",
     "build_bundle",
     "bundle_checksum",
