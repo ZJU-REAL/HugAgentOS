@@ -187,3 +187,11 @@ class PersonalSessionOperation(Base):
     created_at = Column(UTCDateTime(timezone=True), default=utc_now)
     __table_args__ = (UniqueConstraint("user_id", "request_key", name="uq_pa_session_request"),
                      Index("ix_pa_session_queue", "device_id", "status", "deadline"))
+
+
+# Schema registration imports every installed package's ``models`` module, and nothing
+# else, before the database is created or reconciled. These two tables live next to the
+# code that writes them; without these imports the desktop database (no Alembic) never
+# got them and every health beat and assignment record failed with "no such table".
+from personal_agent.health import PersonalRuntimeHealth  # noqa: E402,F401
+from personal_agent.telemetry import PersonalAssignmentTelemetry  # noqa: E402,F401

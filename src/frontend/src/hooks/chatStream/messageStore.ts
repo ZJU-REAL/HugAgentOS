@@ -45,8 +45,7 @@ export function commitUpdate(s: ChatStreamState, streaming: boolean, cits?: Cita
             segments: s.segments.length > 0 ? [...s.segments] : undefined,
             isStreaming: streaming,
             inFlight: streaming && s.runId ? { eventOffset: s.eventOffset, textSnapshotOffset: s.textSnapshotOffset } : undefined,
-            // Persisted activity stamp — anchors the stall clock so it survives
-            // a session switch / refresh remount (see useActivityAge).
+            // Persisted last-activity stamp (the ontology panel keys its stream fingerprint on it).
             // 取服务端下发的时刻而非本地钟：另一台设备接上同一轮时读到的是同一个值。
             lastActivityTs: s.lastEventTs,
         };

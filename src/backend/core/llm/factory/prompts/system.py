@@ -33,6 +33,7 @@ async def system_prompt(
     _turbo_code_exec,
     cfg,
     enabled_mcp_keys,
+    kb_catalog_section,
     loader,
     skill_ids_to_register,
     tool_schemas,
@@ -48,7 +49,7 @@ async def system_prompt(
             request.user_agent,
             tool_schemas,
             enabled_mcp_keys,
-            enabled_kb_ids=request.enabled_kb_ids,
+            kb_catalog_section=kb_catalog_section,
         )
         from core.config.local_mode import local_mode_enabled
 
@@ -215,7 +216,7 @@ async def system_prompt(
             _sp_ctx: Dict[str, Any] = {
                 "tools": tool_schemas,
                 "mcp_servers": enabled_mcp_keys,
-                "enabled_kbs": request.enabled_kb_ids,
+                "kb_catalog_section": kb_catalog_section,
                 "chat_id": request.chat_id,
                 "sandbox_session_id": _sbx_sess,
                 "approval_mode": request.approval_mode,

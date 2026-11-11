@@ -69,7 +69,8 @@
 
 @container knowledge-view (max-width: 800px){
   .jx-kbDocTable{
-    --jx-kb-doc-cols:minmax(0,1.3fr) 80px 104px 84px 96px;
+    --jx-kb-doc-cols:minmax(0,1.3fr) 80px 104px 84px;
+    --jx-kb-doc-actions-col:96px;
   }
 }
 

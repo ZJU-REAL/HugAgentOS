@@ -62,7 +62,6 @@ def build_system_prompt(
     tool_names = runtime._extract_tool_names(ctx.get("tools"))
     mcp_keys = tuple(sorted(ctx.get("mcp_servers") or []))
     provider_key = (getattr(config.system_prompt, "provider", None) or "filesystem").strip().lower()
-    enabled_kbs_key = tuple(sorted(ctx.get("enabled_kbs") or []))
     # Full canonical hash, not plaintext/truncated signatures. This covers the
     # complete project instructions, complete files manifest, tool definitions
     # and any future dynamic template variable without expanding the cache key
@@ -89,7 +88,6 @@ def build_system_prompt(
         tool_names,
         mcp_keys,
         db_version,
-        enabled_kbs_key,
         active_version_key,
         prompt_context_hash,
     )
@@ -372,21 +370,22 @@ def build_system_prompt(
         )
 
     # ── Lightweight KB catalog (name + description only) ──
-    enabled_kbs = ctx.get("enabled_kbs")
-    if enabled_kbs:
-        kb_section = runtime._build_kb_lite_section(enabled_kbs)
-        if kb_section:
-            base = (base + "\n\n" + kb_section).strip()
-            _record_section(
-                "runtime/kb_catalog",
-                kb_section,
-                origin="knowledge-base:catalog",
-                trust="configured_service",
-                priority=800,
-                cache_class="capability_set",
-                version="1",
-                sensitive=True,
-            )
+    # Pre-rendered off the event loop by the agent factory; its text is part of
+    # the ctx hash, so a cold-directory (ids-only) rendering is never cached
+    # past the turn that produced it.
+    kb_section = ctx.get("kb_catalog_section") or ""
+    if kb_section:
+        base = (base + "\n\n" + kb_section).strip()
+        _record_section(
+            "runtime/kb_catalog",
+            kb_section,
+            origin="knowledge-base:catalog",
+            trust="configured_service",
+            priority=800,
+            cache_class="capability_set",
+            version="1",
+            sensitive=True,
+        )
 
     from core.files.edition import workspace_instructions
     workspace_hint = workspace_instructions()

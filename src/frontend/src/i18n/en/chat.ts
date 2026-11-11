@@ -400,8 +400,8 @@ export const CHAT_DICT: Record<string, string> = {
   'Mermaid 渲染失败': 'Mermaid render failed',
   '加载图表中...': 'Loading diagram...',
   '用时 {sec}秒': 'Took {sec}s',
-  '用时 {min}分{sec}秒': 'Took {min}m {sec}s',
-  '本次回答整体生成耗时': 'Total generation time for this response',
+  '本次回答整体生成耗时 {sec} 秒': 'Total generation time for this response: {sec}s',
+  '用时 {d}': 'Took {d}',
   '这条消息包含无法显示的旧格式数据，已跳过异常内容。': 'This message contains legacy data that cannot be displayed. The invalid content was skipped.',
   // Turn card: the memories this turn wrote, each editable in place.
   '本轮新增记忆': 'Remembered from this turn',

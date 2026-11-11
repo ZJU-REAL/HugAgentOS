@@ -1,4 +1,3 @@
-import { nowId } from '../storage';
 import type { ChatState } from './chatState';
 
 export function createChatInitialState(): Pick<ChatState, "currentUserId" | "store" | "storeRef" | "currentChatId" | "projectOverviewChatId" | "homeDraftId" | "sending" | "sendingChatIds" | "remoteRunningChatIds" | "expandedThinking" | "chatMode" | "lastStandardMode" | "modeSlug" | "toolResultPanel" | "copiedMsg" | "chatsLoading" | "feedbackMap" | "dislikingUid" | "dislikeComment" | "toolDisplayNames" | "backendSessionIds" | "loadedMsgIds" | "messagePaging" | "shareSelectionMode" | "selectedShareMessageUids" | "pendingScrollMessageTs" | "planMode" | "loopMode" | "currentPlanId" | "editingMessageUid" | "sessionLoadEpoch" | "activeRuns" | "queuedMessages" | "compactionNotices" | "visionReading" | "contextCompactions" | "contextUsages" | "contextUsageEpochs" | "planProgress"> { return {
@@ -8,7 +7,9 @@ export function createChatInitialState(): Pick<ChatState, "currentUserId" | "sto
   currentUserId: null,
 store: { chats: {}, order: [] },
 storeRef: { chats: {}, order: [] },
-currentChatId: nowId('chat'),
+// No chat until hydrateForUser picks one: an id minted here belongs to no user,
+// so it can't be registered as a local draft and every request for it 404s.
+currentChatId: '',
 homeDraftId: null,
 projectOverviewChatId: null,
 sending: false,

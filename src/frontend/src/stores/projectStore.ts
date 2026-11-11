@@ -19,7 +19,8 @@ import {
   uploadProjectFile,
 } from '../api';
 import { registerUnboundProject } from '../storage';
-import { isAddressableChat, isLocalDraftChat, useChatStore } from './chatStore';
+import { isAddressableChat, isLocalDraftChat, useChatStore, withoutChatUrlSync } from './chatStore';
+import { navigateTo, pathForPanel, setProjectOpener } from '../routing/navigation';
 
 import { t } from '../i18n';
 
@@ -158,21 +159,25 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
     const project = get().list.find(item => item.project_id === projectId) || await apiGetProject(projectId);
     if (selection !== projectSelectionGeneration || useChatStore.getState().currentUserId !== userId
       || window.location.pathname !== originPath || useChatStore.getState().currentChatId !== originChatId) return;
-    if (chat.currentChat()?.projectId !== projectId || chat.currentChat()?.automationTaskId || isAddressableChat(chat.currentChatId)) {
-      const draft = Object.values(chat.store.chats).find(item =>
-        item.projectId === projectId && !item.automationTaskId && isLocalDraftChat(item.id));
-      if (draft) {
-        chat.bindChatProject(draft.id, projectId, project.name);
-        chat.setCurrentChatId(draft.id);
+    withoutChatUrlSync(() => {
+      if (chat.currentChat()?.projectId !== projectId || chat.currentChat()?.automationTaskId || isAddressableChat(chat.currentChatId)) {
+        const draft = Object.values(chat.store.chats).find(item =>
+          item.projectId === projectId && !item.automationTaskId && isLocalDraftChat(item.id));
+        if (draft) {
+          chat.bindChatProject(draft.id, projectId, project.name);
+          chat.setCurrentChatId(draft.id);
+        }
+        else {
+          chat.newChat({ projectId, projectName: project.name });
+        }
+      } else {
+        chat.bindChatProject(chat.currentChatId, projectId, project.name);
+        chat.setCurrentChatId(chat.currentChatId);
       }
-      else {
-        chat.newChat({ projectId, projectName: project.name });
-      }
-    } else {
-      chat.bindChatProject(chat.currentChatId, projectId, project.name);
-      chat.setCurrentChatId(chat.currentChatId);
-    }
-    useChatStore.setState({ projectOverviewChatId: useChatStore.getState().currentChatId });
+      useChatStore.setState({ projectOverviewChatId: useChatStore.getState().currentChatId });
+    });
+    // 概览已标记，聊天面板的地址此时就是 `/projects/<项目id>`
+    navigateTo(pathForPanel('chat'));
     chat.setToolResultPanel(null);
   },
 
@@ -444,3 +449,5 @@ export const useProjectStore = create<ProjectStoreState>((set, get) => ({
 }));
 
 export type { SortKey, ProjectKind };
+
+setProjectOpener(projectId => useProjectStore.getState().openProject(projectId));

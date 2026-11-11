@@ -45,6 +45,10 @@ import { panelFromPath } from './src/routing/navigation';
 import { abilitySlug, abilityTabFromSubs, kbTabFrom, mySpaceTabFromSubs } from './src/routing/subPages';
 import { useCatalogStore as catalog } from './src/stores/catalogStore';
 import { useMySpaceStore } from './src/stores/mySpaceStore';
+import { projectOverviewId } from './src/stores/chatStore';
+// 项目 store 的依赖图里有顶层 await 的循环，静态打进同一个包会让 esbuild 的模块初始化
+// 互相等死（与本改动无关，HEAD 上同样如此）；拆成独立分块交给浏览器原生 ESM 加载即可。
+const { useProjectStore } = await import('./src/stores/projectStore');
 
 const chat = (id, messages) => ({
   id, title: id, createdAt: 1, updatedAt: 1, messages, favorite: false, pinned: false,
@@ -67,6 +71,8 @@ window.__routing = {
   panel: () => window.__panelFromHook,
   panelFromUrl: () => panelFromPath(),
   select: (id) => useChatStore.getState().setCurrentChatId(id),
+  openProject: (id) => useProjectStore.getState().openProject(id),
+  overview: () => projectOverviewId(useChatStore.getState().currentChat()) ?? null,
   newChat: () => useChatStore.getState().newChat(),
   setPanel: (p) => useCatalogStore.getState().setPanel(p),
   setAbilityTab: (t) => catalog.getState().setPanel('ability_center', abilitySlug(t)),
@@ -113,7 +119,9 @@ createRoot(document.getElementById('root')).render(<RouterProvider router={appRo
     resolveDir: process.cwd(),
     loader: 'tsx',
   },
-  outfile: resolve(output, 'fixture.js'),
+  outdir: output,
+  entryNames: 'fixture',
+  splitting: true,
   bundle: true,
   format: 'esm',
   jsx: 'automatic',
@@ -131,8 +139,8 @@ try {
   page.on('pageerror', (e) => { errors.push(e.message); console.error('browser error:', e.message); });
   await page.context().route(origin + '/**', async (route) => {
     const url = new URL(route.request().url());
-    if (url.pathname === '/fixture.js') {
-      return route.fulfill({ contentType: 'text/javascript', body: await readFile(resolve(output, 'fixture.js')) });
+    if (/^\/[\w.-]+\.js$/.test(url.pathname)) {
+      return route.fulfill({ contentType: 'text/javascript', body: await readFile(resolve(output, url.pathname.slice(1))) });
     }
     if (url.pathname === '/api/v1/chats/task-chat') {
       taskSessionRequests.push(url.pathname);
@@ -140,6 +148,8 @@ try {
     }
     if (url.pathname === '/api/v1/automations/task-one') return route.fulfill({json:{code:10000,data:{task_id:'task-one',name:'Daily report',status:'active'}}});
     if (url.pathname === '/api/v1/automations/task-one/runs') return route.fulfill({json:{code:10000,data:[{run_id:'run-one',task_id:'task-one',chat_id:'task-chat',status:'completed',started_at:'2026-09-30T10:00:00Z'}]}});
+    if (url.pathname === '/api/v1/projects/p1') return route.fulfill({json:{code:10000,data:{project_id:'p1',name:'测试'}}});
+    if (url.pathname === '/api/v1/projects/missing') return route.fulfill({status:404,json:{code:40400,message:'项目不存在'}});
     if (url.pathname.startsWith('/api')) return route.fulfill({ json: { code: 10000, data: {} } });
     // nginx / 桌面端本地代理都是这个行为：静态资源没命中就回落 index.html
     return route.fulfill({ contentType: 'text/html', body: '<html><body><div id="root"></div><script type="module" src="/fixture.js"></script></body></html>' });
@@ -224,6 +234,39 @@ try {
   await page.evaluate(() => { for (let i = 0; i < 5; i += 1) window.__routing.streamTick('chat-b'); });
   assert.equal(await path(), '/c/chat-a', '后台会话输出不能把地址切到它自己');
 
+  // 12. 项目概览有自己的地址：打开、前进后退、刷新、首条消息升级、项目不存在时退回列表
+  await page.evaluate(() => window.__routing.select('chat-a'));
+  await page.evaluate(() => window.__routing.openProject('p1'));
+  await page.waitForFunction(() => location.pathname === '/projects/p1');
+  assert.equal(await page.evaluate(() => window.__routing.overview()), 'p1', '打开项目后应停在项目概览');
+  await page.waitForFunction(() => window.__panelFromHook === 'chat');
+  await page.goBack();
+  await page.waitForFunction(() => window.__routing.chatId() === 'chat-a');
+  assert.equal(await path(), '/c/chat-a');
+  assert.equal(await page.evaluate(() => window.__routing.overview()), null);
+  await page.goForward();
+  await page.waitForFunction(() => window.__routing.overview() === 'p1');
+  assert.equal(await path(), '/projects/p1', '前进应回到项目概览');
+  await page.evaluate(() => window.__routing.newChat());
+  assert.equal(await path(), '/', '项目概览里点新对话应回首页');
+  assert.equal(await page.evaluate(() => window.__routing.overview()), null);
+  await page.evaluate(() => window.__routing.openProject('p1'));
+  await page.waitForFunction(() => location.pathname === '/projects/p1');
+  await page.goBack();
+  await page.waitForFunction(() => location.pathname === '/' && window.__routing.overview() === null);
+  await page.goForward();
+  await page.waitForFunction(() => window.__routing.overview() === 'p1');
+  const beforeProjectSend = await page.evaluate(() => history.length);
+  const projectChat = await page.evaluate(() => window.__routing.publish());
+  assert.equal(await path(), '/c/' + projectChat, '项目里发出首条消息后地址应升级为会话');
+  assert.equal(await page.evaluate(() => history.length), beforeProjectSend, '项目首条消息应 replace');
+  await page.goto(origin + '/projects/p1');
+  await page.waitForFunction(() => !!window.__routing && window.__routing.overview() === 'p1');
+  assert.equal(await path(), '/projects/p1', '刷新项目地址应重新打开该项目');
+  await page.goto(origin + '/projects/missing');
+  await page.waitForFunction(() => location.pathname === '/projects');
+  await page.waitForFunction(() => window.__panelFromHook === 'projects');
+
   // Task conversations wait for identity, then restore their own metadata and module.
   taskSessionRequests.length = 0;
   await page.goto(origin + '/automation/task-one/conversations/task-chat');
@@ -247,7 +290,7 @@ try {
   await page.waitForFunction(() => window.__routing.chatId() === 'task-chat');
   assert.equal(await panel(), 'automation', '刷新任务会话仍留在定时任务模块');
   assert.deepEqual(errors, [], '不应有运行时报错');
-  console.log('chat routing: 普通会话、模块地址与定时任务刷新/历史导航通过');
+  console.log('chat routing: 普通会话、模块地址、项目概览与定时任务刷新/历史导航通过');
 } finally {
   await browser.close();
 }

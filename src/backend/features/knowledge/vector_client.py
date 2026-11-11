@@ -24,6 +24,16 @@ def is_lite() -> bool:
     return not milvus_uri().startswith(("http://", "https://", "tcp://", "unix:"))
 
 
+class VectorStoreUnavailableError(RuntimeError):
+    """The vector store cannot be reached; the message is written for the person who uploaded."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "向量检索服务（Milvus）连接不上，这份文档的检索索引没有建成。"
+            "请联系管理员启动向量数据库后点「重试」。"
+        )
+
+
 def get_client():
     """Return a MilvusClient connected to the configured Milvus instance."""
     from pymilvus import MilvusClient
@@ -74,7 +84,10 @@ def get_or_create_collection(*, timeout: float | None = None) -> None:
     pass  # State is owned by its responsibility module.
     from pymilvus import DataType
 
-    client = get_client()
+    try:
+        client = get_client()
+    except Exception as exc:
+        raise VectorStoreUnavailableError() from exc
     target_dim = vector_embedding.detect_embed_dim()
 
     if client.has_collection(kb_vector_state.COLLECTION_NAME, timeout=timeout):

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from core.llm.factory.prompts.context import prompt_context
 from core.llm.factory.prompts.system import system_prompt as assemble_system_prompt
 from core.llm.factory.request import AgentRequest
@@ -50,6 +52,21 @@ def _append_mcp_server_guidance(system_prompt, mcp_resources, tool_schemas, mani
     )
     log.info("[factory] +%s MCP server guidance injected (%d chars)", elapsed(), len(section))
     return (system_prompt + "\n\n" + section) if system_prompt else section
+
+
+def _start_kb_catalog_section(request: AgentRequest):
+    """Render the enabled-KB prompt section off the loop; None when nothing to render."""
+    if request.profile or not request.enabled_kb_ids:
+        return None
+    from prompts.kb_lite_section import build_kb_catalog_section
+
+    task = asyncio.create_task(
+        asyncio.to_thread(build_kb_catalog_section, list(request.enabled_kb_ids)),
+        name="kb-catalog-section",
+    )
+    # Assembly can fail or be cancelled before the prompt phase awaits it.
+    task.add_done_callback(lambda t: t.cancelled() or t.exception())
+    return task
 
 
 async def assemble_agent(request: AgentRequest):
@@ -197,6 +214,10 @@ async def assemble_agent(request: AgentRequest):
         enabled_mcp_keys=enabled_mcp_keys,
         owned_mcp_servers=owned_mcp_servers,
     )
+    # Capability selection is final here; render the KB catalog in a worker
+    # thread while MCP servers connect, so neither its DB lookup nor anything
+    # else it reads can stall the event loop or add to time-to-first-token.
+    kb_catalog_task = _start_kb_catalog_section(request)
     (
         _SKILL_INSTRUCTION_TEMPLATE,
         _is_channel_run,
@@ -291,6 +312,7 @@ async def assemble_agent(request: AgentRequest):
         skill_ids_to_register=skill_ids_to_register,
         toolkit=toolkit,
     )
+    kb_catalog_section = await kb_catalog_task if kb_catalog_task is not None else ""
     (
         _agent_ref,
         _plan_tool_enabled,
@@ -313,6 +335,7 @@ async def assemble_agent(request: AgentRequest):
         _turbo_code_exec=_turbo_code_exec,
         cfg=cfg,
         enabled_mcp_keys=enabled_mcp_keys,
+        kb_catalog_section=kb_catalog_section,
         loader=loader,
         skill_ids_to_register=skill_ids_to_register,
         tool_schemas=tool_schemas,

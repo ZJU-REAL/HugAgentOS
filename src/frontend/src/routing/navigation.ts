@@ -11,6 +11,20 @@ interface RouterLike {
  *  转义与末尾斜杠都交给 react-router，不再手写正则。 */
 export const CHAT_PATTERN = '/c/:chatId';
 export const AUTOMATION_CHAT_PATTERN = '/automation/:taskId/conversations/:chatId';
+/** 项目概览：一段绑定了项目、尚未发送的草稿会话。它落在聊天界面上（面板是 chat），
+ *  但需要自己的地址，刷新、分享时才能回到同一个项目；发出首条消息后升级为 `/c/<会话id>`。 */
+export const PROJECT_PATTERN = '/projects/:projectId';
+export function pathForProject(projectId: string): string {
+  return generatePath(PROJECT_PATTERN, { projectId });
+}
+/** 按地址打开项目概览的动作由 projectStore 注册（同 setConversationOwnerResolver），
+ *  路由层不直接依赖项目 store。 */
+let projectOpener: (projectId: string) => Promise<void> = async () => undefined;
+export function setProjectOpener(open: typeof projectOpener) { projectOpener = open; }
+export function openProjectFromUrl(projectId: string): Promise<void> { return projectOpener(projectId); }
+export function projectIdFromPath(pathname: string = currentPath()): string | null {
+  return matchPath(PROJECT_PATTERN, pathname)?.params.projectId ?? null;
+}
 let conversationOwner: (id: string) => string | undefined = () => undefined;
 export function setConversationOwnerResolver(resolve: typeof conversationOwner) { conversationOwner = resolve; }
 export function pathForAutomationChat(taskId: string, chatId: string): string {
@@ -66,10 +80,11 @@ function currentPath(): string {
   return typeof window === 'undefined' ? '/' : window.location.pathname;
 }
 
-/** 是否正停在首页。首页是「一段还没有地址的新对话」，只有它才需要被升级成 `/c/<会话id>`。 */
+/** 是否正停在首页。首页是「一段还没有地址的新对话」，只有它才需要被升级成 `/c/<会话id>`。
+ *  项目概览同理：它是项目里的新对话，发出首条消息后同样升级。 */
 export function isHomePath(): boolean {
   const standalone = standaloneFromPath();
-  return currentPath() === '/' || !!standalone && !standalone.chatId;
+  return currentPath() === '/' || !!projectIdFromPath() || !!standalone && !standalone.chatId;
 }
 
 export function pathForChat(chatId: string | null): string {
@@ -104,12 +119,14 @@ function segments(pathname: string): string[] {
 }
 
 export function panelFromPath(pathname: string = currentPath()): PanelKey {
+  if (projectIdFromPath(pathname)) return 'chat';
   return PANEL_BY_SLUG.get(segments(pathname)[0] ?? '') ?? 'chat';
 }
 
 /** 面板地址里一级之后的各段（`/my-space/kb/public` → ['kb','public']）。 */
 export function subsFromPath(pathname: string = currentPath()): string[] {
   const parts = segments(pathname);
+  if (projectIdFromPath(pathname)) return [];
   if (!parts.length || !PANEL_BY_SLUG.has(parts[0])) return [];
   return parts.slice(1).map(decodeURIComponent);
 }

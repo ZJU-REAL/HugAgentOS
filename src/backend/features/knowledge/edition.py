@@ -21,13 +21,10 @@ def __getattr__(name):
     if name in ('KBLevel', 'filter_accessible_kb_ids', 'get_accessible_local_kb_ids', 'get_accessible_local_kb_levels', 'get_dataset_levels', 'has_kb_permission', 'is_shared_visibility', 'level_to_caps', 'resolve_local_kb_level'):
         import features.knowledge.personal_permissions as provider
         return getattr(provider, name)
-    if name in ('get_allowed_collection_ids', 'get_document_detail', 'get_provider_cache_identity', 'get_provider_name', 'is_enabled', 'list_collections', 'list_documents', 'runtime_request_context', 'supports_wiki', 'wiki_module'):
+    if name in ('CollectionDirectoryUnavailable', 'collection_snapshot', 'get_allowed_collection_ids', 'get_collections', 'get_collections_async', 'get_document_detail', 'get_provider_cache_identity', 'get_provider_name', 'is_enabled', 'list_documents', 'open_original_document', 'runtime_request_context', 'supports_wiki', 'warm_collections', 'wiki_module'):
         import features.knowledge.disabled_provider as provider
         return getattr(provider, name)
     if name in ('DatasetRetrievalTimeoutError', 'DatasetRetrievalUnavailableError', 'MAX_RETRIEVE_TOKENS', 'RETRIEVE_MAX_CONCURRENCY', 'RETRIEVE_REQUEST_TIMEOUT_SECONDS', 'RETRIEVE_TOTAL_TIMEOUT_SECONDS', 'list_external_datasets', 'retrieve_dataset_content', 'retrieve_dataset_content_async'):
         import features.knowledge.disabled_retrieval as provider
-        return getattr(provider, name)
-    if name in ('CreateKBSpaceRequest', 'IndexingConfig', 'PolishKBDescriptionRequest', 'ReindexRequest', 'UpdateChunkRequest', 'UpdateKBSpaceRequest'):
-        import features.knowledge.personal_request_models as provider
         return getattr(provider, name)
     raise AttributeError(name)

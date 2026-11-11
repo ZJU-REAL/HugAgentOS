@@ -31,6 +31,13 @@ RESERVED_CHAT_NAMESPACES: dict[str, str] = {
 RUNTIME_CHAT_NAMESPACES: tuple[str, ...] = ("pa_chat_task_",)
 
 
+# Chats the run journal creates for non-chat agent entry points (batch-job sub-agents,
+# ``core.runs.binding.durable_run_binding``): bookkeeping for a run, with no
+# conversation of their own. Unlike reserved chats they stay reachable by id — their
+# runtime reads them like any chat (approval policy, history) — but no listing shows them.
+BACKGROUND_CHAT_PREFIX = "internal_"
+
+
 def runtime_chat(chat_id: Optional[str]) -> bool:
     return str(chat_id or "").startswith(RUNTIME_CHAT_NAMESPACES)
 
@@ -44,8 +51,9 @@ def reserved_chat_owner(chat_id: Optional[str]) -> Optional[str]:
 
 
 def ordinary_chat_filter(chat_id_column):
-    """SQL clause keeping only chats outside every reserved namespace."""
-    return and_(*(~chat_id_column.startswith(prefix) for prefix in RESERVED_CHAT_NAMESPACES))
+    """SQL clause keeping only chats outside every reserved namespace and background run chats."""
+    hidden = (*RESERVED_CHAT_NAMESPACES, BACKGROUND_CHAT_PREFIX)
+    return and_(*(~chat_id_column.startswith(prefix) for prefix in hidden))
 
 
 def reserved_chat_error(chat_id: Optional[str]) -> Optional[str]:

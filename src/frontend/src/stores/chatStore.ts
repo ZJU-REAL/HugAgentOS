@@ -1,7 +1,8 @@
 import { chatDraftKey, useComposerStore } from './composerStore';
 import { create } from 'zustand';
 import { isHybridDual, isRegisteredLocalChat, setChatRoutingContext } from '../api';
-import { isHomePath, navigateTo, pathForChat, setChatPathResolver } from '../routing/navigation';
+import { isHomePath, navigateTo, pathForChat, pathForProject, setChatPathResolver } from '../routing/navigation';
+import { standaloneFromPath } from '../routing/standalone';
 import { isDraftChatId, isNewDraftChatId, mergeChatStores, setStreamingIdsProvider, STORAGE_KEY, userScopedKey } from '../storage';
 import type { ChatStore as ChatStoreData } from '../types';
 import { usePluginStore } from './pluginStore';
@@ -43,6 +44,14 @@ export function projectOverviewId(chat: { id: string; projectId?: string } | und
   return chat?.projectId && useChatStore.getState().projectOverviewChatId === chat.id
     && !isAddressableChat(chat.id) ? chat.projectId : undefined;
 }
+/** 打开项目概览要连着换几次当前会话（新建草稿、绑定项目、标记概览），中间每一步都会
+ *  按「普通草稿」把地址写成 `/`。包在这里面执行，就只在最后按概览写一次地址
+ *  （`/projects/<项目id>`），历史里不会多出一条首页。 */
+let chatUrlSyncSuppressed = 0;
+export function withoutChatUrlSync<T>(fn: () => T): T {
+  chatUrlSyncSuppressed += 1;
+  try { return fn(); } finally { chatUrlSyncSuppressed -= 1; }
+}
 export const useChatStore = create<ChatState>((set,get)=> {
 
   // Only frontend-created, unsent drafts get a default. Never move restored history.
@@ -56,7 +65,7 @@ export const useChatStore = create<ChatState>((set,get)=> {
   };
 
   const syncChatUrl = (chatId: string, opts?: { replace?: boolean }) => {
-    if (isAutomationEntry(chatId)) return;
+    if (chatUrlSyncSuppressed || isAutomationEntry(chatId)) return;
     navigateTo(pathForChat(isAddressableChat(chatId) ? chatId : null), opts);
   };
 
@@ -76,6 +85,8 @@ export const useChatStore = create<ChatState>((set,get)=> {
 
   setChatPathResolver(() => {
     const id = get().currentChatId;
+    const overviewProject = standaloneFromPath() ? undefined : projectOverviewId(get().store.chats[id]);
+    if (overviewProject) return pathForProject(overviewProject);
     return pathForChat(isAddressableChat(id) ? id : null);
   });
 

@@ -169,7 +169,6 @@ def invalidate_prompt_cache() -> None:
         _db_version_cache = None
     with _prompt_cache_lock:
         _prompt_cache.clear()
-    invalidate_kb_lite_cache()
 
     # Also drop prompt_version_service cached payload
     try:
@@ -190,9 +189,6 @@ def invalidate_prompt_cache() -> None:
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
-# KB-lite section moved to prompts.kb_lite_section; re-export for compat
-from prompts.kb_lite_section import invalidate_kb_lite_cache, _build_kb_lite_section  # noqa: E402
-
 _TOOLS_AND_SKILLS_NOTICE = (
     "## 工具与技能\n\n"
     "当前已为你注入若干 MCP 工具，每个工具的适用场景、与其他工具的取舍、"
@@ -209,9 +205,12 @@ def build_subagent_system_prompt(
     user_agent: Any,
     tool_schemas: list,
     enabled_mcp_keys: list[str],
-    enabled_kb_ids: Optional[list[str]] = None,
+    kb_catalog_section: str = "",
 ) -> str:
     """Build the system prompt for a subagent.
+
+    ``kb_catalog_section`` is pre-rendered by ``prompts.kb_lite_section`` off the
+    event loop; this builder only places it.
 
     Structure:
     1. User-defined system_prompt (core role definition)
@@ -282,10 +281,8 @@ def build_subagent_system_prompt(
         segments.append(_TOOLS_AND_SKILLS_NOTICE)
 
     # 7. Lightweight KB catalog
-    if enabled_kb_ids:
-        kb_section = _build_kb_lite_section(enabled_kb_ids)
-        if kb_section:
-            segments.append(kb_section)
+    if kb_catalog_section:
+        segments.append(kb_catalog_section)
 
     # 8. Time info — last on purpose: the date is the only day-varying bytes
     # in this prompt; keeping it at the tail preserves the long shared prefix

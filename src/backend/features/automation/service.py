@@ -225,12 +225,49 @@ class AutomationService:
         )
         if not task:
             return False
+        self._retire_task_chats(task_id, user_id)
         self.db.delete(task)
         if commit:
             self.db.commit()
         else:
             self.db.flush()
         return True
+
+    def _retire_task_chats(self, task_id: str, user_id: str) -> None:
+        """Soft-delete the conversations a task leaves behind (its run chats and setup chat).
+
+        They are reachable only under their task: kept, the scheduled-task sidebar went on
+        listing a task that no longer exists, and opening it answered 404. Their run rows
+        go with the task (ON DELETE CASCADE), so the chat ids are collected first.
+        """
+        import sqlalchemy as sa
+
+        from core.db.models import ChatSession
+        from core.infra.time import utc_now
+
+        chat_ids = {
+            chat_id
+            for (chat_id,) in self.db.query(ScheduledTaskRun.chat_id).filter(
+                ScheduledTaskRun.task_id == task_id, ScheduledTaskRun.chat_id.isnot(None)
+            )
+        }
+        # Dialect-portable JSON probe, confirmed on the parsed value below.
+        tagged = self.db.query(ChatSession).filter(
+            ChatSession.user_id == user_id,
+            ChatSession.deleted_at.is_(None),
+            func.cast(ChatSession.extra_data, sa.Text).contains(task_id),
+        )
+        chat_ids.update(
+            row.chat_id
+            for row in tagged
+            if (row.extra_data or {}).get("automation_task_id") == task_id
+        )
+        if chat_ids:
+            self.db.query(ChatSession).filter(
+                ChatSession.chat_id.in_(chat_ids),
+                ChatSession.user_id == user_id,
+                ChatSession.deleted_at.is_(None),
+            ).update({ChatSession.deleted_at: utc_now()}, synchronize_session=False)
 
     def pause_task(self, task_id: str, user_id: str) -> Optional[ScheduledTask]:
         task = self.get_task(task_id, user_id)

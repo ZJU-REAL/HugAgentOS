@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { authFetch, chatTargetHeaders, getApiUrl, isHybridDual, LOCAL_TARGET_HEADER } from '../api';
 import { useCanvasStore } from '../stores/canvasStore';
 import { usePluginUiStore } from '../stores/pluginUiStore';
+import { isLocalDraftChat } from '../stores/chatStore';
 import { resourceBinding, type ResourceBinding } from '../plugin-ui/module/resource';
 
 /** Recover only live, authorized resources; never replay a historical open tool. */
@@ -10,6 +11,8 @@ export function useChatResourceRecovery(chatId: string | null, userId: string | 
   const loaded = usePluginUiStore(state => state.loaded);
   useEffect(() => {
     if (!chatId || !userId) return;
+    // 只在浏览器里存在、还没发过一句话的新对话：服务端没有它，必然 404。
+    if (isLocalDraftChat(chatId)) return;
     if (!loaded) { void usePluginUiStore.getState().fetchContributions(); return; }
     const controller = new AbortController();
     void (async () => {
