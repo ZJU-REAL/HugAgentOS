@@ -15,8 +15,6 @@ from sqlalchemy.orm import Session, sessionmaker
 from core.db.engine import SessionLocal
 from core.db.models import ChatRun, ChatSteerQueueItem
 
-DELIVERY_MODES = ("steer", "follow_up", "next_run")
-QUEUE_STATUSES = ("accepted", "claimed", "applied", "cancelled", "superseded")
 LIVE_RUN_STATUSES = ("pending", "running")
 
 
@@ -582,8 +580,6 @@ class SteerQueue:
 
 
 __all__ = [
-    "DELIVERY_MODES",
-    "QUEUE_STATUSES",
     "SteerClaimLost",
     "SteerQueue",
     "SteerQueueConflict",

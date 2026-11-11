@@ -71,12 +71,11 @@ def system_prompt(ref):
 
     Prompt caching needs a prefix that does not change between turns, so everything that does
     (the clock, tasks, sessions, the event) goes into turn_context instead. ref is the Turn, or one of its Triggers."""
-    from personal_agent.scheduling.schedules import user_zone
     from personal_agent.workspace.prompting import render, sections
     with SessionLocal() as db:
         agent = _agent_of(db, ref)
         config, agent_id = dict(agent.config or {}), agent.id
-    items = sections(agent_id, rules_part="front_rules", timezone=user_zone(config), config=config)
+    items = sections(agent_id, rules_part="front_rules", config=config)
     return render(items) + "\n\n" + COMPUTER
 
 
@@ -136,7 +135,7 @@ def history(db, batch, exclude=None):
     from core.llm.runtime.model_steps import assistant_row_replay
     from personal_agent.conversation.router.triggers import Trigger
     from personal_agent.conversation.router.turn import reply_id
-    from personal_agent.workspace.dreaming import KEY as DREAM_KEY
+    from personal_agent.memory.dreaming.runs import KEY as DREAM_KEY
     idents = _idents(batch)
     exclude = list(exclude) if exclude is not None else [reply_id(idents[0])]
     current = {ident: db.get(ChatMessage, ident) for ident in idents}

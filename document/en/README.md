@@ -48,7 +48,7 @@ Start with the [Deployment Guide (choosing a method)](deployment/README.md), the
 | Document | Description |
 |------|------|
 | [Chat & Orchestration](modules/chat.md) | Runs decoupled from connections, stream resume, mid-run steering, per-step context restore and compaction, plan mode, sub-agents |
-| [Personal Agent](modules/personal-agent.md) | The 24/7 personal agent: background tasks, permanent cloud computer, schedules and heartbeats, IM channels, approvals, file memory and Dreaming |
+| [Personal Agent](modules/personal-agent.md) | The 24/7 personal agent: background tasks, permanent cloud computer, schedules and heartbeats, IM channels, approvals, a topic memory wiki and Dreaming |
 | [Autonomous Loop](modules/autonomous-loop.md) | Goals that survive across turns, maker ≠ checker, stall guards, resumable runs |
 | [Workflow Background Jobs](modules/workflow-jobs.md) | Managed sandbox processes, lease takeover, derived main agents |
 | [Automation & Plan Mode](modules/automation.md) | Scheduled tasks and plan mode |

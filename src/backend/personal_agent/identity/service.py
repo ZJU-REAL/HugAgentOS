@@ -53,7 +53,9 @@ class IdentityService:
             if "capability_selection" not in config:
                 config.update({key: value for key, value in default_capabilities(self.db, self.user_id).items() if value is not None})
             config["defaults_version"] = DEFAULTS_VERSION
-            row.config = config
+            # Through store: the row is not locked here, and a config written back whole takes its times with it.
+            from personal_agent.scheduling.schedules import store
+            store(row, config)
             self.db.commit()
             if named:
                 self._title(config["name"])
@@ -61,8 +63,19 @@ class IdentityService:
                 from personal_agent.workspace.persona import sync_name
                 try: sync_name(row.id, config["name"])
                 except (WorkspaceUnavailable, OSError): pass
+        self._schedule_proactive(row)
         self._sync_capabilities(row)
         return self.view(row)
+
+    def _schedule_proactive(self, row):
+        """Proactive checks are on for every agent: a new agent is scheduled for them here, and so is one
+        that could not be before (paused, no permission, outside the rollout). There is no periodic scan
+        for unscheduled agents; the ones nobody opens are seeded when the process starts (heartbeat.seed_all)."""
+        from personal_agent.scheduling import heartbeat
+        try:
+            if heartbeat.seed_if_new(self.db, row): self.db.refresh(row)
+        except Exception:  # noqa: BLE001 - scheduling the checks never stops the agent from being used
+            self.db.rollback()
 
     def _sync_capabilities(self, row):
         from personal_agent.identity.capabilities import available_capabilities, reconcile
@@ -126,11 +139,22 @@ class IdentityService:
         available = self.capability_options() if choices else None
         beat = patch.pop("heartbeat", None)
         dream = patch.pop("dreaming", None)
+        if isinstance(dream, dict) and "model_provider_id" in dream:
+            # The cheaper Dreaming model passes the same allowlist; empty means the agent's own model.
+            from core.auth.model_selection import resolve_user_model_provider_id
+            wanted = (dream["model_provider_id"] or "").strip()
+            dream = {**dream, "model_provider_id": resolve_user_model_provider_id(self.db, wanted, user_id=self.user_id) if wanted else None}
+            if wanted and dream["model_provider_id"] is None: raise ValueError("Model switching is not available to this user")
 
         def change(config):
+            moved = "timezone" in patch and patch["timezone"] != config.get("timezone")
             config.update(patch)
+            if moved and (config.get("heartbeat") or {}).get("next_run"):
+                # The morning and evening times are in the owner's timezone: the scheduler looks again at once.
+                import time
+                config["heartbeat"] = {**config["heartbeat"], "next_run": time.time()}
             if dream is not None:
-                from personal_agent.workspace.dreaming import validate as validate_dreaming
+                from personal_agent.memory.dreaming.runs import validate as validate_dreaming
                 config["dreaming"] = validate_dreaming(dream, config)
             if choices:
                 validate_selection(choices, available, selection(config))
@@ -140,10 +164,15 @@ class IdentityService:
                 from personal_agent.scheduling.heartbeat import validate
                 # Merged under the row lock: the scheduler writes the state fields of the same object.
                 config["heartbeat"] = validate(beat, config)
-        update_config(self.db, self.user_id, change)
-        if beat is not None and self.agent().config["heartbeat"]["enabled"]:
-            from personal_agent.scheduling.heartbeat import ensure_checklist
-            ensure_checklist(self.agent().id, (self.agent().config or {}).get("name"))
+        # The proactive list (HEARTBEAT.md) is written once, when the scheduler first seeds the agent
+        # looked at by the scheduler (heartbeat._before_lock), never on a settings save: an emptied list is
+        # how the user stops the checks. update_timed keeps next_due_at with the times that changed.
+        from personal_agent.scheduling.schedules import update_timed
+        update_timed(self.db, self.user_id, change)
+        if dream is not None or "timezone" in patch:
+            # The nightly slot moved: the Dreaming loop recomputes when it next has to wake.
+            from personal_agent.memory.dreaming import wake
+            wake.notify()
         if "name" in patch:
             self._title(patch["name"])
             from personal_agent.workspace.files import WorkspaceUnavailable

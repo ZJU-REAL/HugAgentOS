@@ -3,7 +3,7 @@ export { inferBusinessTopic, matchesTimeFilter, getHistoryDayDiff, getHistoryGro
 export { getMessageExportText, triggerPdfDownload, toSafeFileName } from './export';
 export { highlightKeyword } from './highlight';
 export {
-  PANEL_TOOL_NAMES, TOOL_ICONS, TOOL_NAME_OVERRIDES, TOPIC_TAG_COLORS,
+  TOOL_ICONS, TOOL_NAME_OVERRIDES, TOPIC_TAG_COLORS,
   SUMMARY_MAX_ROUNDS, isCatalogKind, type CatalogKind,
 } from './constants';
 export {

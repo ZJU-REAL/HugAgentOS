@@ -16,7 +16,10 @@ authenticated users; EE additionally applies its account capability policy.
   and settles it; context.py builds the prompt and history.
 - tasks: work items, approvals, execution, leases and task state transitions.
 - scheduling: schedules and heartbeat admission.
-- workspace: persona files, prompt assembly, file memory and dreaming.
+- workspace: persona files, prompt assembly and the daily journal writer (journal/).
+- memory: the topic memory wiki: page rules and lint, the single write path, the write
+  log, snapshots, per-turn injection, the one-off migration and Dreaming. See
+  memory/README.md.
 - computer: cloud sandbox, devices, live screens and human control.
 - sessions: the typed session tool, CLI authorization, operation queue and watches.
 - channels: inbound routing and channel delivery orchestration. im_actions.py: the
@@ -47,6 +50,15 @@ Compose profile and tests. CE overlay files must preserve model exports,
 authentication availability, navigation and dictionary assembly. Validate the
 physically derived CE tree as well as the full tree; setting JX_EDITION=ce inside
 the full checkout is not sufficient.
+
+## Memory upgrade
+
+The first seeding after the upgrade runs memory/migration.py once per agent: daily
+journals move from memory/YYYY-MM-DD.md to journal/, MEMORY.md keeps the old Dreaming
+quotes under `## 置顶` and its other text moves to journal/legacy-memory.md, and the next
+Dreaming run replays up to 90 days of history to build the first wiki. The marker is
+`PersonalAgent.config.memory_layout = 2`. Without a workspace volume the step is skipped
+and retried on a later seeding. No ordinary-chat memory is touched.
 
 ## IM allowed list
 

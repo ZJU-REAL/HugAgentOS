@@ -31,10 +31,15 @@ def admit(svc, content, request_key, artifact_ids=None, work_item_ids=None, inte
     if chat_id != agent.chat_id:
         import hashlib
         request_key = "session:" + hashlib.sha256((chat_id + ":" + request_key).encode()).hexdigest()
-    for ident in ids: svc.tasks.get(ident)
+    # An approval may answer the notice of a task of another conversation: one a proactive check or a
+    # schedule started sends its notice to the home bot. The owner is checked either way.
+    from personal_agent.context import AgentContext
+    owner = AgentContext(svc.db, svc.user_id) if intent in APPROVALS else svc
+    for ident in ids: owner.tasks.get(ident)
     if reply_to:
         message = svc.db.get(ChatMessage, reply_to)
-        if not message or message.chat_id != chat_id: raise LookupError("Reply message not found")
+        # An IM reply may quote a message of the main conversation: a proactive summary, a scheduled result.
+        if not message or message.chat_id not in (chat_id, agent.chat_id): raise LookupError("Reply message not found")
     artifacts = svc.tasks.attachments(artifact_ids or [])
     payload = {"content": content, "artifact_ids": artifacts, "work_item_ids": ids, "intent": intent, "reply_to": reply_to}
     if chat_id != agent.chat_id: payload["chat_id"] = chat_id
@@ -85,7 +90,7 @@ def apply_direct(svc, row, message):
 def apply_approval(svc, intent, ids):
     """Decide the pending action of one task from an IM answer; the text that answers the user."""
     from personal_agent.context import AgentContext
-    from personal_agent.tasks.approvals import approve, scope_key
+    from personal_agent.tasks.approvals import approve, scope_for
     if len(ids) != 1:
         return "有 " + str(len(ids)) + " 个操作在等你批准。请引用对应的批准消息回复「同意」或「拒绝」。"
     # Approvals are not limited to this IM conversation's tasks: the notice may come from the home bot.
@@ -93,7 +98,11 @@ def apply_approval(svc, intent, ids):
     task = main.tasks.get(ids[0], lock=True)
     pending = (task.checkpoint or {}).get("pending_approval")
     if not pending: return task.label + "没有待批准的操作了。"
-    scope = "task" if intent == "approve_task" and scope_key(pending.get("action") or {}) else "once"
+    notice = (task.checkpoint or {}).get("approval_notice") or {}
+    if intent != "reject" and notice.get("web_only") and notice.get("approval_id") == pending.get("id"):
+        # The notice could not show the whole action: it is approved where all of it can be read.
+        return task.label + "的这项操作内容较长，这里没有显示完整。请在 Personal Agent 网页的「需要你处理」中看过全文后再批准；回复「拒绝」可以直接拒绝。"
+    scope = "task" if intent == "approve_task" and scope_for(task, pending.get("action") or {}) else "once"
     try:
         approve(main, task.id, pending["id"], intent != "reject", scope)
     except ValueError:

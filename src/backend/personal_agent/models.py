@@ -1,5 +1,5 @@
 """Persistent identities and work items; execution details stay in ChatRun."""
-from sqlalchemy import Column, String, Text, Integer, Float, JSON, ForeignKey, UniqueConstraint, Index
+from sqlalchemy import Column, String, Text, Integer, Float, JSON, ForeignKey, UniqueConstraint, Index, event
 from core.db.engine import Base
 from core.db.utc_datetime import UTCDateTime
 from core.infra.time import utc_now
@@ -16,7 +16,20 @@ class PersonalAgent(Base):
     status = Column(String(24), nullable=False, default="ready")
     computer_status = Column(String(24), nullable=False, default="not_provisioned")
     config = Column(JSON, nullable=False, default=dict)
+    # The earliest time anything of this agent is due (a schedule, the proactive check), as an epoch;
+    # NULL when nothing is. Derived from config by scheduling.schedules.store, so that the scheduler
+    # finds the due agents by an index instead of reading every config.
+    next_due_at = Column(Float, index=True)
     created_at = Column(UTCDateTime(timezone=True), default=utc_now)
+
+@event.listens_for(PersonalAgent.config, "set")
+def _keep_due_time(agent, config, old, initiator):
+    """Every assignment of config also works out next_due_at, whoever writes it and by whatever path.
+    Many modules write this document (memory, channels, persona); one that writes back a config it
+    read earlier would otherwise leave the column and the times in the config apart until a restart.
+    A statement that updates the config column directly does not pass here: use schedules.store."""
+    from personal_agent.scheduling.schedules import due_at
+    agent.next_due_at = due_at(config)
 
 # A task's short name: the title the agent gave it, or the start of its goal.
 TITLE_LENGTH = 80
@@ -195,3 +208,4 @@ class PersonalSessionOperation(Base):
 # got them and every health beat and assignment record failed with "no such table".
 from personal_agent.health import PersonalRuntimeHealth  # noqa: E402,F401
 from personal_agent.telemetry import PersonalAssignmentTelemetry  # noqa: E402,F401
+from personal_agent.memory.models import PersonalMemoryUsage, PersonalMemoryVersion  # noqa: E402,F401

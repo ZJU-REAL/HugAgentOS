@@ -1,5 +1,4 @@
 import { navigateTo } from '../routing/navigation';
-export const APPLICATION_PATTERN = '/apps/:applicationKey/*';
 export interface WorkspaceRoute { path: string; requestId: string }
 const keyPattern = /^(builtin|external|plugin):[^/\\?#\s]{1,240}$/;
 /** Decode pathname bytes before validation; encoded URL delimiters cannot become suffixes. */

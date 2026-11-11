@@ -40,8 +40,9 @@ def test_paths_stay_inside_workspace():
     for bad in ("/etc/passwd", "../x", "/workspace/../x", "memory/../../x"):
         with pytest.raises(ValueError):
             _pa_files.relative(bad)
-    assert _pa_files.editable("memory/2026-10-10.md")
-    assert not _pa_files.editable("work/task/notes.md")
+    assert _pa_files.editable("memory/project-launch.md") and _pa_files.editable("memory/_index.md")
+    assert not _pa_files.editable("memory/2026-10-10.md") and not _pa_files.editable("memory/_schema.md")
+    assert not _pa_files.editable("journal/2026-10-10.md") and not _pa_files.editable("work/task/notes.md")
 
 
 def test_links_are_never_followed(workspace, tmp_path):
@@ -53,29 +54,30 @@ def test_links_are_never_followed(workspace, tmp_path):
     with pytest.raises(PermissionError):
         _pa_files.read_file(IDENT, "MEMORY.md")
     assert _pa_files.read_text(IDENT, "MEMORY.md") is None
+    import shutil
+    shutil.rmtree(workspace / "memory")
     os.symlink(tmp_path, workspace / "memory")
     with pytest.raises(OSError):
-        _pa_files.write_file(IDENT, "memory/2026-10-10.md", "x")
-    assert not (tmp_path / "2026-10-10.md").exists()
+        _pa_files._write_file(IDENT, "memory/project-x.md", "x")
+    assert not (tmp_path / "project-x.md").exists()
     kinds = {e["name"]: e["type"] for e in _pa_files.tree(IDENT)["entries"]}
     assert kinds["MEMORY.md"] == "link" and kinds["memory"] == "link"
 
 
 def test_edit_requires_current_etag(workspace):
-    current = _pa_files.read_file(IDENT, "USER.md")
-    saved = _pa_files.write_file(IDENT, "/workspace/USER.md", "- 总是用中文回答", current["etag"])
-    assert saved["content"] == "- 总是用中文回答"
+    current = _pa_files.read_file(IDENT, "SOUL.md")
+    saved = _pa_files.write_file(IDENT, "/workspace/SOUL.md", "# 新的人格", current["etag"])
+    assert saved["content"] == "# 新的人格"
     with pytest.raises(ValueError):
-        _pa_files.write_file(IDENT, "USER.md", "stale", current["etag"])
+        _pa_files.write_file(IDENT, "SOUL.md", "stale", current["etag"])
     with pytest.raises(PermissionError):
         _pa_files.write_file(IDENT, "work/x.md", "x")
 
 
 def test_prompt_puts_platform_rules_first_and_files_in_order(workspace):
     (workspace / "USER.md").write_text("U" * 9000)
-    (workspace / "memory").mkdir()
     (workspace / "IDENTITY.md").unlink()
-    items = _pa_prompting.sections(IDENT, task_id="t1", skill_ids=["s1"], timezone="Asia/Shanghai", seed_missing=False)
+    items = _pa_prompting.sections(IDENT, task_id="t1", skill_ids=["s1"], seed_missing=False)
     text = _pa_prompting.render(items)
     assert text.index("Platform Rules") < text.index("## /workspace/AGENTS.md") < text.index("## /workspace/SOUL.md")
     # The rules are the same for every task (prompt cache); the task message names the real ID.
@@ -135,11 +137,11 @@ def test_first_run_is_pending_until_the_profile_changes(workspace):
     assert not persona.settle_bootstrap(IDENT, config) and not (workspace / "BOOTSTRAP.md").exists()
 
 
-def test_seed_hashes_and_daily_notes_decide_the_first_run(workspace):
+def test_seed_hashes_and_profile_edits_decide_the_first_run(workspace):
     user = _pa_files.etag((workspace / "USER.md").read_bytes())
     (workspace / "USER.md").write_text("edited before the hashes were kept")
     # The hashes recorded at seed time win over the current template.
     assert persona.settle_bootstrap(IDENT, {"seed_hashes": {"USER.md": _pa_files.etag((workspace / "USER.md").read_bytes())}, "name": "小助手"})
     assert user != _pa_files.etag((workspace / "USER.md").read_bytes())
-    (workspace / "memory").mkdir()
+    (workspace / "journal").mkdir()
     assert not persona.settle_bootstrap(IDENT, {}) and not (workspace / "BOOTSTRAP.md").exists()

@@ -34,7 +34,6 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
-MODE_SUBSTITUTE = "substitute"
 MODE_REMOVE = "remove"
 
 HONEST_BOUNDARY = (

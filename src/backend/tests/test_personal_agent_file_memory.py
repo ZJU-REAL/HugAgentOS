@@ -1,4 +1,9 @@
-"""File memory through completed turns, task completion and the workspace interface."""
+"""Memory through completed turns, tasks, the agent's tools and the workspace editor.
+
+The platform journals completed conversations and task results into journal/YYYY-MM-DD.md;
+the agent writes topic pages under memory/ through the memory store, citing its turn's
+source id; the editor saves memory files through the same store.
+"""
 import personal_agent.workspace.constants as _pa_constants
 import personal_agent.workspace.files as _pa_files
 import personal_agent.workspace.prompting as _pa_prompting
@@ -8,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from personal_agent.workspace import persona
+from personal_agent.models import PersonalAgent
 from personal_agent.context import AgentContext
 from personal_agent.conversation.message_routing import admit
 from tests.test_personal_agent_routing import sessions, personal_agent_on, turn, scripted
@@ -23,6 +29,19 @@ def workspace(sessions, monkeypatch, tmp_path):
     return agent, _pa_files.local_workspace(agent["id"])
 
 
+def page(name, line, description="Q4 发布计划"):
+    return ("---\nname: " + name + "\ndescription: " + description + "\naliases: [\"发布\"]\ntype: "
+            + name.split("-")[0] + "\nstatus: active\nupdated: 2026-11-09\n---\n## 安排\n- " + line + "\n")
+
+
+def versions(sessions, agent_id, path):
+    from personal_agent.memory import versions as memory_versions
+    with sessions() as db:
+        return [memory_versions.as_dict(row) for row in memory_versions.listing(db, agent_id, path=path)]
+
+
+# ---------------------------------------------------------------- the platform journal
+
 def test_completed_conversation_is_journaled_without_model_file_calls(workspace, sessions):
     agent, root = workspace
     with sessions() as db:
@@ -30,11 +49,13 @@ def test_completed_conversation_is_journaled_without_model_file_calls(workspace,
     asyncio.run(turn(msg["message_id"], scripted("The launch is scheduled for Monday.")))
     from personal_agent.workspace.file_memory import drain
     drain(sessions)
-    daily = list((root / "memory").glob("*.md"))
+    daily = list((root / "journal").glob("*.md"))
     assert len(daily) == 1
     text = daily[0].read_text()
     assert "Remember the decision: ship on Monday" in text
     assert "The launch is scheduled for Monday." in text
+    # Journals never land in the wiki.
+    assert not [p for p in (root / "memory").glob("*.md") if p.name[0].isdigit()]
     drain(sessions)
     assert daily[0].read_text() == text
 
@@ -48,7 +69,7 @@ def test_task_completion_records_result_even_without_report_turn(workspace, sess
         task = svc.tasks.submit("Prepare the launch", "task-journal")
         svc.tasks.complete(task["id"], "Verified result " + "x" * size, {})
     drain(sessions)
-    text = next((root / "memory").glob("*.md")).read_text()
+    text = next((root / "journal").glob("*.md")).read_text()
     assert "Prepare the launch" in text and "Verified result" in text
     assert text.count("<!-- pa-journal:") == 1
 
@@ -65,7 +86,7 @@ def test_missing_workspace_retries_without_losing_result(workspace, sessions, mo
     moved.rename(root)
     monkeypatch.setattr(file_memory.time, "time", lambda: 9999999999)
     file_memory.drain(sessions)
-    assert "Approved the launch." in next((root / "memory").glob("*.md")).read_text()
+    assert "Approved the launch." in next((root / "journal").glob("*.md")).read_text()
 
 
 def test_crash_after_file_commit_does_not_duplicate(workspace, sessions, monkeypatch):
@@ -83,29 +104,7 @@ def test_crash_after_file_commit_does_not_duplicate(workspace, sessions, monkeyp
     monkeypatch.setattr(file_memory, "append", original)
     monkeypatch.setattr(file_memory.time, "time", lambda: 9999999999)
     file_memory.drain(sessions)
-    assert next((root / "memory").glob("*.md")).read_text().count("All checks passed.") == 1
-
-
-def test_long_term_tool_updates_are_injected_next_turn(workspace, sessions):
-    from personal_agent.conversation.router import context as front
-    agent, root = workspace
-    with sessions() as db:
-        entry = admit(AgentContext(db, "owner"), "Remember my preference and decision", "longterm")
-    asyncio.run(turn(entry["message_id"], scripted(
-        ("pa_memory_read", {"path": "USER.md"}),
-        ("pa_memory_write", {"path": "USER.md", "content": "Always respond in Chinese."}),
-        ("pa_memory_read", {"path": "MEMORY.md"}),
-        ("pa_memory_write", {"path": "MEMORY.md", "content": "Release approved for Monday."}),
-        "Saved both files.",
-    )))
-    with sessions() as db:
-        entry = admit(AgentContext(db, "owner"), "What do you remember?", "next-turn")
-    # Use the actual next-turn prompt builder without a production database.
-    from unittest.mock import patch
-    with patch.object(persona, "ensure_seeded", lambda ident: False):
-        prompt = front.system_prompt(entry["message_id"])
-    assert "Always respond in Chinese." in prompt
-    assert "Release approved for Monday." in prompt
+    assert next((root / "journal").glob("*.md")).read_text().count("All checks passed.") == 1
 
 
 def test_journal_uses_completion_timezone_and_redacts_secrets(workspace, sessions):
@@ -120,23 +119,12 @@ def test_journal_uses_completion_timezone_and_redacts_secrets(workspace, session
         owner.config = {**owner.config, "timezone": "Asia/Shanghai"}
         file_memory.admit(row, owner, "conversation", input_text="api_key=hidden-credential", at=datetime(2026, 10, 15, 23, tzinfo=ZoneInfo("UTC")))
         db.commit()
+        receipt = db.get(ChatMessage, "tz-journal").extra_data[file_memory.KEY]
+    assert receipt["day"] == "2026-10-16"
     file_memory.drain(sessions)
-    text = (root / "memory" / "2026-10-16.md").read_text()
+    text = (root / "journal" / "2026-10-16.md").read_text()
     assert "very-secret-value" not in text and "hidden-credential" not in text
-    assert "[REDACTED]" in text
-
-
-def test_stale_model_replace_preserves_newer_file(workspace, sessions):
-    agent, root = workspace
-    with sessions() as db:
-        entry = admit(AgentContext(db, "owner"), "Update the memory", "stale")
-    async def concurrent_edit(plan):
-        _pa_files.write_file(agent["id"], "MEMORY.md", "A newer decision from another task.")
-    asyncio.run(turn(entry["message_id"], scripted(
-        ("pa_memory_read", {"path": "MEMORY.md"}), concurrent_edit,
-        ("pa_memory_write", {"path": "MEMORY.md", "content": "Stale replacement."}), "Done.",
-    )))
-    assert (root / "MEMORY.md").read_text() == "A newer decision from another task."
+    assert "[REDACTED]" in text and "<!-- pa-journal:" in text
 
 
 def test_cancelled_task_is_journaled(workspace, sessions):
@@ -151,7 +139,7 @@ def test_cancelled_task_is_journaled(workspace, sessions):
         task_ops.control(svc, db.get(ChatMessage, entry["message_id"]), task["id"], "cancel")
         db.commit()
     file_memory.drain(sessions)
-    files = list((root / "memory").glob("*.md"))
+    files = list((root / "journal").glob("*.md"))
     assert files and "task_cancelled" in files[0].read_text()
 
 
@@ -170,8 +158,8 @@ def test_journal_rejects_special_files_without_blocking(workspace, monkeypatch):
     import os
     from personal_agent.workspace import file_memory
     agent, root = workspace
-    (root / "memory").mkdir()
-    target = root / "memory" / "2026-10-16.md"
+    (root / "journal").mkdir()
+    target = root / "journal" / "2026-10-16.md"
     os.mkfifo(target)
     original = os.open
     def checked(path, flags, *args, **kwargs):
@@ -185,21 +173,21 @@ def test_journal_rejects_special_files_without_blocking(workspace, monkeypatch):
 
 @pytest.mark.parametrize("value", ['{"password": "secret with spaces"}', "'api_key': 'secret with spaces'"])
 def test_quoted_credentials_are_redacted(value):
-    from personal_agent.workspace.file_memory import redact
+    from personal_agent.memory.redact import redact
     assert "secret with spaces" not in redact(value)
     assert "[REDACTED]" in redact(value)
 
 
-def test_large_daily_file_keeps_latest_records_readable(workspace, sessions):
+def test_large_journal_keeps_latest_records_readable_and_is_read_only(workspace, sessions):
     agent, root = workspace
-    (root / "memory").mkdir()
-    path = "memory/2026-10-16.md"
+    (root / "journal").mkdir()
+    path = "journal/2026-10-16.md"
     (root / path).write_text("x" * (_pa_constants.READ_MAX_BYTES + 100) + "\nLatest decision")
     assert "Latest decision" in _pa_files.read_text(agent["id"], path)
     result = _pa_files.read_file(agent["id"], path)
     assert result["truncated"] and not result["editable"]
     assert "Latest decision" in result["content"]
-    with pytest.raises(ValueError):
+    with pytest.raises(PermissionError):
         _pa_files.write_file(agent["id"], path, "Truncated replacement", result["etag"])
 
     with sessions() as db:
@@ -207,9 +195,8 @@ def test_large_daily_file_keeps_latest_records_readable(workspace, sessions):
     observed = []
     async def capture(plan):
         observed.extend(plan["results"])
-    asyncio.run(turn(entry["message_id"], scripted(("pa_memory_read", {"path": path}), capture, "Read.")))
-    assert "Latest decision" in observed[0]["content"]
-    assert observed[0]["truncated"] and observed[0]["slice"] == "tail"
+    asyncio.run(turn(entry["message_id"], scripted(("pa_memory_read", {"path": path, "offset": 2}), capture, "Read.")))
+    assert observed[0]["lines"] == 3 and observed[0]["content"] == "Latest decision" and not observed[0]["more"]
 
 
 def test_process_writers_do_not_lose_or_duplicate_entries(workspace):
@@ -239,7 +226,7 @@ def test_process_writers_do_not_lose_or_duplicate_entries(workspace):
     finally:
         for worker in workers:
             if worker.is_alive(): worker.terminate(); worker.join(timeout=3)
-    text = (root / "memory/2026-10-16.md").read_text()
+    text = (root / "journal/2026-10-16.md").read_text()
     assert text.count("<!-- pa-journal:") == 3
     assert "> shared" in text and "> unique-0" in text and "> unique-1" in text
 
@@ -262,14 +249,14 @@ def test_deleted_conversation_receipt_does_not_block_other_users(workspace, sess
         entry = admit(AgentContext(db, "owner"), "Surviving journal entry", "not-blocked")
     asyncio.run(turn(entry["message_id"], scripted("Still written.")))
     for _ in range(3): file_memory.drain(sessions)
-    assert "Still written." in next((root / "memory").glob("*.md")).read_text()
+    assert "Still written." in next((root / "journal").glob("*.md")).read_text()
 
 
 def test_sparse_oversized_journal_is_rejected_before_allocation(workspace):
     from personal_agent.workspace import file_memory
     agent, root = workspace
-    (root / "memory").mkdir()
-    path = root / "memory/2026-10-16.md"
+    (root / "journal").mkdir()
+    path = root / "journal/2026-10-16.md"
     with path.open("wb") as stream: stream.truncate(256 * 1024 * 1024)
     with pytest.raises(ValueError, match="budget"):
         file_memory.append(agent["id"], "oversized", {"day": "2026-10-16", "at": "now", "source": "test"}, "Keep pending")

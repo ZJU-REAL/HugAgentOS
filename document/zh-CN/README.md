@@ -47,7 +47,7 @@ HugAgentOS 是一个开源、可自托管的 Agent Harness：你提出的问题�
 | 文档 | 说明 |
 |------|------|
 | [对话与智能体编排](modules/chat.md) | Run 与连接解耦、断线续播、运行中转向、上下文按步恢复与压缩、计划模式、子智能体 |
-| [Personal Agent](modules/personal-agent.md) | 7×24 个人智能体：后台任务、永久云电脑、定时与心跳、IM 渠道、审批、文件记忆与 Dreaming |
+| [Personal Agent](modules/personal-agent.md) | 7×24 个人智能体：后台任务、永久云电脑、定时与心跳、IM 渠道、审批、记忆 wiki 与 Dreaming |
 | [自主循环](modules/autonomous-loop.md) | 目标跨轮存活、maker≠checker、停滞护栏、断点续跑 |
 | [工作流后台作业](modules/workflow-jobs.md) | 沙箱受管进程、租约接管、派生主智能体 |
 | [自动化与计划模式](modules/automation.md) | 定时任务调度、计划模式 |

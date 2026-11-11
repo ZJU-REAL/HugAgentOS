@@ -8,13 +8,7 @@ PATTERN_REPEATED_FAILURE = "repeated_failure"
 PATTERN_SUCCESS_SUBSEQUENCE = "success_subsequence"
 
 
-PATTERN_DRIFT = "execution_drift"
-
-
 MIN_SUPPORT = 5
-
-
-SINGLE_SHOT_CONFIDENCE = 0.85
 
 
 SKILL_MIN_SUCCESS_RATE = 0.7

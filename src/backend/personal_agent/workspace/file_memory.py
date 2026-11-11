@@ -1,46 +1,29 @@
-"""Durable daily journal delivery, independent of the ordinary-chat memory system.
+"""Durable daily journal delivery: journal/YYYY-MM-DD.md, written by the platform only.
 
 The completed message carries a pending receipt in its existing transaction. Workers
 poll receipts; a file marker makes replay after file commit / DB rollback idempotent.
-Only file I/O runs under the DB row lock. No model or network request does.
+Only file I/O runs under the DB row lock. No model or network request does. The journal
+is never injected; pa_memory_search searches it and Dreaming reads the written receipts
+(receipt["day"] and the pa-journal marker) as its queue.
 """
 import personal_agent.workspace.files as _pa_files
 import hashlib
 import logging
 import os
-import re
 import stat
 import time
-from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from sqlalchemy import select
 from core.db.engine import SessionLocal
 from core.db.models import ChatMessage
+from personal_agent.memory.layout import JOURNAL_DIR
+from personal_agent.memory.redact import redact
 from personal_agent.models import PersonalAgent
 
 KEY = "personal_file_memory"
 JOURNAL_MAX_BYTES = 16 * 1024 * 1024
 log = logging.getLogger(__name__)
-
-@contextmanager
-def workspace_lock(ident):
-    """Serialize journal appends, model edits and editor writes across processes."""
-    import fcntl
-    fd = _pa_files._open_dir(_pa_files.local_workspace(ident), [])
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        yield
-    finally:
-        os.close(fd)
-
-def redact(value):
-    """Do not copy recognizable credentials from conversation history to memory."""
-    value = re.sub(r"-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----", "[REDACTED]", value, flags=re.S)
-    value = re.sub(r"(?i)(?:Bearer\s+|sk-)[A-Za-z0-9_.~+/-]{16,}", "[REDACTED]", value)
-    value = re.sub(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", "[REDACTED]", value)
-    value = re.sub(r'''(?im)((?:["']?)(?:password|passwd|api[_ -]?key|token|secret|密码|密钥|口令)["']?\s*[:=：]\s*)(["'])(.*?)\2''', lambda m: m[1] + m[2] + "[REDACTED]" + m[2], value)
-    return re.sub(r"(?im)((?:password|passwd|api[_ -]?key|token|secret|密码|密钥|口令)\s*[:=：]\s*)[^\s,，;；]+", r"\1[REDACTED]", value)
 
 def admit(message, agent, source, *, input_text="", at=None):
     """Attach a journal receipt before the caller commits the completed message."""
@@ -68,9 +51,9 @@ def append(ident, message_id, receipt, content):
     # Only our own date format may become a file path.
     datetime.strptime(day, "%Y-%m-%d")
     body = "\n\n" + marker + entry_body(receipt, content)
-    with workspace_lock(ident):
+    with _pa_files.workspace_lock(ident):
         root = _pa_files.local_workspace(ident)
-        fd = _pa_files._open_dir(root, ["memory"], create=True)
+        fd = _pa_files._open_dir(root, [JOURNAL_DIR], create=True)
         name = day + ".md"
         temp = "." + name + "." + os.urandom(6).hex() + ".tmp"
         try:

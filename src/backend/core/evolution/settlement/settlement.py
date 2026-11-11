@@ -49,7 +49,6 @@ SETTLE_EMPTY = "empty"
 # Layers a written memory can belong to.
 LAYER_PROFILE = "L1"
 LAYER_PROCEDURE = "L2"
-LAYER_GRAPH = "L3"
 
 
 @dataclass

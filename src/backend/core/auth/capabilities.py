@@ -67,8 +67,6 @@ BOOL_CAPABILITY_DEFAULTS: Dict[str, bool] = {
     "can_security_view": False,
 }
 
-# All capability flag keys (boolean + allowed_apps); the whitelist for team permission configuration and normalization
-CAPABILITY_KEYS: tuple[str, ...] = (*BOOL_CAPABILITY_DEFAULTS.keys(), "allowed_apps")
 
 # "Force-all" sentinel for personal ``allowed_apps``: the person is explicitly set to
 # see all apps, **overriding** team/role app-whitelist restrictions (symmetric with the

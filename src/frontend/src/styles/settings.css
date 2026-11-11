@@ -1046,7 +1046,7 @@
 
 .jx-shareRecordsPage.embedded .jx-shareRecordsHead.noDesc {
   justify-content: flex-end;
-  transform: translateY(-8px);
+  padding-top: 16px;
 }
 
 .jx-shareRecordsPage.embedded .jx-shareRecordsDesc {
@@ -1143,8 +1143,8 @@
 .jx-shareRecordCardSkeleton {
   pointer-events: none;
   border-radius: 12px;
-  background: rgba(244, 244, 244, 0.92);
-  border-color: rgba(240, 240, 240, 0.95);
+  background: var(--color-bg-gray);
+  border-color: transparent;
   box-shadow: none;
 }
 
@@ -1229,14 +1229,16 @@
   justify-content: center;
   width: 18px;
   height: 18px;
+  color: var(--color-text-placeholder);
   cursor: pointer;
   border-radius: 6px;
-  transition: background .16s ease, transform .16s ease;
+  transition: background .16s ease, color .16s ease, transform .16s ease;
 }
 
 .jx-shareRecordJumpBtn:hover,
 .jx-shareRecordJumpBtn:focus-visible {
-  background: rgba(148, 163, 184, 0.12);
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+  color: var(--color-text-secondary);
   transform: translateY(-1px);
   outline: none;
 }
@@ -1245,14 +1247,12 @@
   width: 16px;
   height: 16px;
   display: block;
-  opacity: 0.9;
-  transition: opacity .16s ease, filter .16s ease;
 }
 
-.jx-shareRecordJumpBtn:hover .jx-shareRecordJumpIcon,
-.jx-shareRecordJumpBtn:focus-visible .jx-shareRecordJumpIcon {
-  opacity: 1;
-  filter: brightness(0.85);
+.jx-shareRecordExpiryTag.ant-tag {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary-bg);
+  color: var(--color-primary);
 }
 
 .jx-shareRecordTitleBtn {
@@ -1312,7 +1312,7 @@
 
 .jx-shareRecordIdPopover .ant-popover-inner {
   border-radius: 12px;
-  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.10);
+  box-shadow: var(--shadow-dropdown);
 }
 
 .jx-shareRecordIdValue {
@@ -1383,7 +1383,7 @@
 .jx-shareRecordActionDivider {
   width: 1px;
   height: 10px;
-  background: rgba(148, 163, 184, 0.45);
+  background: var(--color-border);
 }
 
 .jx-shareRecordDeleteBtn {
@@ -1392,7 +1392,7 @@
 
 .jx-shareRecordDeleteBtn:hover,
 .jx-shareRecordDeleteBtn:focus {
-  color: var(--color-text-tertiary);
+  color: var(--color-error-text);
 }
 
 .jx-shareRecordSide .ant-btn {
@@ -1442,7 +1442,6 @@
     width: 100%;
   }
 
-  .jx-shareRecordSide,
   .jx-shareRecordSide {
     width: 100%;
     grid-template-columns: 1fr 1fr;

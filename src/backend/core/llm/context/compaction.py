@@ -32,10 +32,6 @@ class CompactionPhase(str, Enum):
 # Token estimation: roughly 1 token per 4 utf-8 bytes
 APPROX_BYTES_PER_TOKEN = 4
 
-# Tokens of recent history kept verbatim after compaction (the default for
-# ``CompactionSettings.keep_recent_tokens``).
-COMPACT_KEEP_RECENT_TOKENS = 20_000
-
 # Marker stored on internal checkpoint messages.
 COMPACTION_CHECKPOINT_KIND = "compaction_summary"
 

@@ -56,7 +56,7 @@ from core.db.models.memory import (
     ProfileMemory,
 )
 from core.db.models.command import CommandTask
-from core.db.models.job import JOB_LIVE_STATUSES, JOB_TERMINAL_STATUSES, Job, JobCall, JobItem
+from core.db.models.job import Job, JobCall, JobItem
 from core.db.edition import EDITION_MODEL_NAMES, edition_model_exports
 globals().update(edition_model_exports())
 
@@ -124,8 +124,6 @@ __all__ = [
     'Job',
     'JobItem',
     'JobCall',
-    'JOB_TERMINAL_STATUSES',
-    'JOB_LIVE_STATUSES',
     'ToolCallLog',
     'SubAgentCallLog',
     'SkillCallLog',

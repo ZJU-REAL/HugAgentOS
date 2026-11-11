@@ -108,13 +108,15 @@ def _channel_chat(db, conn, msg):
     return chat_id, verdict
 
 def _admit_message(db, owner_id, chat_id, text, key, file_ids, origin, msg):
-    from personal_agent.channels.im_actions import route
+    from personal_agent.channels.im_actions import quoted, route
     from personal_agent.context import AgentContext
     from personal_agent.conversation.message_routing import admit
     svc = AgentContext(db, owner_id, chat_id)
     # A reply to one of the agent's messages, or an approval answer, needs no model to route.
     intent, ids = route(db, svc.identity.agent(), chat_id, text, msg, from_owner=True)
-    admit(svc, text, key, file_ids, ids, intent, extra={"origin": "channel", "channel_origin": origin})
+    # The quoted message goes along: when the agent decides (auto), it sees which task the reply is about.
+    admit(svc, text, key, file_ids, ids, intent, reply_to=quoted(db, svc.identity.agent(), chat_id, msg),
+          extra={"origin": "channel", "channel_origin": origin})
 
 def _record_context(db, owner_id, chat_id, text, key, origin):
     """Someone other than the owner in a group: kept as context for the owner's next message.
@@ -186,12 +188,16 @@ def origin_of(db, task_id=None, message_id=None):
     return (row.extra_data or {}).get("channel_origin") if row else None
 
 def home_origin(db, chat_id):
-    """The direct IM conversation of the bot the owner chose for messages nobody asked for
-    (heartbeat alerts, scheduled results): the latest one-to-one message from that bot. None without one."""
+    """The direct IM conversation for messages nobody asked for (proactive summaries, scheduled results):
+    the owner's latest one-to-one message to the bot they chose, or, with no bot chosen, to any connected
+    bot. None when the owner chose the web only ("none"), or without such a conversation."""
     agent = db.scalar(select(PersonalAgent).where(PersonalAgent.chat_id == chat_id))
     config = (agent.config or {}) if agent else {}
     channel = (config.get("heartbeat") or {}).get("channel_id")
-    if not channel or channel not in config.get("channel_ids", []): return None
+    connected = config.get("channel_ids", [])
+    if channel == "none" or not connected or (channel and channel not in connected): return None
+    # No bot chosen: the bot of the owner's latest direct chat.
+    bots = {channel} if channel else set(connected)
     from core.db.models import ChatSession
     from personal_agent.conversation.conversations import MARKER
     rows = db.scalars(select(ChatMessage).join(ChatSession, ChatSession.chat_id == ChatMessage.chat_id).where(
@@ -201,11 +207,11 @@ def home_origin(db, chat_id):
     from personal_agent.channels.owner_binding import listed
     for row in rows:
         origin = (row.extra_data or {}).get("channel_origin") or {}
-        if (origin.get("channel_id") != channel or (origin.get("msg") or {}).get("chat_type") == "group"
+        if (origin.get("channel_id") not in bots or (origin.get("msg") or {}).get("chat_type") == "group"
                 or not origin.get("owner") or not row.created_at):
             continue
         # Never a group, and only an account listed now, written in since it was listed: an alert is for the owner only.
-        entry = listed(config, channel, origin.get("sender_keys") or [])
+        entry = listed(config, origin["channel_id"], origin.get("sender_keys") or [])
         if entry and row.created_at.replace(tzinfo=row.created_at.tzinfo or timezone.utc).timestamp() >= entry["added_at"]:
             return origin
     return None

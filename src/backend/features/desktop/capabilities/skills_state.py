@@ -5,8 +5,6 @@ from collections import OrderedDict
 from typing import Dict, Tuple
 from features.desktop.capabilities.resolver import Resolution
 
-SKIP_PARTS = {"__pycache__", ".git", ".svn", ".hg", "__MACOSX"}
-
 
 INVENTORY_NAME = ".inventory.json"
 

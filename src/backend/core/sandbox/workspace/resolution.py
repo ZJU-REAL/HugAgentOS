@@ -3,9 +3,6 @@
 from typing import Optional
 from core.sandbox.workspace.paths import WORKSPACE as WORKSPACE_ROOT
 
-SCRATCH_ROOT = f"{WORKSPACE_ROOT}/scratch"
-MYSPACE_LOGICAL = "/myspace"
-
 
 def path_rules():
     from core.harness.registry.evaluation import current_path_rules

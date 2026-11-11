@@ -69,7 +69,14 @@
 .pa-composer-files .ant-btn{max-width:100%;height:auto;white-space:normal;overflow-wrap:anywhere}
 .pa-composer-preferences{width:100%;max-width:760px;align-self:center;box-sizing:border-box;padding:8px 16px 12px}
 .pa-composer-preferences .jx-composerChip{font-size:11px;color:var(--color-text-tertiary)}
-.pa-confirmBar-preview{margin-top:6px;font-size:12px;line-height:1.6;color:var(--color-text-secondary);white-space:pre-wrap;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
+.pa-confirmBar--full{flex-wrap:wrap}
+.pa-confirmBar--full .jx-confirmBar-actions{width:100%;justify-content:flex-end;flex-wrap:wrap}
+.pa-confirmBar-unasked{margin-top:4px;font-size:12px;font-weight:500;line-height:1.6;color:var(--color-text-secondary)}
+.pa-confirmBar-lines{margin:4px 0 0;padding:0;list-style:none;font-size:13px;line-height:1.6;color:var(--color-text);overflow-wrap:anywhere}
+.pa-confirmBar-bodyLabel{margin-top:8px;font-size:12px;line-height:1.6;color:var(--color-text-tertiary)}
+/* The whole text, scrolled inside a fixed height: never clamped. */
+.pa-confirmBar-text{margin-top:4px;max-height:240px;overflow-y:auto;padding:8px 12px;border-radius:var(--radius-xs);background:var(--color-bg-container);font-size:13px;line-height:1.6;color:var(--color-text);white-space:pre-wrap;overflow-wrap:anywhere}
+.pa-confirmBar-text:focus-visible{outline:2px solid var(--color-primary);outline-offset:1px}
 .pa-task-dialog-actions .jx-confirmBar{margin:0}
 
 /* ── Needs your action ──────────────────────────────────────────────── */
@@ -202,6 +209,8 @@ button.pa-side-row:disabled{cursor:default}
 .pa-set-control .jx-conn--compact .jx-conn-statusBar{padding:10px 12px;box-shadow:none}
 .pa-set-control .jx-conn--compact .jx-conn-form{margin-top:12px}
 .pa-heartbeat-times{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.pa-set-text .pa-set-note{display:flex;align-items:baseline;gap:4px;color:var(--color-text-secondary)}
+.pa-set-note>.anticon{flex-shrink:0;color:var(--color-warning)}
 .pa-pairing{display:flex;flex-direction:column;gap:10px}
 .pa-hint{font-size:12px;color:var(--color-text-tertiary);margin:4px 0 0}
 .pa-task-dialog-actions{display:flex;flex-direction:column;gap:6px;margin-bottom:8px;font-size:12px}

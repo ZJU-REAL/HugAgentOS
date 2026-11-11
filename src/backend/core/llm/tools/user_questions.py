@@ -24,7 +24,6 @@ from typing import Any, Dict, Iterable, List, Optional
 from core.llm.runtime.human_interaction import MAX_WAIT_SECONDS
 from core.llm.runtime import interaction_store
 
-KIND_USER_QUESTION = "user_question"
 STATUS_BLOCKED = "blocked_non_interactive"
 
 _MAX_ID_LEN = 64
@@ -463,7 +462,6 @@ async def cancel_shared(chat_id, request_id):
 
 
 __all__ = [
-    "KIND_USER_QUESTION",
     "MAX_QUESTIONS",
     "MAX_WAIT_SECONDS",
     "STATUS_BLOCKED",

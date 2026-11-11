@@ -1,6 +1,7 @@
 """Task-scoped exact-action approval; persisted outside the model's filesystem."""
 import hashlib
 import json
+import time
 from core.db.engine import SessionLocal
 from personal_agent.context import AgentContext
 
@@ -22,6 +23,12 @@ def scope_key(action):
         return "session:" + str(action.get("target")) + ":" + str(action.get("operation"))
     return None
 
+def scope_for(task, action):
+    """scope_key, except for a task a proactive check started: each of its actions is approved by itself,
+    also after the user took the task over. What it read while nobody watched is still in its context."""
+    from personal_agent.scheduling import proactive_tasks
+    return None if proactive_tasks.began(task) else scope_key(action)
+
 APPROVAL_MODES = ("ask", "auto", "full")
 # Under "auto" these still ask: they reach other people or cannot be undone.
 ALWAYS_ASK = {("email.send", None), ("hugagent.session", "chat.delete")}
@@ -40,6 +47,20 @@ def authorize(task_id, uid, action):
         task = service.tasks.get(task_id, lock=True)
         owned_task(task_id, uid)
         mode = (getattr(service.identity.agent(), "config", None) or {}).get("approval_mode") or "ask"
+        # Nobody asked for a proactive check: every action that needs approval asks, whatever the user's level.
+        # This holds after the user takes the task over too: a reply to its summary gives the tools back,
+        # but what the task read before that (mail, pages, chats) must not act through the user's level.
+        from personal_agent.scheduling import proactive_tasks
+        from personal_agent.scheduling.schedules import is_proactive
+        if proactive_tasks.began(task): mode = "ask"
+        if is_proactive(task) and action.get("kind") == "hugagent.session" and action.get("target") != "cloud":
+            # A message sent to HugAgentOS on the user's computer is carried out there with local tools.
+            return digest, {"status": "rejected", "message": "主动服务不能改动用户电脑上的 HugAgentOS。把你想做的事写进报告，由用户决定。"}
+        refs = proactive_tasks.inner_refs(action) if proactive_tasks.began(task) else []
+        if refs:
+            # Nothing is asked of the user for a text that would carry the platform's ids to someone else.
+            return digest, {"status": "rejected", "message": "没有提交：要发出去的标题或正文里有内部引用（" + "、".join(refs)
+                + "），对方看不懂这些编号。去掉它们，用人能看懂的话重写后再提交。"}
         state = dict(task.checkpoint or {})
         receipts = dict(state.get("action_receipts", {}))
         if digest in receipts and not receipts[digest].get("waiting"): return digest, receipts[digest]
@@ -49,9 +70,10 @@ def authorize(task_id, uid, action):
         if pending and pending.get("id") != digest:
             return digest, {"pending_approval": True, "message": "先处理已存在的操作批准"}
         # The user explicitly allowed this action class for this task only.
-        scoped = scope_key(action) in state.get("approved_scopes", [])
+        scope = scope_for(task, action)
+        scoped = scope is not None and scope in state.get("approved_scopes", [])
         if digest not in state.get("approved_actions", []) and not scoped and not preapproved(mode, action):
-            state["pending_approval"] = {"id": digest, "action": action}
+            state["pending_approval"] = {"id": digest, "action": action, "at": time.time()}
             task.checkpoint = state
             db.commit()
             return digest, {"pending_approval": True, "message": "等待你批准操作"}
@@ -90,7 +112,7 @@ def approve(service, ident, approval_id, accept, scope="once"):
     if accept:
         state["approved_actions"] = [*state.get("approved_actions", []), approval_id]
         state["approved_action_payloads"] = {**state.get("approved_action_payloads", {}), approval_id: pending["action"]}
-        key = scope_key(pending["action"])
+        key = scope_for(task, pending["action"])
         if scope == "task":
             if key is None: raise ValueError("This action needs approval each time")
             state["approved_scopes"] = list(dict.fromkeys([*state.get("approved_scopes", []), key]))

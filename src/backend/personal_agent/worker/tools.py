@@ -1,5 +1,6 @@
 """The Worker's own tools: structured Reports and the guarded core ``Bash`` (SUPERAGENT_DESIGN §6.3, §8.2)."""
 import json
+import logging
 from contextlib import suppress
 import os
 import re
@@ -16,6 +17,7 @@ from core.llm.factory.tools.definitions import function_tool
 from personal_agent.tasks.guards import owned_task
 from personal_agent.tools.responses import response
 
+log = logging.getLogger(__name__)
 # New input reaches the Worker within this long while a command runs (§6.3).
 YIELD_MS = 5000
 CREDENTIAL = re.compile(r"pa_cli_[A-Za-z0-9_-]{20,}")
@@ -77,9 +79,23 @@ def register_report(toolkit, ident, uid):
         if len(question) > 1000: raise ValueError("Question must contain at most 1000 characters")
         from personal_agent.context import AgentContext
         from personal_agent.channels.im_actions import new_question
+        from personal_agent.scheduling.proactive_tasks import plain
+        # A question and a reason are shown to the user as written; the marks of a summary do not belong there.
+        question = plain(question)
+        if status in ("blocked", "failed", "waiting"): summary = plain(summary) or summary
         with SessionLocal() as db:
             task = AgentContext(db, uid).tasks.get(ident, lock=True)
             owned_task(ident, uid, allow_pending=True)
+            from personal_agent.scheduling.schedules import is_proactive
+            if status == "blocked" and is_proactive(task):
+                # A question would hold the summary until the user answers; nobody is there to answer.
+                raise ValueError("A proactive check cannot ask the user. Put the open point in the report and use ready.")
+            if status == "ready" and is_proactive(task):
+                from personal_agent.scheduling import proactive_tasks
+                summary, unknown = proactive_tasks.known_mail_only(task, summary)
+                if unknown: log.warning("Proactive task %s reported mail it never read: %s", ident, ", ".join(unknown))
+                # Nothing it reported could be checked: the same as nothing to report.
+                if not summary: status, summary = "dropped", "报告的邮件事项在邮箱里查不到，已全部丢弃。"
             report = {"assignment": state["run_id"], "status": status, "summary": summary.strip(),
                       **({"question": question.strip()} if question.strip() else {}), "at": time.time()}
             checkpoint = {**(task.checkpoint or {}), "report": report}

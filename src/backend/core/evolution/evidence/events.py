@@ -29,8 +29,6 @@ logger = logging.getLogger(__name__)
 EV_RUN_STARTED = "run.started"
 EV_RUN_FINISHED = "run.finished"
 EV_MEMORY_RETRIEVED = "memory.retrieved"
-EV_MEMORY_INJECTED = "memory.injected"
-EV_MEMORY_WRITTEN = "memory.written"
 EV_SKILL_SELECTED = "skill.selected"
 # The model opened a skill's SKILL.md for itself. This is the only evidence that
 # a skill was *used* rather than merely offered: selection puts a name and one
@@ -38,37 +36,10 @@ EV_SKILL_SELECTED = "skill.selected"
 # indistinguishable — from selection alone — from one that gets opened every
 # time. Retirement and merge decisions read this, never selection.
 EV_SKILL_OPENED = "skill.opened"
-EV_SKILL_INVOKED = "skill.invoked"
 EV_TOOL_CALLED = "tool.called"
-EV_SUBAGENT_CALLED = "subagent.called"
-EV_ONTOLOGY_GATE = "ontology.gate"
-EV_LOOP_PROGRESS = "loop.progress"
-EV_LOOP_STAGNATION = "loop.stagnation"
-EV_LOOP_INTERVENTION = "loop.intervention"
-EV_OUTCOME_RECORDED = "outcome.recorded"
 
-ALL_EVENT_TYPES = (
-    EV_RUN_STARTED,
-    EV_RUN_FINISHED,
-    EV_MEMORY_RETRIEVED,
-    EV_MEMORY_INJECTED,
-    EV_MEMORY_WRITTEN,
-    EV_SKILL_SELECTED,
-    EV_SKILL_OPENED,
-    EV_SKILL_INVOKED,
-    EV_TOOL_CALLED,
-    EV_SUBAGENT_CALLED,
-    EV_ONTOLOGY_GATE,
-    EV_LOOP_PROGRESS,
-    EV_LOOP_STAGNATION,
-    EV_LOOP_INTERVENTION,
-    EV_OUTCOME_RECORDED,
-)
 
 ACTOR_SYSTEM = "system"
-ACTOR_AGENT = "agent"
-ACTOR_USER = "user"
-ACTOR_TOOL = "tool"
 
 # Anything larger than this is a result body, not evidence. Oversized payloads
 # are replaced by a reference so the event table stays queryable — the full

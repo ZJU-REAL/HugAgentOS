@@ -13,7 +13,6 @@ Reading order:
 """
 
 from core.evolution.contract import (
-    ASSET_KINDS,
     AssetBundle,
     AssetKind,
     AssetRef,
@@ -21,7 +20,6 @@ from core.evolution.contract import (
 from core.evolution.cycle.runtime_binding import bind_runtime_assets, get_bundle, resolve_bundle_for_run
 
 __all__ = [
-    "ASSET_KINDS",
     "AssetBundle",
     "AssetKind",
     "AssetRef",
