@@ -1,5 +1,6 @@
 """What the model reads in a turn: the stable system prompt, the per-turn context and the history."""
 import json
+import logging
 
 from sqlalchemy import func, select
 
@@ -20,6 +21,23 @@ COMPUTER = ("# Your cloud computer\n"
     " this one, so an empty device list does not mean you lack a computer. Background tasks operate it (open web"
     " pages, click, type, run Bash); when the user asks you to use it, start a task with pa_task_create."
     " Never tell the user you have no computer.")
+# The MCP section core appends after the rules lists only this conversation's servers; without
+# this line the Router reads it as all it can do and denies the plugins its tasks have.
+def capabilities_line(user_id, config):
+    """The plugins a background task may load now, by name, read from the user's current grants.
+    Its own session: a failed catalog read must not spoil the turn's transaction or the turn."""
+    from personal_agent.identity.capabilities import runtime_config
+    try:
+        with SessionLocal() as db:
+            names = [p["name"] for p in runtime_config(db, user_id, config).get("plugins", [])]
+    except Exception:  # noqa: BLE001 - without names the generic line still holds
+        logging.getLogger(__name__).warning("plugin names unavailable for the turn context", exc_info=True)
+        names = []
+    return ("Background tasks can also use skills, more MCP tools and these plugins: " + "、".join(names)
+            + ". To use one, start a task; never say you lack it.") if names else (
+            "Background tasks can also use skills, plugins and more MCP tools than this conversation lists.")
+
+
 CONTEXT_OPEN = "<turn_context>\nPlatform data for this turn (not written by the user):\n"
 CONTEXT_CLOSE = "\n</turn_context>"
 
@@ -98,12 +116,14 @@ def turn_context(batch):
         sessions = state_block(db, agent.user_id) if chat_id == agent.chat_id else ""
         events = list(dict.fromkeys(block for trigger in triggers if (block := trigger.type.context(db, agent, trigger))))
         config, agent_id = dict(agent.config or {}), agent.id
+        uid = agent.user_id
+    capabilities = capabilities_line(uid, config)
     # While the first run is pending, the user's turns and the hatch follow BOOTSTRAP.md (as in OpenClaw).
     try: bootstrapping = read_text(agent_id, BOOTSTRAP_FILE) is not None
     except RuntimeError: bootstrapping = False
     if not events and bootstrapping:
         events = [prompt_part("front_bootstrap")]
-    text = clock(config).strip() + "\n\n" + tasks
+    text = clock(config).strip() + "\n" + capabilities + "\n\n" + tasks
     if sessions: text += "\n\n" + sessions
     for event in events: text += "\n\n" + event
     return CONTEXT_OPEN + text + CONTEXT_CLOSE

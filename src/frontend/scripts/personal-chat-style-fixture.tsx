@@ -41,7 +41,7 @@ personalApi.send = async content => {
 };
 const style = document.createElement('style');
 style.textContent = 'html,body,#root{height:100%;overflow:hidden}body{margin:0}*{box-sizing:border-box}' +
-  (params.has('conversation') ? '.pa-side,.pa-header{display:none!important}.pa-panel{--pa-scroll-extension:0px;padding:16px 40px 0;gap:0}.pa-messages-inner{max-width:1120px}' : '');
+  (params.has('conversation') ? '.pa-side,.pa-header{display:none!important}.pa-panel{--pa-column:1120px;--pa-inset-left:40px;--pa-inset-right:40px;padding-top:16px}' : '');
 document.head.append(style);
 createRoot(document.getElementById('root')!).render(
   <ConfigProvider theme={{ algorithm: dark ? theme.darkAlgorithm : theme.defaultAlgorithm, token: { fontFamily: 'Arial, "Microsoft YaHei", sans-serif' } }}>

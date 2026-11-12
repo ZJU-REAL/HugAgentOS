@@ -18,7 +18,7 @@ export function Fixture() {
   const artifact = useCanvasStore(state => state.artifact);
   useEffect(() => { void fetch('/fixture-messages').then(r => r.json()).then(setRows); }, []);
   return <ConfigProvider theme={{ token: { motion: false } }}>
-    <div className="pa-panel"><div className="pa-conversation" style={{ maxWidth: 760, margin: '20px auto', padding: 20 }} role="log">
+    <div className="pa-panel"><div style={{ maxWidth: 760, margin: '20px auto', padding: 20 }} role="log">
       <p role="status">任务仍在执行</p>
       {rows.filter(row => row.role === 'assistant').map(row =>
         <PersonalMessageRow key={row.id} row={row} author="Personal Agent" />)}

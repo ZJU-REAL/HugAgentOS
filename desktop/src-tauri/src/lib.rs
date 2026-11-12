@@ -28,6 +28,7 @@ mod bootstrap;
 #[cfg(not(target_os = "macos"))]
 mod dialogs;
 mod display;
+mod downloads;
 mod navigation;
 mod session;
 mod session_state;

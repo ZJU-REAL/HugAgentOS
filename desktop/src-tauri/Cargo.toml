@@ -65,6 +65,11 @@ percent-encoding = "2"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# 下载另存为：WKWebView 的下载回调在主线程同步要求目标路径，tauri-plugin-dialog 的
+# blocking_* 会在主线程上死锁，所以直接用它已经引入的同一份 rfd 的同步对话框。
+[target.'cfg(target_os = "macos")'.dependencies]
+rfd = { version = "0.16", default-features = false }
+
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
 

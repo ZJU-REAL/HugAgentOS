@@ -54,6 +54,12 @@ function prefersReducedMotion(): boolean {
   return reducedMotionMql.matches;
 }
 
+/** Scroll to a position, smoothly unless the system asks for reduced motion. */
+export function scrollElementTo(el: HTMLElement, top: number, smooth = false): void {
+  if (smooth && !prefersReducedMotion()) el.scrollTo({ top, behavior: 'smooth' });
+  else el.scrollTop = top;
+}
+
 export function scrollElementToBottom(el: HTMLElement, smooth = false): void {
   if (smooth && !prefersReducedMotion()) {
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
