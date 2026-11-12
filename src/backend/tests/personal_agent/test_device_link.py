@@ -9,6 +9,9 @@ import pytest
 from personal_agent.device_link import runner as link_runner
 from personal_agent.device_link import store
 
+# The real one: the autouse fixture replaces it.
+REAL_BRIDGE_HEADERS = link_runner._bridge_headers
+
 ACCOUNT = "cloud:cloud.example:443:owner"
 CLOUD = "https://cloud.example"
 
@@ -69,7 +72,8 @@ async def settle(box):
     """Let the lanes finish their actions and deliver every receipt."""
     import asyncio
 
-    await asyncio.gather(*[task for task in box.lanes.values() if task], return_exceptions=True)
+    while box.tasks():
+        await asyncio.gather(*box.tasks(), return_exceptions=True)
     await box.flush()
 
 
@@ -339,7 +343,8 @@ async def test_an_action_that_never_ends_is_bounded_and_reported_unknown(monkeyp
     box = mailbox(make_link(sessions=True), cloud)
     assert await box.step()
     await settle(box)
-    assert cloud.receipts[0]["outcome_unknown"] and "timed_out" in cloud.receipts[0]["error"]
+    # A read never has an unknown outcome; nothing was sent for a write either.
+    assert cloud.receipts[0]["not_executed"] and cloud.receipts[0]["error"] == "timed_out"
     cloud.operation = operation  # never replayed
     assert not await box.step()
     await box.close()
@@ -356,7 +361,9 @@ async def test_an_unexpected_error_in_an_action_still_closes_its_receipt(monkeyp
     box = mailbox(make_link(sessions=True), cloud)
     assert await box.step()
     await settle(box)
-    assert cloud.receipts[0]["outcome_unknown"]
+    # Nothing was sent: the receipt says so, with the reason.
+    assert cloud.receipts[0]["not_executed"] and cloud.receipts[0]["exception"] == "LookupError"
+    assert cloud.receipts[0]["detail"] == "database is locked"
     assert box.journal.pending() == []
     await box.close()
 
@@ -449,9 +456,10 @@ async def test_a_slow_session_operation_does_not_hold_back_screen_commands(monke
     assert await box.step()
     cloud.command = {"id": "c8", "action": {"type": "click", "x": 1, "y": 1}, "deadline": time.time() + 30}
     assert await box.step()  # the session lane is busy; the command lane still claims
-    await asyncio.wait_for(box.lanes["command"], 1)
+    await asyncio.wait_for(asyncio.gather(*[task for task, _ in box.lanes["command"].values()]), 1)
     assert ran and not box.idle("session")
-    assert ("/claim", {"kinds": ["command"]}) in cloud.bodies
+    # A read leaves room in the session lane; the command lane claims on its own.
+    assert cloud.bodies.count(("/claim", {"kinds": ["command", "session"]})) == 2
     release.set()
     await settle(box)
     await box.close()
@@ -656,9 +664,9 @@ async def test_a_steps_command_runs_once_with_its_own_time_limit(monkeypatch, ro
     limits = []
     launch = link_runner.Mailbox._launch
 
-    def recording(self, kind, ident, action, seconds):
+    def recording(self, kind, ident, action, seconds, *rest):
         limits.append(seconds)
-        return launch(self, kind, ident, action, seconds)
+        return launch(self, kind, ident, action, seconds, *rest)
 
     monkeypatch.setattr(link_runner.Mailbox, "_launch", recording)
     command = {"id": "c9", "action": {"type": "steps", "window": "1:2", "steps": [{"type": "type", "text": "hi"}]},
@@ -797,3 +805,401 @@ def test_a_pixel_read_has_the_read_shape(screen):
     result = driver.run({"type": "read", "window": None, "screenshot": True})
     assert {"mode", "platform", "skill", "window", "snapshot_id", "elements", "windows", "media_type"} <= set(result)
     assert result["mode"] == "pixels" and result["media_type"] == "image/png"
+
+
+async def test_local_api_calls_this_server_on_its_own_port(monkeypatch):
+    """The real ``local_api.execute`` (other tests replace it) reaches the loopback API."""
+    from core.config.settings import settings
+    from personal_agent.device_link import local_api
+
+    seen = []
+
+    def handler(request: httpx.Request):
+        seen.append(request)
+        return httpx.Response(200, json={"code": 0, "data": {"items": []}})
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(local_api.httpx, "AsyncClient",
+                        lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw))
+
+    result = await local_api.execute("chat.list", {}, {"x-desktop-bridge": "s"})
+
+    assert result == {"items": []}
+    assert seen[0].url.host == "127.0.0.1"
+    assert seen[0].url.port == settings.server.port
+    assert seen[0].headers["x-desktop-bridge"] == "s"
+
+
+# -- receipts: every failure carries its real reason (hugagent_cli.contract) -------------
+
+def loopback(monkeypatch, handler):
+    """The real local_api.execute against a fake loopback server; returns the requests made."""
+    from personal_agent.device_link import local_api
+
+    seen = []
+
+    async def recording(request):
+        seen.append((request.method, request.url.path))
+        result = handler(request)
+        if hasattr(result, "__await__"):
+            result = await result
+        return result
+
+    monkeypatch.setattr(local_api, "_client", lambda: httpx.AsyncClient(
+        transport=httpx.MockTransport(recording), timeout=local_api.REQUEST_TIMEOUT))
+    return seen
+
+
+async def run_operation(name, args, deadline=30, ident="op1", **link):
+    operation = {"id": ident, "operation": name, "args": args, "deadline": time.time() + deadline}
+    cloud = Cloud(operation=operation)
+    box = mailbox(make_link(sessions=True, **link), cloud)
+    assert await box.step()
+    await settle(box)
+    await box.close()
+    return cloud.receipts[0], box
+
+
+async def test_an_unexpected_local_error_is_not_executed_with_its_name(monkeypatch):
+    def broken(account):
+        raise AttributeError("'Settings' object has no attribute 'port'")
+
+    monkeypatch.setattr(link_runner, "_bridge_headers", broken)
+    receipt, box = await run_operation("chat.send", {"chat_id": "c1", "message": "hi"})
+    assert receipt["not_executed"] is True and "outcome_unknown" not in receipt
+    assert receipt["error"] == "local_failure" and receipt["exception"] == "AttributeError"
+    assert "port" in receipt["detail"]
+    assert box.failures == 1 and box.last_failure["op"] == "chat.send"
+    assert box.last_failure["error"] == "local_failure"
+
+
+async def test_a_read_the_server_refuses_carries_its_status_and_message(monkeypatch):
+    loopback(monkeypatch, lambda request: httpx.Response(404, json={"detail": "Chat not found"}))
+    receipt, _ = await run_operation("chat.get", {"chat_id": "c1"})
+    assert receipt == {"error": "http_404", "not_executed": True, "http_status": 404,
+                       "detail": "Chat not found", "retryable": False}
+
+
+async def test_a_refused_chat_send_did_not_run(monkeypatch):
+    def server(request):
+        if request.method == "GET":
+            return httpx.Response(200, json={"code": 0, "data": {"id": "c1"}})
+        return httpx.Response(409, json={"code": 409, "message": "chat_busy"})
+
+    seen = loopback(monkeypatch, server)
+    receipt, _ = await run_operation("chat.send", {"chat_id": "c1", "message": "hi"})
+    assert receipt["not_executed"] and receipt["error"] == "http_409"
+    assert receipt["http_status"] == 409 and receipt["detail"] == "chat_busy" and receipt["retryable"] is False
+    assert seen == [("GET", "/v1/chats/c1"), ("POST", "/v1/agents/responses")]
+
+
+async def test_a_server_error_after_a_write_was_sent_is_an_unknown_outcome(monkeypatch):
+    loopback(monkeypatch, lambda request: httpx.Response(500, text="Internal Server Error"))
+    receipt, _ = await run_operation("chat.delete", {"chat_id": "c1"})
+    assert receipt == {"error": "http_500", "outcome_unknown": True, "http_status": 500,
+                       "detail": "Internal Server Error"}
+
+
+async def test_a_write_that_never_answers_is_an_unknown_outcome(monkeypatch):
+    import asyncio
+
+    monkeypatch.setattr(link_runner, "OPERATION_TIMEOUT", 0.2)
+
+    async def hang(request):
+        await asyncio.Event().wait()
+
+    loopback(monkeypatch, hang)
+    receipt, _ = await run_operation("chat.delete", {"chat_id": "c1"})
+    assert receipt["outcome_unknown"] and receipt["error"] == "timed_out"
+
+
+async def test_an_unreachable_local_server_did_not_run_the_write(monkeypatch):
+    def refused(request):
+        raise httpx.ConnectError("Connection refused", request=request)
+
+    loopback(monkeypatch, refused)
+    receipt, _ = await run_operation("chat.delete", {"chat_id": "c1"})
+    assert receipt["not_executed"] and receipt["error"] == "local_server_unreachable"
+    assert receipt["exception"] == "ConnectError"
+
+
+async def test_an_account_missing_on_this_computer_is_named(monkeypatch):
+    from core.db import engine
+
+    class NoShadow:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def query(self, model):
+            return self
+
+        def filter(self, *conditions):
+            return self
+
+        def one_or_none(self):
+            return None
+
+    monkeypatch.setattr(link_runner, "_bridge_headers", REAL_BRIDGE_HEADERS)
+    monkeypatch.setattr(engine, "SessionLocal", NoShadow)
+    receipt, _ = await run_operation("chat.delete", {"chat_id": "c1"})
+    assert receipt["not_executed"] and receipt["error"] == "account_not_on_this_computer"
+    assert "sign in" in receipt["detail"]
+
+
+async def test_chat_send_never_creates_a_chat(monkeypatch):
+    seen = loopback(monkeypatch, lambda request: httpx.Response(404, json={"detail": "Chat not found"}))
+    receipt, _ = await run_operation("chat.send", {"chat_id": "nope", "message": "hi"})
+    assert receipt == {"error": "chat_not_found", "not_executed": True, "http_status": 404, "detail": "Chat not found"}
+    assert seen == [("GET", "/v1/chats/nope")]  # never POSTed
+
+
+async def test_chat_send_returns_the_run_once_admitted(monkeypatch):
+    def server(request):
+        if request.method == "GET":
+            return httpx.Response(200, json={"code": 0, "data": {"id": "c1"}})
+        body = json.loads(request.content)
+        assert body["stream"] is True and body["chat_id"] == "c1"
+        return httpx.Response(200, headers={"x-hugagent-user-message-id": "m1"},
+                              content=b'data: {"type": "run_started", "run_id": "r1"}\n\n')
+
+    loopback(monkeypatch, server)
+    receipt, _ = await run_operation("chat.send", {"chat_id": "c1", "message": "hi"})
+    assert receipt == {"type": "run_started", "run_id": "r1"}
+
+
+async def test_chat_send_admission_is_durable_without_run_started(monkeypatch):
+    import asyncio
+    from personal_agent.device_link import local_api
+
+    monkeypatch.setattr(local_api, "ADMISSION_WAIT", 0.05)
+
+    async def slow_stream():
+        yield b": keep-alive\n\n"
+        await asyncio.sleep(5)
+
+    def server(request):
+        if request.method == "GET":
+            return httpx.Response(200, json={"code": 0, "data": {"id": "c1"}})
+        return httpx.Response(200, headers={"x-hugagent-user-message-id": "m1"}, content=slow_stream())
+
+    loopback(monkeypatch, server)
+    receipt, _ = await run_operation("chat.send", {"chat_id": "c1", "message": "hi"})
+    assert receipt == {"admitted": True, "user_message_id": "m1"}
+
+
+async def test_a_read_too_large_asks_for_a_smaller_page(monkeypatch):
+    from personal_agent.device_link import local_api
+
+    monkeypatch.setattr(local_api, "RESPONSE_LIMIT", 100)
+    loopback(monkeypatch, lambda request: httpx.Response(200, json={"code": 0, "data": {"items": ["x" * 200]}}))
+    receipt, _ = await run_operation("chat.list", {})
+    assert receipt == {"error": "response_too_large", "not_executed": True, "detail": "use a smaller page_size"}
+
+
+async def test_an_empty_answer_means_deleted_only_for_delete(monkeypatch):
+    from personal_agent.device_link import local_api
+
+    loopback(monkeypatch, lambda request: httpx.Response(204))
+    assert await local_api.execute("chat.delete", {"chat_id": "c1"}, {}) == {"deleted": True}
+    assert await local_api.execute("chat.update", {"chat_id": "c1", "title": "t"}, {}) == {}
+
+
+async def test_an_operation_ends_before_its_deadline_and_never_starts_too_late(monkeypatch):
+    async def execute(*args):
+        raise AssertionError("must not execute")
+
+    monkeypatch.setattr(link_runner.local_api, "execute", execute)
+    receipt, _ = await run_operation("chat.list", {}, deadline=link_runner.DEADLINE_MARGIN - 1)
+    assert receipt["not_executed"] and receipt["error"] == "expired_before_it_ran"
+
+    limits = []
+    launch = link_runner.Mailbox._launch
+
+    def recording(self, kind, ident, action, seconds, *rest):
+        limits.append(seconds)
+        return launch(self, kind, ident, action, seconds, *rest)
+
+    async def listed(*args):
+        return {"items": []}
+
+    monkeypatch.setattr(link_runner.Mailbox, "_launch", recording)
+    monkeypatch.setattr(link_runner.local_api, "execute", listed)
+    await run_operation("chat.list", {}, deadline=10, ident="op2")
+    # Capped at the deadline less the margin, never stretched past it.
+    assert len(limits) == 1 and limits[0] <= 10 - link_runner.DEADLINE_MARGIN
+
+
+async def test_reads_run_side_by_side_and_writes_run_alone(monkeypatch):
+    import asyncio
+
+    release, events = asyncio.Event(), []
+
+    async def execute(name, args, headers, attempt=None):
+        events.append(("start", name))
+        if name in ("chat.list", "project.list"):
+            await release.wait()
+        events.append(("end", name))
+        return {"items": []}
+
+    monkeypatch.setattr(link_runner.local_api, "execute", execute)
+    cloud = Cloud()
+    box = mailbox(make_link(sessions=True), cloud)
+    for i in range(link_runner.READ_LANES):
+        cloud.operation = {"id": f"r{i}", "operation": "chat.list", "args": {}, "deadline": time.time() + 30}
+        assert await box.step()
+    for _ in range(20):
+        await asyncio.sleep(0.01)
+    assert events.count(("start", "chat.list")) == link_runner.READ_LANES
+    # Every read lane is busy: no session operation is claimed.
+    await box.step()
+    assert cloud.bodies[-1] == ("/claim", {"kinds": ["command"]})
+    release.clear()
+    events.clear()
+    # A write claimed after reads waits for them; nothing more is claimed while it is there.
+    await settle(box)
+    cloud.operation = {"id": "r9", "operation": "project.list", "args": {}, "deadline": time.time() + 30}
+    assert await box.step()
+    cloud.operation = {"id": "w1", "operation": "chat.delete", "args": {"chat_id": "c1"}, "deadline": time.time() + 30}
+    assert await box.step()
+    await box.step()
+    assert cloud.bodies[-1] == ("/claim", {"kinds": ["command"]})
+    await asyncio.sleep(0.05)
+    assert ("start", "chat.delete") not in events
+    release.set()
+    await settle(box)
+    assert events.index(("end", "project.list")) < events.index(("start", "chat.delete"))
+    assert len(cloud.receipts) == link_runner.READ_LANES + 2
+    await box.close()
+
+
+async def test_heartbeat_reports_the_contract_and_the_app_version(monkeypatch, tmp_path):
+    from hugagent_cli import contract
+    from personal_agent.device_link import local_api
+
+    manifest = tmp_path / "desktop-bundle.json"
+    manifest.write_text(json.dumps({"schema": 1, "desktop_version": "0.5.170"}))
+    monkeypatch.setattr(local_api, "BUNDLE_MANIFEST", manifest)
+    cloud = Cloud()
+    box = mailbox(make_link(), cloud)
+    await box.heartbeat()
+    await box.close()
+    body = cloud.bodies[0][1]
+    assert body["contract"] == contract.contract_version() and body["app_version"] == "0.5.170"
+    monkeypatch.setattr(local_api, "BUNDLE_MANIFEST", tmp_path / "missing.json")
+    assert local_api.app_version() is None
+
+
+@pytest.mark.parametrize("refuses, kept", [
+    ({"contract"}, {"capabilities"}),  # a cloud that does not know the new fields
+    ({"contract", "capabilities"}, set()),  # ... nor a reported capability
+])
+async def test_a_cloud_refusing_the_heartbeat_gets_a_smaller_one(refuses, kept):
+    cloud = Cloud()
+
+    def older(request):
+        if request.url.path.endswith("/heartbeat") and refuses & set(json.loads(request.content)):
+            cloud.calls.append(("POST", "/heartbeat"))
+            return httpx.Response(422 if "contract" in json.loads(request.content) else 409,
+                                  json={"detail": "Unsupported capability"})
+        return cloud(request)
+
+    box = mailbox(make_link(control=True), older)
+    await box.heartbeat()
+    assert box.contact == "connected" and box.protocol == 2
+    accepted = cloud.bodies[-1][1]
+    assert "contract" not in accepted and "app_version" not in accepted
+    assert ("capabilities" in accepted) == ("capabilities" in kept)
+    calls = len(cloud.calls)
+    await box.heartbeat()  # The accepted shape is remembered: one request.
+    assert len(cloud.calls) == calls + 1
+    await box.close()
+
+
+async def test_a_refused_device_finds_out_the_protocol_again():
+    cloud = Cloud()
+    box = mailbox(make_link(), cloud)
+    await box.heartbeat()
+    assert box.protocol == 2
+    box.http = httpx.AsyncClient(base_url=CLOUD + "/x/pa_device_1",
+                                 transport=httpx.MockTransport(lambda r: httpx.Response(401)))
+    with pytest.raises(link_runner.DeviceUnavailable):
+        await box.heartbeat()
+    assert box.protocol is None
+    with pytest.raises(link_runner.DeviceUnavailable):
+        await box.heartbeat()  # 404/401 on both routes: still not pinned to protocol 1
+    assert box.protocol is None
+    box.http = httpx.AsyncClient(base_url=CLOUD + "/api/v1/personal-agent/device-link/pa_device_1",
+                                 transport=httpx.MockTransport(cloud))
+    await box.heartbeat()
+    assert box.protocol == 2
+    await box.close()
+
+
+async def test_a_stuck_capability_check_does_not_hold_up_the_heartbeat(monkeypatch):
+    import asyncio
+
+    async def stuck():
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(link_runner, "CAPABILITIES_TIMEOUT", 0.05)
+    monkeypatch.setattr(link_runner.dispatch, "capabilities", stuck)
+    cloud = Cloud()
+    box = mailbox(make_link(), cloud)
+    await asyncio.wait_for(box.heartbeat(), 1)
+    await box.close()
+    capabilities = cloud.bodies[0][1]["capabilities"]
+    assert "hugagent.sessions" in capabilities and "ui.elements" not in capabilities
+
+
+async def test_a_malformed_cloud_answer_is_treated_as_offline(monkeypatch):
+    import asyncio
+
+    make_link(sessions=True)
+    passes = []
+
+    async def step(self):
+        passes.append(1)
+        raise TypeError("'NoneType' object is not subscriptable")
+
+    async def beat(self):
+        pass
+
+    monkeypatch.setattr(link_runner.Mailbox, "step", step)
+    monkeypatch.setattr(link_runner.Mailbox, "_beat", beat)
+    monkeypatch.setattr(link_runner, "OFFLINE_RETRY", 0.01)
+    runner = link_runner.Runner()
+    runner.start()
+    for _ in range(100):
+        await asyncio.sleep(0.01)
+        if len(passes) >= 2:
+            break
+    assert runner.state == "offline" and runner.error is None
+    box = runner.mailbox
+    assert box is not None  # Kept: not a defect that needs a fresh mailbox.
+    await runner.stop()
+
+
+def test_snapshot_reports_the_last_failed_operation():
+    runner = link_runner.Runner()
+    runner.state = "connected"
+    runner.mailbox = link_runner.Mailbox(ACCOUNT, make_link())
+    runner.mailbox.contact = "connected"
+    assert runner.snapshot()["last_failure"] is None and runner.snapshot()["failures"] == 0
+    runner.mailbox.note("chat.list", {"error": "http_500", "not_executed": True})
+    snap = runner.snapshot()
+    assert snap["state"] == "connected" and snap["failures"] == 1
+    assert snap["last_failure"]["op"] == "chat.list" and snap["last_failure"]["error"] == "http_500"
+    runner.mailbox.journal.close()
+
+
+def test_server_message_reads_nested_and_validation_errors():
+    from personal_agent.device_link.local_api import server_message
+
+    assert server_message(b'{"detail":{"code":30001,"message":"Authorization required","data":{}}}') == "Authorization required"
+    assert server_message(b'{"code":40001,"message":"Resource not found","data":{}}') == "Resource not found"
+    assert server_message(b'{"detail":"Run not found"}') == "Run not found"
+    assert server_message(b'{"detail":[{"loc":["body","steer_id"],"msg":"too long"},{"msg":"bad mode"}]}') == "too long; bad mode"
+    assert server_message(b"plain failure") == "plain failure"

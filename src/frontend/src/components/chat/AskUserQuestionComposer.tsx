@@ -296,8 +296,6 @@ function RequestComposer({ chatId, request, resolveRequest }: RequestComposerPro
     if (
       event.key !== 'Enter'
       || event.shiftKey
-      || event.nativeEvent.isComposing
-      || event.keyCode === 229
     ) return;
     event.preventDefault();
     continueFlow();

@@ -21,6 +21,7 @@
 
 /* ── Messages ───────────────────────────────────────────────────────── */
 /* Extend the viewport past the status column; keep message content in its original column. */
+.pa-older{display:flex;justify-content:center;min-height:24px;font-size:12px;color:var(--color-text-tertiary)}
 .pa-messages{flex:1;display:flex;flex-direction:column;overflow:auto;margin-right:calc(0px - var(--pa-scroll-extension));padding:8px var(--pa-scroll-extension) 0 0;min-height:0;scrollbar-gutter:stable}
 .pa-messages-inner{flex:1 0 auto;width:100%;max-width:760px;margin:0 auto;padding:0 0 20px;box-sizing:border-box}
 /* Confirmations and the composer stay pinned to the bottom of the scroller while messages pass under them. */
@@ -32,6 +33,8 @@
 .pa-message-bubble{position:relative;min-width:0;max-width:100%;box-sizing:border-box;padding:14px 20px;border:0;border-radius:28px;color:var(--pa-chat-text)}
 .pa-message-assistant .pa-message-bubble{background:var(--pa-assistant-bg)}
 .pa-message-user .pa-message-bubble{background:var(--pa-user-bg)}
+/* Sent and not yet stored: the same bubble, quieter until the server takes it. */
+.pa-message-pending .pa-message-bubble{opacity:.6}
 .pa-message .pa-message-text{font-size:16px;line-height:1.55;color:inherit}
 .pa-message .pa-message-text p{margin:0 0 12px}
 .pa-message-text>:first-child,.pa-message-text>div>:first-child{margin-top:0}

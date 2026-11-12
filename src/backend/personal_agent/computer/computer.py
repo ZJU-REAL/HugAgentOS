@@ -279,7 +279,8 @@ def register_computer_tools(toolkit, ident, uid):
         list, or "screen". The answer's mode is "elements" (element tokens such as s0000002a:3, no image
         unless screenshot=true) or "pixels" (always a screenshot; act with x and y in its pixels).
         query filters elements and since="latest" returns only changes (elements mode only).
-        Read the skill named in the answer's "skill" field with pa_skill_read before acting.
+        Before acting, read /workspace/skills/<skill>/SKILL.md with pa_read_file for the skill named
+        in the answer's "skill" field.
         The answer's snapshot_id is what pa_computer_act needs. A screenshot comes with a private
         resource_ref: give it to the user with pa_deliver(resource_ref=..., request_key=...); it
         expires after 10 minutes. Never try scrot, sudo, Xauthority or Bash to capture the desktop."""

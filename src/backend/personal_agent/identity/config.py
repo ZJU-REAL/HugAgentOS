@@ -1,5 +1,4 @@
 """Identity configuration, validation and locked updates."""
-import logging
 
 from sqlalchemy import select
 
@@ -7,7 +6,6 @@ from personal_agent.models import PersonalAgent
 
 TERMINAL = {"completed", "failed", "cancelled"}
 
-SKILL_SUMMARY_LENGTH = 160
 DEFAULTS_VERSION = 4
 DEFAULT_CONCURRENCY = 3
 MAX_CONCURRENCY = 8
@@ -23,23 +21,6 @@ def validate_avatar(value):
     match = re.fullmatch(r"data:image/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)", value or "")
     if not match: raise ValueError("Avatar must be a preset or a PNG, JPEG or WebP image")
     if len(base64.b64decode(match.group(2), validate=True)) > 256 * 1024: raise ValueError("Avatar image exceeds 256 KiB")
-
-def skill_summaries(skill_ids, loader=None):
-    """One line per skill for the task prompt: its id, to read with pa_skill_read, and when it applies."""
-    if not skill_ids: return []
-    try:
-        from core.capabilities.skills.loader_factory import get_skill_loader
-        metadata = (loader or get_skill_loader()).load_all_metadata()
-    except Exception:  # noqa: BLE001 - without descriptions the ids still work
-        logging.getLogger(__name__).warning("personal agent skill metadata unavailable", exc_info=True)
-        metadata = {}
-    lines = []
-    for ident in skill_ids:
-        item = metadata.get(ident)
-        text = " ".join(str(getattr(item, "description", "") or "").split())
-        if len(text) > SKILL_SUMMARY_LENGTH: text = text[:SKILL_SUMMARY_LENGTH - 1] + "…"
-        lines.append("- `" + ident + "`" + (": " + text if text else ""))
-    return lines
 
 def concurrency(config):
     """Tasks that may run at once for one owner."""

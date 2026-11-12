@@ -224,6 +224,14 @@ RUN mkdir -p /home/ubuntu/.local /home/ubuntu/.jupyter /home/ubuntu/.npm \
 COPY docker/sandbox/verify-browser-runtime.py /opt/verify-browser-runtime.py
 RUN runuser -u ubuntu -- $PY_BIN /opt/verify-browser-runtime.py --container-isolated
 
+# ─── ffmpeg（音视频解码 / 转码 / 切段） ────────────────────────────────
+# 转录类技能用它把任意音视频转成 16kHz 单声道 WAV 再分段上传；没有它时视频
+# 只能整段上传、长音频无法切段。Playwright 自带的 ffmpeg 只用于录屏，没有
+# 音频解码器，不能替代。单独成层放在末尾附近，不击穿上面的大层缓存。
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/* \
+    && ffmpeg -hide_banner -version | head -1
+
 # ─── sandbox-init（PID 1 + 命令的 subreaper）─────────────────────────────
 # 由 provider 的 entrypoint 作为 PID 1 启动：回收所有孤儿进程，并杀掉沙盒用户
 # （SANDBOX_RUN_UID）在命令结束后留下的进程；每条用户命令经 `sandbox-init

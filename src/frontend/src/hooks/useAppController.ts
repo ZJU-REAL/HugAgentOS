@@ -33,6 +33,7 @@ import {
 import { useDeploymentModeStore } from '../stores/deploymentModeStore';
 import { useProjectStore } from '../stores/projectStore';
 import type { PanelKey } from '../types';
+import { isImeKey } from '../utils/ime';
 
 
 export function useAppController() {
@@ -142,7 +143,7 @@ export function useAppController() {
   // normal close behavior without accidentally cancelling the run.
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
+      if (event.key !== 'Escape' || event.defaultPrevented || isImeKey(event)) return;
       if (!isConversationPath()) return;
       const state = useChatStore.getState();
       if (!state.sendingChatIds.has(state.currentChatId)) return;

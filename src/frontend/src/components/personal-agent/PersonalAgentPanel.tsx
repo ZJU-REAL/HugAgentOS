@@ -1,5 +1,5 @@
 import { usePersonalResultRead } from './conversation/usePersonalResultRead';
-import { useCallback, useEffect, useRef, useState, type UIEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type UIEvent } from 'react';
 import { Alert, Button, Input } from 'antd';
 import { ArrowUpOutlined, CloseOutlined, HeartOutlined, PlusOutlined, SearchOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { uploadFile } from '../../api';
@@ -26,6 +26,9 @@ import './personal-agent.css';
 
 interface ConversationDraft { text: string; attachments: { file_id: string; name: string }[]; requestKey?: string }
 
+// How close to the top, in pixels, the next older page starts loading.
+const OLDER_PRELOAD = 400;
+
 export function PersonalAgentPanel() {
   const [chatId, setChatId] = useState<string>();
   const [drafts, setDrafts] = useState<Record<string, ConversationDraft>>({});
@@ -46,7 +49,7 @@ function ConversationPanel({ chatId, onSelectChat, savedDraft, saveDraft }: { ch
   const fileInput = useRef<HTMLInputElement>(null);
   const [error, setError] = useState('');
   const fail = (exc: unknown) => setError(errorText(exc));
-  const { conversations, monitor, messages, older, pollError, checkedAt, loading, refreshRef, history } = useConversationFeed(chatId, setError);
+  const { conversations, monitor, messages, older, loadingOlder, pollError, checkedAt, loading, refreshRef, history } = useConversationFeed(chatId, setError);
   const [sending, setSending] = useState(false);
   const [selectedTask, setSelectedTask] = useState<PersonalTask>();
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -59,15 +62,23 @@ function ConversationPanel({ chatId, onSelectChat, savedDraft, saveDraft }: { ch
   // Follow new output only while the reader is at the bottom; scrolling up to read or select text stops it.
   const onScroll = (event: UIEvent<HTMLDivElement>) => {
     autoScroll.current = distanceFromBottom(event.currentTarget) < SCROLL_TO_BOTTOM_BTN_THRESHOLD;
+    if (older && event.currentTarget.scrollTop < OLDER_PRELOAD) loadOlder.current();
   };
   // Like a chat app, a reply shows only once it is complete; until then a typing line sits under the last message.
   // A heartbeat check usually ends quiet: it shows no typing line unless it writes an alert.
   const visible = messages.filter(row => !row.streaming);
   const lastVisibleId = visible[visible.length - 1]?.id;
   const typing = !!monitor?.turns?.some(turn => !turn.heartbeat) || messages.some(row => row.streaming && row.content.trim());
+  // What was just sent, shown at once: sending waits for the cloud to admit the turn, seconds on the desktop app.
+  // It gives way to the stored message as soon as that arrives, so the two are never shown together.
+  const [pending, setPending] = useState<{ key: string; text: string; afterSeq: number }>();
+  const pendingRow: PersonalMessage | undefined = pending && !visible.some(row => row.role === 'user' && row.seq > pending.afterSeq && row.content.trim() === pending.text)
+    ? { id: 'pending:' + pending.key, seq: Number.MAX_SAFE_INTEGER, role: 'user', content: pending.text, work_item_ids: [], task_links: [] }
+    : undefined;
   const seenLastId = useRef<string | undefined>(undefined);
   // Scroll the viewport itself: the composer docked at its bottom would cover a scrolled-into-view end marker.
-  useEffect(() => {
+  // A layout effect places the view before the frame is painted and before the size observer below runs.
+  useLayoutEffect(() => {
     const box = messageViewport;
     if (!box) return;
     const previous = seenLastId.current;
@@ -78,18 +89,59 @@ function ConversationPanel({ chatId, onSelectChat, savedDraft, saveDraft }: { ch
     const reply = start >= 0 ? visible.slice(start + 1).find(row => row.role !== 'user') : undefined;
     const node = reply && box.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(reply.id)}"]`);
     const top = node ? node.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 16 : Infinity;
-    if (top < box.scrollHeight - box.clientHeight) box.scrollTop = top;
-    else scrollElementToBottom(box);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when a row or the typing line appears; `visible` is only read to find the row.
-  }, [messageViewport, lastVisibleId, typing]);
-  // A confirmation or question docking above the composer resizes the dock over the last message: stay pinned while following.
+    if (top < box.scrollHeight - box.clientHeight) {
+      box.scrollTop = top;
+      // Reading the reply from its start: stop following until the reader returns to the bottom or sends again.
+      autoScroll.current = false;
+    } else scrollElementToBottom(box);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when a row, the sent message or the typing line appears; `visible` is only read to find the row.
+  }, [messageViewport, lastVisibleId, typing, pendingRow?.id]);
+  // Content that grows after it is placed (rendered markdown, images, fonts) and a confirmation or question docking
+  // above the composer would leave the end out of view: stay pinned while following. WebKit, which the desktop app
+  // runs in, has no scroll anchoring to hide this.
   const [dock, setDock] = useState<HTMLDivElement | null>(null);
+  const [content, setContent] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
-    if (!dock || !messageViewport || typeof ResizeObserver === 'undefined') return;
+    if (!messageViewport || typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(() => { if (autoScroll.current) scrollElementToBottom(messageViewport); });
-    observer.observe(dock);
+    if (dock) observer.observe(dock);
+    if (content) observer.observe(content);
     return () => observer.disconnect();
-  }, [dock, messageViewport]);
+  }, [dock, content, messageViewport]);
+  // Older messages load as the reader nears the top. The message they were looking at is remembered first and put
+  // back in the same place once the page is prepended; WebKit has no scroll anchoring to do it.
+  // The scroll handler covers scrolling up; the observer covers a first page too short to scroll.
+  const [topSentinel, setTopSentinel] = useState<HTMLDivElement | null>(null);
+  const anchor = useRef<{ id: string; top: number } | null>(null);
+  const loadOlder = useRef<() => void>(() => {});
+  loadOlder.current = () => {
+    const box = messageViewport;
+    // The remembered anchor doubles as the busy flag: it is cleared once the page is placed.
+    if (!box || loadingOlder || anchor.current) return;
+    const boxTop = box.getBoundingClientRect().top;
+    const first = Array.from(box.querySelectorAll<HTMLElement>('[data-message-id]')).find(node => node.getBoundingClientRect().bottom > boxTop);
+    anchor.current = first ? { id: first.dataset.messageId!, top: first.getBoundingClientRect().top - boxTop } : null;
+    autoScroll.current = false;
+    void history();
+  };
+  useEffect(() => {
+    if (!topSentinel || !messageViewport || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(entries => { if (entries.some(entry => entry.isIntersecting)) loadOlder.current(); },
+      { root: messageViewport, rootMargin: OLDER_PRELOAD + 'px 0px 0px 0px' });
+    observer.observe(topSentinel);
+    return () => observer.disconnect();
+    // Re-observing after each page checks again: a page of short messages can leave the top still in reach.
+  }, [topSentinel, messageViewport, loadingOlder]);
+  const firstId = messages[0]?.id;
+  useLayoutEffect(() => {
+    const box = messageViewport;
+    const saved = anchor.current;
+    // Wait for the page itself: the render that starts loading must not use up the anchor.
+    if (!box || !saved || loadingOlder) return;
+    anchor.current = null;
+    const node = box.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(saved.id)}"]`);
+    if (node) box.scrollTop += node.getBoundingClientRect().top - box.getBoundingClientRect().top - saved.top;
+  }, [firstId, loadingOlder, messageViewport]);
   const agent = monitor?.agent;
   const name = agent?.config.name || DEFAULT_AGENT_NAME;
   // Navigation lists outside the panel follow a rename made here or by the agent.
@@ -100,17 +152,20 @@ function ConversationPanel({ chatId, onSelectChat, savedDraft, saveDraft }: { ch
     autoScroll.current = true;
     if ((!draft.trim() && !attachments.length) || sending || uploading) return;
     const key = requestKey || crypto.randomUUID();
+    const content = draft.trim() || t('请读取附件，并根据内容给出回复。');
     setRequestKey(key);
     setSending(true);
+    // Shown and scrolled to now, not when the request returns; the composer keeps the draft until it succeeds.
+    setPending({ key, text: content, afterSeq: messages.reduce((max, row) => Math.max(max, row.seq), 0) });
     try {
       // The agent answers directly, or starts or changes background tasks itself.
-      await personalApi.send(draft.trim() || t('请读取附件，并根据内容给出回复。'), key, [], attachments.map(file => file.file_id), 'auto', undefined, chatId);
+      await personalApi.send(content, key, [], attachments.map(file => file.file_id), 'auto', undefined, chatId);
       saveDraft(chatId || 'main', previous => previous.requestKey === key
         ? { text: '', attachments: [] } : previous);
       setError('');
       await refreshRef.current();
     } catch (exc) { fail(exc); }
-    finally { setSending(false); }
+    finally { setSending(false); setPending(undefined); }
   }
   async function attach(files: FileList | null) {
     if (!files || !agent) return;
@@ -148,12 +203,15 @@ function ConversationPanel({ chatId, onSelectChat, savedDraft, saveDraft }: { ch
       {pollError && <Alert type="warning" message={pollError} />}
       {/* The composer docks inside the scroller so its scrollbar runs down to the bottom of the panel. */}
       <div ref={setMessageViewport} className="pa-messages" onScroll={onScroll}>
-        <div className="pa-messages-inner" role="log" aria-live="polite" aria-busy={loading}>
+        <div ref={setContent} className="pa-messages-inner" role="log" aria-live="polite" aria-busy={loading}>
         {loading && <div className="jx-skeletonBlock pa-skeleton" aria-label={t('加载中')} />}
         {!loading && !messages.length && <div className="pa-empty"><PersonalAvatar avatar={agent?.config.avatar} name={name} size={72} />
           <h2>{t('你好，我是 {name}', { name })}</h2><p>{t('把事情交给我。我会在后台处理，关掉页面也不会停。')}</p></div>}
-        {messages.length >= 100 && older && <Button size="small" onClick={() => { autoScroll.current = false; void history(); }}>{t('查看更早的消息')}</Button>}
+        {!loading && older && <div ref={setTopSentinel} className="pa-older" aria-hidden={!loadingOlder}>
+          {loadingOlder && <span role="status">{t('正在加载更早的消息…')}</span>}
+        </div>}
         {visible.map(row => <PersonalMessageRow key={row.id} row={row} author={author(row)} />)}
+        {pendingRow && <PersonalMessageRow key={pendingRow.id} row={pendingRow} author={null} pending />}
         {typing && <div className="pa-typing-row" data-testid="pa-typing">{typingLine}</div>}
         </div>
         <div ref={setDock} className="pa-dock">
@@ -164,7 +222,7 @@ function ConversationPanel({ chatId, onSelectChat, savedDraft, saveDraft }: { ch
             {!!attachments.length && <div className="pa-composer-files">{attachments.map(file => <Button key={file.file_id} size="small" onClick={() => { setAttachments(previous => previous.filter(item => item.file_id !== file.file_id)); setRequestKey(undefined); }}>{file.name} <CloseOutlined /></Button>)}</div>}
             <div className="pa-composer-input">
               <Button className="pa-composer-attach" type="text" shape="circle" icon={<PlusOutlined />} aria-label={t('添加附件')} loading={uploading} disabled={sending} onClick={() => fileInput.current?.click()} />
-              <Input.TextArea aria-label={t('发送给 Personal Agent')} placeholder={t('给 {name} 发消息，交代一件事', { name })} value={draft} disabled={sending} autoSize={{ minRows: 1, maxRows: 7 }} onChange={event => { setDraft(event.target.value); setRequestKey(undefined); }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} />
+              <Input.TextArea aria-label={t('发送给 Personal Agent')} placeholder={t('给 {name} 发消息，交代一件事', { name })} value={pending ? '' : draft} disabled={sending} autoSize={{ minRows: 1, maxRows: 7 }} onChange={event => { setDraft(event.target.value); setRequestKey(undefined); }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} />
               <Button className="pa-composer-send" aria-label={t('发送')} type="primary" shape="circle" icon={<ArrowUpOutlined />} loading={sending} disabled={(!draft.trim() && !attachments.length) || uploading} onClick={() => void send()} />
             </div>
           </div>

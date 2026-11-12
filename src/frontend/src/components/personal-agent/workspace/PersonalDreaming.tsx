@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { Alert, Button, Empty, InputNumber, Modal, Tag, message } from 'antd';
 import { ReloadOutlined, RollbackOutlined } from '@ant-design/icons';
 import { personalApi, errorText, type MemorySnapshot, type PersonalDreamingStatus } from '../api';
+import { subscribePersonalChanges } from '../shared/liveFeed';
 import { LoadError, SkeletonLines } from '../../common/LoadState';
 import { userMarkdownHtml } from '../../../utils/userMarkdown';
 import { t } from '../../../i18n';
@@ -52,8 +53,9 @@ export function PersonalDreaming({ onChanged }: PersonalDreamingProps) {
   useEffect(() => {
     const controller = new AbortController();
     void refresh(controller.signal); void loadReport(controller.signal); void loadSnapshots(controller.signal);
-    const timer = window.setInterval(() => void refresh(controller.signal), 5000);
-    return () => { controller.abort(); window.clearInterval(timer); };
+    // A run's progress is written to the agent's own conversation and settings, and the server signals each write.
+    const unsubscribe = subscribePersonalChanges(signal => { if (signal.type !== 'down') void refresh(controller.signal); });
+    return () => { controller.abort(); unsubscribe(); };
   }, [refresh, loadReport, loadSnapshots]);
 
   // When a run this view watched finishes, its report and snapshot are new and pages changed.

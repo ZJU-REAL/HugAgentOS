@@ -3,6 +3,11 @@
 A sent read whose answer has not come back after REDELIVER_AFTER is handed out again:
 the reply carrying it may have been lost on the way, and reading twice changes nothing.
 The device's own journal still refuses an id it has already started.
+
+outcome() is the one place that says what became of an operation: completed, not_executed
+(it certainly took no effect), outcome_unknown (a write that may have taken effect) or failed.
+A write that ended not_executed or failed may be asked again with the same request key; one
+whose outcome is unknown keeps its row until the user says it did not happen (reconciled).
 """
 
 import json
@@ -10,19 +15,31 @@ import time
 import uuid
 from sqlalchemy import select, update, func
 from sqlalchemy.exc import IntegrityError
-from hugagent_cli.contract import validate
+from hugagent_cli.contract import (
+    READS, STATUS_COMPLETED, STATUS_FAILED, STATUS_NOT_EXECUTED, STATUS_OUTCOME_UNKNOWN,
+    receipt_status, validate,
+)
 from personal_agent.computer.devices import authenticate, is_online
-from hugagent_cli.contract import READS
 from personal_agent.models import PersonalDevice, PersonalSessionOperation as Operation, PersonalWorkItem
 
 REDELIVER_AFTER = 15
 # Finished reads are kept this long, then removed.
 KEEP_SECONDS = 24 * 3600
+# How long an operation may take on the device.
+DEADLINE_SECONDS = 60
+# A receipt that arrives just as the deadline passes is still accepted: the desktop's own
+# timeout receipt is written at its deadline and needs a moment to travel.
+RECEIPT_GRACE = 5.0
+# The user checked an uncertain write and said it did not happen.
+RECONCILED = "reconciled"
 
-def public(row):
+def public(row, now=None):
+    now = now or time.time()
     status = row.status
-    if status in {"queued", "sent"} and row.deadline < time.time():
-        status = "expired" if status == "queued" else "outcome_unknown"
+    if status == "queued" and row.deadline < now:
+        status = "expired"  # no device took it before the deadline
+    elif status == "sent" and row.deadline + RECEIPT_GRACE < now:
+        status = "outcome_unknown"  # taken, but no receipt came back in time
     return {
         "id": row.id,
         "target": row.target,
@@ -30,7 +47,50 @@ def public(row):
         "status": status,
         "result": row.result,
         "deadline": row.deadline,
+        # Whether a device (or the cloud dispatcher) ever took it: a write withdrawn after that may have run.
+        "claimed": row.claimed_at is not None or (row.device_id is None and status != "queued"),
     }
+
+
+def outcome(job):
+    """completed, not_executed, outcome_unknown or failed for a view from public(); None while it may
+    still be answered. A read never has an unknown outcome: it changes nothing."""
+    status, read = job.get("status"), job.get("operation") in READS
+    if status in {"queued", "sent"}:
+        return None
+    if status in {"expired", RECONCILED}:
+        return STATUS_NOT_EXECUTED
+    if status == "revoked":
+        return STATUS_OUTCOME_UNKNOWN if job.get("claimed") and not read else STATUS_NOT_EXECUTED
+    if status == "outcome_unknown":
+        return STATUS_NOT_EXECUTED if read else STATUS_OUTCOME_UNKNOWN
+    found = receipt_status(job.get("result"))
+    if read and found == STATUS_OUTCOME_UNKNOWN:
+        # Desktops before the receipt protocol flagged every failure, reads too, as unknown.
+        return STATUS_NOT_EXECUTED
+    return found
+
+
+def may_retry(job):
+    """True when asking for this operation again cannot repeat an effect."""
+    return outcome(job) in {STATUS_NOT_EXECUTED, STATUS_FAILED}
+
+
+def reconciled(db, uid, ident=None, request_key=None):
+    """The user checked an uncertain write and it did not happen: its row stops answering for its
+    request key, so the next approved attempt queues it again. The caller commits."""
+    if not (ident or request_key):
+        return
+    where = Operation.id == ident if ident else Operation.request_key == request_key
+    db.execute(
+        update(Operation)
+        .where(Operation.user_id == uid, where, Operation.status != STATUS_COMPLETED)
+        .values(status=RECONCILED)
+    )
+    # A completed row whose receipt said the outcome was unknown.
+    for row in db.scalars(select(Operation).where(Operation.user_id == uid, where, Operation.status == STATUS_COMPLETED)):
+        if receipt_status(row.result) == STATUS_OUTCOME_UNKNOWN:
+            row.status = RECONCILED
 
 def view(db, uid, ident, task_id=None):
     row = db.get(Operation, ident)
@@ -58,10 +118,10 @@ def submit(
             task_id,
         ):
             raise ValueError("Request key already has different arguments")
-        if not (old.status == "queued" and old.deadline < time.time()):
-            return public(old)
-        # Expired while still queued: no device ever saw it, so it certainly did not run.
-        # Asking again queues it again, instead of answering "expired" forever.
+        if not may_retry(public(old)):
+            return public(old)  # done, still running, or uncertain until the user checks it
+        # It certainly did not take effect (never taken, refused, failed before it ran, or the
+        # user checked): asking again queues it again, instead of answering the old failure forever.
         db.delete(old)
         db.flush()
     device = None
@@ -119,7 +179,7 @@ def submit(
         work_item_id=task_id,
         run_id=run_id,
         task_owner=task.owner if task else None,
-        deadline=time.time() + 60,
+        deadline=time.time() + DEADLINE_SECONDS,
     )
     db.add(row)
     try:
@@ -200,7 +260,9 @@ def take_operation(db, device, now):
         row.status = "revoked"
         return None
     row.status, row.claimed_at = "sent", now
-    return {**public(row), "args": row.args, "epoch": row.epoch}
+    sent = public(row, now)
+    sent.pop("claimed")  # the device's own view: what to run, not what became of it
+    return {**sent, "args": row.args, "epoch": row.epoch}
 
 
 def set_sessions(db, device, enabled):
@@ -230,7 +292,7 @@ def acknowledge(db, ident, token, operation_id, result):
         if row.result != result:
             raise ValueError("Receipt cannot change")
         return {"accepted": True}
-    if row.status != "sent" or row.deadline < time.time() or not active_task(db, row):
+    if row.status != "sent" or row.deadline + RECEIPT_GRACE < time.time() or not active_task(db, row):
         raise ValueError("Operation expired or revoked")
     # Measured as UTF-8, as the device measures it: escaped CJK would count double.
     if len(json.dumps(result, ensure_ascii=False).encode()) > 2 * 1024 * 1024:
@@ -259,7 +321,7 @@ def check(db, ident, token, operation_id):
         or row.epoch != device.session_epoch
         or not device.sessions_enabled
         or row.status != "sent"
-        or row.deadline < time.time()
+        or row.deadline + RECEIPT_GRACE < time.time()
         or not active_task(db, row)
     ):
         raise LookupError("Operation revoked")

@@ -112,12 +112,14 @@ def plan(db, asg_id, owner, note=None):
 def run_context(db, task, agent, chat_id, asg_id):
     """The run context: the Worker profile, the owner's capabilities and the agent's own computer."""
     from core.chat.context import build_runtime_context
-    from personal_agent.identity.capabilities import capability_ids, runtime_config
+    from personal_agent.identity.capabilities import runtime_config, task_mcp_ids
+    from personal_agent.tools.plugins import loaded_plugins
     config = runtime_config(db, agent.user_id, dict(agent.config or {}))
-    skill_ids, mcp_ids = capability_ids(config)
     effort = config.get("thinking_effort", "fast")
+    # Skills are workspace files the task reads itself; plugins it loaded in an earlier run stay connected.
     context = build_runtime_context(model_name=None, user_id=agent.user_id, chat_id=chat_id,
-        enable_thinking=effort != "fast", enabled_skills=skill_ids, enabled_mcps=mcp_ids,
+        enable_thinking=effort != "fast", enabled_skills=[],
+        enabled_mcps=task_mcp_ids(config, loaded_plugins(agent.id, config, chat_id)),
         enabled_kbs=[], enabled_agents=[])
     context.update({
         "profile": PROFILE, "profile_ref": task.id, "personal_assignment_id": asg_id,

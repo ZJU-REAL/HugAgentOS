@@ -9,6 +9,9 @@ class ToolAssembly(list[ToolBase]):
         super().__init__()
         self.skill_loaders = []
         self.client_permission_specs = {}
+        # A profile agent's load_plugin holder (AgentProfile.register_tools sets it); the factory
+        # completes it with the live toolkit as it does the chat path's own.
+        self.plugin_runtime = None
 
     @property
     def permission_specs(self):

@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, type RefObject } from 'react';
 import { handleComposerNewline } from './composerEditingKeys';
 import { createRichEditor, disposeRichEditor } from './composerRichText';
 import type { Editor } from '@tiptap/core';
+import { isImeKey } from '../../utils/ime';
 import '../../styles/composer-rich.css';
 
 interface RichTextFieldProps {
@@ -50,7 +51,7 @@ export function RichTextField({ value, onChange, onSubmit, onCancel, active = tr
     onCompositionStart={() => { composing.current = true; }}
     onCompositionEnd={() => { composing.current = false; }}
     onKeyDownCapture={event => {
-      if (composing.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+      if (composing.current || isImeKey(event)) return;
       const editor = editorRef.current;
       if (event.key === 'Enter' && event.shiftKey && editor) {
         event.preventDefault();

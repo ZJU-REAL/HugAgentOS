@@ -1,4 +1,5 @@
 import type React from 'react';
+import { isImeKey } from '../../utils/ime';
 import { handleComposerNewline } from './composerEditingKeys';
 import { richEditor } from './composerRichText';
 import { getEditorText, removeChipsOfType } from './composerEditorDom';
@@ -24,7 +25,7 @@ export function createComposerKeyHandler(
   return function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     // Let the IME own every key while it is composing. In particular, Enter and
     // Tab may confirm a candidate instead of sending or selecting a popup item.
-    if (composingRef.current || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+    if (composingRef.current || isImeKey(e)) return;
 
     const rich = editorRef.current ? richEditor(editorRef.current) : undefined;
     if (e.key === 'Enter' && e.shiftKey && rich) {

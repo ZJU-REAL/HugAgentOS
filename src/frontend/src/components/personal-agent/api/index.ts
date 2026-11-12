@@ -10,12 +10,21 @@ export interface ApprovalDetail { target?: string | null; place?: string | null;
 /** proactive: a proactive run started the task; its actions are approved one by one, never for the whole task. */
 export interface PersonalTask { id: string; chat_id?: string; goal: string; title?: string; progress?: string | null; status: string; run_id?: string | null; waiting_reason?: string; result?: string; uncertain_actions?: string[]; proactive?: boolean; pending_approval?: { id: string; action: Record<string, unknown>; at?: number | string | null; detail?: ApprovalDetail | null }; question?: string | null; outcome?: string | null; updated_at?: string }
 export interface PersonalMessage { id: string; seq: number; role: 'user' | 'assistant'; content: string; origin?: string; channel_type?: ChannelType; work_item_id?: string; work_item_ids: string[]; task_links: { work_item_id: string; relation: string }[]; attachments?: { id: string; name: string; url: string }[]; artifacts?: ArtifactRef[]; reply_to?: string | null; streaming?: boolean; activity?: string | null; heartbeat?: boolean }
-export interface PersonalAgent { id: string; chat_id: string; status: string; computer_status: string; generation: number; config: { capability_selection?: { skill_ids: string[]; mcp_ids: string[]; plugin_ids: string[] }; concurrency: number; email_enabled: boolean; skill_ids: string[]; mcp_ids: string[]; plugins?: { id: string; name: string; skill_ids: string[]; mcp_ids: string[] }[]; model_provider_id?: string | null; thinking_effort?: 'fast' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'; timezone?: string; name?: string; avatar?: string; channel_ids?: string[]; approval_mode?: ApprovalMode } }
+export interface PersonalAgent { id: string; chat_id: string; status: string; computer_status: string; generation: number; config: { capability_selection?: CapabilitySelection; capability_sync?: CapabilitySync; concurrency: number; email_enabled: boolean; model_provider_id?: string | null; thinking_effort?: 'fast' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'; timezone?: string; name?: string; avatar?: string; channel_ids?: string[]; approval_mode?: ApprovalMode } }
+/** The owner's chosen skills, tools and plugins. The server drops what the owner may no longer use. */
+export interface CapabilitySelection { skill_ids: string[]; mcp_ids: string[]; plugin_ids: string[] }
+/**
+ * The last copy of the bound skills and plugins into the agent's workspace. skipped: skills left out
+ * because the agent already has its own skill of that name (reason "name_taken"). Absent before the first copy.
+ */
+export interface CapabilitySync { status: 'ok' | 'failed'; synced_at: number; error?: string | null; skipped?: { id: string; reason: string }[] }
+/** A skill every Personal Agent has; it is not in the catalog and cannot be unbound. */
+export interface BuiltinSkill { id: string; name: string; description: string }
 export interface PersonalCapabilityOptions {
-  plugin_component_ids?: { skill_ids: string[]; mcp_ids: string[] };
   skill_ids: string[];
   mcp_ids: string[];
   plugins: { id: string; name: string; skill_ids: string[]; mcp_ids: string[] }[];
+  builtin_skills: BuiltinSkill[];
 }
 /** ask: every action waits for approval; auto: only email and deletions ask; full: nothing asks. */
 export type ApprovalMode = 'ask' | 'auto' | 'full';
@@ -160,8 +169,8 @@ export const personalApi = {
   initialize: () => personalRequest<PersonalAgent>(base + '/initialize', { method: 'POST', body: JSON.stringify({ timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }) }),
   monitor: (signal?: AbortSignal, chatId?: string) => personalRequest<PersonalMonitor>(withSession(base + '/monitor', chatId), { signal }),
   conversations: (signal?: AbortSignal) => personalRequest<PersonalConversation[]>(base + '/conversations', { signal }),
-  messages: (after: number, signal?: AbortSignal, chatId?: string) => personalRequest<PersonalMessage[]>(withSession(base + '/messages?after_seq=' + after, chatId), { signal }),
-  history: (before: number, chatId?: string) => personalRequest<PersonalMessage[]>(withSession(base + '/messages?before_seq=' + before, chatId)),
+  messages: (after: number, signal?: AbortSignal, chatId?: string, limit = 100) => personalRequest<PersonalMessage[]>(withSession(base + '/messages?after_seq=' + after + '&limit=' + limit, chatId), { signal }),
+  history: (before: number, chatId?: string, limit = 100) => personalRequest<PersonalMessage[]>(withSession(base + '/messages?before_seq=' + before + '&limit=' + limit, chatId)),
   send: (content: string, request_key: string, work_item_ids: string[] = [], artifact_ids: string[] = [], intent: MessageIntent = 'auto', reply_to_message_id?: string, chatId?: string) => personalRequest<PersonalTurn>(withSession(base + '/messages', chatId), { method: 'POST', body: JSON.stringify({ content, request_key, work_item_ids, artifact_ids, intent, reply_to_message_id }) }),
   approve: (id: string, approval_id: string, accept: boolean, scope: 'once' | 'task' = 'once') => personalRequest<PersonalTask>(base + '/work-items/' + id + '/approve', { method: 'POST', body: JSON.stringify({ approval_id, accept, scope }) }),
   channels: () => personalRequest<PersonalChannel[]>(base + '/channels'),

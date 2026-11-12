@@ -51,7 +51,7 @@ export function TaskQuestion({ tasks, chatId, onDone, onError, onOpen }: TaskQue
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if (event.key !== 'Enter' || event.shiftKey) return;
     event.preventDefault();
     void send();
   }

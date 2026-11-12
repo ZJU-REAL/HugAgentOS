@@ -90,6 +90,9 @@ def authorize(task_id, uid, action):
             return digest, {"pending_approval": True, "message": "等待你批准操作"}
         # Once dispatched, an uncertain result must never be blindly repeated.
         receipts[digest] = {"status": "uncertain", "message": "操作已派发，尚未确认结果。请先核对。"}
+        if action.get("kind") == "hugagent.session" and action.get("request_key"):
+            # So a reconciliation can find the operation even if its own receipt was never written.
+            receipts[digest]["request_key"] = action["request_key"]
         state["action_receipts"] = receipts
         state.pop("pending_approval", None)
         task.checkpoint = state
@@ -162,6 +165,11 @@ def reconcile(service, ident, action_id, outcome):
     elif outcome == "not_executed":
         results.pop(action_id)
         state["approved_actions"] = [item for item in state.get("approved_actions", []) if item != action_id]
+        if old.get("id") or old.get("request_key"):
+            # A HugAgentOS session write: its operation stops answering for its request key, so the
+            # same write, approved again, is queued again instead of returning this uncertain receipt.
+            from personal_agent.sessions.session_queue import reconciled
+            reconciled(service.db, service.user_id, old.get("id"), old.get("request_key"))
     else:
         raise ValueError("Check the action before continuing")
     state["action_receipts"] = results

@@ -123,6 +123,8 @@ class PersonalDevice(Base):
     control_enabled = Column(Integer, nullable=False, default=0)
     sessions_enabled = Column(Integer, nullable=False, default=0)
     session_epoch = Column(Integer, nullable=False, default=1)
+    # What the desktop reports about itself with each heartbeat: {"contract", "app_version"}.
+    link_info = Column(JSON)
 
 class PersonalDeviceCommand(Base):
     __tablename__ = "personal_device_commands"

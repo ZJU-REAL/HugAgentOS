@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Button, Input, List, Modal, Space, Spin } from 'antd';
 import { personalApi, errorText } from '../api';
+import { subscribePersonalChanges, waitForTopic } from '../shared/liveFeed';
 import { t } from '../../../i18n';
 interface Chat { chat_id: string; title: string }
 interface Message { message_id: string; role: string; content: string; chat_seq: number }
@@ -15,9 +16,15 @@ export function DeviceSessions({ target, name, onClose }: { target: string; name
   const operation = useCallback(async (operation: string, args: Record<string, unknown> = {}) => {
     let receipt = await personalApi.sessionOperation<Receipt>({ target, operation, args, request_key: crypto.randomUUID() });
     const end = Date.now() + 35000;
-    while (['queued', 'sent'].includes(receipt.status) && alive.current && Date.now() < end) {
-      await new Promise(resolve => setTimeout(resolve, 400));
+    const waiting = () => ['queued', 'sent'].includes(receipt.status) && alive.current && Date.now() < end;
+    // The server signals when the computer's receipt lands. Listening starts before each read, so a receipt that
+    // lands in between is not missed.
+    while (waiting()) {
+      const stop = new AbortController();
+      const signalled = waitForTopic('operation:' + receipt.id, end - Date.now(), stop.signal);
       receipt = await personalApi.sessionOperation<Receipt>(undefined, receipt.id);
+      if (waiting()) await signalled;
+      stop.abort();
     }
     if (receipt.status !== 'completed') throw new Error(t('操作尚未确认。请检查会话后再重试。') + ' ' + (receipt.id || ''));
     if (receipt.result && typeof receipt.result === 'object' && ('error' in receipt.result || 'outcome_unknown' in receipt.result)) throw new Error(t('操作尚未确认。请检查会话后再重试。'));
@@ -32,22 +39,37 @@ export function DeviceSessions({ target, name, onClose }: { target: string; name
     const result = await operation('chat.list', { page: requestedPage, page_size: 100 }) as { items: Chat[]; pagination: { has_next: boolean } };
     if (alive.current) { setChats(result.items);setPage(requestedPage);setMore(result.pagination.has_next); }
   }, [operation]);
-  const refresh = useCallback(async (id: string) => {
-    if (refreshing.current.has(id)) return;refreshing.current.add(id);
+  const again = useRef(new Set<string>());
+  const refresh = useCallback(async (id: string): Promise<void> => {
+    // A change signalled during a read is read again once that read ends, not dropped.
+    if (refreshing.current.has(id)) { again.current.add(id); return; }
+    refreshing.current.add(id);
     try {
       const history = await operation('chat.history', { chat_id: id, page_size: 100, order: 'desc' }) as { items: Message[] };
       const active = await operation('run.active', { chat_id: id }) as { run_id?: string } | null;
       if (alive.current && selectedId.current === id) { setMessages([...history.items].sort((a, b) => a.chat_seq - b.chat_seq));setRun(active?.run_id ? { id: active.run_id, chatId: id } : null); }
-    } finally { refreshing.current.delete(id); }
+    } finally {
+      refreshing.current.delete(id);
+      if (again.current.delete(id) && alive.current && selectedId.current === id) await refresh(id);
+    }
   }, [operation]);
   useEffect(() => { alive.current = true;void act(() => load());return () => { alive.current = false; }; }, [act, load]);
   const chatId = chat?.chat_id;
   useEffect(() => {
     if (!chatId) return;
     void act(() => refresh(chatId));
-    const timer = window.setInterval(() => { void refresh(chatId).catch(exc => { if (alive.current) setError(errorText(exc)); }); }, 5000);
-    return () => window.clearInterval(timer);
   }, [chatId, act, refresh]);
+  // The computer reports its own chat changes; only what changed is read again, and everything after a reconnect.
+  const pageRef = useRef(page);
+  pageRef.current = page;
+  useEffect(() => subscribePersonalChanges(signal => {
+    const failed = (exc: unknown) => { if (alive.current) setError(errorText(exc)); };
+    const selected = selectedId.current;
+    if (signal.type === 'down') return;
+    const all = signal.type === 'ready';
+    if (all || signal.topics.includes(target)) void load(pageRef.current).catch(failed);
+    if (selected && (all || signal.topics.includes(target + ':' + selected))) void refresh(selected).catch(failed);
+  }), [target, load, refresh]);
   return <Modal open title={name + ' · ' + t('会话管理')} onCancel={onClose} footer={null} width={840}>
     {error && <Alert type="error" message={error} />}
     <Space><Button disabled={busy} onClick={() => void act(async () => { const created = await operation('chat.create', { title: t('新对话') }) as Chat;await load();setChat(created); })}>{t('新建对话')}</Button>

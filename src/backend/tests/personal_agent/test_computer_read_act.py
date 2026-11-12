@@ -157,8 +157,11 @@ def test_heartbeat_reports_and_checks_capabilities(sessions):
         # An older desktop says nothing about capabilities: the set stays as it is.
         devices.heartbeat(db, device["id"], device["token"], True, False)
         assert db.get(PersonalDevice, device["id"]).capabilities == NEW
-        for bad in (["observe", "run_script"], ["x"] * 33, "read"):
-            with pytest.raises(ValueError): devices.heartbeat(db, device["id"], device["token"], True, False, bad)
+        # A newer desktop reports capabilities this cloud does not know: they are ignored, never refused,
+        # so the device stays online with the ones both ends know.
+        devices.heartbeat(db, device["id"], device["token"], True, False, [*NEW, "run_script", *["x"] * 40])
+        assert db.get(PersonalDevice, device["id"]).capabilities == NEW
+        with pytest.raises(ValueError): devices.heartbeat(db, device["id"], device["token"], True, False, "read")
         assert db.get(PersonalDevice, device["id"]).capabilities == NEW
         devices.heartbeat(db, device["id"], device["token"], True, False, [c for c in NEW if c != "ui.elements"])
         assert "ui.elements" not in db.get(PersonalDevice, device["id"]).capabilities
@@ -184,7 +187,14 @@ def test_heartbeat_route_accepts_capabilities_and_stays_compatible(sessions, mon
     assert client.post(url, json={"control_enabled": True, "sessions_enabled": False, "capabilities": NEW}, headers=headers).status_code == 200
     with sessions() as db:
         assert db.get(PersonalDevice, device["id"]).capabilities == NEW
-    assert client.post(url, json={"control_enabled": True, "sessions_enabled": False, "capabilities": ["evil"]}, headers=headers).status_code == 409
+    # Unknown capabilities and the newer link fields are accepted (a refused heartbeat would leave it offline).
+    beat = {"control_enabled": True, "sessions_enabled": False, "capabilities": [*NEW, "evil"],
+            "contract": "c" * 16, "app_version": "0.6.0"}
+    assert client.post(url, json=beat, headers=headers).status_code == 200
+    with sessions() as db:
+        row = db.get(PersonalDevice, device["id"])
+        assert row.capabilities == NEW and row.link_info == {"contract": "c" * 16, "app_version": "0.6.0"}
+    assert client.post(url, json={**beat, "contract": "c" * 65}, headers=headers).status_code == 422
 
 
 @pytest.mark.parametrize("action,seconds", [({"type": "read"}, 15), ({"type": "steps", "steps": []}, 75), ({"type": "click"}, 30)])

@@ -25,7 +25,8 @@ def prompt_spec():
     from core.llm.prompt_kinds import KindSpec
     return KindSpec((PROMPT_KIND,), "independent", "个人智能体", "default - 个人智能体",
                     "个人智能体的平台规则与工作区文件模板。模板只在新建工作区时写入一次；"
-                    "{skill_ids} {name} 为运行时变量，{task_id} 统一渲染为 <task_id>（真实 ID 写在任务消息里，各任务共享缓存前缀）；任务提示词末尾自动附上可用技能清单", root=PROMPT_DIR)
+                    "{name} 为运行时变量，{task_id} 统一渲染为 <task_id>（真实 ID 写在任务消息里，各任务共享缓存前缀）；"
+                    "任务提示词末尾自动附上工作区里可用的技能清单和插件目录", root=PROMPT_DIR)
 
 def prompt_part(part_id):
     """The active version's part, or the shipped file when the pool has none."""
@@ -44,12 +45,13 @@ def _truncate(text, limit):
     tail = limit - head
     return text[:head] + "\n\n[... truncated, read the file for the full content ...]\n\n" + text[-tail:], True
 
-def sections(ident, *, task_id=None, skill_ids=(), seed_missing=True, rules_part="platform_rules", config=None):
+def sections(ident, *, task_id=None, grants=None, seed_missing=True, rules_part="platform_rules", config=None):
     """Structured system prompt: platform rules, then injected workspace files.
 
     rules_part selects the rules: "platform_rules" for a background task, "front_rules" for
-    the agent's own turn in the main conversation. With the agent's config, a finished first
-    run is settled first (see settle_bootstrap)."""
+    the agent's own turn in the main conversation. A task also lists the workspace skills and
+    plugins that grants (the config from runtime_config) still permits. With the agent's
+    config, a finished first run is settled first (see settle_bootstrap)."""
     from personal_agent.workspace.constants import BOOTSTRAP_FILE
     from personal_agent.workspace.constants import CONTEXT_FILES
     from personal_agent.workspace.constants import FILE_MAX_CHARS
@@ -66,15 +68,11 @@ def sections(ident, *, task_id=None, skill_ids=(), seed_missing=True, rules_part
     from personal_agent.memory import inject, layout
     # Every task gets the same text so tasks share the cached prefix; the task message names the real ID.
     rules = prompt_part(rules_part).replace("{task_id}", "<task_id>")
-    out = [{"kind": "platform", "title": "Platform Rules", "content": rules.replace("{skill_ids}", ", ".join(skill_ids or []))}]
+    out = [{"kind": "platform", "title": "Platform Rules", "content": rules}]
     out.append({"kind": "platform", "title": "Memory", "content": MEMORY_GUIDE})
     if rules_part == "platform_rules":
-        # Generated, not part of the editable rules: an edited or older rules version still gets it.
-        from personal_agent.identity.config import skill_summaries
-        # The run's skills come from capability_ids, which always includes the computer skills.
-        listed = skill_summaries(list(skill_ids or []))
-        out.append({"kind": "platform", "title": "Available Skills",
-                    "content": "## Available skills\n" + ("\n".join(listed) if listed else "None.")})
+        # Generated, not part of the editable rules: an edited or older rules version still gets them.
+        out += capability_sections(ident, grants or {})
     try:
         if seed_missing: ensure_seeded(ident)
         if config is not None: settle_bootstrap(ident, config)
@@ -136,11 +134,24 @@ def render(items):
             lines += ["## " + item["title"], "", item["content"], ""]
     return "\n".join(lines).strip()
 
-def task_system_prompt(task_id, skill_ids):
+def capability_sections(ident, grants):
+    """A task's "Available skills" list and its plugin directory, read from the workspace."""
+    from core.capabilities.plugins.runtime.resolution import build_plugin_directory_section
+    from personal_agent.identity.capabilities import task_plugins, task_skills
+    listed = ["- `" + sid + "`: " + path + (" — " + text if text else "") for sid, path, text in task_skills(ident, grants)]
+    out = [{"kind": "platform", "title": "Available Skills",
+            "content": "## Available skills\n" + ("\n".join(listed) if listed else "None.")}]
+    directory = build_plugin_directory_section(task_plugins(ident, grants))
+    if directory: out.append({"kind": "platform", "title": "Plugin Directory", "content": directory})
+    return out
+
+def task_system_prompt(task_id):
     from core.db.engine import SessionLocal
+    from personal_agent.identity.capabilities import runtime_config
     from personal_agent.models import PersonalAgent, PersonalWorkItem
     with SessionLocal() as db:
         task = db.get(PersonalWorkItem, task_id)
         agent = db.get(PersonalAgent, task.agent_id)
         ident, config = agent.id, dict(agent.config or {})
-    return render(sections(ident, task_id=task_id, skill_ids=skill_ids, config=config))
+        grants = runtime_config(db, agent.user_id, config)
+    return render(sections(ident, task_id=task_id, grants=grants, config=config))

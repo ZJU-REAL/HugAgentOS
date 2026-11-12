@@ -121,7 +121,7 @@ async def test_a_proactive_task_reads_and_drafts_but_cannot_send_deliver_or_use_
     configure(world, email_enabled=True)
     task_id, _, _ = await launched(world, GOAL, BEAT + "one")
     names, shell = toolkit(world, monkeypatch, task_id)
-    kept = {"pa_read_file", "pa_write_file", "pa_edit_file", "pa_memory_search", "pa_history_search", "pa_skill_read",
+    kept = {"pa_read_file", "pa_write_file", "pa_edit_file", "pa_memory_search", "pa_history_search",
             "pa_task_status", "pa_report", "pa_hugagent", "pa_email_list", "pa_email_read", "pa_email_download"}
     # Exactly these, so that a tool added to ordinary tasks later is not handed to a proactive one unnoticed.
     assert set(names) == kept | {"pa_schedule_list"} and shell == [task_id]  # The command line is registered as for any task.
@@ -139,10 +139,10 @@ async def test_a_proactive_task_keeps_web_search_web_fetch_and_the_users_own_cap
     # The run is built with the same capabilities: going online is not limited for a proactive check.
     for key in ("enabled_mcps", "enabled_skills", "enabled_mcp_ids", "enabled_skill_ids"):
         assert own.get(key) == usual.get(key)
-    from personal_agent.identity.capabilities import capability_ids
+    from personal_agent.identity.capabilities import task_mcp_ids
     with world.sessions() as db:
         config = db.scalar(select(PersonalAgent.config).where(PersonalAgent.user_id == "owner"))
-    assert {"internet_search", "web_fetch"} <= set(capability_ids(config)[1])
+    assert {"internet_search", "web_fetch"} <= set(task_mcp_ids(config))
 
 
 async def test_the_file_tools_of_a_proactive_task_write_only_under_drafts(world, monkeypatch):

@@ -1,6 +1,8 @@
 """What an approval card and an IM notice say about a computer action, and the computer skills every task gets."""
 from personal_agent.channels import im_actions
-from personal_agent.identity.capabilities import COMPUTER_SKILL_IDS, capability_ids
+
+# One skill per mode of pa_computer_read; its "skill" field names the one to read.
+COMPUTER_SKILL_IDS = ("pa-computer-macos", "pa-computer-pixels")
 from personal_agent.models import PersonalDevice
 from tests.test_personal_agent import personal_agent_on, sessions  # noqa: F401
 from tests.test_personal_agent_im_actions import im  # noqa: F401
@@ -76,32 +78,45 @@ def test_short_text_has_no_body_and_unknown_steps_still_read():
     assert lines[-2:] == ["第 1 步：填写 元素 #2「Ada」", "第 2 步：执行操作"] and body == ""
 
 
-def test_computer_skills_are_in_every_task_and_on_disk():
+def test_computer_skills_ship_outside_the_platform_catalog():
     from core.capabilities.skills.backends import CompositeBackend, FilesystemBackend
     from core.capabilities.skills.loader import MultiSourceSkillLoader
     from extensions.paths import SKILLS_DIR
-    assert capability_ids({})[0] == list(COMPUTER_SKILL_IDS)
-    assert capability_ids({"skill_ids": ["officecli-docx", "pa-computer-macos"]})[0] == ["officecli-docx", *COMPUTER_SKILL_IDS]
-    # The built-in source of the skill loader, which pa_skill_read reads through.
-    loader = MultiSourceSkillLoader(CompositeBackend([FilesystemBackend(root_dir=SKILLS_DIR / "default", source_name="built-in", priority=0)]))
-    metadata = loader.load_all_metadata()
-    from pathlib import Path
+    from personal_agent.skills import builtin_skills
+    builtin = {item["id"]: item for item in builtin_skills()}
+    assert set(COMPUTER_SKILL_IDS) <= set(builtin)
+    # They live in personal_agent/skills/, outside the platform catalog the capability center lists.
+    catalog = MultiSourceSkillLoader(CompositeBackend([FilesystemBackend(root_dir=SKILLS_DIR / "default", source_name="built-in", priority=0)]))
+    assert not set(builtin) & set(catalog.load_all_metadata())
     for ident in COMPUTER_SKILL_IDS:
-        assert metadata[ident].description
-        text = (Path(loader.get_skill_dir(ident)) / "SKILL.md").read_text()
+        assert builtin[ident]["description"]
+        text = (builtin[ident]["dir"] / "SKILL.md").read_text()
         assert text.startswith("---\nname: " + ident + "\n")
         for tool in ("pa_computer_read", "pa_computer_act", "pa_deliver"): assert tool in text
         assert "pa_computer_observe" not in text and "pa_computer_action" not in text
+        assert "pa_skill_read" not in text
 
 
-def test_task_prompt_lists_the_computer_skills(monkeypatch):
+def test_task_prompt_lists_the_synced_computer_skills(monkeypatch, tmp_path):
+    import shutil
+    from personal_agent.skills import builtin_skills
     from personal_agent.workspace import prompting
-    monkeypatch.delenv("PERSONAL_AGENT_LOCAL_VOLUME_ROOT", raising=False)
-    monkeypatch.delenv("PERSONAL_AGENT_VOLUME_ROOT", raising=False)
-    # The run's skill ids come from capability_ids, which always adds the computer skills.
-    text = prompting.render(prompting.sections("pa_x", skill_ids=capability_ids({"skill_ids": ["s1"]})[0], seed_missing=False))
-    assert "## Available skills\n- `s1`\n- `pa-computer-macos`" in text and "- `pa-computer-pixels`" in text
-    assert "pa_computer_read" in text and "pa_computer_observe" not in text
+    from tests.personal_agent_capability_files import manifest, skill, workspace
+    ws = workspace(monkeypatch, tmp_path)
+    # The capability sync copies the built-in skills into the workspace like any other.
+    for item in builtin_skills():
+        if item["id"] in COMPUTER_SKILL_IDS: shutil.copytree(item["dir"], ws / "skills" / item["id"])
+    skill(ws, "skills/s1", "Selected skill")
+    manifest(ws, "skills", {**{ident: {"source": "builtin", "hash": "h"} for ident in COMPUTER_SKILL_IDS},
+                            "s1": {"source": "selected", "hash": "h"}})
+    # Built-in skills are listed whatever the user selected or was granted.
+    text = prompting.render(prompting.sections("pa_x", grants={"skill_ids": []}, seed_missing=False))
+    assert "- `pa-computer-macos`: /workspace/skills/pa-computer-macos/SKILL.md — How the Personal Agent operates a paired Mac" in text
+    assert "- `pa-computer-pixels`: /workspace/skills/pa-computer-pixels/SKILL.md" in text and "`s1`" not in text
+    text = prompting.render(prompting.sections("pa_x", grants={"skill_ids": ["s1"]}, seed_missing=False))
+    assert "## Available skills\n- `pa-computer-macos`" in text
+    assert "- `s1`: /workspace/skills/s1/SKILL.md — Selected skill" in text
+    assert "pa_computer_read" in text and "pa_computer_observe" not in text and "pa_skill_read" not in text
 
 
 async def test_im_notice_lists_the_steps(im):  # noqa: F811

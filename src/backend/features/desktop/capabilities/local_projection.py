@@ -1,6 +1,8 @@
 """Publish committed device DB skill mutations into the capability store/index."""
 
 from __future__ import annotations
+
+from typing import Any
 from sqlalchemy import inspect as inspect_model
 from features.desktop.capabilities import skill_publication
 from features.desktop.capabilities import skill_views
@@ -35,7 +37,7 @@ def sync_local_skills() -> None:
             from features.desktop.capabilities import device_catalog
 
             hybrid = device_catalog.active()
-            definitions = [
+            definitions: list[dict[str, Any]] = [
                 {
                     "skill_id": row.skill_id,
                     "content": row.skill_content,

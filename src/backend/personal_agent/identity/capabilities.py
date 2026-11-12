@@ -5,9 +5,6 @@ DEFAULT_MCP_IDS = ("internet_search", "web_fetch")
 DEFAULT_SKILL_IDS = (
     "officecli-docx", "officecli-xlsx", "officecli-pptx", "pdf-editing",
 )
-# How to operate a computer, one skill per mode of pa_computer_read (its "skill" field names the one to
-# read). Always available to tasks, whatever the user selected: they only describe the computer tools.
-COMPUTER_SKILL_IDS = ("pa-computer-macos", "pa-computer-pixels")
 SELECTION_KEYS = ("skill_ids", "mcp_ids", "plugin_ids")
 
 def blocked(ident):
@@ -124,13 +121,104 @@ def runtime_config(db, user_id, config):
         available = {"skill_ids": [], "mcp_ids": [], "plugins": []}
     return {**config, **resolve_selection(selection(config), available)}
 
-def capability_ids(config):
-    plugins = [p for p in (config or {}).get("plugins", []) if not blocked(p["id"])]
-    def merged(key):
-        return list(dict.fromkeys(i for i in [*(config or {}).get(key, []),
-            *(i for plugin in plugins for i in plugin.get(key, []))] if not blocked(i)))
-    # The computer skills come last: listed and readable with pa_skill_read in every task.
-    return list(dict.fromkeys([*merged("skill_ids"), *COMPUTER_SKILL_IDS])), merged("mcp_ids")
+def task_mcp_ids(config, plugins=()):
+    """The MCP servers a task connects at start: the user's selection, plus those of the plugins
+    this task already loaded (see personal_agent/tools/plugins.py). Other plugins' servers
+    connect only when the task loads the plugin."""
+    return list(dict.fromkeys(i for i in [*(config or {}).get("mcp_ids", []),
+        *(i for plugin in plugins for i in plugin.mcp_ids)] if not blocked(i)))
+
+# Skills and plugins are files in the workspace, placed there by the capability sync
+# (SKILL.md per /workspace/skills/<id>/, a bundle per /workspace/plugins/<slug>/). Each
+# directory keeps a manifest of what the platform synced; any other skill directory is the
+# agent's own. A task only reads what is there, and lists what it may still use.
+SKILLS, PLUGINS, MANIFEST = "skills", "plugins", ".synced.json"
+SKILL_SUMMARY_LENGTH = 160
+
+def synced(ident, kind):
+    """The manifest entries of /workspace/<kind>/.synced.json ("skills" or "plugins"), {} without one."""
+    import json
+    from personal_agent.workspace.files import WorkspaceUnavailable, read_text
+    try: data = json.loads(read_text(ident, kind + "/" + MANIFEST) or "{}")
+    except (ValueError, WorkspaceUnavailable): return {}
+    entries = data.get(kind) if isinstance(data, dict) and data.get("version") == 1 else None
+    return {k: v for k, v in entries.items() if isinstance(v, dict) and _name(k)} if isinstance(entries, dict) else {}
+
+def _name(part):
+    """One path component the manifest may name: no separators, not hidden."""
+    return isinstance(part, str) and part and "/" not in part and "\\" not in part and not part.startswith(".")
+
+def skill_description(ident, rel):
+    """The frontmatter description of the workspace file rel, one bounded line; None when it is missing."""
+    from personal_agent.workspace.files import WorkspaceUnavailable, read_text
+    try: text = read_text(ident, rel)
+    except WorkspaceUnavailable: return None
+    if text is None: return None
+    try:
+        from core.capabilities.skills.registry import split_frontmatter
+        raw = split_frontmatter(text)[0].get("description") or ""
+    except Exception:  # noqa: BLE001 - without a description the path still works
+        raw = ""
+    line = " ".join(str(raw).split())
+    return line[:SKILL_SUMMARY_LENGTH - 1] + "…" if len(line) > SKILL_SUMMARY_LENGTH else line
+
+def task_skills(ident, config):
+    """The workspace skills this task may use, as [(skill_id, path, description)]: the agent's own,
+    the built-in ones, and the selected catalog skills config (from runtime_config) still grants."""
+    import os
+    from personal_agent.workspace.constants import WORKSPACE
+    from personal_agent.workspace.files import WorkspaceUnavailable, local_workspace
+    try:
+        with os.scandir(local_workspace(ident) / SKILLS) as entries:
+            names = sorted(e.name for e in entries if _name(e.name) and e.is_dir(follow_symlinks=False))
+    except (WorkspaceUnavailable, OSError):
+        return []
+    platform = synced(ident, SKILLS)
+    granted = {i for i in (config or {}).get("skill_ids", []) if not blocked(i)}
+    out = []
+    for name in names:
+        # A directory the manifest does not name is the agent's own, even when a platform skill has its id.
+        source = platform[name].get("source") if name in platform else "own"
+        if source not in ("own", "builtin", "selected") or (source == "selected" and name not in granted): continue
+        rel = SKILLS + "/" + name + "/SKILL.md"
+        description = skill_description(ident, rel)
+        if description is not None: out.append((name, WORKSPACE + "/" + rel, description))
+    return out
+
+def task_plugins(ident, config):
+    """The synced plugins config (from runtime_config) still grants, each a DeferredPlugin with only
+    the granted skills and MCP servers, sorted by slug. Their skill paths: plugin_skill_paths."""
+    from core.capabilities.plugins.runtime.models import DeferredPlugin
+    granted = {p["id"]: p for p in (config or {}).get("plugins", []) if not blocked(p["id"])}
+    out = []
+    for slug, entry in sorted(synced(ident, PLUGINS).items()):
+        grant = granted.get(entry.get("install_id"))
+        if grant is None or blocked(slug): continue
+        skills = [i for i in (entry.get("skills") or {}) if i in grant.get("skill_ids", [])]
+        mcps = [i for i in entry.get("mcp_ids") or [] if i in grant.get("mcp_ids", [])]
+        out.append(DeferredPlugin(install_id=grant["id"], slug=slug, name=str(entry.get("name") or grant.get("name") or slug),
+                                  description=str(entry.get("description") or ""), skill_ids=skills, mcp_ids=mcps))
+    return out
+
+def plugin_skill_paths(ident, plugin):
+    """[(skill_id, path, description)] of one plugin from task_plugins, read from its synced bundle."""
+    import posixpath
+    from personal_agent.workspace.constants import WORKSPACE
+    dirs = (synced(ident, PLUGINS).get(plugin.slug) or {}).get("skills") or {}
+    out = []
+    for sid in plugin.skill_ids:
+        sub = posixpath.normpath(str(dirs.get(sid) or ""))
+        if not sub.startswith(SKILLS + "/") or ".." in sub.split("/"): continue
+        rel = PLUGINS + "/" + plugin.slug + "/" + sub + "/SKILL.md"
+        description = skill_description(ident, rel)
+        if description is not None: out.append((sid, WORKSPACE + "/" + rel, description))
+    return out
+
+def platform_synced(ident, rel):
+    """True for a workspace path the capability sync owns: a synced skill's directory or any plugin."""
+    parts = rel.split("/")
+    return (parts[0] == PLUGINS and len(parts) > 1) or (parts[0] == SKILLS and len(parts) > 1
+            and (parts[1] == MANIFEST or parts[1] in synced(ident, SKILLS)))
 
 def front_mcp_ids(config):
     """The main conversation only gets selected lookup tools; tasks get the full selection."""

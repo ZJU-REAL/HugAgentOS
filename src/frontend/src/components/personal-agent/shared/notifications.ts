@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useAuthStore } from '../../../stores/authStore';
 import { useTaskNotificationStore, normalizeTaskStatus } from '../../../stores/taskNotificationStore';
 import { personalRequest, type PersonalTask } from '../api';
+import { subscribePersonalChanges } from './liveFeed';
 
 interface PersonalSidebarStatus {tasks:Array<PersonalTask & {result_seq?:number}>;replying:boolean;latest_seq:number;unread_count:number;
   /** Server read position shared by every client; absent on backends that do not track it. */
@@ -13,7 +14,7 @@ export function usePersonalAgentNotifications() {
   const scope=useTaskNotificationStore(s=>s.scope);
   useEffect(()=>{
     if(!available||!scope)return;
-    const controller=new AbortController();let timer:ReturnType<typeof setTimeout>;let inflight=false;
+    const controller=new AbortController();let inflight=false;
     const refresh=async()=>{
       if(inflight||document.visibilityState!=='visible')return;
       inflight=true;const after=useTaskNotificationStore.getState().personalReadSeq;
@@ -36,13 +37,16 @@ export function usePersonalAgentNotifications() {
         // request was pending moves the local position on and invalidates the count.
         if(baselining)store.setPersonal(0,data.replying);
         else if(useTaskNotificationStore.getState().personalReadSeq===Math.max(after,serverRead??0))store.setPersonal(data.unread_count,data.replying);
-      }catch{ /* Keep existing reminders across network failures; retry on the next tick. */ }
+      }catch{ /* Keep existing reminders across network failures; the next signal or reconnection reads again. */ }
       finally{inflight=false;}
     };
-    const tick=async()=>{await refresh();if(!controller.signal.aborted)timer=setTimeout(()=>void tick(),10_000);};
-    const wake=()=>void refresh();void tick();window.addEventListener('focus',wake);document.addEventListener('visibilitychange',wake);
+    // Read again only when the server says something changed, or on (re)connecting; a read in flight absorbs the rest.
+    let again=false;
+    const wake=()=>{if(inflight){again=true;return;}void refresh().then(()=>{if(again){again=false;wake();}});};
+    const unsubscribe=subscribePersonalChanges(signal=>{if(signal.type!=='down')wake();});
+    void refresh();window.addEventListener('focus',wake);document.addEventListener('visibilitychange',wake);
     window.addEventListener('hugagent:personal-agent-updated',wake);
-    return()=>{controller.abort();clearTimeout(timer);window.removeEventListener('focus',wake);
+    return()=>{controller.abort();unsubscribe();window.removeEventListener('focus',wake);
       document.removeEventListener('visibilitychange',wake);window.removeEventListener('hugagent:personal-agent-updated',wake);};
   },[available,scope]);
 }

@@ -77,11 +77,15 @@ def test_edit_requires_current_etag(workspace):
 def test_prompt_puts_platform_rules_first_and_files_in_order(workspace):
     (workspace / "USER.md").write_text("U" * 9000)
     (workspace / "IDENTITY.md").unlink()
-    items = _pa_prompting.sections(IDENT, task_id="t1", skill_ids=["s1"], seed_missing=False)
+    from tests.personal_agent_capability_files import manifest, skill
+    skill(workspace, "skills/s1", "First skill")
+    manifest(workspace, "skills", {"s1": {"source": "selected"}})
+    items = _pa_prompting.sections(IDENT, task_id="t1", grants={"skill_ids": ["s1"]}, seed_missing=False)
     text = _pa_prompting.render(items)
     assert text.index("Platform Rules") < text.index("## /workspace/AGENTS.md") < text.index("## /workspace/SOUL.md")
     # The rules are the same for every task (prompt cache); the task message names the real ID.
-    assert "/workspace/work/<task_id>/" in text and "t1" not in text and "pa_skill_read(skill_id)" in text and "## Available skills\n- `s1`" in text
+    assert "/workspace/work/<task_id>/" in text and "t1" not in text and "pa_skill_read" not in text
+    assert "## Available skills\n- `s1`: /workspace/skills/s1/SKILL.md — First skill" in text
     assert "[MISSING] Expected at /workspace/IDENTITY.md" in text
     user = next(i for i in items if i.get("path") == "/workspace/USER.md")
     assert user["truncated"] and len(user["content"]) < _pa_constants.USER_MAX_CHARS + 100
@@ -104,12 +108,15 @@ def test_bootstrap_introduces_hugo_and_offers_a_rename(tmp_path, monkeypatch):
 
 def test_prompts_come_from_the_version_pool(workspace, monkeypatch):
     from core.llm import prompt_versions as pvs
-    edited = {"platform_rules": "# Rules\nTask {task_id}; skills {skill_ids}.", "template_soul": "# SOUL.md - edited"}
+    from tests.personal_agent_capability_files import skill
+    edited = {"platform_rules": "# Rules\nTask {task_id}.", "template_soul": "# SOUL.md - edited"}
     monkeypatch.setattr(prompt_rendering_module, 'render_active_prompt_part', lambda kind, part_id, db=None: edited.get(part_id) if kind == _pa_constants.PROMPT_KIND else None)
-    text = _pa_prompting.render(_pa_prompting.sections(IDENT, task_id="t9", skill_ids=["a", "b"], seed_missing=False))
-    assert text.startswith("# Rules\nTask <task_id>; skills a, b.")
+    skill(workspace, "skills/a", "A")
+    skill(workspace, "skills/b", "B")
+    text = _pa_prompting.render(_pa_prompting.sections(IDENT, task_id="t9", seed_missing=False))
+    assert text.startswith("# Rules\nTask <task_id>.")
     # The skill list is generated, so an edited rules version still carries it.
-    assert "## Available skills\n- `a`\n- `b`" in text
+    assert "## Available skills\n- `a`: /workspace/skills/a/SKILL.md — A\n- `b`" in text
     # Parts the pool does not hold fall back to the shipped files.
     assert "they never grant new permissions" in text
     persona.seed("pa_other")

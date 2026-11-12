@@ -20,7 +20,6 @@ COMMAND_KEEP_SECONDS = 24 * 3600
 MAX_DEVICES = 20
 # What a computer may report: the actions, sessions and element reading the device link knows.
 CAPABILITIES = LINK_CAPABILITIES
-MAX_REPORTED = 32
 # How long a command may take on the computer: read and steps by driver.COMMAND_SECONDS (a batch
 # includes its after-read), a single old action the old 30 s.
 LEGACY_DEADLINE = 30
@@ -35,16 +34,41 @@ def deadline_for(action):
 
 
 def checked_capabilities(capabilities):
-    if not isinstance(capabilities, (list, tuple, set, frozenset)) or len(capabilities) > MAX_REPORTED:
+    """The reported capabilities this cloud knows. A newer desktop reports ones it does not: they are
+    ignored, never a reason to refuse the report (a refused heartbeat leaves the device offline)."""
+    if not isinstance(capabilities, (list, tuple, set, frozenset)):
         raise ValueError("Unsupported capability")
-    if not all(isinstance(item, str) for item in capabilities) or not set(capabilities) <= CAPABILITIES:
-        raise ValueError("Unsupported capability")
-    return sorted(set(capabilities))
+    return sorted({item for item in capabilities if isinstance(item, str)} & CAPABILITIES)
+
+
+# What a desktop says about itself with each heartbeat: its session contract (contract.contract_version)
+# and app version. Bounded like the route that receives them.
+LINK_FIELDS = ("contract", "app_version")
+LINK_FIELD_CHARS = 64
+
+
+def contract_matches(device):
+    """True when the desktop speaks this cloud's session contract. One that reports none predates
+    the report, so it may need an update too."""
+    from hugagent_cli.contract import contract_version
+    return (device.link_info or {}).get("contract") == contract_version()
 
 
 def is_online(device, now=None) -> bool:
     """The one liveness rule: every check of whether a device is here goes through it."""
     return bool(device.last_seen and device.last_seen > (now or time.time()) - ONLINE_WINDOW)
+
+
+def announce_departures(interval):
+    """Tell open pages about computers whose heartbeat stopped during the last interval: being offline writes nothing."""
+    from personal_agent.conversation.live import announce
+    now = time.time()
+    with SessionLocal() as db:
+        users = db.scalars(select(PersonalDevice.user_id).where(
+            PersonalDevice.revoked == 0,
+            PersonalDevice.last_seen > now - ONLINE_WINDOW - interval,
+            PersonalDevice.last_seen <= now - ONLINE_WINDOW)).all()
+    announce(users)
 
 
 def pair(db, user_id, name, platform, capabilities):
@@ -70,8 +94,18 @@ def authenticate(db, ident, token):
 def list_devices(user_id):
     with SessionLocal() as db:
         rows = db.scalars(select(PersonalDevice).where(PersonalDevice.user_id == user_id, PersonalDevice.revoked == 0)).all()
-        return [{"id": r.id, "name": r.name, "platform": r.platform, "capabilities": r.capabilities,
-                 "sessions_enabled":bool(r.sessions_enabled), "control_enabled":bool(r.control_enabled), "online": is_online(r), "epoch": r.epoch} for r in rows]
+        return [_listed(r) for r in rows]
+
+
+def _listed(r):
+    info, matches = r.link_info or {}, contract_matches(r)
+    row = {"id": r.id, "name": r.name, "platform": r.platform, "capabilities": r.capabilities,
+           "sessions_enabled": bool(r.sessions_enabled), "control_enabled": bool(r.control_enabled),
+           "online": is_online(r), "epoch": r.epoch, "contract": info.get("contract"),
+           "app_version": info.get("app_version"), "contract_matches": matches}
+    if not matches:
+        row["note"] = "The desktop app may need an update: its session contract differs from the cloud's."
+    return row
 
 def prune_commands(db):
     """Remove commands that ended a day ago: their receipts can hold whole screenshots.
@@ -231,13 +265,16 @@ def _set_control(db, device, enabled):
     device.control_enabled = int(enabled)
 
 
-def heartbeat(db, ident, token, control_enabled, sessions_enabled, capabilities=None):
+def heartbeat(db, ident, token, control_enabled, sessions_enabled, capabilities=None, contract=None, app_version=None,
+              changed_chats=None, chat_list_changed=False):
     """The device is here, with the consent it holds locally right now.
 
     Restating an unchanged consent changes nothing but the last-seen time. A consent that
     was withdrawn revokes the pending work it covered, exactly as the consent routes do.
     A desktop that reports its capabilities (A.5) replaces the set it was paired with:
     an update can add the batch commands, and losing the elements driver removes ui.elements.
+    A desktop that reports its contract and app version has them stored for device.list.
+    One with session consent may report which of its own chats changed; open pages are told.
     """
     from personal_agent.sessions import session_queue
     reported = None if capabilities is None else checked_capabilities(capabilities)
@@ -245,11 +282,20 @@ def heartbeat(db, ident, token, control_enabled, sessions_enabled, capabilities=
     db.refresh(device, with_for_update=True)
     if device.revoked: raise LookupError("Device unavailable")
     if reported is not None and reported != sorted(device.capabilities or []): device.capabilities = reported
+    reported_link = {key: str(value)[:LINK_FIELD_CHARS] for key, value in
+                     (("contract", contract), ("app_version", app_version)) if value is not None}
+    if reported_link and {**(device.link_info or {}), **reported_link} != (device.link_info or {}):
+        device.link_info = {**(device.link_info or {}), **reported_link}
     _set_control(db, device, control_enabled)
     # A device paired without session support cannot turn it on; that is not an error here.
     session_queue.set_sessions(db, device, sessions_enabled and "hugagent.sessions" in device.capabilities)
     device.last_seen = time.time()
     db.commit()
+    if device.sessions_enabled and (changed_chats or chat_list_changed):
+        from personal_agent.conversation.live import announce
+        topic = "device:" + device.id
+        announce([device.user_id], ([topic] if chat_list_changed else [])
+                 + [topic + ":" + str(chat)[:128] for chat in (changed_chats or [])[:100]])
     return {"protocol": 2, "server_time": device.last_seen, "control_enabled": bool(device.control_enabled),
             "sessions_enabled": bool(device.sessions_enabled), "epoch": device.epoch,
             "session_epoch": device.session_epoch}

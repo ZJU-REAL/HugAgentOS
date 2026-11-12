@@ -78,7 +78,15 @@ class DeviceHeartbeat(BaseModel):
     control_enabled: bool
     sessions_enabled: bool
     # Optional: a desktop that sends it replaces the set it was paired with (older ones never do).
-    capabilities: Optional[list[str]] = Field(None, max_length=32)
+    # Unknown ones are ignored, so a newer desktop's longer list must not be refused either.
+    capabilities: Optional[list[str]] = Field(None, max_length=128)
+    # Optional, sent by newer desktops: their session contract (contract.contract_version) and app version.
+    contract: Optional[str] = Field(None, max_length=64)
+    app_version: Optional[str] = Field(None, max_length=64)
+    # Optional, sent by newer desktops with session consent: their own chats that changed since the
+    # last report, and whether the chat list itself changed, so open pages re-read only those.
+    changed_chats: Optional[list[str]] = Field(None, max_length=100)
+    chat_list_changed: bool = False
 
 
 @router.post("/device-link/{ident}/heartbeat")
@@ -88,7 +96,8 @@ def device_heartbeat(
     """Protocol 2: liveness and the device's local consent, in one report."""
     from personal_agent.computer.devices import heartbeat
 
-    return perform(lambda: heartbeat(db, ident, token, body.control_enabled, body.sessions_enabled, body.capabilities))
+    return perform(lambda: heartbeat(db, ident, token, body.control_enabled, body.sessions_enabled, body.capabilities,
+                                     body.contract, body.app_version, body.changed_chats, body.chat_list_changed))
 
 
 class DeviceClaim(BaseModel):
