@@ -6,6 +6,7 @@ console's user, team, and role management panels:
 | Key                 | Type | System default | Meaning                                        |
 |---------------------|------|----------------|------------------------------------------------|
 | ``lab_enabled``     | bool | ``True``       | Lab module visible                             |
+| ``sites_enabled``   | bool | ``True``       | Sites module visible, manage and publish sites |
 | ``can_use_api_key`` | bool | ``False``      | Create/use API keys                            |
 | ``can_add_skill``   | bool | ``False``      | Self-add skills in capability center / install from skill marketplace |
 | ``can_add_mcp``     | bool | ``False``      | Self-add private MCPs in capability center     |
@@ -44,6 +45,8 @@ from sqlalchemy.orm import Session
 # access permissions share the same layered resolution rules.
 BOOL_CAPABILITY_DEFAULTS: Dict[str, bool] = {
     "lab_enabled": True,
+    # Sites module (list, manage, publish). Split from lab_enabled; migration sitesperm01 copied existing lab values.
+    "sites_enabled": True,
     "can_use_api_key": False,
     "can_add_skill": False,
     "can_add_mcp": False,

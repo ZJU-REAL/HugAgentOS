@@ -28,7 +28,6 @@
 .pa-older{display:flex;justify-content:center;min-height:24px;font-size:12px;color:var(--color-text-tertiary)}
 .pa-messages{flex:1;display:flex;flex-direction:column;overflow:auto;padding-top:8px;min-height:0;scrollbar-gutter:stable}
 .pa-messages-inner{flex:1 0 auto;padding-bottom:20px;box-sizing:border-box}
-/* Room kept under a just-sent message so the reply fills it without moving the view. */
 /* Confirmations and the composer stay pinned to the bottom of the scroller while messages pass under them. */
 .pa-dock{position:sticky;bottom:0;z-index:2;display:flex;flex-direction:column;box-sizing:border-box;background:var(--pa-chat-bg)}
 .pa-message{position:relative;margin:0 0 24px;max-width:100%;width:fit-content;overflow-wrap:anywhere;padding-right:36px;box-sizing:border-box}
@@ -39,7 +38,7 @@
 .pa-message-user .pa-message-bubble{background:var(--pa-user-bg)}
 /* Sent and not yet stored: the same bubble, quieter until the server takes it. */
 .pa-message-pending .pa-message-bubble{opacity:.6}
-.pa-message .pa-message-text{font-size:16px;line-height:1.55;color:inherit}
+.pa-message .pa-message-text{font-size:15px;line-height:1.65;color:inherit}
 .pa-message .pa-message-text p{margin:0 0 12px}
 .pa-message-text>:first-child,.pa-message-text>div>:first-child{margin-top:0}
 .pa-message-text>:last-child,.pa-message-text>div>:last-child{margin-bottom:0}
@@ -280,7 +279,6 @@ button.pa-side-row:disabled{cursor:default}
   .pa-message-assistant{max-width:94%}
   .pa-message-user{max-width:92%}
   .pa-message-bubble{padding:12px 16px;border-radius:24px}
-  .pa-message .pa-message-text{font-size:15px}
   .pa-composer{padding:8px 10px}
   .pa-composer-input{gap:6px}
 }

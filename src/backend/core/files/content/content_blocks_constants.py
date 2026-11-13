@@ -111,9 +111,9 @@ DEFAULT_PAGE_CONFIG: dict[str, Any] = {
             # Browser tab icon of the admin pages; empty = follow branding.favicon_url.
             "favicon_url": "",
         },
-        # 与前端 utils/pageConfigDefaults.ts 的 DEFAULT_SIDEBAR_ITEMS / DEFAULT_MENU_ITEMS 保持一致。
-        # 这只是新装环境的出厂值——已存在的部署以 DB 现有取值为准，由 backfill_navigation_entries
-        # 补齐新增条目，管理员随后可在 /config「页面配置」里自由编排。
+        # 旧的单一排布（新装出厂值，与前端 DEFAULT_SIDEBAR_ITEMS / DEFAULT_MENU_ITEMS 一致），
+        # 现在只供工作台布局策略桥接与 backfill_navigation_entries 使用。侧边栏读取
+        # navigation.layouts.{modern,classic}，缺省时由前端 DEFAULT_LAYOUT_NAVIGATION 补齐。
         "sidebar_items": ["ability_center", "automation", "sites", "my_space"],
         "menu_items": ["settings", "app_center", "projects", "lab"],
     },

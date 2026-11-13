@@ -37,7 +37,10 @@ function ModernSidebar(actions: SidebarProps) {
   const config = usePageConfigAll();
   const { primary, more } = useModuleNavigation();
   const moreModule = secondaryModule(panel, more);
-  const hasSecondary = moreModule || ['chat','personal_agent','ability_center','my_space','automation'].includes(panel);
+  // Chat, ability center, my space and tasks bring their own sidebar wherever the administrator placed them;
+  // other modules in 「更多」 list their siblings instead.
+  const ownSidebar = ['chat','personal_agent','ability_center','my_space','automation'].includes(panel);
+  const hasSecondary = moreModule || ownSidebar;
   const chatModule = panel === 'chat' || panel === 'personal_agent';
   const title = chatModule ? brandName : LAYOUT_ITEMS[panel]?.label || brandName;
   const select = (target: typeof panel, sub?: string) => {
@@ -65,7 +68,7 @@ function ModernSidebar(actions: SidebarProps) {
       {panel === 'ability_center' && <nav className="jx-moduleCategories" aria-label={t('能力中心')}>{ABILITY_TABS.map(item => <button key={item.key} className={`jx-navItem${abilityTab === item.key ? ' active' : ''}`} aria-current={abilityTab === item.key ? 'page' : undefined} onClick={() => select('ability_center', abilitySlug(item.key))}><img className="jx-navItemIcon" src={item.icon} alt="" />{t(config.navigation.panel_titles[item.key] || item.label)}</button>)}</nav>}
       {panel === 'my_space' && <MySpaceRail />}
       {panel === 'automation' && <AutomationSidebar actions={actions} />}
-      {moreModule && <ModuleSecondaryNavigation entries={more} panel={panel} onSelect={select} />}
+      {moreModule && !ownSidebar && <ModuleSecondaryNavigation entries={more} panel={panel} onSelect={select} />}
     </aside>}
   </Layout.Sider>;
 }

@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from features.sites.api.internal_site_auth import _check_internal_token
+from features.sites.permission import DENIED_MESSAGE, sites_enabled_for
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +203,8 @@ async def list_sites(
     user_id = (body.user_id or "").strip()
     if not user_id:
         return success_response(data={"error": "当前会话缺少用户身份，无法查询站点"})
+    if not await run_in_threadpool(sites_enabled_for, user_id):
+        return success_response(data={"error": DENIED_MESSAGE})
 
     from features.sites.listing import list_sites as collect
 
@@ -218,6 +221,9 @@ async def publish(
     x_internal_token: Optional[str] = Header(None, alias="X-Internal-Token"),
 ):
     _check_internal_token(x_internal_token)
+    caller = (body.user_id or "").strip()
+    if caller and not await run_in_threadpool(sites_enabled_for, caller):
+        return success_response(data={"error": DENIED_MESSAGE})
     from core.harness.registry.host_runtime import requires_remote_execution as bridge_enabled
 
     if bridge_enabled():
