@@ -43,7 +43,8 @@ async def system_prompt(
         from core.harness.registry import agent_profile
 
         system_prompt = await agent_profile(request.profile).system_prompt(request)
-        return _agent_ref, _plan_tool_enabled, _plugin_runtime, system_prompt
+        # A profile lists its own plugins; its register_tools may have set a load_plugin holder.
+        return _agent_ref, _plan_tool_enabled, toolkit.plugin_runtime, system_prompt
     if request.user_agent is not None:
         system_prompt = build_subagent_system_prompt(
             request.user_agent,

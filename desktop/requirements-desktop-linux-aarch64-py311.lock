@@ -1,6 +1,6 @@
 # This file is generated. Do not edit it by hand.
 # Regenerate with: npm --prefix desktop run lock:desktop
-# input-sha256: b9680ef14192ea099c4a7159c08c064cbd555bd681c00c49c5c74b1f7f3d4046
+# input-sha256: 26d239807f2f80b5ea87f553e79c38efd686e3bb379968bb9f1b32c39ed42b4c
 # Target: CPython 3.11 on Linux aarch64 (UOS 1070 / manylinux 2.28)
 agentscope @ https://github.com/agentscope-ai/agentscope/archive/ed357feb78a45ff02df155bb5610eab9bf543832.tar.gz
     # via -r desktop/requirements-desktop.txt

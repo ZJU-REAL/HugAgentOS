@@ -116,8 +116,7 @@ export function CanvasLauncher() {
     {navigator && <form className="jx-canvasLauncher-address" onSubmit={event => { event.preventDefault(); void navigate(); }}>
       <GlobalOutlined aria-hidden />
       <input aria-label={t('网页地址')} placeholder={t('搜索 Bing 或输入网页地址')} value={url}
-        disabled={busy} onChange={event => setUrl(event.target.value)}
-        onKeyDown={event => { if (event.key === 'Enter' && event.nativeEvent.isComposing) event.preventDefault(); }} />
+        disabled={busy} onChange={event => setUrl(event.target.value)} />
       <button type="submit" disabled={busy || !url.trim()} aria-label={t('打开网页')}><ArrowRightOutlined aria-hidden /></button>
     </form>}
     <div className="jx-canvasLauncher-content">

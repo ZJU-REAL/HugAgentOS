@@ -8,17 +8,28 @@ from personal_agent.context import AgentContext
 def fingerprint(action):
     return hashlib.sha256(json.dumps(action, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
+COMPUTER_KINDS = ("computer.steps", "computer.action")
+# Where on the screen, and which screen, change with every read; a rejection is about what was asked.
+POSITION_FIELDS = ("x", "y", "element", "observation_id")
+
+def _unplaced(step):
+    return {key: value for key, value in step.items() if key not in POSITION_FIELDS} if isinstance(step, dict) else step
+
 def intent(action):
-    """The action without per-attempt fields. A rejection applies to every retry of the same action."""
+    """The action without per-attempt fields. A rejection applies to every retry of the same action:
+    for the computer that is (target, app, step types, text), wherever the screen puts it."""
     core = {key: value for key, value in action.items() if key != "request_key"}
-    if isinstance(core.get("action"), dict):
-        core["action"] = {key: value for key, value in core["action"].items() if key != "observation_id"}
+    if core.get("kind") in COMPUTER_KINDS:
+        for key in ("snapshot_id", "generation"): core.pop(key, None)
+        if isinstance(core.get("steps"), list): core["steps"] = [_unplaced(step) for step in core["steps"]]
+        if isinstance(core.get("action"), dict): core["action"] = _unplaced(core["action"])
     return core
 
 def scope_key(action):
-    """The class of actions a user can allow for one task. Email is never task-scoped."""
-    if action.get("kind") == "computer.action":
-        return "computer:" + str(action.get("target"))
+    """The class of actions a user can allow for one task. Email is never task-scoped.
+    For the computer it is one app on one computer; a pixels screen, which names no app, is the whole computer."""
+    if action.get("kind") in COMPUTER_KINDS:
+        return "computer:" + str(action.get("target")) + ":" + str(action.get("app") or "*")
     if action.get("kind") == "hugagent.session":
         return "session:" + str(action.get("target")) + ":" + str(action.get("operation"))
     return None
@@ -79,6 +90,9 @@ def authorize(task_id, uid, action):
             return digest, {"pending_approval": True, "message": "等待你批准操作"}
         # Once dispatched, an uncertain result must never be blindly repeated.
         receipts[digest] = {"status": "uncertain", "message": "操作已派发，尚未确认结果。请先核对。"}
+        if action.get("kind") == "hugagent.session" and action.get("request_key"):
+            # So a reconciliation can find the operation even if its own receipt was never written.
+            receipts[digest]["request_key"] = action["request_key"]
         state["action_receipts"] = receipts
         state.pop("pending_approval", None)
         task.checkpoint = state
@@ -151,6 +165,11 @@ def reconcile(service, ident, action_id, outcome):
     elif outcome == "not_executed":
         results.pop(action_id)
         state["approved_actions"] = [item for item in state.get("approved_actions", []) if item != action_id]
+        if old.get("id") or old.get("request_key"):
+            # A HugAgentOS session write: its operation stops answering for its request key, so the
+            # same write, approved again, is queued again instead of returning this uncertain receipt.
+            from personal_agent.sessions.session_queue import reconciled
+            reconciled(service.db, service.user_id, old.get("id"), old.get("request_key"))
     else:
         raise ValueError("Check the action before continuing")
     state["action_receipts"] = results

@@ -33,6 +33,12 @@ class UpdateSidebarOrderRequest(BaseModel):
     order: List[str] = Field(default_factory=list, description="Chat ids in manual order")
 
 
+class MarkChatReadRequest(BaseModel):
+    """Mark a chat read up to (and including) one of its messages."""
+
+    message_id: str = Field(..., min_length=1, max_length=64)
+
+
 class UserQuestionAnswerItem(BaseModel):
     """One browser answer correlated to the model's stable question id."""
 

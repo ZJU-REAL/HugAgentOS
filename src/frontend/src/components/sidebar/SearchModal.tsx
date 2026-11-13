@@ -308,8 +308,6 @@ export function SearchModal({ onNewChat, onSelectChat, onSelectSearchResult }: S
           onChange={(e) => setSearchKeyword(e.target.value)}
           className="jx-searchModalInput"
           onKeyDown={(e) => {
-            // A Chinese IME commit (pinyin commit) also fires Enter, so composition must be let through first
-            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
             if (e.key === 'Enter' && showNewChatRow) {
               e.preventDefault();
               handleNewChat();

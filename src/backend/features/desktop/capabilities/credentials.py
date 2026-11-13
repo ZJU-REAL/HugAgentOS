@@ -46,6 +46,8 @@ def _win_target(name: str) -> str:
 
 
 def _win_write(name: str, secret: str) -> None:
+    if sys.platform != "win32":  # Also tells type checkers which stubs apply below.
+        raise OSError("Windows only")
     import ctypes
     from ctypes import wintypes
 
@@ -81,6 +83,8 @@ def _win_write(name: str, secret: str) -> None:
 
 
 def _win_read(name: str) -> Optional[str]:
+    if sys.platform != "win32":  # Also tells type checkers which stubs apply below.
+        raise OSError("Windows only")
     import ctypes
     from ctypes import wintypes
 
@@ -107,6 +111,8 @@ def _win_read(name: str) -> Optional[str]:
 
 
 def _win_delete(name: str) -> bool:
+    if sys.platform != "win32":  # Also tells type checkers which stubs apply below.
+        raise OSError("Windows only")
     import ctypes
 
     advapi = ctypes.windll.advapi32

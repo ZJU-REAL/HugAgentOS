@@ -1,6 +1,9 @@
 """Personal Agent computer routes."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket
+from typing import Literal, Optional
+
+from pydantic import BaseModel, Field
 
 from sqlalchemy.orm import Session
 
@@ -71,6 +74,52 @@ def revoke_device(ident: str, svc=Depends(service)):
     return success_response(data={"revoked": True})
 
 
+class DeviceHeartbeat(BaseModel):
+    control_enabled: bool
+    sessions_enabled: bool
+    # Optional: a desktop that sends it replaces the set it was paired with (older ones never do).
+    # Unknown ones are ignored, so a newer desktop's longer list must not be refused either.
+    capabilities: Optional[list[str]] = Field(None, max_length=128)
+    # Optional, sent by newer desktops: their session contract (contract.contract_version) and app version.
+    contract: Optional[str] = Field(None, max_length=64)
+    app_version: Optional[str] = Field(None, max_length=64)
+    # Optional, sent by newer desktops with session consent: their own chats that changed since the
+    # last report, and whether the chat list itself changed, so open pages re-read only those.
+    changed_chats: Optional[list[str]] = Field(None, max_length=100)
+    chat_list_changed: bool = False
+
+
+@router.post("/device-link/{ident}/heartbeat")
+def device_heartbeat(
+    ident: str, body: DeviceHeartbeat, token=Depends(device_token), db: Session = Depends(get_db)
+):
+    """Protocol 2: liveness and the device's local consent, in one report."""
+    from personal_agent.computer.devices import heartbeat
+
+    return perform(lambda: heartbeat(db, ident, token, body.control_enabled, body.sessions_enabled, body.capabilities,
+                                     body.contract, body.app_version, body.changed_chats, body.chat_list_changed))
+
+
+class DeviceClaim(BaseModel):
+    # The device's idle lanes: a lane still running its last action takes nothing new.
+    kinds: list[Literal["command", "session"]] = ["command", "session"]
+
+
+@router.post("/device-link/{ident}/claim")
+def device_claim(
+    ident: str, body: Optional[DeviceClaim] = None, token=Depends(device_token), db: Session = Depends(get_db)
+):
+    """Protocol 2: the next screen command and the next session operation, if any.
+
+    POST, because handing work out changes it: nothing between the device and the cloud
+    may replay or cache this request the way it may treat a GET.
+    """
+    from personal_agent.computer.devices import claim
+
+    return perform(lambda: claim(db, ident, token, set((body or DeviceClaim()).kinds)))
+
+
+# Protocol 1 (desktops released before the heartbeat): kept so they keep working.
 @router.get("/device-link/{ident}/commands")
 def device_poll(ident: str, token=Depends(device_token), db: Session = Depends(get_db)):
     from personal_agent.computer.devices import poll
@@ -79,16 +128,24 @@ def device_poll(ident: str, token=Depends(device_token), db: Session = Depends(g
 
 
 @router.post("/device-link/{ident}/commands/{command_id}")
-def device_receipt(
-    ident: str,
-    command_id: str,
-    body: DeviceReceipt,
-    token=Depends(device_token),
-    db: Session = Depends(get_db),
-):
-    from personal_agent.computer.devices import acknowledge
+async def device_receipt(ident: str, command_id: str, body: DeviceReceipt, token=Depends(device_token)):
+    """A command's receipt. Its screenshots go to the short-lived store, never into the row; once the
+    row is written, the tool call waiting for it is woken instead of polling the database."""
+    from core.db.threads import run_db, run_in_session
+    from personal_agent.computer import devices, receipts
 
-    return perform(lambda: acknowledge(db, ident, token, command_id, body.result))
+    try:
+        if await run_in_session(devices.receivable, ident, token, command_id) == "completed":
+            return success_response(data={"accepted": True})
+        await run_db(devices.receipt_size_ok, body.result)
+        result = await receipts.offload_images(command_id, body.result)
+        data = await run_in_session(devices.acknowledge, ident, token, command_id, result)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
+    await receipts.notify(command_id)
+    return success_response(data=data)
 
 
 @router.post("/device-link/{ident}/consent")

@@ -143,10 +143,12 @@ a.jx-fileCard--link:hover{
   padding:2px 0;
 }
 
+/* The message keeps a minimum width; in a narrow column the action buttons wrap below it. */
 .jx-queuedMessage{
   display:flex;
+  flex-wrap:wrap;
   align-items:center;
-  gap:12px;
+  gap:6px 12px;
   min-height:52px;
   margin-bottom:10px;
   padding:9px 10px 9px 13px;
@@ -170,7 +172,7 @@ a.jx-fileCard--link:hover{
   display:flex;
   align-items:flex-start;
   gap:9px;
-  flex:1;
+  flex:1 1 220px;
   min-width:0;
 }
 
@@ -223,9 +225,13 @@ a.jx-fileCard--link:hover{
 
 .jx-queuedMessage-actions{
   display:flex;
+  flex-wrap:wrap;
+  justify-content:flex-end;
   align-items:center;
   gap:4px;
   flex-shrink:0;
+  max-width:100%;
+  margin-left:auto;
 }
 
 .jx-queuedMessage-steer,

@@ -10,6 +10,7 @@ import { useMySpaceStore } from '../stores/mySpaceStore';
 import { useAutomationConversations } from './useAutomationConversations';
 import { usePageConfigAll } from './usePageConfig';
 import { resolveDocumentFavicon, useDocumentFavicon } from './useDocumentFavicon';
+import { isImeKey } from '../utils/ime';
 export function useAppBootstrap(chatSurface: boolean) {
   const { pathname } = useLocation();
   const pageConfig = usePageConfigAll();
@@ -120,7 +121,7 @@ export function useAppBootstrap(chatSurface: boolean) {
       if (!(e.metaKey || e.ctrlKey)) return;
       if (e.key !== 'k' && e.key !== 'K') return;
       if (e.repeat) return;
-      if (e.isComposing || e.keyCode === 229) return;
+      if (isImeKey(e)) return;
 
       const target = e.target as HTMLElement | null;
       // Embedded rich-text/code editors (Monaco, CodeMirror, TipTap, etc.) usually use contenteditable

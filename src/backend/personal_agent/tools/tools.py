@@ -28,8 +28,12 @@ def register_personal_tools(toolkit, request, loader=None):
     from personal_agent.scheduling.proactive_tasks import draft_path
     from personal_agent.scheduling.schedules import is_proactive, is_unattended_run
     from personal_agent.sessions.session_tool import OUTPUT_CHARS, PROACTIVE_OUTPUT_CHARS
+    from personal_agent.identity.capabilities import platform_synced, runtime_config
     with SessionLocal() as db:
         task = db.get(PersonalWorkItem, ident)
+        agent = db.get(PersonalAgent, task.agent_id)
+        # What the user still grants this run: the plugins load_plugin may load.
+        agent_id, grants = agent.id, runtime_config(db, uid, dict(agent.config or {}))
         scheduled = is_unattended_run(task)
         # Nobody is there during a proactive check (PROACTIVE_DESIGN §6.1): the file tools write drafts only,
         # and the tools that reach other people, the user's computer or the memory are not registered.
@@ -55,10 +59,13 @@ def register_personal_tools(toolkit, request, loader=None):
         return _pa_files.editable(rel) or store.is_memory(rel)
 
     def platform_only(target):
-        """journal/ and DREAMS.md are written by the platform: Dreaming reads the journal as its queue."""
+        """journal/ and DREAMS.md are written by the platform: Dreaming reads the journal as its queue.
+        Synced skills and plugins are replaced by the capability sync."""
         rel = _pa_files.relative(target)
         if rel.split("/")[0] == layout.JOURNAL_DIR or rel == layout.REPORT:
             raise PermissionError(rel + " 由平台写入，只能读")
+        if platform_synced(agent_id, rel):
+            raise PermissionError(rel + " 由平台同步，只能读；要改就把技能复制到 /workspace/skills/ 下一个新名字的目录再改")
 
     def remember(target, content, expected):
         """Save a memory file through the store as this task (writer ONLINE, source task-<id>)."""
@@ -159,20 +166,6 @@ def register_personal_tools(toolkit, request, loader=None):
             from personal_agent.conversation.router.kinds import speaker_role
             return response([{"seq": m.chat_seq, "role": speaker_role(m), "content": m.content[:4000]} for m in rows])
 
-    async def pa_skill_read(skill_id: str, relative_path: str = "SKILL.md"):
-        """Read one explicitly enabled skill instruction or reference. Skills are not mounted."""
-        state = owned_task(ident, uid)
-        from personal_agent.identity.capabilities import capability_ids
-        if loader is None or skill_id not in capability_ids(state["config"])[0]: raise PermissionError("Skill not enabled")
-        from pathlib import Path
-        base = loader.get_skill_dir(skill_id)
-        if not base: raise LookupError("Skill not available")
-        root = Path(base).resolve()
-        path = (root / relative_path).resolve()
-        if not path.is_relative_to(root) or not path.is_file(): raise ValueError("Invalid skill reference")
-        if path.stat().st_size > 200000: raise ValueError("Skill reference too large")
-        return response({"skill_id": skill_id, "path": relative_path, "content": path.read_text()})
-
     @off_loop
     def pa_set_name(name: str) -> ToolChunk:
         """Change your own name when the user asks for a new one. Updates settings, IDENTITY.md and the name shown in the app."""
@@ -185,7 +178,7 @@ def register_personal_tools(toolkit, request, loader=None):
     @off_loop
     def pa_schedule_create(title: str, instruction: str, cron: str = "", run_at: str = "", timezone: str = "") -> ToolChunk:
         """Create a scheduled task that runs later as a new task. Use cron (five fields, local time) for repeats,
-        for example "0 8 * * *" for 08:00 every day, or run_at (ISO local time) for one time. timezone defaults to the user's."""
+        for example "0 8 * * *" for 08:00 every day or "*/30 * * * *" for every 30 minutes (at least ten minutes apart), or run_at (ISO local time) for one time. timezone defaults to the user's."""
         owned_task(ident, uid)
         from personal_agent.scheduling.schedules import create
         with SessionLocal() as db:
@@ -222,12 +215,14 @@ def register_personal_tools(toolkit, request, loader=None):
     managing = () if scheduled else (pa_schedule_create, pa_schedule_update, pa_schedule_delete)
     # pa_set_name rewrites IDENTITY.md, a persona file.
     naming = () if proactive else (pa_set_name,)
-    for fn in (pa_task_status, pa_read_file, pa_write_file, pa_edit_file, pa_memory_search, pa_history_search, pa_skill_read,
+    for fn in (pa_task_status, pa_read_file, pa_write_file, pa_edit_file, pa_memory_search, pa_history_search,
                *naming, pa_schedule_list, *managing):
         toolkit.append(function_tool(fn))
     from personal_agent.worker.tools import register_bash, register_report
     register_report(toolkit, ident, uid)
     register_bash(toolkit, request, loader, ident, uid)
+    from personal_agent.tools.plugins import register_load_plugin
+    register_load_plugin(toolkit, request, agent_id, grants, ident, uid)
     from personal_agent.delivery.delivery import build as delivery_tool
     # What a proactive check produces reaches the user as the one summary, not as delivered files.
     if not proactive: toolkit.append(function_tool(delivery_tool(ident, uid)))

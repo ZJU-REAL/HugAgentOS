@@ -19,7 +19,7 @@ async def _system_prompt(request) -> str:
     # Fixed platform rules plus the agent's workspace persona files (SOUL.md, USER.md, ...).
     from personal_agent.workspace.prompting import task_system_prompt
 
-    return await asyncio.to_thread(task_system_prompt, request.profile_ref, list(request.enabled_skill_ids or []))
+    return await asyncio.to_thread(task_system_prompt, request.profile_ref)
 
 async def _front_prompt(request) -> str:
     # The agent's own turn: conversation rules and persona files. The per-turn context follows the message.
@@ -56,8 +56,8 @@ def _steering(request):
     return SteeringHook(interrupt_tools=False, take_batch=True)
 
 
-# The Worker's tools: its own pa_* tools and core's managed commands.
-WORKER_TOOLS = {"Bash", "write_stdin", "list_processes"}
+# The Worker's tools: its own pa_* tools, core's managed commands and load_plugin (tools/plugins.py).
+WORKER_TOOLS = {"Bash", "write_stdin", "list_processes", "load_plugin"}
 
 def _front_steering(request):
     # New input of the conversation joins the running turn between model calls (see router/steering.py).
@@ -81,9 +81,11 @@ def _sandbox_provider():
     return get_personal_sandbox_provider()
 
 async def _start() -> None:
+    from personal_agent import capability_sync
     from personal_agent.worker.executor import start_worker
 
     await start_worker()
+    capability_sync.start()
 
 async def _stop() -> None:
     from personal_agent.worker.executor import stop_worker
@@ -110,7 +112,7 @@ def setup() -> bool:
             steering=_steering,
             tool_filter=lambda name: name.startswith("pa_") or name in WORKER_TOOLS,
             inherit_default_mcps=False,
-            # Skills are listed in the platform rules and read with pa_skill_read.
+            # Skills are workspace files: listed in the task prompt, read with pa_read_file or Bash.
             native_skill_prompt=False,
         ),
     )
@@ -130,6 +132,11 @@ def setup() -> bool:
     register_sandbox_route("pa_box_", _sandbox_provider)
     register_channel_route(_handles_channel, _admit_channel)
     register_lifecycle(_start, _stop)
+    # Skills and plugins reach the workspace through the capability sync; tasks only read them.
+    from personal_agent.capability_sync import install as install_capability_sync
+    install_capability_sync()
+    # Open pages hear about committed changes instead of polling for them.
+    import personal_agent.conversation.live  # noqa: F401 - registers the commit hooks
     register_router(sessions_router)
     register_router(agent_router)
     return True

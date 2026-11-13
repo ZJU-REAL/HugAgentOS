@@ -90,7 +90,7 @@ async def test_observe_then_deliver_publishes_exact_screenshot(sessions, setup, 
         return {"image_base64": base64.b64encode(content).decode(), "width": 8, "height": 8,
                 "observation_id": "observation", "signature": "signature", "platform": "Linux"}
     monkeypatch.setattr(computer, "cloud_driver", screenshot)
-    observed = result(await setup.functions["pa_computer_observe"]())
+    observed = result(await setup.functions["pa_computer_read"]())
     assert observed["resource_ref"]
     with sessions() as db:
         assert list(db.scalars(select(Artifact))) == []  # Observation is not delivery.
@@ -197,7 +197,7 @@ async def capture(setup, monkeypatch):
         return {"image_base64": base64.b64encode(content).decode(), "width": width, "height": height,
                 "observation_id": "observation", "signature": "signature", "platform": "Linux"}
     monkeypatch.setattr(computer, "cloud_driver", screenshot)
-    return result(await setup.functions["pa_computer_observe"]())
+    return result(await setup.functions["pa_computer_read"]())
 
 
 @pytest.mark.parametrize("change", ["expired", "other_user", "other_task", "run", "generation", "owner"])
@@ -231,7 +231,7 @@ async def test_screenshot_reference_cannot_escape_its_scope(sessions, setup, mon
 async def test_observation_cache_is_bounded_and_receipt_survives_expiry(sessions, setup, monkeypatch):
     refs = [(await capture(setup, monkeypatch))["resource_ref"] for _ in range(6)]
     assert len(await setup.cache.keys("pa:delivery-resource:")) == 4
-    with pytest.raises(ValueError, match="Observe again"):
+    with pytest.raises(ValueError, match="Read the screen again"):
         await setup.functions["pa_deliver"](request_key="old", resource_ref=refs[0])
     delivered = result(await setup.functions["pa_deliver"](request_key="latest", resource_ref=refs[-1]))
     await setup.cache.drop(*(await setup.cache.keys("pa:delivery-resource:")))
@@ -346,11 +346,11 @@ async def test_paired_screenshot_revalidates_device_before_delivery(sessions, se
         db.commit()
     image = io.BytesIO()
     Image.new("RGB", (8, 8)).save(image, format="PNG")
-    async def operate(*args, **kwargs):
+    async def execute(*args, **kwargs):
         return {"image_base64": base64.b64encode(image.getvalue()).decode(), "width": 8, "height": 8,
                 "observation_id": "paired-observation"}
-    monkeypatch.setattr(computer, "operate", operate)
-    observed = result(await setup.functions["pa_computer_observe"](target="device:paired"))
+    monkeypatch.setattr("personal_agent.computer.devices.execute_command", execute)
+    observed = result(await setup.functions["pa_computer_read"](target="device:paired"))
     with sessions() as db:
         device = db.get(PersonalDevice, "paired")
         if change == "revoke": device.revoked = 1
@@ -389,7 +389,7 @@ async def test_oversized_file_and_invalid_screenshot_are_not_delivered(sessions,
         return {"image_base64": "not-a-valid-image", "observation_id": "bad"}
     monkeypatch.setattr(computer, "cloud_driver", invalid)
     with pytest.raises((ValueError, OSError)):
-        await setup.functions["pa_computer_observe"]()
+        await setup.functions["pa_computer_read"]()
     assert setup.storage.files == {}
 
 
@@ -406,6 +406,8 @@ async def test_paired_observation_routes_real_device_id(sessions, setup, monkeyp
         Image.new("RGB", (8, 8)).save(image, format="PNG")
         return {"image_base64": base64.b64encode(image.getvalue()).decode(), "observation_id": "paired-observe"}
     monkeypatch.setattr("personal_agent.computer.devices.execute_command", execute)
-    observed = result(await setup.functions["pa_computer_observe"](target="device:paired"))
+    observed = result(await setup.functions["pa_computer_read"](target="device:paired"))
     assert observed["resource_ref"]
-    assert calls == [(setup.task, "owner", "paired", {"type": "observe"})]
+    assert calls == [(setup.task, "owner", "paired", {"type": "read", "window": None, "query": None,
+                                                      "since": None, "screenshot": None})]
+    assert observed["mode"] == "pixels" and observed["snapshot_id"] == "paired-observe"

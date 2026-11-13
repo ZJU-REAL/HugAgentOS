@@ -23,6 +23,10 @@ class MultiSourceSkillLoader:
     Higher priority sources override lower priority sources for conflicting skill IDs.
     """
 
+    # The prepared capability run a frozen loader serves (features.desktop.capabilities
+    # .runtime.state.frozen_loader); read by the skill and sandbox tools.
+    capability_run: Any = None
+
     def __init__(self, backend: Optional[CompositeBackend] = None):
         """Initialize the multi-source skill loader.
 

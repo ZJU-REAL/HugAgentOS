@@ -2,6 +2,5 @@
 export const DEFAULT_CONCURRENCY = 3;
 export const MAX_CONCURRENCY = 8;
 export const MAX_NAME_LENGTH = 30;
-export const POLL_INTERVAL = 2000;
-// While the agent writes a reply.
-export const REPLY_POLL_INTERVAL = 600;
+// Messages per page: the newest page opens the chat and is what each change refreshes; scrolling up loads the next.
+export const MESSAGE_PAGE = 30;

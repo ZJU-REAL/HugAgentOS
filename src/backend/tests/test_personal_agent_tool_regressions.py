@@ -213,7 +213,6 @@ def test_capabilities_follow_what_the_user_may_use(sessions, monkeypatch):
 
 def test_enabled_plugins_join_with_their_components(sessions, monkeypatch):
     from personal_agent import context as module
-    from personal_agent.identity import config as identity_config
     monkeypatch.setattr('core.capabilities.catalog.resolver.resolve_all_runtime_enabled',
                         lambda db, uid: (["officecli-docx", "feishu-doc"], [], ["internet_search", "feishu_mcp"]))
     installed = [
@@ -228,7 +227,8 @@ def test_enabled_plugins_join_with_their_components(sessions, monkeypatch):
         config = svc.identity.ensure()["config"]
         # Only the plugin the user keeps on, with only its enabled components.
         assert config["plugins"] == [{"id": "feishu@owner", "name": "Feishu", "skill_ids": ["feishu-doc"], "mcp_ids": ["feishu_mcp"]}]
-        assert identity_capabilities.capability_ids(config) == (["officecli-docx", "feishu-doc"], ["internet_search", "feishu_mcp"])
+        # A task connects only the selected servers at start; the plugin's arrive with load_plugin.
+        assert identity_capabilities.task_mcp_ids(config) == ["internet_search"]
         # An unreadable plugin listing keeps the last known set instead of breaking the agent.
         monkeypatch.setattr('core.capabilities.plugins.management.list_installed', lambda db, **kw: 1 / 0)
         assert svc.identity.ensure()["config"]["plugins"][0]["id"] == "feishu@owner"
@@ -239,22 +239,24 @@ def test_enabled_plugins_join_with_their_components(sessions, monkeypatch):
         assert svc.identity.ensure()["config"]["plugins"] == []
 
 
-def test_task_prompt_lists_skills_with_when_to_use_them():
-    from types import SimpleNamespace
-    from personal_agent import context as module
-    from personal_agent.identity import config as identity_config
-
-    class Loader:
-        def load_all_metadata(self):
-            return {"translate": SimpleNamespace(description="Translate text\n between languages. " + "x" * 300)}
-
-    lines = identity_config.skill_summaries(["translate", "unknown"], loader=Loader())
-    assert lines[0].startswith("- `translate`: Translate text between languages.") and lines[0].endswith("…")
-    assert len(lines[0]) <= identity_config.SKILL_SUMMARY_LENGTH + 20
-    # A skill without metadata still shows its id, so pa_skill_read can find it.
-    assert lines[1] == "- `unknown`"
-    assert identity_config.skill_summaries([]) == []
-
+def test_task_prompt_lists_workspace_skills_with_when_to_use_them(monkeypatch, tmp_path):
+    from personal_agent.workspace import prompting
+    from tests.personal_agent_capability_files import manifest, skill, workspace
+    ws = workspace(monkeypatch, tmp_path)
+    skill(ws, "skills/translate", "Translate text    between languages. " + "x" * 300)
+    skill(ws, "skills/revoked", "No longer granted")
+    skill(ws, "skills/mine", "Hugo's own")
+    (ws / "skills" / "broken").mkdir()  # no SKILL.md: not a skill
+    manifest(ws, "skills", {"translate": {"source": "selected"}, "revoked": {"source": "selected"}})
+    items = prompting.sections("pa_x", grants={"skill_ids": ["translate"]}, seed_missing=False)
+    listed = next(i["content"] for i in items if i["title"] == "Available Skills").splitlines()[1:]
+    assert listed[0] == "- `mine`: /workspace/skills/mine/SKILL.md — Hugo's own"
+    assert listed[1].startswith("- `translate`: /workspace/skills/translate/SKILL.md — Translate text between languages.")
+    assert listed[1].endswith("…") and len(listed[1]) < 230 and len(listed) == 2
+    # Without a workspace there is nothing to list.
+    monkeypatch.delenv("PERSONAL_AGENT_LOCAL_VOLUME_ROOT")
+    items = prompting.sections("pa_x", grants={"skill_ids": ["translate"]}, seed_missing=False)
+    assert next(i["content"] for i in items if i["title"] == "Available Skills") == "## Available skills\nNone."
 
 
 def test_model_choice_uses_the_chat_allowlist(sessions, monkeypatch):

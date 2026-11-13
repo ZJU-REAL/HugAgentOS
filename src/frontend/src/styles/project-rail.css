@@ -195,7 +195,7 @@
 .jx-projectRail-filePreview:focus-visible { outline: 2px solid var(--color-primary); }
 
 .jx-projectRail-fileTree .ant-tree-switcher { display: none; }
-.jx-projectRail-rowActions {
+.jx-projectRail-rowActions { /* layout-ok: icon-only buttons */
   display: flex;
   flex-shrink: 0;
   gap: 4px;

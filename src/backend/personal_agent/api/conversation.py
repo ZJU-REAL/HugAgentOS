@@ -2,9 +2,10 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from core.auth.backend import UserContext, get_current_user
 from core.infra.responses import success_response
 
-from personal_agent.api.schemas import Message
+from personal_agent.api.schemas import Message, ReadPosition
 from personal_agent.api.dependencies import service
 from personal_agent.api.dependencies import perform
 
@@ -79,6 +80,26 @@ def sidebar_status(after_seq: int = Query(0, ge=0), svc=Depends(service)):
     from personal_agent.conversation.sidebar_status import sidebar_status as snapshot
 
     return success_response(data=snapshot(svc, after_seq))
+
+
+@router.post("/read")
+def mark_read(body: ReadPosition, svc=Depends(service)):
+    from personal_agent.conversation.sidebar_status import mark_read as advance
+
+    return perform(lambda: advance(svc, body.seq))
+
+
+@router.get("/events")
+async def events(user: UserContext = Depends(get_current_user)):
+    """Server-sent signals that this person's Personal Agent changed; pages read what changed themselves."""
+    from core.db.threads import run_in_session
+    from core.infra.responses import sse_response
+    from personal_agent import access
+    from personal_agent.conversation.live import follow
+
+    # Checked once, then the stream holds no database session.
+    await run_in_session(lambda db: access.require(db, user.user_id))
+    return sse_response(follow(user.user_id))
 
 
 @router.get("/messages")

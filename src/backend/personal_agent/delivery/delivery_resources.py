@@ -1,4 +1,4 @@
-"""Bounded private screenshot staging. Observation never creates a user-visible artifact."""
+"""Bounded private screenshot staging. Reading a screen never creates a user-visible artifact."""
 import personal_agent.tasks.guards as _pa_guards
 import asyncio
 import base64
@@ -24,7 +24,7 @@ def device_scope(db, uid, target, epoch=None):
         PersonalDevice.id == target.removeprefix("device:")
     ).with_for_update()) if target.startswith("device:") else None
     if (not device or device.user_id != uid or device.revoked or not device.control_enabled
-            or "observe" not in (device.capabilities or []) or (epoch is not None and device.epoch != epoch)):
+            or not {"observe", "read"} & set(device.capabilities or []) or (epoch is not None and device.epoch != epoch)):
         raise PermissionError("Screenshot device permission changed")
     return device.epoch
 
@@ -44,52 +44,58 @@ def validate_scope(ident, uid, state):
         active_task(db, ident, uid, state)
         device_scope(db, uid, state["resource_target"], state.get("resource_epoch"))
 
-def decode_png(data):
+MEDIA_TYPES = {"PNG": "image/png", "JPEG": "image/jpeg"}
+EXTENSIONS = {"image/png": (".png",), "image/jpeg": (".jpg", ".jpeg")}
+
+def decode_image(data):
+    """The screenshot's bytes and media type. Pixels drivers send PNG, the elements driver JPEG."""
     if not isinstance(data, str) or len(data) > (MAX_BYTES + 2) // 3 * 4:
         raise ValueError("Screenshot exceeds 20 MiB")
     content = base64.b64decode(data, validate=True)
     if len(content) > MAX_BYTES: raise ValueError("Screenshot exceeds 20 MiB")
     with Image.open(io.BytesIO(content)) as image:
-        if image.format != "PNG" or image.width * image.height > 32_000_000:
-            raise ValueError("Screenshot must be a bounded PNG image")
+        if image.format not in MEDIA_TYPES or image.width * image.height > 32_000_000:
+            raise ValueError("Screenshot must be a bounded PNG or JPEG image")
+        media_type = MEDIA_TYPES[image.format]
         image.verify()
-    return content
+    return content, media_type
 
 def prefix(ident, uid):
     return "pa:delivery-resource:" + uid + ":" + ident + ":"
 
 async def stage(ident, uid, state, data):
     from core.infra.ephemeral import get_ephemeral_state
-    await asyncio.to_thread(decode_png, data)
+    _, media_type = await asyncio.to_thread(decode_image, data)
     await asyncio.to_thread(validate_scope, ident, uid, state)
     cache = get_ephemeral_state()
     namespace = prefix(ident, uid)
     token = uuid.uuid4().hex
     lock = "pa:delivery-resource-lock:" + ident
     if not await cache.hold(lock, token, ttl=10):
-        raise RuntimeError("Screenshot staging is busy; observe again")
+        raise RuntimeError("Screenshot staging is busy; read the screen again")
     try:
         keys = sorted(await cache.keys(namespace))
         if len(keys) >= KEEP: await cache.drop(*keys[:len(keys) - KEEP + 1])
         ref = "screen_" + format(time.time_ns(), "x") + uuid.uuid4().hex[:16]
         value = {key: state[key] for key in ("run_id", "owner", "generation",
                                              "resource_target", "resource_epoch")}
-        value["image"] = data
+        value["image"], value["media_type"] = data, media_type
         await cache.put(namespace + ref, json.dumps(value), ttl=TTL)
         return ref
     finally:
         await cache.release(lock, token)
 
 async def resolve(ident, uid, state, ref):
+    """The staged screenshot as (bytes, media type), after its scope is checked again."""
     if not REF.fullmatch(ref):
-        raise ValueError("Invalid screenshot resource_ref; use pa_computer_observe")
+        raise ValueError("Invalid screenshot resource_ref; use pa_computer_read")
     from core.infra.ephemeral import get_ephemeral_state
     value = await get_ephemeral_state().get(prefix(ident, uid) + ref)
     if not value:
-        raise ValueError("Screenshot resource expired or unavailable. Observe again, then pa_deliver with a new key. Do not use Bash.")
+        raise ValueError("Screenshot resource expired or unavailable. Read the screen again, then pa_deliver with a new key. Do not use Bash.")
     resource = json.loads(value)
     if any(resource.get(key) != state[key] for key in ("run_id", "owner", "generation")):
         raise PermissionError("Screenshot belongs to another execution")
     state["resource_target"], state["resource_epoch"] = resource["resource_target"], resource["resource_epoch"]
     await asyncio.to_thread(validate_scope, ident, uid, state)
-    return await asyncio.to_thread(decode_png, resource["image"])
+    return await asyncio.to_thread(decode_image, resource["image"])

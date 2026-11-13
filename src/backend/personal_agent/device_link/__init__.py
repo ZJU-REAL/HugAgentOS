@@ -7,4 +7,6 @@ the identity bridge). The link polls the cloud device mailbox; it opens no port.
 from personal_agent.device_link.driver import ACTIONS
 
 SESSIONS = "hugagent.sessions"
-CAPABILITIES = ACTIONS | {SESSIONS}
+# Reported only while the macOS accessibility host (embedded Cua Driver) is usable.
+UI_ELEMENTS = "ui.elements"
+CAPABILITIES = ACTIONS | {SESSIONS, UI_ELEMENTS}

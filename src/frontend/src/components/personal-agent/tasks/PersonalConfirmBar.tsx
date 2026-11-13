@@ -16,7 +16,7 @@ export function PersonalConfirmBar({ tasks, onDone, onError }: { tasks: Personal
   const task = queue[0];
   if (!task?.pending_approval) return null;
   const pending = task.pending_approval;
-  const { op, detail, preview } = describeApproval(pending.action);
+  const { op, detail, preview, steps } = describeApproval(pending.action);
   // The backend's full account of the action. Older data has none: the card then shows what it can read from the action.
   const full = pending.detail;
   const lines = [...(full?.lines || [])];
@@ -52,6 +52,7 @@ export function PersonalConfirmBar({ tasks, onDone, onError }: { tasks: Personal
           <span className="jx-confirmBar-op">{op}</span>
           <span className="jx-confirmBar-path" title={detail}>{detail}</span>
         </div>}
+      {!lines.length && steps && <ul className="pa-confirmBar-lines">{steps.map((step, index) => <li key={index}>{step}</li>)}</ul>}
       {body && <>
         <div className="pa-confirmBar-bodyLabel" id={'pa-confirm-body-' + pending.id}>{t('将要发出的内容（全文，共 {n} 字）', { n: body.length })}</div>
         <div className="pa-confirmBar-text" tabIndex={0} role="region" aria-labelledby={'pa-confirm-body-' + pending.id}>{body}</div>

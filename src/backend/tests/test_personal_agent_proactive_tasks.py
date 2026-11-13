@@ -121,14 +121,14 @@ async def test_a_proactive_task_reads_and_drafts_but_cannot_send_deliver_or_use_
     configure(world, email_enabled=True)
     task_id, _, _ = await launched(world, GOAL, BEAT + "one")
     names, shell = toolkit(world, monkeypatch, task_id)
-    kept = {"pa_read_file", "pa_write_file", "pa_edit_file", "pa_memory_search", "pa_history_search", "pa_skill_read",
+    kept = {"pa_read_file", "pa_write_file", "pa_edit_file", "pa_memory_search", "pa_history_search",
             "pa_task_status", "pa_report", "pa_hugagent", "pa_email_list", "pa_email_read", "pa_email_download"}
     # Exactly these, so that a tool added to ordinary tasks later is not handed to a proactive one unnoticed.
     assert set(names) == kept | {"pa_schedule_list"} and shell == [task_id]  # The command line is registered as for any task.
     other, _, _ = await launched(world, "Answer Ann", "two")
     removed = set(toolkit(world, monkeypatch, other)[0]) - set(names)
     assert removed == {"pa_email_send", "pa_deliver", "pa_set_name", "pa_schedule_create", "pa_schedule_update",
-                       "pa_schedule_delete", "pa_computer_observe", "pa_computer_action", "pa_device_list"}
+                       "pa_schedule_delete", "pa_computer_read", "pa_computer_act", "pa_device_list"}
 
 
 async def test_a_proactive_task_keeps_web_search_web_fetch_and_the_users_own_capabilities(world):
@@ -139,10 +139,10 @@ async def test_a_proactive_task_keeps_web_search_web_fetch_and_the_users_own_cap
     # The run is built with the same capabilities: going online is not limited for a proactive check.
     for key in ("enabled_mcps", "enabled_skills", "enabled_mcp_ids", "enabled_skill_ids"):
         assert own.get(key) == usual.get(key)
-    from personal_agent.identity.capabilities import capability_ids
+    from personal_agent.identity.capabilities import task_mcp_ids
     with world.sessions() as db:
         config = db.scalar(select(PersonalAgent.config).where(PersonalAgent.user_id == "owner"))
-    assert {"internet_search", "web_fetch"} <= set(capability_ids(config)[1])
+    assert {"internet_search", "web_fetch"} <= set(task_mcp_ids(config))
 
 
 async def test_the_file_tools_of_a_proactive_task_write_only_under_drafts(world, monkeypatch):
@@ -195,7 +195,7 @@ async def test_after_the_user_takes_the_task_over_it_has_the_full_tools_again(wo
     task_id, _, _ = await launched(world, GOAL, BEAT + "one")
     take_over(world, task_id)
     names, shell = toolkit(world, monkeypatch, task_id)
-    assert {"pa_email_send", "pa_deliver", "pa_set_name", "pa_computer_observe", "pa_computer_action"} <= set(names)
+    assert {"pa_email_send", "pa_deliver", "pa_set_name", "pa_computer_read", "pa_computer_act"} <= set(names)
     assert shell == [task_id]
     await names["pa_write_file"]("/workspace/work/notes.md", "kept")
     assert box.files == {"/workspace/work/notes.md": "kept"}
@@ -938,7 +938,7 @@ async def test_a_task_asked_for_after_a_summary_is_not_an_unattended_one(world, 
     older, _, _ = await launched(world, GOAL, BEAT + "one")
     task_id, asg_id, run_id = await followup(world)
     names, _ = toolkit(world, monkeypatch, task_id)
-    assert {"pa_deliver", "pa_computer_action", "pa_write_file"} <= set(names)
+    assert {"pa_deliver", "pa_computer_act", "pa_write_file"} <= set(names)
     # Its writes on the user's computer ask each time; they are not refused as an unattended task's are.
     device = {"kind": "hugagent.session", "target": "device:dev1", "operation": "chat.send", "args": {"chat_id": "c1", "message": "go"}}
     assert approvals.authorize(task_id, "owner", device)[1]["pending_approval"]

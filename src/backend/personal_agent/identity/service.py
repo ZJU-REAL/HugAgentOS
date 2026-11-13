@@ -65,6 +65,8 @@ class IdentityService:
                 except (WorkspaceUnavailable, OSError): pass
         self._schedule_proactive(row)
         self._sync_capabilities(row)
+        from personal_agent import capability_sync
+        capability_sync.check_builtins(row.id, self.user_id)
         return self.view(row)
 
     def _schedule_proactive(self, row):
@@ -88,10 +90,15 @@ class IdentityService:
         if current == (row.config or {}): return
         update_config(self.db, self.user_id, lambda config: reconcile(config, available))
         self.db.refresh(row)
+        # A bound skill or plugin was revoked or came back: the workspace copy follows, off this request.
+        from personal_agent import capability_sync
+        capability_sync.request(self.user_id)
 
     def capability_options(self):
         from personal_agent.identity.capabilities import available_capabilities
-        return available_capabilities(self.db, self.user_id)
+        from personal_agent.skills import builtin_skills
+        return {**available_capabilities(self.db, self.user_id),
+                "builtin_skills": [{key: skill[key] for key in ("id", "name", "description")} for skill in builtin_skills()]}
 
     @staticmethod
     def _legacy_name(ident):
@@ -169,6 +176,10 @@ class IdentityService:
         # how the user stops the checks. update_timed keeps next_due_at with the times that changed.
         from personal_agent.scheduling.schedules import update_timed
         update_timed(self.db, self.user_id, change)
+        if choices:
+            # The saved binding is copied into the workspace now, so the response shows how it went.
+            from personal_agent import capability_sync
+            capability_sync.sync(self.db, self.user_id)
         if dream is not None or "timezone" in patch:
             # The nightly slot moved: the Dreaming loop recomputes when it next has to wake.
             from personal_agent.memory.dreaming import wake

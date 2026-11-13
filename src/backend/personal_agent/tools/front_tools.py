@@ -267,7 +267,9 @@ def register_front_tools(toolkit, request, loader=None):
     @off_loop
     def pa_schedule_create(title: str, instruction: str, cron: str = "", run_at: str = "", timezone: str = "") -> ToolChunk:
         """Create a scheduled task that later runs as a background task. cron: five fields in local time, such as
-        "0 8 * * *" for 08:00 daily; or run_at: one ISO local time. timezone defaults to the user's."""
+        "0 8 * * *" for 08:00 daily or "*/30 * * * *" for every 30 minutes (at least ten minutes apart); or
+        run_at: one ISO local time. timezone defaults to the user's. For a check, say in the instruction when
+        to report and that it stays quiet otherwise."""
         with checked(turn(changes_tasks=True)) as db:
             return response(create(db, uid, title, instruction, cron, run_at, timezone))
 

@@ -1,12 +1,17 @@
 .jx-panel[data-panel="personal_agent"]{height:100%;min-height:0;padding:0;max-width:none}
 
 /* ── Layout ─────────────────────────────────────────────────────────── */
-.pa-panel{--pa-scroll-extension:364px;--pa-chat-bg:var(--color-personal-bg);--pa-assistant-bg:var(--color-personal-assistant);--pa-user-bg:var(--color-personal-user);--pa-chat-text:var(--color-personal-text);--pa-chat-link:var(--color-personal-link);--pa-composer-bg:var(--color-bg-elevated);--pa-composer-shadow:var(--shadow-personal-composer);background:var(--pa-chat-bg);display:flex;position:relative;min-height:0;height:100%;gap:24px;padding:12px 20px 0;color:var(--color-text)}
-.pa-conversation{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;width:100%}
-.pa-header{width:100%;max-width:760px;margin:0 auto;box-sizing:border-box;display:flex;align-items:center;gap:10px;padding:10px 4px 14px;font-size:16px}
+/* The header, the message list and the dock each span the whole panel and keep the conversation column with their
+ * inline insets; the status panel is positioned over the right inset. Spanning the panel keeps the scrollbar at its
+ * edge, and leaves no part of the scroller's own box beside the column: in WebKit (the desktop app) a drag that
+ * strays onto that box selects from the first loaded message and scrolls up to it. */
+.pa-panel{--pa-column:760px;--pa-inset-left:20px;--pa-inset-right:364px;--pa-column-side:max(0px, (100% - var(--pa-inset-left) - var(--pa-inset-right) - var(--pa-column)) / 2);--pa-chat-bg:var(--color-personal-bg);--pa-assistant-bg:var(--color-personal-assistant);--pa-user-bg:var(--color-personal-user);--pa-chat-text:var(--color-personal-text);--pa-chat-link:var(--color-personal-link);--pa-composer-bg:var(--color-bg-elevated);--pa-composer-shadow:var(--shadow-personal-composer);background:var(--pa-chat-bg);display:flex;flex-direction:column;position:relative;min-height:0;height:100%;padding:12px 0 0;color:var(--color-text)}
+.pa-header,.pa-panel>.ant-alert{margin-left:calc(var(--pa-inset-left) + var(--pa-column-side));margin-right:calc(var(--pa-inset-right) + var(--pa-column-side))}
+.pa-messages-inner,.pa-dock{padding-left:calc(var(--pa-inset-left) + var(--pa-column-side));padding-right:calc(var(--pa-inset-right) + var(--pa-column-side))}
+.pa-header{box-sizing:border-box;display:flex;align-items:center;gap:10px;padding:10px 4px 14px;font-size:16px}
 .pa-header strong{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pa-side-toggle{display:none;margin-left:auto}
-.pa-header>.pa-header-action{flex-shrink:0;color:var(--color-text-secondary)}
+.pa-header>.pa-header-action{ /* layout-ok: icon-only button */flex-shrink:0;color:var(--color-text-secondary)}
 .pa-header>.pa-header-action:first-of-type{margin-left:auto}
 .pa-header-action~.pa-side-toggle{margin-left:0}
 
@@ -20,18 +25,20 @@
 .pa-avatar--cyan{background:var(--color-tint-cyan-bg)}
 
 /* ── Messages ───────────────────────────────────────────────────────── */
-/* Extend the viewport past the status column; keep message content in its original column. */
-.pa-messages{flex:1;display:flex;flex-direction:column;overflow:auto;margin-right:calc(0px - var(--pa-scroll-extension));padding:8px var(--pa-scroll-extension) 0 0;min-height:0;scrollbar-gutter:stable}
-.pa-messages-inner{flex:1 0 auto;width:100%;max-width:760px;margin:0 auto;padding:0 0 20px;box-sizing:border-box}
+.pa-older{display:flex;justify-content:center;min-height:24px;font-size:12px;color:var(--color-text-tertiary)}
+.pa-messages{flex:1;display:flex;flex-direction:column;overflow:auto;padding-top:8px;min-height:0;scrollbar-gutter:stable}
+.pa-messages-inner{flex:1 0 auto;padding-bottom:20px;box-sizing:border-box}
+/* Room kept under a just-sent message so the reply fills it without moving the view. */
 /* Confirmations and the composer stay pinned to the bottom of the scroller while messages pass under them. */
-.pa-dock{position:sticky;bottom:0;z-index:2;display:flex;flex-direction:column;background:var(--pa-chat-bg)}
-.pa-conversation>.ant-alert,.pa-dock>.pa-question,.pa-dock>.jx-confirmBar{width:100%;max-width:760px;margin-left:auto;margin-right:auto;box-sizing:border-box}
+.pa-dock{position:sticky;bottom:0;z-index:2;display:flex;flex-direction:column;box-sizing:border-box;background:var(--pa-chat-bg)}
 .pa-message{position:relative;margin:0 0 24px;max-width:100%;width:fit-content;overflow-wrap:anywhere;padding-right:36px;box-sizing:border-box}
 .pa-message-user{display:flex;flex-direction:column;align-items:flex-end;margin-left:auto;max-width:88%}
 .pa-message-assistant{max-width:80%}
 .pa-message-bubble{position:relative;min-width:0;max-width:100%;box-sizing:border-box;padding:14px 20px;border:0;border-radius:28px;color:var(--pa-chat-text)}
 .pa-message-assistant .pa-message-bubble{background:var(--pa-assistant-bg)}
 .pa-message-user .pa-message-bubble{background:var(--pa-user-bg)}
+/* Sent and not yet stored: the same bubble, quieter until the server takes it. */
+.pa-message-pending .pa-message-bubble{opacity:.6}
 .pa-message .pa-message-text{font-size:16px;line-height:1.55;color:inherit}
 .pa-message .pa-message-text p{margin:0 0 12px}
 .pa-message-text>:first-child,.pa-message-text>div>:first-child{margin-top:0}
@@ -56,7 +63,7 @@
 .pa-skeleton{height:100px}
 
 /* ── Composer ───────────────────────────────────────────────────────── */
-.pa-composer{width:100%;max-width:760px;box-sizing:border-box;align-self:center;padding:10px 14px;border:1px solid transparent;border-radius:32px;background:var(--pa-composer-bg);box-shadow:var(--pa-composer-shadow);margin:12px 0 0;transition:border-color var(--motion-duration-fast) var(--motion-ease-standard)}
+.pa-composer{box-sizing:border-box;padding:10px 14px;border:1px solid transparent;border-radius:32px;background:var(--pa-composer-bg);box-shadow:var(--pa-composer-shadow);margin:12px 0 0;transition:border-color var(--motion-duration-fast) var(--motion-ease-standard)}
 .pa-composer:focus-within{border-color:color-mix(in srgb,var(--color-primary) 45%,transparent)}
 .pa-composer-input{display:flex;align-items:flex-end;gap:10px;min-width:0}
 .pa-composer .pa-composer-input textarea{flex:1;min-width:0;border:0;box-shadow:none!important;background:transparent;resize:none;padding:7px 0;font-size:16px;line-height:24px;color:var(--pa-chat-text)}
@@ -67,10 +74,9 @@
 .pa-composer .pa-composer-send:not(:disabled):hover{background:color-mix(in srgb,var(--pa-user-bg) 85%,var(--pa-chat-link))}
 .pa-composer-files{display:flex;flex-wrap:wrap;gap:6px;padding:2px 4px 10px}
 .pa-composer-files .ant-btn{max-width:100%;height:auto;white-space:normal;overflow-wrap:anywhere}
-.pa-composer-preferences{width:100%;max-width:760px;align-self:center;box-sizing:border-box;padding:8px 16px 12px}
+.pa-composer-preferences{box-sizing:border-box;padding:8px 16px 12px}
 .pa-composer-preferences .jx-composerChip{font-size:11px;color:var(--color-text-tertiary)}
-.pa-confirmBar--full{flex-wrap:wrap}
-.pa-confirmBar--full .jx-confirmBar-actions{width:100%;justify-content:flex-end;flex-wrap:wrap}
+.pa-confirmBar--full .jx-confirmBar-actions{width:100%}
 .pa-confirmBar-unasked{margin-top:4px;font-size:12px;font-weight:500;line-height:1.6;color:var(--color-text-secondary)}
 .pa-confirmBar-lines{margin:4px 0 0;padding:0;list-style:none;font-size:13px;line-height:1.6;color:var(--color-text);overflow-wrap:anywhere}
 .pa-confirmBar-bodyLabel{margin-top:8px;font-size:12px;line-height:1.6;color:var(--color-text-tertiary)}
@@ -82,7 +88,7 @@
 /* ── Needs your action ──────────────────────────────────────────────── */
 .pa-task-actions{display:flex;gap:6px;flex-wrap:wrap}
 /* A task's question uses the chat's .jx-askQ card; it docks above the composer, so the gap goes below it. */
-.pa-dock>.pa-question{margin:0 auto 10px}
+.pa-dock>.pa-question{margin:0 0 10px}
 .pa-question .jx-askQ-title{white-space:pre-wrap;overflow-wrap:anywhere}
 
 /* ── Search ─────────────────────────────────────────────────────────── */
@@ -95,7 +101,7 @@
 .pa-search-empty{margin-top:24px}
 
 /* ── Side panel (status, channels, computers, activity, outputs) ────── */
-.pa-side{align-self:flex-start;position:sticky;top:12px;width:320px;flex-shrink:0;max-height:calc(100vh - 110px);overflow:auto;background:var(--color-bg-container);border:1px solid var(--color-border);border-radius:var(--radius-lg);box-shadow:var(--shadow-card);padding:20px 16px 12px}
+.pa-side{position:absolute;top:12px;right:20px;z-index:3;width:320px;max-height:calc(100vh - 110px);overflow:auto;background:var(--color-bg-container);border:1px solid var(--color-border);border-radius:var(--radius-lg);box-shadow:var(--shadow-card);padding:20px 16px 12px}
 .pa-side-profile{display:flex;align-items:center;gap:14px;padding:0 4px}
 .pa-side-avatar{position:relative;padding:0;border:0;background:none;cursor:pointer;border-radius:28%}
 .pa-side-avatar:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}
@@ -186,16 +192,18 @@ button.pa-side-row:disabled{cursor:default}
 .pa-set-hero>.anticon{color:var(--color-text-placeholder)}
 .pa-set-group h3{margin:0 0 8px 4px;font-size:13px;font-weight:500;color:var(--color-text-tertiary)}
 .pa-set-card{border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-bg-container);overflow:hidden}
-.pa-set-row{display:flex;align-items:center;gap:14px;padding:14px 16px}
+/* The label keeps a minimum width; on a narrow screen the control wraps below it instead of squeezing it. */
+.pa-set-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:14px 16px}
 .pa-set-row+.pa-set-row{border-top:1px solid var(--color-border)}
-.pa-set-row--stacked{flex-wrap:wrap}
 .pa-set-row--stacked .pa-set-control{flex-basis:100%;padding-left:34px}
 .pa-set-icon{display:flex;flex-shrink:0;width:20px;justify-content:center;font-size:18px;color:var(--color-text-tertiary)}
-.pa-set-text{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.pa-set-text{display:flex;flex-direction:column;gap:2px;flex:1 1 160px;min-width:0}
 .pa-set-text strong{font-size:14px;font-weight:500;color:var(--color-text)}
 .pa-set-text span{font-size:12px;color:var(--color-text-tertiary);line-height:1.5}
-.pa-set-control{flex-shrink:0}
-.pa-set-action{margin-left:auto;flex-shrink:0}
+/* layout-ok: one control per row; the row wraps, so the control moves below the label */
+.pa-set-control{flex-shrink:0;max-width:100%;margin-left:auto}
+/* layout-ok: one control per row; the row wraps, so the control moves below the label */
+.pa-set-action{margin-left:auto;flex-shrink:0;max-width:100%}
 .pa-set-model-options{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .pa-set-model-options>.ant-select{flex:1;min-width:150px}
 .pa-set-effort{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--color-text-tertiary)}
@@ -251,27 +259,24 @@ button.pa-side-row:disabled{cursor:default}
 .pa-activity-detail{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pa-device-session-grid{display:grid;grid-template-columns:minmax(160px,220px) minmax(0,1fr);gap:16px}
 
-/* ── Canvas open: one column, the status panel becomes an overlay ───── */
+/* ── Canvas open or a narrow screen: one column, the status panel opens over it ── */
 /* Keyed on the canvas slot being in the layout, not on the store flag: the slot keeps its
  * width through its exit animation, and two columns in that narrow pane flash on close. */
-.jx-appMainLayout:has(>.jx-canvasPanelSlot) .pa-side{display:none}
+.jx-appMainLayout:has(>.jx-canvasPanelSlot) .pa-panel{--pa-inset-left:12px;--pa-inset-right:12px;padding-top:8px}
 .jx-appMainLayout:has(>.jx-canvasPanelSlot) :is(.pa-side-toggle,.pa-side-close){display:inline-flex}
-.jx-appMainLayout:has(>.jx-canvasPanelSlot) .pa-side--open{display:block;position:absolute;right:16px;top:12px;z-index:30;width:min(320px,calc(100% - 32px));max-height:calc(100% - 24px)}
-.jx-appMainLayout:has(>.jx-canvasPanelSlot) .pa-panel{--pa-scroll-extension:12px;padding:8px 12px 0}
-.pa-conversation{min-width:0}
-
-/* ── Narrow screens: the side panel becomes an overlay ──────────────── */
+.jx-appMainLayout:has(>.jx-canvasPanelSlot) .pa-side{right:16px;z-index:30;width:min(320px,calc(100% - 32px));max-height:calc(100% - 24px)}
+.jx-appMainLayout:has(>.jx-canvasPanelSlot) .pa-side:not(.pa-side--open){display:none}
 @media(max-width:1100px){
-  .pa-side{display:none}
+  .pa-panel{--pa-inset-left:12px;--pa-inset-right:12px;padding-top:8px}
   .pa-side-toggle,.pa-side-close{display:inline-flex}
-  .pa-side--open{display:block;position:absolute;right:16px;top:12px;z-index:30;width:min(320px,calc(100% - 32px));max-height:calc(100% - 24px)}
-  .pa-panel{--pa-scroll-extension:12px;padding:8px 12px 0}
+  .pa-side{right:16px;z-index:30;width:min(320px,calc(100% - 32px));max-height:calc(100% - 24px)}
+  .pa-side:not(.pa-side--open){display:none}
 }
 @media(max-width:600px){
   .pa-device-session-grid{grid-template-columns:minmax(0,1fr)}
   .pa-device-session-grid>.ant-list{max-height:160px;overflow-y:auto}
   .pa-channel-grid{grid-template-columns:minmax(0,1fr)}
-  .pa-messages-inner{padding:0 2px}
+  .pa-messages-inner{--pa-column-side:2px;padding-bottom:0}
   .pa-message-assistant{max-width:94%}
   .pa-message-user{max-width:92%}
   .pa-message-bubble{padding:12px 16px;border-radius:24px}

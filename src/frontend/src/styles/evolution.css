@@ -108,7 +108,7 @@
   resize: vertical;
 }
 
-.jx-evolutionCard-entryActions {
+.jx-evolutionCard-entryActions { /* layout-ok: icons, or two short words while editing */
   flex: none;
   display: flex;
   align-items: center;

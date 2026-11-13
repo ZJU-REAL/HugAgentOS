@@ -235,3 +235,184 @@ def test_private_network_http_is_allowed_by_default_and_can_be_disabled(monkeypa
         Client("http://10.0.0.5/api", "secret")
     assert Client("https://10.0.0.5/api", "secret")
     assert Client("http://backend:3001", "secret")
+
+
+def test_a_lost_read_is_handed_out_again_but_a_write_never_is(db, monkeypatch):
+    from personal_agent.sessions import session_queue
+
+    device = pair(db, "owner", "Laptop", "macos", ["hugagent.sessions"])
+    consent(db, device["id"], device["token"], True)
+    read = submit(db, "owner", "device:" + device["id"], "chat.list", {}, "read")
+    write = submit(db, "owner", "device:" + device["id"], "chat.create", {"title": "A"}, "write")
+    assert poll(db, device["id"], device["token"])["id"] == read["id"]
+    assert poll(db, device["id"], device["token"])["id"] == write["id"]
+    # Too soon: the device may still be running it.
+    assert poll(db, device["id"], device["token"]) is None
+    later = time.time() + session_queue.REDELIVER_AFTER + 1
+    monkeypatch.setattr(session_queue.time, "time", lambda: later)
+    assert poll(db, device["id"], device["token"])["id"] == read["id"]
+    assert poll(db, device["id"], device["token"]) is None
+    acknowledge(db, device["id"], device["token"], read["id"], {"items": []})
+    assert view(db, "owner", read["id"])["status"] == "completed"
+
+
+def test_heartbeat_keeps_the_device_online_and_applies_consent_once(db):
+    from personal_agent.computer.devices import heartbeat
+    from personal_agent.models import PersonalDevice
+
+    device = pair(db, "owner", "Laptop", "macos", ["hugagent.sessions", "observe"])
+    beat = heartbeat(db, device["id"], device["token"], True, True)
+    assert beat["protocol"] == 2 and beat["control_enabled"] and beat["sessions_enabled"]
+    assert abs(beat["server_time"] - time.time()) < 5
+    row = db.get(PersonalDevice, device["id"])
+    epochs = (row.epoch, row.session_epoch)
+    # Restating the same consent changes nothing but liveness.
+    heartbeat(db, device["id"], device["token"], True, True)
+    assert (row.epoch, row.session_epoch) == epochs
+    job = submit(db, "owner", "device:" + device["id"], "chat.list", {}, "hb")
+    # Withdrawing revokes pending work under new epochs, once.
+    heartbeat(db, device["id"], device["token"], False, False)
+    assert (row.epoch, row.session_epoch) == (epochs[0] + 1, epochs[1] + 1)
+    assert view(db, "owner", job["id"])["status"] == "revoked"
+    heartbeat(db, device["id"], device["token"], False, False)
+    assert (row.epoch, row.session_epoch) == (epochs[0] + 1, epochs[1] + 1)
+
+
+def test_heartbeat_never_turns_on_sessions_the_device_was_not_paired_for(db):
+    from personal_agent.computer.devices import heartbeat
+
+    device = pair(db, "owner", "Laptop", "macos", [])
+    assert heartbeat(db, device["id"], device["token"], False, True)["sessions_enabled"] is False
+
+
+def test_legacy_session_consent_off_is_idempotent(db):
+    from personal_agent.models import PersonalDevice
+
+    device = pair(db, "owner", "Laptop", "macos", ["hugagent.sessions"])
+    consent(db, device["id"], device["token"], False)
+    consent(db, device["id"], device["token"], False)
+    assert db.get(PersonalDevice, device["id"]).session_epoch == 1
+
+
+def test_a_revoked_device_cannot_heartbeat(db):
+    from personal_agent.computer.devices import heartbeat
+    from personal_agent.models import PersonalDevice
+
+    device = pair(db, "owner", "Laptop", "macos", [])
+    db.get(PersonalDevice, device["id"]).revoked = 1
+    db.commit()
+    with pytest.raises(LookupError):
+        heartbeat(db, device["id"], device["token"], False, False)
+
+
+def test_a_write_that_expired_unsent_can_be_asked_again(db, monkeypatch):
+    from personal_agent.sessions import session_queue
+
+    device = pair(db, "owner", "Laptop", "macos", ["hugagent.sessions"])
+    consent(db, device["id"], device["token"], True)
+    first = submit(db, "owner", "device:" + device["id"], "chat.create", {"title": "A"}, "same")
+    later = time.time() + 120
+    monkeypatch.setattr(session_queue.time, "time", lambda: later)
+    # The device must look online at the later time too.
+    from personal_agent.models import PersonalDevice
+    db.get(PersonalDevice, device["id"]).last_seen = later
+    assert view(db, "owner", first["id"])["status"] == "expired"
+    again = submit(db, "owner", "device:" + device["id"], "chat.create", {"title": "A"}, "same")
+    assert again["id"] != first["id"] and again["status"] == "queued"
+
+
+def test_a_sent_write_is_never_queued_again(db, monkeypatch):
+    from personal_agent.sessions import session_queue
+
+    device = pair(db, "owner", "Laptop", "macos", ["hugagent.sessions"])
+    consent(db, device["id"], device["token"], True)
+    first = submit(db, "owner", "device:" + device["id"], "chat.create", {"title": "A"}, "same")
+    poll(db, device["id"], device["token"])
+    later = time.time() + 120
+    monkeypatch.setattr(session_queue.time, "time", lambda: later)
+    again = submit(db, "owner", "device:" + device["id"], "chat.create", {"title": "A"}, "same")
+    assert again["id"] == first["id"] and again["status"] == "outcome_unknown"
+
+
+def test_receipt_size_is_measured_as_utf8(db):
+    device = pair(db, "owner", "Laptop", "macos", ["hugagent.sessions"])
+    consent(db, device["id"], device["token"], True)
+    job = submit(db, "owner", "device:" + device["id"], "chat.history", {"chat_id": "c1"}, "h")
+    poll(db, device["id"], device["token"])
+    # 1.5 MB of Chinese as UTF-8, 3 MB if escaped.
+    text = "中" * 500_000
+    assert acknowledge(db, device["id"], device["token"], job["id"], {"text": text})["accepted"]
+
+
+def test_old_reads_are_pruned_but_writes_kept(db, monkeypatch):
+    from personal_agent.sessions import session_queue
+    from personal_agent.models import PersonalSessionOperation
+
+    device = pair(db, "owner", "Laptop", "macos", ["hugagent.sessions"])
+    consent(db, device["id"], device["token"], True)
+    read = submit(db, "owner", "device:" + device["id"], "chat.list", {}, "r")
+    write = submit(db, "owner", "device:" + device["id"], "chat.create", {"title": "A"}, "w")
+    later = time.time() + session_queue.KEEP_SECONDS + 120
+    monkeypatch.setattr(session_queue.time, "time", lambda: later)
+    session_queue.prune(db)
+    db.expire_all()
+    assert db.get(PersonalSessionOperation, read["id"]) is None
+    assert db.get(PersonalSessionOperation, write["id"]) is not None
+
+
+def test_a_command_no_device_took_is_withdrawn_as_not_executed(db):
+    from personal_agent.computer import devices
+    from personal_agent.models import PersonalDeviceCommand
+
+    device = pair(db, "owner", "Laptop", "macos", ["observe"])
+    for ident, status in (("q", "queued"), ("s", "sent")):
+        db.add(PersonalDeviceCommand(id=ident, device_id=device["id"], epoch=1, work_item_id="w",
+                                     action={"type": "observe"}, status=status, deadline=time.time()))
+    db.commit()
+    assert devices._give_up(db, "q")["not_executed"]
+    assert db.get(PersonalDeviceCommand, "q").status == "revoked"
+    assert devices._give_up(db, "s")["outcome_unknown"]
+
+
+def test_a_run_on_the_users_computer_is_asked_about_until_it_ends(db, monkeypatch):
+    from personal_agent.sessions import session_watch
+    from personal_agent.models import PersonalDevice, PersonalSessionOperation
+    monkeypatch.setattr(session_watch, "SessionLocal", sessionmaker(bind=db.get_bind(), expire_on_commit=False))
+
+    device = pair(db, "owner", "Laptop", "macos", ["hugagent.sessions"])
+    consent(db, device["id"], device["token"], True)
+    send = PersonalSessionOperation(id="pa_session_send", user_id="owner", target="device:" + device["id"],
+        device_id=device["id"], request_key="tool:send", operation="chat.send", args={}, work_item_id=None,
+        status="completed", result={"run_id": "run_1"}, deadline=time.time())
+    db.add(send)
+    db.commit()
+    # Offline: nothing is asked of a computer that cannot answer.
+    db.get(PersonalDevice, device["id"]).last_seen = time.time() - 60
+    db.commit()
+    assert session_watch.device_run_ended(db, send, "run_1") is None
+    assert db.query(PersonalSessionOperation).count() == 1
+    consent(db, device["id"], device["token"], True)
+    assert session_watch.device_run_ended(db, send, "run_1") is None
+    db.expire_all()
+    assert session_watch.device_run_ended(db, send, "run_1") is None  # one check at a time
+    check = poll(db, device["id"], device["token"])
+    assert check["operation"] == "run.status" and check["args"] == {"run_id": "run_1"}
+    acknowledge(db, device["id"], device["token"], check["id"], {"status": "completed"})
+    assert session_watch.device_run_ended(db, send, "run_1") == {"status": "completed"}
+    text = session_watch.describe_device_run(send.target, {"status": "completed"})
+    assert "finished" in text and "chat.history" in text
+
+
+
+def test_old_commands_are_pruned_by_maintenance(db, monkeypatch):
+    from personal_agent.computer import devices
+    from personal_agent.models import PersonalDeviceCommand
+
+    device = pair(db, "owner", "Laptop", "macos", ["observe"])
+    db.add_all([PersonalDeviceCommand(id=ident, device_id=device["id"], epoch=1, work_item_id="w",
+                                      action={"type": "observe"}, status="completed", deadline=deadline)
+                for ident, deadline in (("old", time.time() - devices.COMMAND_KEEP_SECONDS - 60), ("new", time.time()))])
+    db.commit()
+    devices.prune_commands(db)
+    db.expire_all()
+    assert db.get(PersonalDeviceCommand, "old") is None and db.get(PersonalDeviceCommand, "new") is not None

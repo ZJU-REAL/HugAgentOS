@@ -23,7 +23,7 @@ export function PersonalCapabilityMarkets({ field, disabled, onImported }: {
 }) {
   const user = useAuthStore(state => state.authUser);
   const [market, setMarket] = useState<CapabilityField>();
-  const scopeLabel = t('导入后加入待保存的选择；保存能力绑定后生效。');
+  const scopeLabel = t('导入后直接绑定到智能体，并同步到它的工作区。');
   return <>
     {field === 'mcp_ids' && user?.can_add_mcp && <Button disabled={disabled} icon={<ShopOutlined />} onClick={() => setMarket('mcp_ids')}>{t('从工具市场导入')}</Button>}
     {field === 'skill_ids' && user?.can_add_skill && <Button disabled={disabled} icon={<ShopOutlined />} onClick={() => setMarket('skill_ids')}>{t('从技能市场导入')}</Button>}

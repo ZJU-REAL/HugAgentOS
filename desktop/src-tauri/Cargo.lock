@@ -1726,6 +1726,7 @@ dependencies = [
  "native-tls",
  "percent-encoding",
  "reqwest 0.12.28",
+ "rfd",
  "serde",
  "serde_json",
  "sha2",

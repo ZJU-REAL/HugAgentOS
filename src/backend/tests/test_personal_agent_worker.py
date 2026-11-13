@@ -455,7 +455,7 @@ def test_worker_profile_exposes_core_bash_and_steers_in_batches():
     from personal_agent.extension import WORKER_TOOLS, _steering
     hook = _steering(None)
     assert isinstance(hook, SteeringHook) and hook.take_batch and not hook.interrupt_tools
-    assert WORKER_TOOLS == {"Bash", "write_stdin", "list_processes"}
+    assert WORKER_TOOLS == {"Bash", "write_stdin", "list_processes", "load_plugin"}
 
 
 @pytest.mark.asyncio

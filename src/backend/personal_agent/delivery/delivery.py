@@ -140,13 +140,14 @@ def build(ident, uid):
                          filename: str = "", caption: str = ""):
         """Deliver one image or file NOW in the user's main conversation; the task can continue.
         Give exactly one source: an absolute /workspace/... path, or resource_ref returned by
-        pa_computer_observe. For a screenshot, observe then pass its resource_ref here; never use
+        pa_computer_read or pa_computer_act. For a screenshot, pass its resource_ref here; never use
         Bash/scrot/sudo/Xauthority. request_key names this immutable delivery (e.g. screen-1):
         repeat it with the SAME source/name/caption to recover its receipt after an interruption.
         A changed file or a new delivery needs a NEW key. filename is the visible basename;
-        screenshot names must end in .png. caption is optional user-facing text.
+        a screenshot name ends in .png, or .jpg for a JPEG screenshot (the default name picks it).
+        caption is optional user-facing text.
         delivered=true means persisted in the main conversation, NOT accepted by an IM channel.
-        Expired resource_ref: observe again and deliver the NEW reference with a NEW request_key."""
+        Expired resource_ref: read the screen again and deliver the NEW reference with a NEW request_key."""
         from personal_agent.tools import tools
         state = _pa_guards.owned_task(ident, uid)
         if not isinstance(request_key, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", request_key):
@@ -157,24 +158,29 @@ def build(ident, uid):
             if ".." in path.split("/") or not path.startswith("/workspace/"):
                 raise ValueError("Delivery path must be inside /workspace without traversal")
             path = _pa_paths.workspace_path(path)
-        filename = filename or (posixpath.basename(path) if path else "screenshot.png")
-        if (filename in {".", ".."} or "/" in filename or "\\" in filename
+        # A screenshot's default name follows its format, known only once it is resolved below.
+        filename = filename or (posixpath.basename(path) if path else "")
+        if filename and (filename in {".", ".."} or "/" in filename or "\\" in filename
                 or len(filename.encode()) > 180 or any(ord(c) < 32 for c in filename)):
             raise ValueError("filename must be a plain basename of at most 180 UTF-8 bytes")
         if not isinstance(caption, str) or len(caption) > 4000:
             raise ValueError("caption exceeds 4000 characters")
-        if resource_ref and not filename.lower().endswith(".png"):
-            raise ValueError("Screenshot filename must end in .png")
+        if resource_ref and filename and not filename.lower().endswith((".png", ".jpg", ".jpeg")):
+            raise ValueError("Screenshot filename must end in .png or .jpg")
         caption = caption.strip()
-        request_hash = hashlib.sha256(json.dumps([path, resource_ref, filename, caption],
+        # The default screenshot name hashes as it always did, so an earlier receipt still matches.
+        request_hash = hashlib.sha256(json.dumps([path, resource_ref, filename or ("screenshot.png" if resource_ref else ""), caption],
                                                 ensure_ascii=False).encode()).hexdigest()
         message_id, artifact_id = _identity(ident, request_key)
         previous = await asyncio.to_thread(_previous, ident, uid, state, message_id, request_hash)
         if previous: return _pa_responses.response(previous)
         if resource_ref:
             from personal_agent.delivery.delivery_resources import resolve
-            content = await resolve(ident, uid, state, resource_ref)
-            mime = "image/png"
+            from personal_agent.delivery.delivery_resources import EXTENSIONS
+            content, mime = await resolve(ident, uid, state, resource_ref)
+            if not filename: filename = "screenshot" + EXTENSIONS[mime][0]
+            elif not filename.lower().endswith(EXTENSIONS[mime]):
+                raise ValueError("This screenshot is " + mime + "; name it with " + " or ".join(EXTENSIONS[mime]))
         else:
             content = await tools.get_personal_sandbox_provider().get_file(state["box"], path, user_id=uid)
             mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"

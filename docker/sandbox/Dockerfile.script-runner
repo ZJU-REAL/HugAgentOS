@@ -23,7 +23,7 @@ ENV PIP_DEFAULT_TIMEOUT=180 \
 # System deps: fonts, curl, Node.js 20, doc tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-wqy-zenhei fontconfig curl gnupg ca-certificates \
-    pandoc zip unzip libreoffice-writer jq \
+    pandoc zip unzip libreoffice-writer jq ffmpeg \
     && fc-cache -f \
     # 1. Node.js 20
     && curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 20 \

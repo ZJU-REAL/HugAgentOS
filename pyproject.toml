@@ -65,6 +65,7 @@ extensions = ["README.md", "skills/**/*", "agents/**/*", "plugins/**/*", "mcp_se
 prompts = ["config/*.json", "prompt_text/**/*.md"]
 "personal_agent.workspace" = ["prompts/*.md"]
 "personal_agent.memory" = ["templates/*.md", "prompts/*.md"]
+"personal_agent.skills" = ["*/**/*"]
 "core.sandbox.oslayer" = ["profiles/*"]
 
 [tool.setuptools.exclude-package-data]

@@ -13,6 +13,8 @@ import { DeviceSessions } from './DeviceSessions';
 interface PersonalComputersProps {
   agentName: string;
   devices: PersonalDevice[];
+  /** False until the cloud's device list has loaded: an empty list then means nothing. */
+  devicesLoaded?: boolean;
   status?: string;
   onChange: () => Promise<void>;
 }
@@ -22,9 +24,19 @@ function useCanLinkThisComputer() {
   return useDeploymentModeStore(s => s.isDesktop && s.provisionMode === 'dual' && s.localReady);
 }
 
+/** A long action is worth naming: it explains why the agent is waiting on this computer. */
+const BUSY_NOTE_AFTER = 5;
+
 function deviceNote(device: PersonalDevice, local: DeviceLinkStatus | null) {
-  if (!device.online) return t('离线');
   const link = local?.link?.device_id === device.id ? local.link : null;
+  // On this computer the link itself says why the cloud cannot hear it.
+  if (link && local?.state === 'unavailable') return t('连接凭据已失效，请断开后重新连接');
+  if (link && local?.state === 'offline') return t('本机无法连接云端，正在重试');
+  if (link && local?.state === 'error') return t('本机连接异常，正在恢复');
+  if (!device.online) return link && local?.state === 'connecting' ? t('正在连接') : t('离线');
+  if (link && local?.activity && Date.now() / 1000 - local.activity.since > BUSY_NOTE_AFTER) {
+    return t('已连接') + ' · ' + t('正在执行操作');
+  }
   if (link?.control_enabled && local?.permissions && !(local.permissions.screen && local.permissions.input)) {
     return t('已连接') + ' · ' + t('等待系统授权');
   }
@@ -34,7 +46,7 @@ function deviceNote(device: PersonalDevice, local: DeviceLinkStatus | null) {
 }
 
 /** Cloud computer with a live thumbnail, then linked local computers. */
-export function PersonalComputers({ agentName, devices, status, onChange }: PersonalComputersProps) {
+export function PersonalComputers({ agentName, devices, devicesLoaded = true, status, onChange }: PersonalComputersProps) {
   const ready = status === 'ready';
   const computerNote = status === 'degraded' ? t('连接异常，正在重试')
     : status === 'recovering' ? t('正在恢复')
@@ -67,12 +79,25 @@ export function PersonalComputers({ agentName, devices, status, onChange }: Pers
   useEffect(() => {
     if (!canLink) { setLocal(null); return; }
     let live = true;
-    deviceLinkApi.status().then(status => { if (live) setLocal(status); }).catch(() => { if (live) setLocal(null); });
-    return () => { live = false; };
+    let timer: ReturnType<typeof setTimeout>;
+    // The link state changes on its own (network, revocation), so keep it current while visible.
+    const load = async () => {
+      if (document.visibilityState === 'visible') {
+        try { const status = await deviceLinkApi.status(); if (live) setLocal(status); }
+        catch { if (live) setLocal(null); }
+      }
+      if (live) timer = setTimeout(() => void load(), 10000);
+    };
+    void load();
+    return () => { live = false; clearTimeout(timer); };
   }, [canLink]);
 
   // A link whose device was revoked elsewhere no longer counts: connecting again replaces it.
-  const thisDevice = local?.link && devices.some(d => d.id === local.link?.device_id) ? local.link.device_id : null;
+  // Until the cloud's list has loaded, the link is taken at its word, so a slow or failed
+  // load never offers to pair this computer a second time.
+  const thisDevice = local?.link && (!devicesLoaded || devices.some(d => d.id === local.link?.device_id)) ? local.link.device_id : null;
+  const signedOut = local?.state === 'signed_out';
+  const canPair = !!local && !signedOut && devicesLoaded && !thisDevice;
 
   function openPairing() {
     if (!local) return;
@@ -86,6 +111,7 @@ export function PersonalComputers({ agentName, devices, status, onChange }: Pers
     setConnecting(true);
     try {
       const label = name.trim();
+      const previous = local.link?.device_id;
       const device = await personalApi.pairDevice(label, local.platform, local.capabilities);
       try {
         setLocal(await deviceLinkApi.link({ device_id: device.id, token: device.token, name: label, ...consent }));
@@ -93,6 +119,8 @@ export function PersonalComputers({ agentName, devices, status, onChange }: Pers
         await personalApi.revokeDevice(device.id).catch(() => undefined);
         throw exc;
       }
+      // The link this computer used before is replaced; its cloud device would stay offline forever.
+      if (previous && previous !== device.id) await personalApi.revokeDevice(previous).catch(() => undefined);
       setPairing(false);
       await onChange();
     } catch (exc) { message.error(errorText(exc)); }
@@ -144,7 +172,8 @@ export function PersonalComputers({ agentName, devices, status, onChange }: Pers
         <small>{deviceNote(device, device.id === thisDevice ? local : null)}</small></span>
       <Dropdown trigger={['click']} menu={{ items: menu(device) }}><Button type="text" size="small" icon={<MoreOutlined />} aria-label={t('更多操作')} /></Dropdown>
     </div>)}
-    {local && !thisDevice && <button type="button" className="pa-side-link" onClick={openPairing}><PlusOutlined /> {t('连接这台电脑')}</button>}
+    {signedOut && <p className="pa-hint">{t('本机登录已过期，重新登录后恢复电脑连接')}</p>}
+    {canPair && <button type="button" className="pa-side-link" onClick={openPairing}><PlusOutlined /> {t('连接这台电脑')}</button>}
     {sessions && <DeviceSessions target={'device:' + sessions.id} name={sessions.name} onClose={() => setSessions(null)} />}
     <Modal open={pairing} title={t('连接这台电脑')} onCancel={() => setPairing(false)} footer={null}>
       <div className="pa-pairing">

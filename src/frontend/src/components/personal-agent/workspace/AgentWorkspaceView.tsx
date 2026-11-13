@@ -70,7 +70,8 @@ export function AgentWorkspaceView() {
   const [fileError, setFileError] = useState('');
   const [draft, setDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [expanded, setExpanded] = useState<string[] | null>(null);
+  // Folders start closed, showing only their names; the user opens the ones they want.
+  const [expandedKeys, setExpanded] = useState<string[]>([]);
 
   const loadTree = useCallback(async () => {
     setTreeError('');
@@ -87,8 +88,6 @@ export function AgentWorkspaceView() {
   useEffect(() => { void loadTree(); }, [loadTree]);
   useEffect(() => { if (tree?.exists) void loadFile(selected); }, [tree?.exists, selected, loadFile]);
 
-  // Top-level directories start open; afterwards the user's choice is kept across refreshes.
-  const expandedKeys = useMemo(() => expanded ?? (tree?.entries ?? []).filter((e) => e.type === 'dir' && e.path.split('/').length <= 3).map((e) => e.path), [expanded, tree]);
   const treeData = useMemo(() => buildTree(tree?.entries ?? [], new Set(expandedKeys)), [tree, expandedKeys]);
   const entryTypes = useMemo(() => new Map((tree?.entries ?? []).map((e) => [e.path, e.type])), [tree]);
 

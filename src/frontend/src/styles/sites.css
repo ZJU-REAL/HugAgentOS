@@ -11,8 +11,10 @@
   max-width: 880px;
 }
 
+/* The title column keeps a minimum width; beside an open canvas the buttons wrap below it. */
 .jx-sites-card {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-md);
@@ -24,7 +26,7 @@
 
 .jx-sites-cardMain {
   min-width: 0;
-  flex: 1;
+  flex: 1 1 max(240px, 50%);
 }
 
 .jx-sites-cardHead {
@@ -65,9 +67,13 @@
 
 .jx-sites-cardActions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
   gap: var(--space-sm);
   flex-shrink: 0;
+  max-width: 100%;
+  margin-left: auto;
   opacity: 0;
   transition: opacity .15s ease;
 }
@@ -386,7 +392,6 @@
 }
 .jx-sites-cardHead { flex-wrap: wrap; }
 .jx-sites-cardTitle { max-width: 100%; }
-.jx-sites-cardActions { flex-wrap: wrap; justify-content: flex-end; }
 .jx-sites-connection { display: flex; flex-direction: column; gap: var(--space-md); }
 .jx-sites-connection label { display: flex; flex-direction: column; gap: var(--space-sm); }
 @media (min-width: 769px) {

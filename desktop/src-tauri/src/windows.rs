@@ -111,6 +111,7 @@ pub(crate) fn toggle_quickask(app: &tauri::AppHandle) {
         // 关掉 webview 内建的拖放拦截：它会吞掉 OS 文件拖入，页面收不到带
         // File 对象的 HTML5 drop 事件，输入框的拖拽上传（useFileDropZone）失效
         .disable_drag_drop_handler()
+        .on_download(crate::downloads::handle)
         .inner_size(680.0, 540.0)
         .min_inner_size(480.0, 360.0)
         .always_on_top(true)
@@ -146,6 +147,7 @@ pub(crate) fn build_window(app: &tauri::AppHandle, label: &str, url: &str) -> ta
         .title(brand::NAME)
         // 同 quickask：禁用内建拖放拦截，HTML5 drop 事件才能携带文件进到页面
         .disable_drag_drop_handler()
+        .on_download(crate::downloads::handle)
         .inner_size(width, height)
         .min_inner_size(min_width, min_height);
 

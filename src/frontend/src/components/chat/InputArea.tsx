@@ -239,7 +239,7 @@ function MainInputArea({
             onCompositionStart={() => { composingRef.current = true; setIsComposing(true); }}
             onCompositionEnd={() => { composingRef.current = false; setIsComposing(false); queueMicrotask(syncText); }}
             onKeyDownCapture={(e) => {
-              if (voice.busy && e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+              if (voice.busy && e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault(); e.stopPropagation(); if (voice.phase === 'recording') voice.finish(); return;
               }
               onKeyDown(e);

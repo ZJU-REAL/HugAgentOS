@@ -123,6 +123,8 @@ class PersonalDevice(Base):
     control_enabled = Column(Integer, nullable=False, default=0)
     sessions_enabled = Column(Integer, nullable=False, default=0)
     session_epoch = Column(Integer, nullable=False, default=1)
+    # What the desktop reports about itself with each heartbeat: {"contract", "app_version"}.
+    link_info = Column(JSON)
 
 class PersonalDeviceCommand(Base):
     __tablename__ = "personal_device_commands"
@@ -197,6 +199,8 @@ class PersonalSessionOperation(Base):
     status = Column(String(24), nullable=False, default="queued")
     result = Column(JSON)
     deadline = Column(Float, nullable=False)
+    # When the operation was handed to its device (padevice01).
+    claimed_at = Column(Float)
     created_at = Column(UTCDateTime(timezone=True), default=utc_now)
     __table_args__ = (UniqueConstraint("user_id", "request_key", name="uq_pa_session_request"),
                      Index("ix_pa_session_queue", "device_id", "status", "deadline"))

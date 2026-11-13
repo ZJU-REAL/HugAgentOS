@@ -1,6 +1,6 @@
 # This file is generated. Do not edit it by hand.
 # Regenerate with: npm --prefix desktop run lock:desktop
-# input-sha256: 2580e67756923a30f416529f071ff7372044a681fb55cd05ef896e558846dd73
+# input-sha256: 319f56df510e8e9673685efa00f2a4ac4fb5b2bb2cc43f9a7ad8f626994f38f7
 # Target: CPython 3.11 on macOS Apple Silicon
 agentscope @ https://github.com/agentscope-ai/agentscope/archive/ed357feb78a45ff02df155bb5610eab9bf543832.tar.gz
     # via -r desktop/requirements-desktop.txt
@@ -93,6 +93,8 @@ cryptography==49.0.0
     #   google-auth
     #   pdfminer-six
     #   pyjwt
+cua-driver==0.46.1
+    # via -r desktop/requirements-desktop.txt
 cycler==0.12.1
     # via matplotlib
 dashscope==1.26.4

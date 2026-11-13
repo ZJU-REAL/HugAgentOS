@@ -7,12 +7,15 @@ Every route answers 404 outside the backend the desktop shell started.
 """
 
 import platform
+import time
 from typing import Optional
 
 from core.auth.backend import UserContext, get_current_user
 from features.desktop.auth.bridge import bridge_enabled
-from personal_agent.device_link import ACTIONS, SESSIONS, store
-from personal_agent.device_link.runner import current_account, current_link, run_driver, runner
+from personal_agent.device_link import ACTIONS, SESSIONS, UI_ELEMENTS, store
+from personal_agent.device_link.dispatch import run_driver
+from personal_agent.device_link.runner import current_account, current_link, runner
+from personal_agent.device_link.ui_host import host as ui_host
 from core.infra.responses import success_response
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -42,24 +45,50 @@ def _view(link: Optional[store.Link]):
     }
 
 
-async def _status(owner):
+# The probe starts a driver process; the UI polls the status, so reuse a recent answer.
+PROBE_TTL = 30
+_probe_cache: dict = {}
+
+
+async def _probe(fresh: bool = False) -> dict:
+    cached = _probe_cache.get("probe")
+    if not fresh and cached and time.monotonic() - cached[0] < PROBE_TTL:
+        return cached[1]
     probe = await run_driver({"type": "probe"})
+    if "error" not in probe and not probe.get("outcome_unknown"):
+        _probe_cache["probe"] = (time.monotonic(), probe)
+    return probe
+
+
+async def _status(owner, fresh: bool = False):
+    probe = await _probe(fresh)
     control = bool(probe.get("control"))
+    # The accessibility host adds element reads and actions on a Mac that allows them.
+    actions = ACTIONS | ({UI_ELEMENTS} if control and await ui_host.available() else frozenset())
     link = current_link(owner)
+    link_state = runner.snapshot() if link else {"state": "unlinked", "error": None, "last_contact": None, "activity": None}
     return {
         "platform": PLATFORMS.get(platform.system(), "linux"),
         "default_name": platform.node(),
-        "capabilities": sorted((ACTIONS if control else frozenset()) | {SESSIONS}),
+        "capabilities": sorted((actions if control else frozenset()) | {SESSIONS}),
         "control_supported": control,
         "permissions": probe.get("permissions"),
         "link": _view(link),
-        "state": runner.state if link else "unlinked",
+        **link_state,
     }
 
 
 @router.get("", summary="本机连接状态")
-async def status(owner=Depends(linked_account)):
-    return success_response(data=await _status(owner))
+async def status(user: UserContext = Depends(get_current_user)):
+    if not bridge_enabled():
+        raise HTTPException(404, "Not Found")
+    owner = current_account()
+    if owner is None:
+        # The desktop's cloud sign-in expired or has not reached this backend yet. The link
+        # (kept per account) pauses until it is back; say so instead of just "offline".
+        return success_response(data={"state": "signed_out", "link": None, "error": None,
+                                      "last_contact": None, "activity": None})
+    return success_response(data=await _status(linked_account(user)))
 
 
 class LinkBody(BaseModel):
@@ -71,7 +100,7 @@ class LinkBody(BaseModel):
 
 
 async def _require_control(enabled: bool) -> None:
-    if enabled and not (await run_driver({"type": "probe"})).get("control"):
+    if enabled and not (await _probe(fresh=True)).get("control"):
         raise HTTPException(409, "Screen control is not supported on this computer")
 
 
@@ -118,4 +147,4 @@ async def unlink(owner=Depends(linked_account)):
 @router.post("/permissions", summary="请求系统授权（macOS 屏幕录制与辅助功能）")
 async def request_permissions(owner=Depends(linked_account)):
     await run_driver({"type": "request_permissions"})
-    return success_response(data=await _status(owner))
+    return success_response(data=await _status(owner, fresh=True))

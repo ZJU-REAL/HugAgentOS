@@ -174,12 +174,101 @@ def route(db, agent, chat_id, text, msg, from_owner=False):
 SESSION_OPERATIONS = {"chat.create": "新建会话", "chat.update": "修改会话", "chat.delete": "删除会话",
                       "chat.send": "向会话发送消息", "run.cancel": "停止运行", "run.steer": "追加指令"}
 COMPUTER_ACTIONS = {"click": "点击", "double_click": "双击", "right_click": "右键点击", "move": "移动鼠标",
-                    "type": "输入文字", "key": "按键", "scroll": "滚动", "open_browser": "打开网页"}
+                    "type": "输入文字", "set_value": "填写", "key": "按键", "hotkey": "按组合键", "scroll": "滚动",
+                    "open_browser": "打开网页", "menu": "选择菜单"}
+COMPUTER_KINDS = ("computer.action", "computer.steps")
+# Typed text a step shows; the whole text goes in the notice body (see explain).
+STEP_TEXT_CHARS = 80
+SCROLL_WAYS = {"up": "向上", "down": "向下", "left": "向左", "right": "向右"}
 
-def describe(action):
-    """One line about an action, in the words of the web confirmation bar (approvalText.ts)."""
+def _clip(text, limit=STEP_TEXT_CHARS):
+    """Text on one line, cut to limit characters."""
+    text = " ".join(str(text).split())
+    return text if len(text) <= limit else text[:limit] + "…"
+
+def computer_steps(action):
+    """The steps of a computer action: a computer.steps action lists them, an old computer.action is one step."""
+    if action.get("kind") == "computer.steps":
+        return [step for step in action.get("steps") or [] if isinstance(step, dict)]
+    step = action.get("action")
+    return [step] if isinstance(step, dict) else []
+
+def describe_step(step, targets=None):
+    """One step in words: what it does, on which element or point, with which key, text, address or menu."""
+    kind = str(step.get("type") or "")
+    label, parts = COMPUTER_ACTIONS.get(kind, "执行操作"), []
+    if kind == "scroll":
+        amount = step.get("amount")
+        number = amount if isinstance(amount, int) and not isinstance(amount, bool) else None
+        # Without a direction (pixels mode) the sign decides: positive scrolls up, as the drivers do.
+        way = SCROLL_WAYS.get(str(step.get("direction"))) or (None if number is None else "向上" if number > 0 else "向下")
+        label = (way or "") + "滚动" + (" " + str(abs(number)) + " 格" if number else "")
+    if step.get("element"):
+        name = (targets or {}).get(step["element"])
+        parts.append(str(name) if name else "元素 #" + str(step["element"]).rsplit(":", 1)[-1])
+    elif step.get("x") is not None and step.get("y") is not None:
+        parts.append("坐标 (" + str(step["x"]) + ", " + str(step["y"]) + ")")
+    if step.get("text") is not None:
+        parts.append("「" + _clip(step["text"]) + "」")
+    if kind == "key" and step.get("key"):
+        parts.append(str(step["key"]))
+    if kind == "hotkey" and isinstance(step.get("keys"), list):
+        parts.append("+".join(str(key) for key in step["keys"]))
+    if step.get("url"):
+        parts.append(_clip(step["url"], 200))
+    if kind == "menu" and isinstance(step.get("path"), list):
+        parts.append("「" + " > ".join(str(item) for item in step["path"]) + "」")
+    # A quoted part follows its word directly: 输入文字「…」, 选择菜单「文件 > 存储」.
+    return label + "".join(part if part.startswith("「") else " " + part for part in parts)
+
+def computer_device(db, agent, action):
+    """The computer an action runs on, in words: the user's cloud computer, or a paired computer by name."""
+    target = str(action.get("target") or "cloud")
+    if target == "cloud": return "你的云电脑"
+    if db is None or agent is None or not target.startswith("device:"): return "你的电脑"
+    from personal_agent.models import PersonalDevice
+    device = db.get(PersonalDevice, target.split(":", 1)[1])
+    if device is None or device.user_id != agent.user_id: return "你的电脑"
+    return "你的电脑「" + _clip(device.name, 60) + "」"
+
+def computer_window(action):
+    """The application and window of a computer action in words, "" when the action names none."""
+    app, title = action.get("app"), action.get("title")
+    name = _clip(app, 60) if app else ""
+    if title: name += ("（" + _clip(title, 60) + "）") if name else _clip(title, 60)
+    return name
+
+def computer_targets(action):
+    """The approved elements' names, as the read named them, or None for an older approval."""
+    return action.get("targets") if isinstance(action.get("targets"), dict) else None
+
+def describe_computer(action, db=None, agent=None):
+    steps, where, window = computer_steps(action), computer_device(db, agent, action), computer_window(action)
+    place = "在" + where + ("的 " + window + " 中" if window else "上")
+    targets = computer_targets(action)
+    if len(steps) == 1: return place + describe_step(steps[0], targets)
+    numbered = "；".join(str(index) + ". " + describe_step(step, targets) for index, step in enumerate(steps, 1))
+    return place + "执行 " + str(len(steps)) + " 步操作" + ("：" + numbered if numbered else "")
+
+def explain_computer(db, agent, action):
+    """(lines, body) of a computer action: device, application, window and every step. The body holds the
+    whole text of each step whose text a line had to cut, so the user can read all of it before approving."""
+    steps, targets = computer_steps(action), computer_targets(action)
+    lines = ["操作：" + (describe_step(steps[0], targets) if len(steps) == 1 else "电脑操作（共 " + str(len(steps)) + " 步）"),
+             "设备：" + computer_device(db, agent, action)]
+    if action.get("app"): lines.append("应用：" + _clip(action["app"], 60))
+    if action.get("title"): lines.append("窗口：" + _clip(action["title"], 120))
+    elif action.get("window") == "screen": lines.append("窗口：整个屏幕")
+    if len(steps) > 1: lines += ["第 " + str(index) + " 步：" + describe_step(step, targets) for index, step in enumerate(steps, 1)]
+    cut = [(index, str(step["text"])) for index, step in enumerate(steps, 1)
+           if step.get("text") is not None and _clip(step["text"]) != str(step["text"])]
+    body = "\n\n".join(("第 " + str(index) + " 步输入的全文：\n" if len(steps) > 1 else "") + text for index, text in cut)
+    return lines, body
+
+def describe(action, db=None, agent=None):
+    """One line about an action, in the words of the web confirmation bar (approvalText.ts).
+    With db and agent a computer action names the paired computer it runs on."""
     kind = action.get("kind")
-    where = "云电脑" if action.get("target") == "cloud" else "你的电脑"
     if kind == "email.send":
         to = action.get("to")
         to = ", ".join(to) if isinstance(to, list) else str(to or "")
@@ -188,10 +277,8 @@ def describe(action):
         args = action.get("args") or {}
         subject = str(args.get("title") or args.get("message") or "")[:80]
         return SESSION_OPERATIONS.get(str(action.get("operation")), "会话操作") + ("「" + subject + "」" if subject else "")
-    if kind == "computer.action":
-        step = action.get("action") or {}
-        detail = next((str(step[key]) for key in ("text", "url", "key") if step.get(key) is not None), "")
-        return "在" + where + "上" + COMPUTER_ACTIONS.get(str(step.get("type")), "执行操作") + ("：" + detail[:80] if detail else "")
+    if kind in COMPUTER_KINDS:
+        return describe_computer(action, db, agent)
     return str(kind or "一项操作")
 
 # The longest text of an action a notice shows. A longer one is approved in the web application, where all of it is shown.
@@ -238,6 +325,8 @@ def explain(db, agent, action):
         if chat: lines.append("对话：「" + chat[:120] + "」")
         if args.get("title"): lines.append("新标题：「" + str(args["title"]) + "」")
         return lines, str(args.get("message") or "")
+    if kind in COMPUTER_KINDS:
+        return explain_computer(db, agent, action)
     return ["操作：" + describe(action)], ""
 
 def proactive_notice(db, agent, task, action, group):
@@ -286,7 +375,12 @@ def approval_notice(db, task):
     # A web task already shows the confirmation bar; only an IM conversation needs a message.
     if not origin: return
     group, web_only = (origin.get("msg") or {}).get("chat_type") == "group", False
-    head = "「" + _label(task) + "」需要你批准：" + describe(pending.get("action") or {}) + "。"
+    action = pending.get("action") or {}
+    if action.get("kind") in COMPUTER_KINDS:
+        # A phone screen reads a list better than one long line: device, application, then each step.
+        head = "「" + _label(task) + "」需要你批准一项电脑操作。\n" + "\n".join(explain_computer(db, agent, action)[0]) + "\n"
+    else:
+        head = "「" + _label(task) + "」需要你批准：" + describe(action, db, agent) + "。"
     if proactive_tasks.began(task):
         text, web_only = proactive_notice(db, agent, task, pending.get("action") or {}, group)
     elif group:

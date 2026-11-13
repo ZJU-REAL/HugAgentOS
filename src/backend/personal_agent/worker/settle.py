@@ -15,7 +15,7 @@ from core.db.models.command import CommandTask
 from core.infra.time import utc_now
 from personal_agent.computer import computer_wait
 from personal_agent.models import PersonalAgent
-from personal_agent.tasks.worker import AWAITING_APPROVAL, blocked, interrupt, notify, pause, wait_for_user
+from personal_agent.tasks.worker import AWAITING_APPROVAL, blocked, interrupt, notify, pause, wait_for_user, waits_only_on_its_question
 
 # 408 / 429 / 5xx and refused, reset or timed-out connections (§6.5).
 TRANSIENT = re.compile(r"\b(?:408|429|5\d\d)\b|rate.?limit|overloaded|timed? ?out|timeout|"
@@ -81,6 +81,12 @@ def finished(db, asg, task, uid, owner, fallback=""):
     detach(db, asg.chat_id)
     if computer_wait.park(task):
         return "parked"
+    if state.get("decided_during_run") and not task.unconfirmed() and waits_only_on_its_question(state):
+        # The user decided the run's approval while it was ending: that answers the question the run
+        # asked alongside it. Run again to act on it; waiting for a reply would void the approval.
+        for key in ("task_wait_reason", "pending_question", "decided_during_run"): task.pop_state(key)
+        task.requeue()
+        return "requeued"
     if task.unconfirmed() or state.get("task_wait_reason"):
         wait_for_user(db, task, blocked(task))
         return "waiting"

@@ -4,6 +4,7 @@ import { webSocketUrl } from '../../../api';
 import { personalApi } from '../api';
 import { ALT, ALT_KEYS, CONTROL, CONTROL_KEYS, MODIFIERS, charKeysym, eventKeysym } from './keysyms';
 import { t } from '../../../i18n';
+import { isImeKey } from '../../../utils/ime';
 
 interface LiveScreenProps {
   /** Empty while watching. With a control token the stream also carries keyboard and mouse. */
@@ -90,7 +91,7 @@ export function LiveScreen({ controlToken }: LiveScreenProps) {
   function onKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     const native = event.nativeEvent;
     // Leave composition to the IME. The committed text arrives through the input event.
-    if (native.isComposing || native.key === 'Process' || native.keyCode === 229) return;
+    if (isImeKey(native) || native.key === 'Process') return;
     // Cmd/Ctrl+V pastes the local clipboard: let the browser raise the paste event.
     if ((native.ctrlKey || native.metaKey) && native.key.toLowerCase() === 'v') return;
     const keysym = eventKeysym(native);
@@ -134,7 +135,7 @@ export function LiveScreen({ controlToken }: LiveScreenProps) {
     </div>
     {controlling && <textarea ref={input} className="pa-screen-input" aria-label={t('向云电脑输入')} autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
       onKeyDown={onKeyDown} onKeyUp={onKeyUp} onBlur={releaseHeld}
-      onInput={event => { if (!(event.nativeEvent as InputEvent).isComposing) flushInput(); }}
+      onInput={event => { if (!(event.nativeEvent as InputEvent).isComposing) flushInput(); }} /* ime-ok: an input event, not a key */
       onCompositionEnd={flushInput}
       onPaste={event => { event.preventDefault(); typeText(event.clipboardData.getData('text')); }} />}
   </div>;

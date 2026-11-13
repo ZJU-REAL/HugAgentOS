@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { normalizeTaskStatus, taskIndicator, useTaskNotificationStore as store, type TaskNotice } from '../src/stores/taskNotificationStore';
+import { configureReadSync, normalizeTaskStatus, taskIndicator, useTaskNotificationStore as store, type ObservedTask, type TaskNotice } from '../src/stores/taskNotificationStore';
 const values=new Map<string,string>();
 Object.assign(globalThis,{localStorage:{getItem:(k:string)=>values.get(k)??null,setItem:(k:string,v:string)=>values.set(k,v)}});
-const notice=(status:TaskNotice['status'],extra:Partial<TaskNotice>={}):TaskNotice=>({key:'chat:a',id:'run-a',status,startedAt:1,updatedAt:2,seen:false,...extra});
+const notice=(status:TaskNotice['status'],extra:Partial<TaskNotice&ObservedTask>={}):TaskNotice&ObservedTask=>({key:'chat:a',id:'run-a',status,startedAt:1,updatedAt:2,seen:false,...extra});
 store.getState().hydrate('user-a@server-a',0);
 store.getState().observe([notice('completed')]);
 assert.equal(taskIndicator(Object.values(store.getState().notices)).status,'completed');
@@ -55,3 +55,45 @@ assert.equal(store.getState().historyReadBefore,100,'history baseline survives r
 assert.equal(store.getState().notices['chat:live'].seen,false,'reload does not acknowledge later completions');
 assert.equal(store.getState().personalBaselineReady,true);
 console.log('PASS task reminders: states, acknowledgements, persistence, account/backend isolation, stale responses, personal unread and retry');
+
+// ── Server read state (shared by every client and backend) ──
+const pushed:{chat:Array<[string,string,string|undefined]>;personal:number[]}={chat:[],personal:[]};
+let failChat=false;let serverPersonal=0;
+configureReadSync({
+  chat:async(chatId,messageId,target)=>{pushed.chat.push([chatId,messageId,target]);if(failChat)throw new Error('offline');return {read_seq:1};},
+  personal:async seq=>{pushed.personal.push(seq);serverPersonal=Math.max(serverPersonal,seq);return {read_seq:serverPersonal};},
+});
+const flush=()=>new Promise(resolve=>setTimeout(resolve,0));
+// A fresh browser (new computer, cleared cache, the desktop app) has no local history at all.
+store.getState().hydrate('server-read',Date.now());
+store.getState().observe([notice('completed',{key:'chat:new',id:'run-new',messageId:'m-new',updatedAt:1,read:false})]);
+assert.equal(store.getState().notices['chat:new'].seen,false,'a result the server says is unread lights up even before the local baseline');
+store.getState().observe([notice('completed',{key:'chat:web',id:'run-web',messageId:'m-web',updatedAt:1,read:true})]);
+assert.equal(store.getState().notices['chat:web'].seen,true,'read on another client is read here');
+store.getState().observe([notice('completed',{key:'chat:new',id:'run-new',messageId:'m-new',updatedAt:1,read:true})]);
+assert.equal(store.getState().notices['chat:new'].seen,true,'a server read clears a local unseen result');
+store.getState().observe([notice('completed',{key:'chat:local',id:'run-l',messageId:'m-l',updatedAt:Date.now()+1000,read:false,target:'local'})]);
+failChat=true;store.getState().markSeen('chat:local','run-l');await flush();
+assert.deepEqual(pushed.chat.at(-1),['local','m-l','local'],'mark-read goes to the backend that owns the chat');
+assert.equal(store.getState().notices['chat:local'].seen,true,'optimistic local read');
+const before=pushed.chat.length;failChat=false;
+store.getState().observe([notice('completed',{key:'chat:local',id:'run-l',messageId:'m-l',updatedAt:Date.now()+1000,read:false,target:'local'})]);
+assert.equal(store.getState().notices['chat:local'].seen,true,'an older server response cannot undo a local read');
+await flush();assert.equal(pushed.chat.length,before+1,'the failed acknowledgement is retried');
+store.getState().markSeen('chat:local','run-l');assert.equal(pushed.chat.length,before+1,'an acknowledged result is not sent twice');
+store.getState().observe([notice('failed',{key:'chat:local',id:'run-l2',messageId:'m-l2',startedAt:5,updatedAt:Date.now()+2000,read:false,target:'local'})]);
+assert.equal(store.getState().notices['chat:local'].seen,false,'a new run result is unread again');
+store.getState().markSeen('chat:local','run-l2',false);await flush();
+assert.equal(pushed.chat.length,before+1,'merging another tab acknowledgement does not resend it');
+// Personal Agent: the server position wins over a missing local one and is never moved back.
+store.getState().applyPersonalServerRead(30);
+assert.equal(store.getState().personalReadSeq,30,'server read seq is adopted');
+assert.equal(store.getState().personalBaselineReady,true,'no local baseline is needed with a server position');
+store.getState().readPersonal(31);await flush();
+assert.deepEqual(pushed.personal,[31],'reading a new reply moves the server position');
+store.getState().applyPersonalServerRead(10);
+assert.equal(store.getState().personalReadSeq,31,'an old server snapshot cannot un-read');
+store.getState().readPersonal(31);await flush();
+assert.deepEqual(pushed.personal,[31],'a confirmed position is not sent again');
+store.getState().hydrate('',0);
+console.log('PASS server read state: cross-client reads, optimistic acknowledgement, retry, dual-mode target, personal read seq');

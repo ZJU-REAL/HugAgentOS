@@ -205,7 +205,7 @@
   text-overflow: ellipsis;
 }
 
-.jx-spaceImportPreview-headerAction {
+.jx-spaceImportPreview-headerAction { /* layout-ok: a single short button */
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -344,7 +344,7 @@
   font-size: 13px;
   color: var(--color-text-tertiary);
 }
-.jx-spaceImportFooterActions {
+.jx-spaceImportFooterActions { /* layout-ok: modal footer sized by the viewport; @media stacks it */
   display: flex;
   flex-shrink: 0;
   gap: 8px;

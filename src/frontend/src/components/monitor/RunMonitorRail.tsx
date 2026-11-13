@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { CloudOutlined, CodeOutlined, FolderOutlined, LaptopOutlined, LoadingOutlined, SettingOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { CheckCircleFilled, CloseCircleFilled, CloudOutlined, CodeOutlined, FolderOutlined, LaptopOutlined, LoadingOutlined, SettingOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { message, Tooltip } from 'antd';
 import { t } from '../../i18n';
 import { useChatStore } from '../../stores/chatStore';
@@ -13,6 +13,8 @@ import type { CommandTaskBrief, JobBrief } from '../../types';
 import { AgentIcon } from '../agent/AgentIcon';
 import { ElapsedTimer } from '../common';
 import { CONTEXT_CATEGORIES, useContextUsageView } from '../chat/useContextUsageView';
+import { ProgressRing, StepIcon } from '../chat/PlanProgressStrip';
+import { usePlanView } from '../chat/usePlanView';
 import { SubagentStatus } from '../tool/SubagentCallRow';
 import { openSubagentTab } from '../tool/openSubagentTab';
 import { MonitorCard } from './MonitorCard';
@@ -109,6 +111,37 @@ function BackgroundTasksCard({ chatId }: { chatId: string }) {
     <MonitorCard title={t('后台任务')} summary={t('{n} 运行中', { n: running })}>
       {liveJobs.map((job) => <JobRow key={job.job_id} job={job} onStop={() => cancelJob(job.job_id)} />)}
       {liveCommands.map((task) => <CommandRow key={task.task_id} task={task} onStop={() => cancelCommand(task.task_id)} />)}
+    </MonitorCard>
+  );
+}
+
+/** The agent's update_plan checklist; replaces the plan strip above the composer. */
+function PlanCard({ chatId }: { chatId: string }) {
+  const view = usePlanView(chatId);
+  if (!view) return null;
+  const { title, steps, completed, failed, total, allDone, stopped } = view;
+  return (
+    <MonitorCard
+      title={title || t('任务计划')}
+      className="jx-runMonitor-plan"
+      summary={<>
+        {allDone
+          ? (failed > 0
+            ? <CloseCircleFilled className="jx-runMonitor-planDone" data-failed aria-hidden />
+            : <CheckCircleFilled className="jx-runMonitor-planDone" aria-hidden />)
+          : <ProgressRing completed={completed} total={total} />}
+        {stopped && <span>{t('已中断')}</span>}
+        <span className="jx-runMonitor-num">{completed}/{total}</span>
+      </>}
+    >
+      <ol className="jx-runMonitor-planSteps" aria-label={t('任务计划：{done}/{total} 步已完成', { done: completed, total })}>
+        {steps.map((s, i) => (
+          <li key={i} className="jx-runMonitor-planStep" data-status={s.status}>
+            <span className="jx-runMonitor-lead"><StepIcon status={s.status} stopped={stopped} /></span>
+            <span className="jx-runMonitor-planStepTitle">{s.title}</span>
+          </li>
+        ))}
+      </ol>
     </MonitorCard>
   );
 }
@@ -253,6 +286,8 @@ export function RunMonitorRail() {
       {automationTaskId && <ScheduledTaskCard key={automationTaskId} taskId={automationTaskId} chatId={chatId} />}
 
       {projectId && <EnvironmentCard key={projectId} projectId={projectId} />}
+
+      <PlanCard chatId={chatId} />
 
       <ContextCard toolCalls={toolStats.calls} toolFailed={toolStats.failed} />
 

@@ -97,6 +97,8 @@ def _desktop_entry(identifier: str) -> tuple[Path, str] | None:
 
 
 def _registry_value(root, key: str, name: str = "") -> str | None:
+    if sys.platform != "win32":  # Also tells type checkers which stubs apply below.
+        raise OSError("Windows only")
     import winreg
 
     try:
@@ -107,6 +109,8 @@ def _registry_value(root, key: str, name: str = "") -> str | None:
 
 
 def _windows_applications(path: str, *, include_icons: bool = True) -> dict:
+    if sys.platform != "win32":  # Also tells type checkers which stubs apply below.
+        raise OSError("Windows only")
     import winreg
 
     extension = Path(path).suffix
@@ -150,6 +154,8 @@ def _windows_applications(path: str, *, include_icons: bool = True) -> dict:
 
 
 def _windows_default_name(extension: str) -> str | None:
+    if sys.platform != "win32":  # Also tells type checkers which stubs apply below.
+        raise OSError("Windows only")
     import ctypes
     from ctypes import wintypes
 
@@ -166,6 +172,8 @@ def _windows_default_name(extension: str) -> str | None:
 
 
 def _windows_command(command: str, path: str) -> list[str]:
+    if sys.platform != "win32":  # Also tells type checkers which stubs apply below.
+        raise OSError("Windows only")
     import ctypes
     from ctypes import wintypes
 

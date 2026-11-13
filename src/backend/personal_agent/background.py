@@ -19,6 +19,7 @@ DREAMING_BEAT_SEC = 600   # the Dreaming loop sleeps until the next due time and
 FILE_MEMORY_INTERVAL_SEC = 3
 MEMORY_PRUNE_INTERVAL_SEC = 3600
 TURN_BEAT_SEC = 10
+PRESENCE_INTERVAL_SEC = 5
 
 
 def prune_memory_versions():
@@ -39,6 +40,7 @@ class BackgroundServices:
     def start(self):
         from personal_agent.conversation.turn_worker import loop as turn_loop
         from personal_agent.workspace.file_memory import drain
+        from personal_agent.computer.devices import announce_departures
 
         loops = [
             self.watch("turn", turn_loop(self.owner)),
@@ -50,6 +52,8 @@ class BackgroundServices:
             self.dreaming_loop(),
             self.every(FILE_MEMORY_INTERVAL_SEC, "file memory", lambda: asyncio.to_thread(drain)),
             self.every(MEMORY_PRUNE_INTERVAL_SEC, "memory versions", lambda: asyncio.to_thread(prune_memory_versions)),
+            # Going offline writes nothing, so open pages are told here; the overlapping window never skips one.
+            self.every(PRESENCE_INTERVAL_SEC, "computer presence", lambda: asyncio.to_thread(announce_departures, 2 * PRESENCE_INTERVAL_SEC)),
         ]
         self.tasks = [asyncio.create_task(loop) for loop in loops]
 
@@ -168,6 +172,13 @@ class BackgroundServices:
             if time.monotonic() - last_cleanup > PROACTIVE_CLEANUP_SEC:
                 with SessionLocal() as db:
                     heartbeat.cleanup(db)
+                # Finished computer commands and session reads carry screenshots and chat histories.
+                from personal_agent.computer.devices import prune_commands
+                from personal_agent.sessions.session_queue import prune
+                with SessionLocal() as db:
+                    prune_commands(db)
+                with SessionLocal() as db:
+                    prune(db)
                 last_cleanup = time.monotonic()
 
         async def maintain():

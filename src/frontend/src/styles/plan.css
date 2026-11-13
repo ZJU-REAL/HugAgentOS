@@ -571,6 +571,7 @@
 .jx-planStrip-stepIcon--done{ color:var(--color-success); }
 .jx-planStrip-stepIcon--fail{ color:var(--color-error); }
 .jx-planStrip-stepIcon--running{ color:var(--color-primary); }
+.jx-planStrip-stepIcon--stopped{ color:var(--color-text-tertiary); }
 .jx-planStrip-stepIcon--pending{
   display:inline-block;
   width:8px;
