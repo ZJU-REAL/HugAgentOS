@@ -1,6 +1,7 @@
 """One-off migration from daily journals in memory/ and a free-form MEMORY.md to the wiki."""
 import hashlib
 import os
+from pathlib import Path
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -197,3 +198,35 @@ def test_merge_keeps_handwritten_head():
     marker, block = entry("m1", "x")
     merged = migration.merge("# 2026-11-01\n" + block, "# 2026-11-01\n手写的一段\n" + block, "2026-11-01")
     assert merged.count(marker) == 1 and "手写的一段" in merged
+
+
+OLD_AGENTS = (Path(__file__).parent / "old_agents_template.md").read_text(encoding="utf-8")
+
+
+def test_untouched_old_agents_becomes_current_template(workspace, sessions):
+    from personal_agent.workspace.prompting import prompt_part
+    ident, root = workspace
+    assert hashlib.sha256(OLD_AGENTS.strip().encode()).hexdigest() in migration.OLD_AGENTS
+    (root / "AGENTS.md").write_text(OLD_AGENTS.rstrip("\n") + migration.OLD_NOTICE)
+    seed.seed(ident, config(sessions, ident))
+    text = (root / "AGENTS.md").read_text()
+    assert text == prompt_part("template_agents") + "\n"
+    assert "memory/YYYY-MM-DD.md" not in text and "今天和昨天" not in text
+
+
+def test_edited_agents_loses_only_the_old_passages(workspace, sessions):
+    ident, root = workspace
+    own = "\n## 我自己加的\n\n周五提醒周报。\n"
+    (root / "AGENTS.md").write_text(OLD_AGENTS.rstrip("\n") + own + migration.OLD_NOTICE)
+    seed.seed(ident, config(sessions, ident))
+    text = (root / "AGENTS.md").read_text()
+    assert "memory/YYYY-MM-DD.md" not in text and "今天和昨天" not in text
+    assert "周五提醒周报。" in text and "journal/YYYY-MM-DD.md" in text and "## 记忆（平台已更新）" not in text
+
+
+def test_current_agents_is_left_alone(workspace, sessions):
+    ident, root = workspace
+    (root / "AGENTS.md").write_text("# AGENTS.md\n\n自己的约定。\n")
+    before = (root / "AGENTS.md").stat().st_mtime_ns
+    assert migration.refresh_agents(ident) == []
+    assert (root / "AGENTS.md").stat().st_mtime_ns == before

@@ -22,6 +22,7 @@ CE_DEFAULT_ADMIN_CAPABILITIES: Dict[str, Any] = {
     "role": "super_admin",
     "ce_default_admin": True,
     "lab_enabled": True,
+    "sites_enabled": True,
     "can_use_api_key": True,
     "can_add_skill": True,
     "can_add_mcp": True,

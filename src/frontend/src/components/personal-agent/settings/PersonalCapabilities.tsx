@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Button, Select, Tag, Tooltip, message } from 'antd';
+import { Alert, Button, Select, message } from 'antd';
 import { ApiOutlined, AppstoreAddOutlined, BulbOutlined, CheckCircleOutlined, ExclamationCircleOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { type CatalogResponse } from '../../../api';
 import {
@@ -9,7 +9,7 @@ import {
 import { PersonalCapabilityMarkets, type CapabilityField } from './PersonalCapabilityMarkets';
 import { SettingRow } from './SettingRow';
 import { formatDateTime } from '../../../utils/date';
-import { t, tCtx } from '../../../i18n';
+import { t } from '../../../i18n';
 import './personal-capabilities.css';
 
 interface PersonalCapabilitiesProps {
@@ -124,7 +124,6 @@ export function PersonalCapabilities({ agent, onChange }: PersonalCapabilitiesPr
   const market = (field: CapabilityField) => <PersonalCapabilityMarkets field={field} disabled={busy || !available}
     onImported={(importField, id) => void imported(importField, id)} />;
 
-  const builtins = available?.builtin_skills || [];
   const skillName = (id: string) => catalog?.skills?.find(item => item.id === id)?.name || id;
 
   return <>
@@ -134,16 +133,7 @@ export function PersonalCapabilities({ agent, onChange }: PersonalCapabilitiesPr
       control={select('mcp_ids', options(available?.mcp_ids || [], catalog?.mcp))} />
     <SettingRow stacked icon={<BulbOutlined />} label={t('技能')}
       action={market('skill_ids')}
-      control={<div className="pa-cap-skills">
-        {builtins.length > 0 && <div className="pa-cap-builtin" role="list" aria-label={t('{name} 自带的技能', { name: agentName })}>
-          {builtins.map(skill => <Tooltip key={skill.id} title={skill.description || undefined}>
-            <Tag role="listitem" className="pa-cap-builtin-chip" variant="filled">
-              <span>{skill.name}</span><span className="pa-cap-builtin-badge">{tCtx('personalAgent', '自带')}</span>
-            </Tag>
-          </Tooltip>)}
-        </div>}
-        {select('skill_ids', options(available?.skill_ids || [], catalog?.skills))}
-      </div>} />
+      control={select('skill_ids', options(available?.skill_ids || [], catalog?.skills))} />
     <SettingRow stacked icon={<AppstoreAddOutlined />} label={t('插件')}
       description={t('插件在任务需要时才加载。')}
       action={market('plugin_ids')}
