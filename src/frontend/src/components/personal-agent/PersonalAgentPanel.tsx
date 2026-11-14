@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Button, Input } from 'antd';
-import { ArrowUpOutlined, CloseOutlined, HeartOutlined, PlusOutlined, SearchOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { ArrowUpOutlined, ClockCircleOutlined, CloseOutlined, HeartOutlined, PlusOutlined, SearchOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { uploadFile } from '../../api';
 import { PersonalSettings } from './settings/PersonalSettings';
 import { AttentionBar } from './tasks/AttentionBar';
@@ -57,15 +57,15 @@ function ConversationPanel({ chatId, onSelectChat, savedDraft, saveDraft }: { ch
   // A heartbeat check usually ends quiet: it shows no typing line unless it writes an alert.
   const visible = messages.filter(row => !row.streaming);
   const typing = !!monitor?.turns?.some(turn => !turn.heartbeat) || messages.some(row => row.streaming && row.content.trim());
-  // What was last sent. While sending it shows at once, since the cloud takes seconds to admit the turn from the
-  // desktop app, and gives way to the stored message as soon as that arrives: the two are never shown together.
+  // What was last sent shows at once and stays until the stored copy (or a reply after it) arrives: on the desktop
+  // app that can be seconds after the send request returns. The two are never shown together.
   const [sent, setSent] = useState<{ key: string; text: string; afterSeq: number }>();
   const stored = sent && visible.find(row => row.role === 'user' && row.seq > sent.afterSeq && row.content.trim() === sent.text);
-  const pendingRow: PersonalMessage | undefined = sent && sending && !stored
+  const answered = sent && visible.some(row => row.role !== 'user' && row.seq > sent.afterSeq);
+  const pendingRow: PersonalMessage | undefined = sent && !stored && !answered
     ? { id: 'pending:' + sent.key, seq: Number.MAX_SAFE_INTEGER, role: 'user', content: sent.text, work_item_ids: [], task_links: [] }
     : undefined;
-  const scroll = useConversationScroll({ rows: visible, typing, sentKey: sent?.key,
-    hasOlder: older, loadingOlder, loadOlder: history });
+  const scroll = useConversationScroll({ firstId: visible[0]?.id, hasOlder: older, loadingOlder, loadOlder: history });
   usePersonalResultRead(scroll.viewport, chatId ? [] : messages);
   const agent = monitor?.agent;
   const name = agent?.config.name || DEFAULT_AGENT_NAME;
@@ -79,8 +79,9 @@ function ConversationPanel({ chatId, onSelectChat, savedDraft, saveDraft }: { ch
     const content = draft.trim() || t('请读取附件，并根据内容给出回复。');
     setRequestKey(key);
     setSending(true);
-    // Shown and scrolled to now, not when the request returns; the composer keeps the draft until it succeeds.
+    // Shown now, not when the request returns; the composer keeps the draft until it succeeds.
     setSent({ key, text: content, afterSeq: messages.reduce((max, row) => Math.max(max, row.seq), 0) });
+    scroll.stickToBottom();
     try {
       // The agent answers directly, or starts or changes background tasks itself.
       await personalApi.send(content, key, [], attachments.map(file => file.file_id), 'auto', undefined, chatId);
@@ -88,7 +89,11 @@ function ConversationPanel({ chatId, onSelectChat, savedDraft, saveDraft }: { ch
         ? { text: '', attachments: [] } : previous);
       setError('');
       await refreshRef.current();
-    } catch (exc) { fail(exc); }
+    } catch (exc) {
+      // The draft is back in the composer, so the sent copy goes.
+      setSent(previous => previous?.key === key ? undefined : previous);
+      fail(exc);
+    }
     finally { setSending(false); }
   }
   async function attach(files: FileList | null) {
@@ -102,8 +107,12 @@ function ConversationPanel({ chatId, onSelectChat, savedDraft, saveDraft }: { ch
     finally { setUploading(false); if (fileInput.current) fileInput.current.value = ''; }
   }
   function author(row: PersonalMessage) {
-    if (row.role === 'assistant') return row.heartbeat ? <span className="pa-message-author"><HeartOutlined aria-hidden="true" />{t('主动服务')}</span> : null;
-    if (row.origin === 'schedule') return <span className="pa-message-author">{t('定时任务')}</span>;
+    if (row.role === 'assistant') {
+      if (row.heartbeat) return <span className="pa-message-author"><HeartOutlined aria-hidden="true" />{t('主动服务')}</span>;
+      // A schedule's own instruction is not shown; its result says which schedule it came from.
+      if (row.schedule_title != null) return <span className="pa-message-author"><ClockCircleOutlined aria-hidden="true" />{row.schedule_title ? t('定时任务：{title}', { title: row.schedule_title }) : t('定时任务')}</span>;
+      return null;
+    }
     const channel = CHANNELS.find(item => item.type === row.channel_type);
     // Your own messages sit on the right without a name; only an outside channel is labelled.
     return channel ? <span className="pa-message-author"><span className="pa-message-source"><ChannelMark type={channel.type} size={16} />{t('来自{channel}', { channel: t(channel.label) })}</span></span> : null;

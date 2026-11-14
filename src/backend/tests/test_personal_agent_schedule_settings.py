@@ -290,3 +290,22 @@ def test_the_migration_adds_the_indexed_column_and_fills_it(filename):
             module.downgrade()
             assert "next_due_at" not in {c["name"] for c in inspect(conn).get_columns("personal_agents")}
 
+
+
+def test_schedule_instruction_is_hidden_and_its_result_names_the_schedule(sessions):
+    from personal_agent.conversation.attention import search
+    with sessions() as db:
+        svc = AgentContext(db, "owner")
+        svc.identity.ensure()
+        svc.conversation.append(svc.identity.agent(), "user", "你好", None, "own:1")
+        schedules.create(db, "owner", "早报", "整理今日资讯", cron="0 8 * * *", timezone="UTC")
+        assert schedules.fire_due(db, now=4102444800) == 1
+        task = svc.tasks.list()[0]
+        assert task["goal"].endswith("整理今日资讯")
+        rows = svc.conversation.list()
+        assert [row["content"] for row in rows] == ["你好"]
+        assert search(svc, "整理今日资讯")["messages"] == []
+        svc.conversation.append(svc.identity.agent(), "assistant", "今日三条动态", task["id"])
+        db.commit()
+        rows = svc.conversation.list()
+        assert [(row["content"], row["schedule_title"]) for row in rows] == [("你好", None), ("今日三条动态", "早报")]

@@ -1,7 +1,8 @@
 """Seed the wiki: the fixed _schema.md and an empty _index.md, never any pages.
 
 Called from persona.ensure_seeded for every workspace, new or old; it also runs the
-one-off migration of the old daily-journal layout (migration.migrate is idempotent).
+one-off migration of the old daily-journal layout (migration.migrate is idempotent), and
+rewrites an AGENTS.md that still names the old daily files (migration.refresh_agents).
 """
 from pathlib import Path
 
@@ -36,3 +37,5 @@ def seed(ident, config=None):
                 files._write_file(ident, rel, text, None)
     if config is None or config.get(migration.MARK) != migration.VERSION:
         migration.migrate(ident)
+    # Also for workspaces migrated before AGENTS.md was rewritten instead of annotated.
+    migration.refresh_agents(ident)

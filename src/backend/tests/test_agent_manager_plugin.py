@@ -45,7 +45,7 @@ def am_env(tmp_path, monkeypatch):
     monkeypatch.setattr(
         caps,
         "resolve_user_capabilities",
-        lambda db, uid: {"can_add_agent": True, "can_import_plugin": True, "can_add_skill": True},
+        lambda db, uid: {"can_add_agent": True, "can_install_market_agent": True, "can_import_plugin": True, "can_install_market_plugin": True, "can_add_skill": True},
     )
 
     return SimpleNamespace(engine=engine, Session=TestSession)

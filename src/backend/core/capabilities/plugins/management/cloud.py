@@ -152,10 +152,13 @@ def install(user_id, kind, source):
     return get(user_id, kind, key)
 
 
-def _permission(db, user_id, flag):
+def _permission(db, user_id, flags):
+    """Require ``flags`` (one bit, or a tuple where any one is enough)."""
     from core.auth.capabilities import resolve_user_capabilities
 
-    if not user_id or not resolve_user_capabilities(db, user_id).get(flag):
+    flags = (flags,) if isinstance(flags, str) else flags
+    caps = resolve_user_capabilities(db, user_id) if user_id else {}
+    if not any(caps.get(flag) for flag in flags):
         raise PermissionError("management permission denied")
 
 
@@ -201,7 +204,10 @@ def uninstall(user_id, kind, install_id, expected_revision):
         before = capability_revisions().snapshot_in_session(db, user_id, kind, install_id)[0]
         if not expected_revision or _revision(db, kind, row, before) != expected_revision:
             raise ValueError("revision_conflict")
-        _permission(db, user_id, "can_add_skill" if kind == "skill" else "can_import_plugin")
+        # Removing something you own: either its self-add or its market bit is enough, like REST delete.
+        from core.auth.capabilities import MARKET_INSTALL_FLAG, OWN_FLAG
+
+        _permission(db, user_id, (OWN_FLAG[kind], MARKET_INSTALL_FLAG[kind]))
         record = db.get(ContentBlock, capability_revisions().record_id("cap-cloud-copy:", user_id, kind, install_id))
         if record:
             db.delete(record)

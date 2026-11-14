@@ -2516,16 +2516,24 @@ export interface AuthUser extends EditionAuthUserFields {
   allowed_apps?: string[] | null;
   /** undefined/true = Lab enabled by default; false = hide and forbid access to the Lab module */
   lab_enabled?: boolean;
+  /** undefined/true = Sites enabled by default; false = hide the Sites module and refuse site management and publishing */
+  sites_enabled?: boolean;
   /** Whether API keys may be used (default false; controlled by the Config admin platform) */
   can_use_api_key?: boolean;
   /** Whether the user may self-service add skills in the capability center (default false) */
   can_add_skill?: boolean;
+  /** Whether the user may install skills from the skill marketplace (default false) */
+  can_install_market_skill?: boolean;
   /** Whether the user may self-service add MCP tools in the capability center (default false) */
   can_add_mcp?: boolean;
+  /** Whether the user may install MCPs from the MCP marketplace (default false) */
+  can_install_market_mcp?: boolean;
   /** Whether the user may install/import plugins in the capability center (default false; controlled by the Config admin platform) */
   can_import_plugin?: boolean;
+  can_install_market_plugin?: boolean;
   /** Whether the user may build their own sub-agents / install from and list on the sub-agent marketplace (default false) */
   can_add_agent?: boolean;
+  can_install_market_agent?: boolean;
   /** Whether the user may run the autonomous loop (the "autonomous loop" toggle in chat mode, default true) */
   can_run_autonomous_loop?: boolean;
   /** Whether the user may create their own private chat modes (设置 → 模式选择, default false) */

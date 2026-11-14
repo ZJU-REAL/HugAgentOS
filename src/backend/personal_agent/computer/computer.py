@@ -177,6 +177,10 @@ async def operate(ident, uid, target, command, *, identity=None):
             digest, old = await run_db(authorize, ident, uid, identity)
             if old is not None: return old
         result = await _dispatch(ident, uid, state, target, command)
+        if target == "cloud" and isinstance(result, dict):
+            from personal_agent.computer.human_control import screen_changed
+            after = result.get("after") if isinstance(result.get("after"), dict) else {}
+            await screen_changed(state["agent_id"], uid, after.get("image_base64"))
         if result.get("waiting") or result.get("outcome_unknown"):
             from personal_agent.tasks.approvals import wait_for_user
             await run_db(wait_for_user, ident, uid, result.get("message", "需要检查电脑状态后继续"))

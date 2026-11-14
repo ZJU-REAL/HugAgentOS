@@ -7,6 +7,7 @@ import { SkillMarketplaceModal } from '../../catalog/SkillMarketplaceModal';
 import { McpMarketplaceModal } from '../../catalog/McpMarketplaceModal';
 import { PluginMarketplaceModal } from '../../catalog/PluginMarketplaceModal';
 import { t } from '../../../i18n';
+import { canInstallFromMarket } from '../../../utils/marketPermission';
 
 export type CapabilityField = 'skill_ids' | 'mcp_ids' | 'plugin_ids';
 const skillFetchers = {
@@ -25,13 +26,13 @@ export function PersonalCapabilityMarkets({ field, disabled, onImported }: {
   const [market, setMarket] = useState<CapabilityField>();
   const scopeLabel = t('导入后直接绑定到智能体，并同步到它的工作区。');
   return <>
-    {field === 'mcp_ids' && user?.can_add_mcp && <Button disabled={disabled} icon={<ShopOutlined />} onClick={() => setMarket('mcp_ids')}>{t('从工具市场导入')}</Button>}
-    {field === 'skill_ids' && user?.can_add_skill && <Button disabled={disabled} icon={<ShopOutlined />} onClick={() => setMarket('skill_ids')}>{t('从技能市场导入')}</Button>}
-    {field === 'plugin_ids' && user?.can_import_plugin && <Button disabled={disabled} icon={<ShopOutlined />} onClick={() => setMarket('plugin_ids')}>{t('从插件市场导入')}</Button>}
+    {field === 'mcp_ids' && canInstallFromMarket(user, field) && <Button disabled={disabled} icon={<ShopOutlined />} onClick={() => setMarket('mcp_ids')}>{t('从工具市场导入')}</Button>}
+    {field === 'skill_ids' && canInstallFromMarket(user, field) && <Button disabled={disabled} icon={<ShopOutlined />} onClick={() => setMarket('skill_ids')}>{t('从技能市场导入')}</Button>}
+    {field === 'plugin_ids' && canInstallFromMarket(user, field) && <Button disabled={disabled} icon={<ShopOutlined />} onClick={() => setMarket('plugin_ids')}>{t('从插件市场导入')}</Button>}
     {market === 'skill_ids' && <SkillMarketplaceModal open onClose={() => setMarket(undefined)}
       fetchers={skillFetchers} scopeLabel={scopeLabel}
       onInstalled={result => onImported('skill_ids', result.id)} />}
-    {market === 'mcp_ids' && <McpMarketplaceModal open canInstall={user?.can_add_mcp === true}
+    {market === 'mcp_ids' && <McpMarketplaceModal open canInstall={canInstallFromMarket(user, 'mcp_ids')}
       onClose={() => setMarket(undefined)} onInstalled={result => onImported('mcp_ids', result.server_id)} />}
     {market === 'plugin_ids' && <PluginMarketplaceModal open onClose={() => setMarket(undefined)}
       scopeLabel={scopeLabel} excludedSlugs={excludedPlugins}

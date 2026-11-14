@@ -6,11 +6,16 @@ console's user, team, and role management panels:
 | Key                 | Type | System default | Meaning                                        |
 |---------------------|------|----------------|------------------------------------------------|
 | ``lab_enabled``     | bool | ``True``       | Lab module visible                             |
+| ``sites_enabled``   | bool | ``True``       | Sites module visible, manage and publish sites |
 | ``can_use_api_key`` | bool | ``False``      | Create/use API keys                            |
-| ``can_add_skill``   | bool | ``False``      | Self-add skills in capability center / install from skill marketplace |
-| ``can_add_mcp``     | bool | ``False``      | Self-add private MCPs in capability center     |
-| ``can_import_plugin``| bool| ``False``      | Install/import plugins                         |
-| ``can_add_agent``   | bool | ``False``      | Build own sub-agents / install & publish on sub-agent marketplace |
+| ``can_add_skill``   | bool | ``False``      | Upload / write own private skills, submit them to the skill marketplace |
+| ``can_install_market_skill`` | bool | ``False`` | Install skills from the skill marketplace |
+| ``can_add_mcp``     | bool | ``False``      | Add own private MCPs, submit them to the MCP marketplace |
+| ``can_install_market_mcp`` | bool | ``False`` | Install MCPs from the MCP marketplace |
+| ``can_import_plugin``| bool| ``False``      | Import plugin packages (zip / Claude Code / Codex) |
+| ``can_install_market_plugin`` | bool | ``False`` | Install plugins from the plugin marketplace |
+| ``can_add_agent``   | bool | ``False``      | Build or import own sub-agents, submit them to the sub-agent marketplace |
+| ``can_install_market_agent`` | bool | ``False`` | Install sub-agents from the sub-agent marketplace |
 | ``can_switch_model`` | bool | ``False``     | User-side chat model switching                 |
 | ``can_use_personal_agent`` | bool | ``False`` | EE account permission for the shared Personal Agent module |
 | ``allowed_apps``    | list/None | ``None``  | App visibility whitelist (``None`` = all enabled apps) |
@@ -40,15 +45,55 @@ from typing import Any, Dict, Optional
 from core.config.settings import settings
 from sqlalchemy.orm import Session
 
+# Self-add vs market-install bit for each capability kind. Authoring your own needs the
+# first; installing from that kind's marketplace needs the second; managing something you
+# already have (remove, re-icon, accept an upgrade) is allowed with either.
+OWN_FLAG: Dict[str, str] = {
+    "skill": "can_add_skill",
+    "mcp": "can_add_mcp",
+    "plugin": "can_import_plugin",
+    "agent": "can_add_agent",
+}
+MARKET_INSTALL_FLAG: Dict[str, str] = {
+    "skill": "can_install_market_skill",
+    "mcp": "can_install_market_mcp",
+    "plugin": "can_install_market_plugin",
+    "agent": "can_install_market_agent",
+}
+
+
+def can_manage_owned(caps: Dict[str, Any], kind: str) -> bool:
+    """Either bit of ``kind`` lets the user manage what they already own."""
+    return bool(caps.get(OWN_FLAG[kind]) or caps.get(MARKET_INSTALL_FLAG[kind]))
+
+
+def require_capability(db: Session, user_id: str, flag: str, message: str) -> None:
+    """Raise AccessDeniedError (reason ``<flag>_disabled``) unless the user holds ``flag``."""
+    from core.infra.exceptions import AccessDeniedError
+
+    if not resolve_user_capabilities(db, str(user_id)).get(flag):
+        raise AccessDeniedError(message=message, reason=f"{flag}_disabled")
+
+
 # Boolean capability flags → system defaults. Feature permissions and admin-console
 # access permissions share the same layered resolution rules.
 BOOL_CAPABILITY_DEFAULTS: Dict[str, bool] = {
     "lab_enabled": True,
+    # Sites module (list, manage, publish). Split from lab_enabled; migration sitesperm01 copied existing lab values.
+    "sites_enabled": True,
     "can_use_api_key": False,
+    # Skills, MCPs, plugins and sub-agents: authoring your own (upload / write / import /
+    # submit to the market) is separate from installing what the market offers.
+    # Migrations mktperm01 (skill, MCP) and mktperm02 (plugin, agent) copied the old single
+    # bit into the install bits so nobody gained or lost access on upgrade.
     "can_add_skill": False,
+    "can_install_market_skill": False,
     "can_add_mcp": False,
+    "can_install_market_mcp": False,
     "can_import_plugin": False,
+    "can_install_market_plugin": False,
     "can_add_agent": False,
+    "can_install_market_agent": False,
     "can_create_private_kb": False,
     "can_create_public_kb": False,
     "can_create_channel_bot": False,

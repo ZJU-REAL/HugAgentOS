@@ -9,6 +9,11 @@ import { useCanvasStore } from '../../../stores/canvasStore';
 import { COMPUTER_CANVAS } from './canvasIds';
 import './ComputerCanvas';
 import { DeviceSessions } from './DeviceSessions';
+import { followLocalLink } from './localLinkFeed';
+import { subscribePersonalChanges } from '../shared/liveFeed';
+
+/** The change-feed topic for a changed cloud screen (personal_agent/conversation/live.py). */
+const COMPUTER_TOPIC = 'computer';
 
 interface PersonalComputersProps {
   agentName: string;
@@ -61,36 +66,47 @@ export function PersonalComputers({ agentName, devices, devicesLoaded = true, st
   const [consent, setConsent] = useState<Required<DeviceConsent>>({ control_enabled: false, sessions_enabled: false });
   const [preview, setPreview] = useState<string>();
 
+  // The thumbnail is read when the screen changed (the agent acted on it, or the owner handed control back), on
+  // every (re)connection of the change feed, and when the page is shown again. An idle computer is never asked.
   useEffect(() => {
     if (!ready) return;
     const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
     const load = async () => {
-      // Hidden tabs do not need a fresh screen.
-      if (document.visibilityState === 'visible') {
-        try { setPreview((await personalApi.preview(controller.signal)).image); } catch { /* keep the last frame */ }
-      }
-      if (!controller.signal.aborted) timer = setTimeout(() => void load(), 30000);
+      try { setPreview((await personalApi.preview(controller.signal)).image); } catch { /* keep the last frame */ }
     };
     void load();
-    return () => { controller.abort(); clearTimeout(timer); };
+    const unsubscribe = subscribePersonalChanges(signal => {
+      if (signal.type === 'ready' || (signal.type === 'changed' && signal.topics.includes(COMPUTER_TOPIC))) void load();
+    });
+    return () => { controller.abort(); unsubscribe(); };
   }, [ready]);
 
+  // The local backend says when this computer's link changed; a permission granted in the system settings has no
+  // event of its own, so coming back to the page probes again.
   useEffect(() => {
     if (!canLink) { setLocal(null); return; }
     let live = true;
-    let timer: ReturnType<typeof setTimeout>;
-    // The link state changes on its own (network, revocation), so keep it current while visible.
-    const load = async () => {
-      if (document.visibilityState === 'visible') {
-        try { const status = await deviceLinkApi.status(); if (live) setLocal(status); }
-        catch { if (live) setLocal(null); }
-      }
-      if (live) timer = setTimeout(() => void load(), 10000);
+    const load = async (fresh = false) => {
+      try { const status = await deviceLinkApi.status(fresh); if (live) setLocal(status); }
+      catch { if (live) setLocal(null); }
     };
-    void load();
-    return () => { live = false; clearTimeout(timer); };
+    const stop = followLocalLink(() => void load());
+    const shown = () => { if (document.visibilityState === 'visible') void load(true); };
+    document.addEventListener('visibilitychange', shown);
+    window.addEventListener('focus', shown);
+    return () => { live = false; stop(); document.removeEventListener('visibilitychange', shown); window.removeEventListener('focus', shown); };
   }, [canLink]);
+
+  // "Performing an action" is named once an action has run for a while: redraw at that moment, not on a timer.
+  const [, redraw] = useState(0);
+  const activitySince = local?.activity?.since;
+  useEffect(() => {
+    if (!activitySince) return;
+    const wait = (activitySince + BUSY_NOTE_AFTER) * 1000 - Date.now();
+    if (wait <= 0) return;
+    const timer = setTimeout(() => redraw(value => value + 1), wait + 50);
+    return () => clearTimeout(timer);
+  }, [activitySince]);
 
   // A link whose device was revoked elsewhere no longer counts: connecting again replaces it.
   // Until the cloud's list has loaded, the link is taken at its word, so a slow or failed

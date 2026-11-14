@@ -138,9 +138,16 @@ SSO 提供方响应必须是 JSON 对象，且成功码必须为有限数值 0�
 | 权限位 | 默认 | 控制接口 | 门控内容 |
 |---|---|---|---|
 | `can_use_api_key` | 关 | `PATCH /v1/config/users/{id}/api-key-permission` | 是否可创建 / 使用个人 API-Key；关闭后已有 Key 立即失效 |
-| `can_add_skill` | 关 | `PATCH /v1/config/users/{id}/skill-permission` | 能力中心自助上传 / 手写私有技能（`api/routes/v1/me_capabilities.py`） |
-| `can_add_mcp` | 关 | `PATCH /v1/config/users/{id}/mcp-permission` | 能力中心自助添加私有远程 MCP（HTTP/SSE） |
+| `can_add_skill` | 关 | `PATCH /v1/config/users/{id}/skill-permission` | 能力中心自助上传 / 手写私有技能，并可申请上架技能市场（`api/routes/v1/me_capabilities.py`） |
+| `can_install_market_skill` | 关 | `PATCH /v1/config/users/{id}/market-skill-permission` | 从技能市场安装技能（含智能体、Personal Agent 设置里的市场导入）；从 `can_add_skill` 拆出，升级时（迁移 `ce_0047`）复制了已有设置 |
+| `can_add_mcp` | 关 | `PATCH /v1/config/users/{id}/mcp-permission` | 能力中心自助添加私有远程 MCP（HTTP/SSE），并可申请上架 MCP 市场 |
+| `can_install_market_mcp` | 关 | `PATCH /v1/config/users/{id}/market-mcp-permission` | 从 MCP 市场安装（含 OAuth 登录安装）；从 `can_add_mcp` 拆出，升级时复制了已有设置 |
+| `can_import_plugin` | 关 | `PATCH /v1/config/users/{id}/plugin-permission` | 能力中心导入插件包（native / Claude Code / Codex） |
+| `can_install_market_plugin` | 关 | `PATCH /v1/config/users/{id}/market-plugin-permission` | 从插件市场安装插件（含智能体、Personal Agent、项目设置里的市场导入）；从 `can_import_plugin` 拆出，升级时（迁移 `ce_0047`）复制了已有设置 |
+| `can_add_agent` | 关 | `PATCH /v1/config/users/{id}/add-agent-permission` | 自建、导入子智能体，并可申请上架智能体市场 |
+| `can_install_market_agent` | 关 | `PATCH /v1/config/users/{id}/market-agent-permission` | 从智能体市场安装子智能体；从 `can_add_agent` 拆出，升级时复制了已有设置 |
 | `lab_enabled` | **开** | `PATCH /v1/config/users/{id}/lab-permission` | 实验室模块入口与访问 |
+| `sites_enabled` | **开** | `PATCH /v1/config/users/{id}/sites-permission` | 站点入口、站点管理与发布（已发布站点的公开地址不受影响）；从 `lab_enabled` 拆出，升级时复制了已有的实验室设置 |
 | `allowed_apps` | 无限制 | `PATCH /v1/config/users/{id}/app-permissions` | 应用可见范围；`None`=全部启用应用，列表=白名单（空列表=全屏蔽） |
 | `role: super_admin` | 无 | （直接写 metadata） | `require_super_admin` 依赖放行；可绕过团队角色检查 |
 

@@ -46,6 +46,7 @@ export function McpPage() {
 
   const fetchCatalog = useCatalogStore((s) => s.fetchCatalog);
   const canAddMcp = useAuthStore((s) => s.authUser?.can_add_mcp === true);
+  const canInstallMarketMcp = useAuthStore((s) => s.authUser?.can_install_market_mcp === true);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchVisible, setSearchVisible] = useState(false);
@@ -257,12 +258,12 @@ export function McpPage() {
               <span className="jx-mcp-searchPlaceholder">{t('搜索工具关键词')}</span>
             </div>
           )}
-          {canAddMcp && (
+          {(canAddMcp || canInstallMarketMcp) && (
             <Dropdown
               menu={{
                 items: [
-                  { key: 'market', icon: <AppstoreOutlined />, label: t('MCP 市场'), onClick: () => setMarketOpen(true) },
-                  { key: 'private', icon: <PlusOutlined />, label: t('连接私有 MCP'), onClick: () => setAddOpen(true) },
+                  canInstallMarketMcp ? { key: 'market', icon: <AppstoreOutlined />, label: t('MCP 市场'), onClick: () => setMarketOpen(true) } : null,
+                  canAddMcp ? { key: 'private', icon: <PlusOutlined />, label: t('连接私有 MCP'), onClick: () => setAddOpen(true) } : null,
                 ],
               }}
             >
@@ -391,7 +392,7 @@ export function McpPage() {
 
       <McpMarketplaceModal
         open={marketOpen}
-        canInstall={canAddMcp}
+        canInstall={canInstallMarketMcp}
         onClose={() => setMarketOpen(false)}
         onInstalled={() => { void fetchCatalog(); }}
       />

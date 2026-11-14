@@ -74,7 +74,7 @@ def migrate(ident, sessions=None):
                     # it. Mark the layout migrated with the error; the rest stays where it is.
                     changes, quotes, error = [], [], type(exc).__name__
                     log.warning("Personal memory migration skipped (%s)", error)
-                changes += _strip_user_markers(ident) + _update_agents(ident)
+                changes += _strip_user_markers(ident) + refresh_agents(ident)
                 days = _journal_days(ident)
                 legacy = bool(days or quotes) or _exists(ident, LEGACY)
             # Journal moves are history, not memory: they are logged, not versioned.
@@ -104,17 +104,45 @@ def baseline(db, ident):
 
 
 AGENTS = "AGENTS.md"
-AGENTS_NOTICE = ("\n\n## 记忆（平台已更新）\n\n记忆现在是 `memory/` 里按主题组织的 wiki，按平台注入的 Memory 规则写。"
-                 "不要再写 `memory/YYYY-MM-DD.md`：平台自动记的流水账在 `journal/`，只读。\n")
+OLD_DAILY = "memory/YYYY-MM-DD.md"
+# The AGENTS.md templates that taught the old daily files (sha256 of the stripped text).
+OLD_AGENTS = {"86484b282f3b2766683ff9a6c3ca5e5095f6360cd16a9cc4985de0fd033e7ba6"}
+# What an earlier version of this migration appended to AGENTS.md; it names the old files too.
+OLD_NOTICE = ("\n\n## 记忆（平台已更新）\n\n记忆现在是 `memory/` 里按主题组织的 wiki，按平台注入的 Memory 规则写。"
+              "不要再写 `memory/YYYY-MM-DD.md`：平台自动记的流水账在 `journal/`，只读。\n")
+# The passages of the old template that name the old daily files, and what replaces them.
+OLD_PASSAGES = (
+    ("运行时已经把 `AGENTS.md`、`SOUL.md`、`IDENTITY.md`、`USER.md`、`MEMORY.md` 以及今天和昨天的\n"
+     "`memory/YYYY-MM-DD.md` 注入提示词。只有在用户要求、上下文缺失或需要更深入时才重新读取。",
+     "运行时已经把 `AGENTS.md`、`SOUL.md`、`IDENTITY.md`、`USER.md`、`MEMORY.md` 的置顶段和 `memory/_index.md`\n"
+     "的开头注入提示词。主题页不注入，用到时再读。"),
+    ("- **每日记录**：`memory/YYYY-MM-DD.md` 记原始日志，目录不存在就创建。",
+     "- **每日记录**：`journal/YYYY-MM-DD.md` 由平台自动记下每次对话和任务结果，只读；你不用写。"),
+)
 
 
-def _update_agents(ident):
-    """An AGENTS.md seeded from the old template still teaches the old layout: say it changed."""
+def refresh_agents(ident):
+    """An AGENTS.md seeded from an old template still names the old daily files.
+    An untouched one becomes the current template; an edited one loses only those passages.
+    Cheap when there is nothing to do: one read. [(path, before, after)] of what changed."""
+    import hashlib
     from personal_agent.workspace import files
+    from personal_agent.workspace.prompting import prompt_part
     text = store.read(ident, AGENTS)
-    if text is None or "memory/YYYY-MM-DD.md" not in text or AGENTS_NOTICE.strip() in text: return []
-    after = text.rstrip("\n") + AGENTS_NOTICE
-    files._write_file(ident, AGENTS, after, None)
+    if text is None or OLD_DAILY not in text: return []
+    base = text.replace(OLD_NOTICE, "\n")
+    if hashlib.sha256(base.strip().encode("utf-8")).hexdigest() in OLD_AGENTS:
+        after = prompt_part("template_agents") + "\n"
+    else:
+        after = base
+        for before, replacement in OLD_PASSAGES: after = after.replace(before, replacement)
+    if after == text: return []
+    try:
+        with files.workspace_lock(ident):
+            if store.read(ident, AGENTS) != text: return []   # changed meanwhile: the next build looks again
+            files._write_file(ident, AGENTS, after, None)
+    except BlockingIOError:
+        return []
     return [(AGENTS, text, after)]
 
 

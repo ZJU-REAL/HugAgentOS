@@ -5,6 +5,7 @@ import { useDeploymentModeStore } from '../stores/deploymentModeStore';
 import { reloadDirectory, useApplicationDirectory } from './catalog';
 import { t } from '../i18n';
 import { HostButton, HostNotice } from './ui';
+import { LAYOUT_ITEMS } from '../components/sidebar/items';
 
 /** URL navigation is not authorization. Actual backend resource gates remain authoritative. */
 export function ApplicationAccess({id, children}: {id: string; children: ReactNode}) {
@@ -19,8 +20,9 @@ export function ApplicationAccess({id, children}: {id: string; children: ReactNo
   }
   const item = catalog.items.find(i => i.applicationKey === 'builtin:' + id);
   const authoritative = catalog.items.length > 0 && !catalog.error;
+  const capability = LAYOUT_ITEMS[id]?.requiresCapability;
   const denied = ((id === 'automation' && Array.isArray(auth?.allowed_apps) && !auth.allowed_apps.includes(id))
-    || (['lab', 'sites'].includes(id) && auth?.lab_enabled === false)
+    || (capability !== undefined && auth?.[capability] === false)
     );
   if (denied || (authoritative && !item)) {
     return <Denied />;

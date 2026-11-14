@@ -11,7 +11,7 @@ from features.marketplace import mcp_submissions
 from typing import Dict, List, Optional
 
 from core.auth.backend import UserContext, get_current_user
-from core.auth.capabilities import resolve_user_capabilities
+from core.auth.capabilities import require_capability, resolve_user_capabilities
 from core.db.engine import get_db
 from core.db.threads import run_in_session
 from core.infra.exceptions import AccessDeniedError, ResourceNotFoundError
@@ -29,9 +29,13 @@ router = APIRouter(prefix="/v1/mcp-market", tags=["MCP Marketplace"])
 def _require_can_add_mcp(user_id: str, db: Session) -> None:
     if not resolve_user_capabilities(db, user_id).get("can_add_mcp", False):
         raise AccessDeniedError(
-            message="管理员未开放 MCP 安装/上架功能",
+            message="管理员未开放自助添加 / 上架 MCP 功能",
             reason="can_add_mcp_disabled",
         )
+
+
+def _require_can_install_market_mcp(user_id: str, db: Session) -> None:
+    require_capability(db, user_id, "can_install_market_mcp", "管理员未开放从 MCP 市场安装功能")
 
 
 @router.get("/items", summary="MCP 市场列表")
@@ -88,7 +92,7 @@ async def start_oauth(
     user_id = str(user.user_id)
 
     def admit(db: Session) -> None:
-        _require_can_add_mcp(user_id, db)
+        _require_can_install_market_mcp(user_id, db)
         mcp_listing.get_market_item(db, body.slug, owner_user_id=user_id, viewer_user_id=user_id)
 
     await run_in_session(admit)
@@ -181,7 +185,7 @@ async def install_item(
     user: UserContext = Depends(get_current_user),
 ):
     user_id = str(user.user_id)
-    await run_in_session(lambda db: _require_can_add_mcp(user_id, db))
+    await run_in_session(lambda db: _require_can_install_market_mcp(user_id, db))
     result = await mcp_installation.install_market_item(
         body.slug,
         owner_user_id=user_id,

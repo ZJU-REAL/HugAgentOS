@@ -146,9 +146,16 @@ User-granular feature switches are stored in the `users_shadow.metadata` JSON co
 | Flag | Default | Control endpoint | Gates |
 |---|---|---|---|
 | `can_use_api_key` | off | `PATCH /v1/config/users/{id}/api-key-permission` | Creating / using personal API keys; turning it off immediately invalidates existing keys |
-| `can_add_skill` | off | `PATCH /v1/config/users/{id}/skill-permission` | Self-service private skill upload / authoring in the capability center (`api/routes/v1/me_capabilities.py`) |
-| `can_add_mcp` | off | `PATCH /v1/config/users/{id}/mcp-permission` | Self-service private remote MCP servers (HTTP/SSE) |
+| `can_add_skill` | off | `PATCH /v1/config/users/{id}/skill-permission` | Self-service private skill upload / authoring in the capability center, plus submitting own skills to the skill market (`api/routes/v1/me_capabilities.py`) |
+| `can_install_market_skill` | off | `PATCH /v1/config/users/{id}/market-skill-permission` | Install skills from the skill market (including market imports in agent and Personal Agent settings); split from `can_add_skill`, existing settings were copied on upgrade (migration `ce_0047`) |
+| `can_add_mcp` | off | `PATCH /v1/config/users/{id}/mcp-permission` | Self-service private remote MCP servers (HTTP/SSE), plus submitting them to the MCP market |
+| `can_install_market_mcp` | off | `PATCH /v1/config/users/{id}/market-mcp-permission` | Install from the MCP market (including OAuth installs); split from `can_add_mcp`, existing settings were copied on upgrade |
+| `can_import_plugin` | off | `PATCH /v1/config/users/{id}/plugin-permission` | Import plugin packages in the capability center (native / Claude Code / Codex) |
+| `can_install_market_plugin` | off | `PATCH /v1/config/users/{id}/market-plugin-permission` | Install plugins from the plugin market (including market imports in agent, Personal Agent and project settings); split from `can_import_plugin`, existing settings were copied on upgrade (migration `ce_0047`) |
+| `can_add_agent` | off | `PATCH /v1/config/users/{id}/add-agent-permission` | Build and import own sub-agents, plus submitting them to the agent market |
+| `can_install_market_agent` | off | `PATCH /v1/config/users/{id}/market-agent-permission` | Install sub-agents from the agent market; split from `can_add_agent`, existing settings were copied on upgrade |
 | `lab_enabled` | **on** | `PATCH /v1/config/users/{id}/lab-permission` | Lab module entry and access |
+| `sites_enabled` | **on** | `PATCH /v1/config/users/{id}/sites-permission` | Sites entry, site management and publishing (public site addresses stay reachable); split from `lab_enabled`, existing lab settings were copied on upgrade |
 | `allowed_apps` | unrestricted | `PATCH /v1/config/users/{id}/app-permissions` | App visibility; `None` = all enabled apps, list = allowlist (empty list = block all) |
 | `role: super_admin` | none | (written directly into metadata) | Passes the `require_super_admin` dependency; bypasses team role checks |
 

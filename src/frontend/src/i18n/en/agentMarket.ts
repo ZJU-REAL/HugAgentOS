@@ -81,4 +81,9 @@ export const AGENT_MARKET_DICT: Record<string, string> = {
   '确认下架？': 'Confirm delist?',
   '下架后用户端市场不再展示，已安装的克隆不受影响。':
     'After delisting it no longer appears in the user marketplace; installed clones are unaffected.',
+  '重命名智能体': 'Rename agent',
+  '请检查网络后重试': 'Check your network and try again',
+  '已重命名为「{name}」': 'Renamed to "{name}"',
+  '重命名失败：{reason}': 'Could not rename: {reason}',
+  '管理员未开放自建智能体，只能开关或重命名，不能修改提示词和绑定。': 'Building agents is not enabled for you, so you can only turn this agent on or off and rename it, not change its prompt or bindings.',
 };
