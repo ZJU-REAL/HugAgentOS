@@ -207,3 +207,42 @@ def test_a_heartbeat_with_chat_changes_tells_the_owners_pages(factory, heard):
         heard.clear()
         devices.heartbeat(db, paired["id"], paired["token"], False, False, changed_chats=["c2"])
     assert not any(topic and topic.endswith(":c2") for pairs in heard for _user, topic in pairs)
+
+
+def test_channel_bot_changes_reach_the_bots_owner_but_hearing_a_message_does_not(factory, heard):
+    from datetime import datetime, timezone
+    from integrations.channels.models import ChannelConnection
+    with factory() as db:
+        bot = ChannelConnection(channel_id="ch_1", owner_user_id="u20", channel_type="slack", app_id="A1", config={})
+        db.add(bot)
+        db.commit()
+        assert heard == [{("u20", live.CHANNELS_TOPIC)}]
+        heard.clear()
+        bot.last_event_at = datetime.now(timezone.utc)
+        db.commit()
+        assert heard == []
+        bot.status, bot.last_error = "error", "token revoked"
+        db.commit()
+    assert heard == [{("u20", live.CHANNELS_TOPIC)}]
+
+
+def test_a_changed_cloud_screen_is_announced_and_its_thumbnail_kept(monkeypatch):
+    import base64, io
+    from PIL import Image
+    from personal_agent.computer import human_control
+
+    stored, told = {}, []
+
+    class State:
+        async def put(self, key, value, ttl=None): stored[key] = value
+        async def drop(self, *keys): [stored.pop(key, None) for key in keys]
+
+    monkeypatch.setattr(human_control, "get_ephemeral_state", lambda: State())
+    monkeypatch.setattr(live, "announce", lambda users, topics: told.append((set(users), list(topics))))
+    image = io.BytesIO()
+    Image.new("RGB", (800, 500), "white").save(image, format="PNG")
+    asyncio.run(human_control.screen_changed("pa_u21", "u21", base64.b64encode(image.getvalue()).decode()))
+    assert json.loads(stored["pa:preview:pa_u21"])["image"].startswith("data:image/jpeg;base64,")
+    asyncio.run(human_control.screen_changed("pa_u21", "u21"))
+    assert "pa:preview:pa_u21" not in stored
+    assert told == [({"u21"}, [live.COMPUTER_TOPIC])] * 2

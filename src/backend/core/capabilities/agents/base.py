@@ -21,6 +21,31 @@ def desktop_store() -> bool:
     return has_run_capabilities()
 
 
+# Without can_add_agent a user may still manage the agents they have (e.g. installed from the
+# agent market) but not author them: turning them on/off and renaming is all they can change.
+EDITABLE_WITHOUT_BUILD = frozenset({"is_enabled", "name"})
+
+
+def edit_needs_build_permission(db: Session, user_id: str, data: Dict[str, Any]) -> bool:
+    """True when ``data`` changes more than on/off and name and the user lacks can_add_agent."""
+    if not set(data) - EDITABLE_WITHOUT_BUILD:
+        return False
+    from core.auth.capabilities import resolve_user_capabilities
+
+    return not resolve_user_capabilities(db, str(user_id)).get("can_add_agent")
+
+
+def require_edit_permission(db: Session, user_id: str, data: Dict[str, Any]) -> None:
+    """Raise AccessDeniedError when ``data`` goes beyond on/off and name without can_add_agent."""
+    from core.infra.exceptions import AccessDeniedError
+
+    if edit_needs_build_permission(db, user_id, data):
+        raise AccessDeniedError(
+            message="管理员未开放自建子智能体功能：只能开关或重命名已有的子智能体",
+            reason="can_add_agent_disabled",
+        )
+
+
 class UserAgentBaseService:
     """Service for user agent CRUD and permission checks."""
 

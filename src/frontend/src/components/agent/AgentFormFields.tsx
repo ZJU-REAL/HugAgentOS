@@ -94,8 +94,8 @@ const SKILL_MARKETPLACE_FETCHERS: MarketplaceFetchers = {
 export function AgentFormFields({ availableResources }: AgentFormFieldsProps) {
   const form = Form.useFormInstance();
   const fetchAvailableResources = useAgentStore((state) => state.fetchAvailableResources);
-  const canAddSkill = useAuthStore((state) => state.authUser?.can_add_skill === true);
-  const canImportPlugin = useAuthStore((state) => state.authUser?.can_import_plugin === true);
+  const canInstallMarketSkill = useAuthStore((state) => state.authUser?.can_install_market_skill === true);
+  const canInstallMarketPlugin = useAuthStore((state) => state.authUser?.can_install_market_plugin === true);
   const [skillMarketOpen, setSkillMarketOpen] = useState(false);
   const [pluginMarketOpen, setPluginMarketOpen] = useState(false);
 
@@ -179,7 +179,7 @@ export function AgentFormFields({ availableResources }: AgentFormFieldsProps) {
       <Form.Item
         name="skill_ids"
         label={t('绑定技能')}
-        extra={canAddSkill ? (
+        extra={canInstallMarketSkill ? (
           <Button
             type="link"
             size="small"
@@ -205,7 +205,7 @@ export function AgentFormFields({ availableResources }: AgentFormFieldsProps) {
         name="plugin_ids"
         label={t('绑定插件')}
         tooltip={t('插件是「技能+工具」的能力包，绑定后其全部技能与工具一并对该智能体生效')}
-        extra={canImportPlugin ? (
+        extra={canInstallMarketPlugin ? (
           <Button
             type="link"
             size="small"

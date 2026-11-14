@@ -46,6 +46,8 @@ async def end(svc, token):
     if await state.get(session) == svc.user_id:
         await state.drop(session)
         await state.release(lease, token)
+        # The owner may have changed the screen while in control.
+        await screen_changed(agent.id, svc.user_id)
     return {"released": True}
 
 def thumbnail(image_base64):
@@ -56,11 +58,33 @@ def thumbnail(image_base64):
     image.save(data, format="JPEG", quality=70)
     return "data:image/jpeg;base64," + base64.b64encode(data.getvalue()).decode()
 
+def _preview_key(agent_id):
+    return "pa:preview:" + agent_id
+
+
+async def screen_changed(agent_id, user_id, image_base64=None):
+    """The cloud screen changed: keep the screen the change left behind as the thumbnail, or drop
+    the stale one, and tell the owner's open pages. Pages fetch the thumbnail on this signal
+    instead of on a timer, so an idle computer is never photographed. Never fails the caller."""
+    from core.infra.logging import get_logger
+    from personal_agent.conversation.live import COMPUTER_TOPIC, announce
+    try:
+        state = get_ephemeral_state()
+        if image_base64:
+            result = {"image": await asyncio.to_thread(thumbnail, image_base64), "taken_at": time.time()}
+            await state.put(_preview_key(agent_id), json.dumps(result), ttl=PREVIEW_TTL)
+        else:
+            await state.drop(_preview_key(agent_id))
+        announce([user_id], [COMPUTER_TOPIC])
+    except Exception as exc:  # noqa: BLE001 - a missed thumbnail must not fail the action
+        get_logger(__name__).warning("pa_preview_refresh_failed", error=type(exc).__name__)
+
+
 async def preview(svc):
     """A cached thumbnail. Read-only: it never takes the desktop lease, so the agent keeps working."""
     agent = owner(svc)
     state = get_ephemeral_state()
-    key = "pa:preview:" + agent.id
+    key = _preview_key(agent.id)
     cached = await state.get(key)
     if cached: return json.loads(cached)
     frame = await cloud_driver({"box": agent.sandbox_session_id}, svc.user_id, {"type": "observe"})

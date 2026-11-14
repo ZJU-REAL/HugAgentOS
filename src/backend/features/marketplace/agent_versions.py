@@ -4,7 +4,6 @@ from __future__ import annotations
 import features.marketplace.agent_catalog as market_owner_agent_catalog
 import features.marketplace.agent_installation as market_owner_agent_installation
 from features.marketplace.agents_state import MAX_DESC as _MAX_DESC
-import features.marketplace.skill_metadata as market_owner_skill_metadata
 import logging
 logger = logging.getLogger(__name__)
 
@@ -32,107 +31,6 @@ def _resolve_market_entry(db, slug):
     return json.loads(store.decode(snapshot)["agent.json"]) if snapshot else native
 
 
-def _resolve_bindings(
-    db: Session,
-    bindings: Dict[str, List[str]],
-    owner_user_id: Optional[str],
-    operator_name: Optional[str],
-) -> tuple[Dict[str, List[str]], Dict[str, List[str]]]:
-    """Resolve each marketplace binding id into the installer's scope; returns (final bindings, report).
-
-    - MCP / default skills / accessible KBs: bind directly if within ``available-resources``;
-    - marketplace skill slugs: if not in the available list, install as the installer's private skill and bind the returned id;
-    - plugin slugs: bind if already installed, otherwise install as private and then bind;
-    - unresolvable items go into ``dropped``; auto-installed skills/plugins requiring credentials go into ``needs_secret``.
-    """
-    from core.capabilities.catalog.api import get_enabled_ids
-    from core.capabilities.plugins import management as plugin_service
-    from features.marketplace import skill_versions as mk
-    from core.capabilities.agents.edition import UserAgentService
-
-    avail = UserAgentService(db).list_available_resources(owner_user_id=owner_user_id)
-    avail_skill = {s["id"] for s in avail.get("skills", [])}
-    # available-resources only lists AdminMcpServer rows; but built-in MCP tools (e.g.
-    # database_query) are catalog-defined and loaded at runtime by catalog id,
-    # and don't necessarily have a same-named AdminMcpServer row. Merge the catalog-enabled
-    # built-in MCP ids into the "resolvable" set, so these legitimate built-in tools aren't
-    # misjudged as "unresolvable" and dropped (once bound, the runtime connects on demand).
-    avail_mcp = {s["id"] for s in avail.get("mcp_servers", [])} | set(get_enabled_ids("mcp"))
-    avail_plugin = {p["id"] for p in avail.get("plugins", [])}
-    avail_kb = {k["id"] for k in avail.get("kb_spaces", [])}
-
-    final: Dict[str, List[str]] = {
-        "skill_ids": [],
-        "mcp_server_ids": [],
-        "plugin_ids": [],
-        "kb_ids": [],
-    }
-    report: Dict[str, List[str]] = {
-        "bound": [],
-        "installed": [],
-        "dropped": [],
-        "needs_secret": [],
-    }
-
-    # MCP tools
-    for mid in bindings.get("mcp_server_ids", []):
-        if mid in avail_mcp:
-            final["mcp_server_ids"].append(mid)
-            report["bound"].append(f"mcp:{mid}")
-        else:
-            report["dropped"].append(f"mcp:{mid}")
-
-    # Skills (default skills bind directly; marketplace skills get auto-installed as private)
-    for sid in bindings.get("skill_ids", []):
-        if sid in avail_skill:
-            final["skill_ids"].append(sid)
-            report["bound"].append(f"skill:{sid}")
-            continue
-        try:
-            res = mk.install_marketplace_skill(db, sid, owner_user_id=owner_user_id, secrets={})
-            final["skill_ids"].append(res["id"])
-            report["installed"].append(f"skill:{sid}")
-            if market_owner_skill_metadata.market_skill_requires_secrets(sid):
-                report["needs_secret"].append(f"skill:{sid}")
-        except Exception as exc:  # noqa: BLE001
-            logger.info("agent clone: skill binding unresolved %s (%s)", sid, exc)
-            report["dropped"].append(f"skill:{sid}")
-
-    # Plugins (bindings store the slug; bind the install_id if installed, otherwise auto-install)
-    for pslug in bindings.get("plugin_ids", []):
-        gid = f"{pslug}@global"
-        match = (
-            gid
-            if gid in avail_plugin
-            else next((p for p in avail_plugin if p.startswith(f"{pslug}@")), None)
-        )
-        if match:
-            final["plugin_ids"].append(match)
-            report["bound"].append(f"plugin:{pslug}")
-            continue
-        try:
-            res = plugin_service.install_plugin(
-                db, pslug, owner_user_id=owner_user_id, secrets={}, created_by=operator_name
-            )
-            final["plugin_ids"].append(res["install_id"])
-            report["installed"].append(f"plugin:{pslug}")
-            if res.get("required_secrets") or res.get("requires_secret"):
-                report["needs_secret"].append(f"plugin:{pslug}")
-        except Exception as exc:  # noqa: BLE001
-            logger.info("agent clone: plugin binding unresolved %s (%s)", pslug, exc)
-            report["dropped"].append(f"plugin:{pslug}")
-
-    # Knowledge bases (keep only those the installer can access)
-    for kid in bindings.get("kb_ids", []):
-        if kid in avail_kb:
-            final["kb_ids"].append(kid)
-            report["bound"].append(f"kb:{kid}")
-        else:
-            report["dropped"].append(f"kb:{kid}")
-
-    return final, report
-
-
 def install_marketplace_agent(
     db: Session,
     slug: str,
@@ -144,7 +42,12 @@ def install_marketplace_agent(
     from core.capabilities.agents.edition import UserAgentService
 
     entry = _resolve_market_entry(db, slug)
-    final_bindings, report = _resolve_bindings(db, entry["bindings"], owner_user_id, operator_name)
+    from features.marketplace import skill_versions
+
+    final_bindings, report = market_owner_agent_installation.resolve_bindings(
+        db, entry["bindings"], owner_user_id, operator_name,
+        install_skill=skill_versions.install_marketplace_skill,
+    )
 
     mc = entry.get("model_config") or {}
     data: Dict[str, Any] = {

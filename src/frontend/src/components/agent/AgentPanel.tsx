@@ -55,9 +55,10 @@ export function AgentPanel() {
   const { setCurrentChatId, updateStore } = useChatStore();
   const { authUser } = useAuthStore();
   const channelBotEnabled = authUser?.can_create_channel_bot === true;
-  // Permission to self-create/install sub-agents (backend can_add_agent gates creation/market install/listing application).
-  // When off, hide the "add sub-agent" entry; viewing and editing existing sub-agents is unaffected.
+  // can_add_agent gates creating, importing and submitting for listing; can_install_market_agent gates market installs.
+  // With neither, the "add sub-agent" entry is hidden; viewing and editing existing sub-agents is unaffected.
   const canAddAgent = authUser?.can_add_agent === true;
+  const canInstallMarketAgent = authUser?.can_install_market_agent === true;
   const { title: agentsTitle, subtitle: agentsSubtitle } = usePanelHeader('agents', {
     title: ABILITY_TAB_TITLE.agents,
     subtitle: '选择与启用智能体，并查看其职责边界与路由提示',
@@ -316,7 +317,7 @@ export function AgentPanel() {
             allowClear
             className="jx-agentPage-search"
           />
-          {canAddAgent && (
+          {(canAddAgent || canInstallMarketAgent) && (
             <>
               <input
                 ref={importInputRef}
@@ -332,10 +333,10 @@ export function AgentPanel() {
               <Dropdown
                 menu={{
                   items: [
-                    { key: 'create', icon: <PlusOutlined />, label: t('创建智能体'), onClick: () => setFormPageAgent(null) },
-                    { key: 'market', icon: <AppstoreAddOutlined />, label: t('从智能体市场获取'), onClick: () => setMarketOpen(true) },
-                    { key: 'import', icon: <ImportOutlined />, label: t('导入智能体'), onClick: () => importInputRef.current?.click() },
-                    { key: 'mysubs', icon: <UploadOutlined />, label: t('我的上架申请'), onClick: openMySubs },
+                    canAddAgent ? { key: 'create', icon: <PlusOutlined />, label: t('创建智能体'), onClick: () => setFormPageAgent(null) } : null,
+                    canInstallMarketAgent ? { key: 'market', icon: <AppstoreAddOutlined />, label: t('从智能体市场获取'), onClick: () => setMarketOpen(true) } : null,
+                    canAddAgent ? { key: 'import', icon: <ImportOutlined />, label: t('导入智能体'), onClick: () => importInputRef.current?.click() } : null,
+                    canAddAgent ? { key: 'mysubs', icon: <UploadOutlined />, label: t('我的上架申请'), onClick: openMySubs } : null,
                   ],
                 }}
               >
@@ -385,9 +386,12 @@ export function AgentPanel() {
                         onChange={(v) => void handleToggleEnabled(agent, v)}
                         actions={canEdit && (
                           <>
-                            <Tooltip title={t('编辑')}>
-                              <button onClick={() => setFormPageAgent(agent)}><EditOutlined /></button>
-                            </Tooltip>
+                            {/* Without the build permission, renaming lives on the detail page; the full editor is hidden. */}
+                            {canAddAgent && (
+                              <Tooltip title={t('编辑')}>
+                                <button onClick={() => setFormPageAgent(agent)}><EditOutlined /></button>
+                              </Tooltip>
+                            )}
                             <Tooltip title={t('删除')}>
                               <button className="danger" onClick={(e) => handleDelete(agent, e)}>
                                 <DeleteOutlined />

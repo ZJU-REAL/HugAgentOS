@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 def _require_can_add_agent(user_id: str, db: Session) -> None:
     if not resolve_user_capabilities(db, user_id)["can_add_agent"]:
         raise AccessDeniedError(
-            message="管理员未开放自建/安装子智能体功能",
+            message="管理员未开放自建子智能体功能",
             reason="can_add_agent_disabled",
         )
 
@@ -241,6 +241,10 @@ def update_agent(
     projected = device_catalog.toggle_projected_agent(agent_id, data)
     if projected is not None:
         return success_response(data=projected)
+
+    from core.capabilities.agents.base import require_edit_permission
+
+    require_edit_permission(db, user.user_id, data)
 
     try:
         agent = UserAgentService(db).update(

@@ -488,6 +488,7 @@ export const CATALOG_DICT: Record<string, string> = {
   '从插件市场获取': 'Get from plugin marketplace',
   '从插件市场安装': 'Install from plugin marketplace',
   '导入插件包（zip）': 'Import plugin package (zip)',
+  '还没有安装插件，点击右上角「添加插件」导入插件包': 'No plugins installed yet — click "Add plugin" at the top right to import a plugin package',
   '还没有安装插件，点击右上角「添加插件」从插件市场获取': 'No plugins installed yet — click "Add plugin" at the top right to get them from the marketplace',
   '还没有可用插件': 'No plugins available yet',
   '管理员全局安装': 'Installed globally by admin',

@@ -82,16 +82,25 @@ def resolve_bindings(
     bindings: Dict[str, List[str]],
     owner_user_id: Optional[str],
     operator_name: Optional[str],
+    install_skill=None,
 ) -> tuple[Dict[str, List[str]], Dict[str, List[str]]]:
     """Resolve each marketplace binding id into the installer's scope; returns (final bindings, report).
 
     - MCP / default skills / accessible KBs: bind directly if within ``available-resources``;
     - marketplace skill slugs: if not in the available list, install as the installer's private skill and bind the returned id;
     - plugin slugs: bind if already installed, otherwise install as private and then bind;
-    - unresolvable items go into ``dropped``; auto-installed skills/plugins requiring credentials go into ``needs_secret``.
+    - unresolvable items go into ``dropped``; auto-installed skills/plugins requiring credentials go into ``needs_secret``;
+    - a bound market skill / plugin is installed only if the installer could install it directly
+      (that kind's market bit and its visibility); otherwise it is dropped.
+
+    ``install_skill`` defaults to the native market installer; the versioned market passes its own.
     """
     from core.capabilities.catalog.api import get_enabled_ids
     from core.capabilities.plugins import management as plugin_service
+    from features.marketplace.install_permission import market_install_gate
+
+    install_skill = install_skill or skill_installation.install_marketplace_skill
+    may_install = market_install_gate(db, owner_user_id)
 
     from core.capabilities.agents.edition import UserAgentService
 
@@ -133,8 +142,11 @@ def resolve_bindings(
             final["skill_ids"].append(sid)
             report["bound"].append(f"skill:{sid}")
             continue
+        if not may_install("skill", sid):
+            report["dropped"].append(f"skill:{sid}")
+            continue
         try:
-            res = skill_installation.install_marketplace_skill(db, sid, owner_user_id=owner_user_id, secrets={})
+            res = install_skill(db, sid, owner_user_id=owner_user_id, secrets={})
             final["skill_ids"].append(res["id"])
             report["installed"].append(f"skill:{sid}")
             if skill_metadata.market_skill_requires_secrets(sid):
@@ -154,6 +166,9 @@ def resolve_bindings(
         if match:
             final["plugin_ids"].append(match)
             report["bound"].append(f"plugin:{pslug}")
+            continue
+        if not may_install("plugin", pslug):
+            report["dropped"].append(f"plugin:{pslug}")
             continue
         try:
             res = plugin_service.install_plugin(

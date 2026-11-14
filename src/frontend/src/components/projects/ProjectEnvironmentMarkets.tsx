@@ -10,13 +10,14 @@ import { AgentMarketplaceModal } from '../agent/AgentMarketplaceModal';
 import { useAuthStore } from '../../stores';
 import type { EnvironmentField } from '../../api/projectEnvironment';
 import { t } from '../../i18n';
+import { canInstallFromMarket } from '../../utils/marketPermission';
 
 export default function ProjectEnvironmentMarkets({ kind, onClose, onInstalled }: {
   kind: EnvironmentField | null;
   onClose: () => void;
   onInstalled: (field: EnvironmentField, id?: string) => void;
 }) {
-  const canAddMcp = useAuthStore(s => s.authUser?.can_add_mcp === true);
+  const canInstallMarketMcp = useAuthStore(s => canInstallFromMarket(s.authUser, 'mcp_ids'));
   const skills = useMemo(() => ({
     loadList: getMarketplaceSkills, loadDetail: getMarketplaceSkillDetail,
     install: installMarketplaceSkill,
@@ -35,6 +36,6 @@ export default function ProjectEnvironmentMarkets({ kind, onClose, onInstalled }
     {kind === 'agent_ids' && <AgentMarketplaceModal open onClose={onClose}
       fetchers={agents} scopeLabel={label} onInstalled={() => onInstalled('agent_ids')} />}
     {kind === 'mcp_ids' && <McpMarketplaceModal open onClose={onClose}
-      canInstall={canAddMcp} onInstalled={() => onInstalled('mcp_ids')} />}
+      canInstall={canInstallMarketMcp} onInstalled={() => onInstalled('mcp_ids')} />}
   </>;
 }

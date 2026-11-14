@@ -8,6 +8,10 @@ import { personalApi, errorText, type ChannelType, type PersonalChannel, type Pe
 import { t } from '../../../i18n';
 import { CHANNELS } from './channelMeta';
 import { ChannelAllowed } from './ChannelAllowed';
+import { subscribePersonalChanges } from '../shared/liveFeed';
+
+/** The change-feed topic for the owner's channel bots (personal_agent/conversation/live.py). */
+const CHANNELS_TOPIC = 'channels';
 
 export function ChannelMark({ type, size = 20 }: { type?: ChannelType; size?: number }) {
   const meta = CHANNELS.find(item => item.type === type) || CHANNELS[0];
@@ -67,21 +71,21 @@ export function ChannelEntry({ agentName, conversations = [], selectedChatId, on
     } catch (exc) { if (current === revision.current) setCheckError(errorText(exc)); }
     finally { if (current === revision.current) setChecking(false); }
   }, []);
+  // While the dialog is open: each bot's connection is checked with its IM platform when the dialog opens and when
+  // the page is shown again; in between, the change feed says when a bot or its routing changed. Nothing polls.
   useEffect(() => {
     if (!open) return;
-    let active = true;
-    let timer: ReturnType<typeof setTimeout>;
-    let lastCheck = 0;
-    const poll = async () => {
-      const validate = Date.now() - lastCheck >= 30000;
-      if (validate) lastCheck = Date.now();
-      await refresh(validate);
-      if (active) timer = setTimeout(() => void poll(), 5000);
-    };
-    void poll();
-    const focus = () => { if (document.visibilityState === 'visible') lastCheck = 0; };
-    document.addEventListener('visibilitychange', focus);
-    return () => { active = false; clearTimeout(timer); revision.current += 1; document.removeEventListener('visibilitychange', focus); };
+    // One read at a time, in order: a later read would otherwise discard a platform check still in flight.
+    let chain = refresh(true);
+    const next = (validate: boolean) => { chain = chain.then(() => refresh(validate)); };
+    const unsubscribe = subscribePersonalChanges(signal => {
+      // A bot's own row carries the channels topic; routing and allowed accounts live in the agent's settings,
+      // which change without a topic.
+      if (signal.type === 'ready' || (signal.type === 'changed' && (!signal.topics.length || signal.topics.includes(CHANNELS_TOPIC)))) next(false);
+    });
+    const shown = () => { if (document.visibilityState === 'visible') next(true); };
+    document.addEventListener('visibilitychange', shown);
+    return () => { unsubscribe(); revision.current += 1; document.removeEventListener('visibilitychange', shown); };
   }, [open, refresh]);
   async function bound(id: string) {
     await personalApi.routeChannel(id, true);
