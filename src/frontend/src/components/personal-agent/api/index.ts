@@ -9,7 +9,7 @@ import type { ArtifactRef } from '../../chat/DeliveredFiles';
 export interface ApprovalDetail { target?: string | null; place?: string | null; chat_title?: string | null; lines?: string[]; body?: string }
 /** proactive: a proactive run started the task; its actions are approved one by one, never for the whole task. */
 export interface PersonalTask { id: string; chat_id?: string; goal: string; title?: string; progress?: string | null; status: string; run_id?: string | null; waiting_reason?: string; result?: string; uncertain_actions?: string[]; proactive?: boolean; pending_approval?: { id: string; action: Record<string, unknown>; at?: number | string | null; detail?: ApprovalDetail | null }; question?: string | null; outcome?: string | null; updated_at?: string }
-export interface PersonalMessage { id: string; seq: number; role: 'user' | 'assistant'; content: string; origin?: string; channel_type?: ChannelType; work_item_id?: string; work_item_ids: string[]; task_links: { work_item_id: string; relation: string }[]; attachments?: { id: string; name: string; url: string }[]; artifacts?: ArtifactRef[]; reply_to?: string | null; streaming?: boolean; activity?: string | null; heartbeat?: boolean }
+export interface PersonalMessage { id: string; seq: number; role: 'user' | 'assistant'; content: string; origin?: string; channel_type?: ChannelType; work_item_id?: string; work_item_ids: string[]; task_links: { work_item_id: string; relation: string }[]; attachments?: { id: string; name: string; url: string }[]; artifacts?: ArtifactRef[]; reply_to?: string | null; streaming?: boolean; activity?: string | null; heartbeat?: boolean; schedule_title?: string | null }
 export interface PersonalAgent { id: string; chat_id: string; status: string; computer_status: string; generation: number; config: { capability_selection?: CapabilitySelection; capability_sync?: CapabilitySync; concurrency: number; email_enabled: boolean; model_provider_id?: string | null; thinking_effort?: 'fast' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'; timezone?: string; name?: string; avatar?: string; channel_ids?: string[]; approval_mode?: ApprovalMode } }
 /** The owner's chosen skills, tools and plugins. The server drops what the owner may no longer use. */
 export interface CapabilitySelection { skill_ids: string[]; mcp_ids: string[]; plugin_ids: string[] }
@@ -154,7 +154,8 @@ async function localRequest<T>(path: string, options?: RequestInit): Promise<T> 
 }
 const linkBase = '/v1/device-link';
 export const deviceLinkApi = {
-  status: () => localRequest<DeviceLinkStatus>(linkBase),
+  /** `fresh` probes the system permissions again instead of reusing a recent probe. */
+  status: (fresh = false) => localRequest<DeviceLinkStatus>(linkBase + (fresh ? '?fresh=true' : '')),
   link: (body: DeviceLink & { token: string }) => localRequest<DeviceLinkStatus>(linkBase, { method: 'PUT', body: JSON.stringify(body) }),
   consent: (body: DeviceConsent) => localRequest<DeviceLinkStatus>(linkBase, { method: 'PATCH', body: JSON.stringify(body) }),
   unlink: () => localRequest<DeviceLinkStatus>(linkBase, { method: 'DELETE' }),

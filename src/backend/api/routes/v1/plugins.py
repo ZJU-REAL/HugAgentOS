@@ -13,10 +13,11 @@ DELETE /v1/plugins/installed/{id}           uninstall
 PATCH  /v1/plugins/installed/{id}/enable    overall on/off switch
 PATCH  /v1/plugins/installed/{id}/meta      edit my imported plugin's display metadata (name/category/icon)
 
-Permissions: browsing/viewing details is open to all logged-in users; **both installing from the
-marketplace and importing a zip require ``can_import_plugin``** (same as the skill marketplace's
-``can_add_skill``, granted per user via the Config backend "User Management -> Permission Config",
-off by default). Admin global install goes through ``admin_plugins``. Installed/imported components
+Permissions: browsing/viewing details is open to all logged-in users; **installing from the
+marketplace requires ``can_install_market_plugin`` and importing a zip requires
+``can_import_plugin``** (same split as skills: ``can_install_market_skill`` / ``can_add_skill``;
+granted per user, team or role in the Config backend, off by default). Uninstalling your own
+plugin needs neither. Admin global install goes through ``admin_plugins``. Installed/imported components
 automatically appear in the "mine" section of ``/v1/catalog`` and are registered to the agent
 (owned private items, effective once is_enabled=True).
 
@@ -37,7 +38,7 @@ from sqlalchemy.orm import Session
 
 from api.deps import require_system_settings
 from core.auth.backend import UserContext, get_current_user
-from core.auth.capabilities import resolve_user_capabilities
+from core.auth.capabilities import can_manage_owned, require_capability, resolve_user_capabilities
 from core.db.engine import get_db
 from core.infra.exceptions import AccessDeniedError, BadRequestError, ResourceNotFoundError
 from core.infra.responses import created_response, success_response
@@ -61,11 +62,21 @@ def _parse_secrets(secrets: Optional[str]) -> Dict[str, str]:
 
 
 def _require_can_import_plugin(user_id: str, db: Session) -> None:
-    """Plugin install/import permission: personal explicit (user management) -> team default (team management) -> off by default."""
+    """Plugin package import permission: personal explicit -> role -> team default -> off by default."""
     if not resolve_user_capabilities(db, user_id)["can_import_plugin"]:
         raise AccessDeniedError(
-            message="管理员未开放插件安装/导入功能", reason="can_import_plugin_disabled"
+            message="管理员未开放导入插件包功能", reason="can_import_plugin_disabled"
         )
+
+
+def _require_can_install_market_plugin(user_id: str, db: Session) -> None:
+    require_capability(db, user_id, "can_install_market_plugin", "管理员未开放从插件市场安装功能")
+
+
+def _require_plugin_manage(user_id: str, db: Session) -> None:
+    """Managing a plugin you already have (e.g. accepting its upgrade): either plugin bit is enough."""
+    if not can_manage_owned(resolve_user_capabilities(db, user_id), "plugin"):
+        raise AccessDeniedError(message="管理员未开放插件安装/导入功能", reason="plugin_manage_disabled")
 
 
 @router.get("", summary="内置插件包列表")
@@ -160,14 +171,12 @@ def install_plugin(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # Both installing from and importing into the plugin marketplace require can_import_plugin
-    # (same as the skill marketplace's can_add_skill); granted per user via the Config backend
-    # "User Management -> Permission Config". Admin global install goes through admin_plugins.
+    # Admin global install goes through admin_plugins.
     if has_run_capabilities():
         from features.desktop.local.market_install import install_plugin as install_local
 
         return created_response(data=install_local(db, str(user.user_id), slug, body.secrets))
-    _require_can_import_plugin(str(user.user_id), db)
+    _require_can_install_market_plugin(str(user.user_id), db)
     ml.ensure_item_visible(db, ml.KIND_PLUGIN, slug, str(user.user_id), resource="plugin")
     result = ps.install_plugin(
         db,

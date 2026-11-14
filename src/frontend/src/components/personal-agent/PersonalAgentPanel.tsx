@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Button, Input } from 'antd';
-import { ArrowUpOutlined, CloseOutlined, HeartOutlined, PlusOutlined, SearchOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { ArrowUpOutlined, ClockCircleOutlined, CloseOutlined, HeartOutlined, PlusOutlined, SearchOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { uploadFile } from '../../api';
 import { PersonalSettings } from './settings/PersonalSettings';
 import { AttentionBar } from './tasks/AttentionBar';
@@ -107,8 +107,12 @@ function ConversationPanel({ chatId, onSelectChat, savedDraft, saveDraft }: { ch
     finally { setUploading(false); if (fileInput.current) fileInput.current.value = ''; }
   }
   function author(row: PersonalMessage) {
-    if (row.role === 'assistant') return row.heartbeat ? <span className="pa-message-author"><HeartOutlined aria-hidden="true" />{t('主动服务')}</span> : null;
-    if (row.origin === 'schedule') return <span className="pa-message-author">{t('定时任务')}</span>;
+    if (row.role === 'assistant') {
+      if (row.heartbeat) return <span className="pa-message-author"><HeartOutlined aria-hidden="true" />{t('主动服务')}</span>;
+      // A schedule's own instruction is not shown; its result says which schedule it came from.
+      if (row.schedule_title != null) return <span className="pa-message-author"><ClockCircleOutlined aria-hidden="true" />{row.schedule_title ? t('定时任务：{title}', { title: row.schedule_title }) : t('定时任务')}</span>;
+      return null;
+    }
     const channel = CHANNELS.find(item => item.type === row.channel_type);
     // Your own messages sit on the right without a name; only an outside channel is labelled.
     return channel ? <span className="pa-message-author"><span className="pa-message-source"><ChannelMark type={channel.type} size={16} />{t('来自{channel}', { channel: t(channel.label) })}</span></span> : null;

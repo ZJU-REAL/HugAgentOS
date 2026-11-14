@@ -85,6 +85,7 @@ def candidates(query):
 
 def search(svc, query):
     """Messages and tasks that a pasted IM link, a message ID or a piece of text points at."""
+    from personal_agent.conversation.service import shown_in_chat
     query = (query or "").strip()[:500]
     agent = svc.identity.agent()
     if agent is None or not query: return {"messages": [], "tasks": []}
@@ -92,7 +93,7 @@ def search(svc, query):
     origin_id = ChatMessage.extra_data["channel_origin"]["msg"]["message_id"].as_string()
     sent_id = ChatMessage.extra_data["channel_delivery"]["message_id"].as_string()
     rows = svc.db.scalars(select(ChatMessage).where(ChatMessage.chat_id.in_(chats),
-        ChatMessage.role.in_(["user", "assistant"]),
+        ChatMessage.role.in_(["user", "assistant"]), shown_in_chat(),
         or_(ChatMessage.message_id.in_(ids), origin_id.in_(ids), sent_id.in_(ids)))
         .order_by(ChatMessage.created_at.desc()).limit(20)).all()
     if not rows:
@@ -102,7 +103,7 @@ def search(svc, query):
     if not rows and len(query) >= 2:
         pattern = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
         rows = svc.db.scalars(select(ChatMessage).where(ChatMessage.chat_id.in_(chats),
-            ChatMessage.role.in_(["user", "assistant"]), ChatMessage.content.ilike(pattern, escape="\\"))
+            ChatMessage.role.in_(["user", "assistant"]), shown_in_chat(), ChatMessage.content.ilike(pattern, escape="\\"))
             .order_by(ChatMessage.created_at.desc()).limit(20)).all()
     links = {}
     for message_id, task_id in svc.db.execute(select(PersonalMessageTask.message_id, PersonalMessageTask.work_item_id)

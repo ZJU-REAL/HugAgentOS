@@ -101,10 +101,11 @@ def listing(svc):
         ChatSession.user_id == svc.user_id, ChatSession.deleted_at.is_(None),
         ChatSession.extra_data[MARKER].as_string() == agent.id)
         .order_by(ChatSession.last_message_at.desc().nullslast(), ChatSession.created_at.desc())).all()
+    from personal_agent.conversation.service import shown_in_chat
     result = []
     for session in sessions:
         last = svc.db.scalar(select(ChatMessage).where(ChatMessage.chat_id == session.chat_id,
-            ChatMessage.role.in_(["user", "assistant"])).order_by(ChatMessage.chat_seq.desc()).limit(1))
+            ChatMessage.role.in_(["user", "assistant"]), shown_in_chat()).order_by(ChatMessage.chat_seq.desc()).limit(1))
         conn = svc.db.get(ChannelConnection, session.channel_id)
         result.append({"chat_id": session.chat_id, "title": session.title,
             "channel_id": session.channel_id, "channel_type": (session.extra_data or {}).get("channel_type"),

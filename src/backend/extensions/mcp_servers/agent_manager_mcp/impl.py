@@ -236,7 +236,7 @@ def install_market_agent(*, user_id: str, slug: str) -> Dict[str, Any]:
 
 
     with SessionLocal() as db:
-        cap_err = _require_cap(db, user_id, "can_add_agent")
+        cap_err = _require_cap(db, user_id, "can_install_market_agent")
         if cap_err:
             return cap_err
         # 可见范围守卫：对该用户不可见的 scoped 条目按不存在处理（与用户端安装接口一致）。
@@ -497,9 +497,14 @@ def edit_agent(
     from core.db.engine import SessionLocal
 
     with SessionLocal() as db:
-        cap_err = _require_cap(db, user_id, "can_add_agent")
-        if cap_err:
-            return cap_err
+        # 与网页端一致：没有 can_add_agent 也能开关、改名自己的子智能体（如从市场装来的），其余字段要自建权限。
+        from core.capabilities.agents.base import edit_needs_build_permission
+
+        if edit_needs_build_permission(db, user_id, data):
+            return {
+                "ok": False,
+                "message": "❌ 管理员未开放该能力（can_add_agent），只能开关或重命名已有的子智能体，不能改提示词、简介和绑定。",
+            }
         hit, cands = _resolve_agent(db, user_id, agent_ref)
         if hit is None and cands:
             return _need_clarify(cands)
@@ -536,9 +541,14 @@ def delete_agent(*, user_id: str, agent_ref: str) -> Dict[str, Any]:
     from core.db.engine import SessionLocal
 
     with SessionLocal() as db:
-        cap_err = _require_cap(db, user_id, "can_add_agent")
-        if cap_err:
-            return cap_err
+        # 删除自己的子智能体：从市场装过也够，与网页端删除一致（网页端删除不校验能力位）。
+        from core.auth.capabilities import can_manage_owned, resolve_user_capabilities
+
+        if not can_manage_owned(resolve_user_capabilities(db, user_id), "agent"):
+            return {
+                "ok": False,
+                "message": "❌ 管理员未开放该能力（can_add_agent / can_install_market_agent），无法删除。请联系管理员在权限设置里开启。",
+            }
         hit, cands = _resolve_agent(db, user_id, agent_ref)
         if hit is None and cands:
             return _need_clarify(cands)

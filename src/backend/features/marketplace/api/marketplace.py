@@ -8,7 +8,8 @@ POST   /v1/marketplace/submissions         submit your own private skill to the 
 GET    /v1/marketplace/submissions         my submission list
 DELETE /v1/marketplace/submissions/{id}    withdraw a submission (pending/rejected can be withdrawn)
 
-Permissions: install / submit requires the ``can_add_skill`` switch (same as self-service skills in the capability center).
+Permissions: install requires ``can_install_market_skill``; submitting your own skill requires ``can_add_skill``
+(same switch as uploading private skills in the capability center).
 Once installed, the skill automatically appears in the "Mine" section of ``/v1/catalog`` and is registered with the
 agent -- no extra catalog operation needed.
 """
@@ -30,7 +31,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from core.auth.backend import get_current_user, UserContext
-from core.auth.capabilities import resolve_user_capabilities
+from core.auth.capabilities import require_capability, resolve_user_capabilities
 from core.db.engine import get_db
 from core.infra.responses import created_response, success_response
 from features.marketplace import skill_versions as mk
@@ -42,9 +43,13 @@ logger = logging.getLogger(__name__)
 
 
 def _require_can_add_skill(user_id: str, db: Session) -> None:
-    # personal explicit (user management) -> team default (team management) -> off by default
+    # personal explicit (user management) -> role -> team default -> off by default
     if not resolve_user_capabilities(db, user_id)["can_add_skill"]:
         raise AccessDeniedError(message="管理员未开放自助添加技能功能", reason="can_add_skill_disabled")
+
+
+def _require_can_install_market_skill(user_id: str, db: Session) -> None:
+    require_capability(db, user_id, "can_install_market_skill", "管理员未开放从技能市场安装功能")
 
 
 @router.get("/skills", summary="技能市场列表")
@@ -91,14 +96,14 @@ def install_skill(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """把市场技能安装为「仅自己可见可用」的私有技能。需 ``can_add_skill`` 权限。
+    """把市场技能安装为「仅自己可见可用」的私有技能。需 ``can_install_market_skill`` 权限。
 
     市场技能由管理员策划（预置 / 管理员上传上架），其依赖由**管理员侧统一管理**——安装后
     该私有技能已 ``is_enabled=True``，会被依赖聚合器纳入沙盒清单，管理员重建沙盒即装齐。
     因此**不再对用户做逐人依赖门控**（不创建「等待管理员安装依赖」请求、不软禁用），用户
     安装即直接可用。只有用户**自助上传**的外部技能才可能触发依赖检查。
     """
-    _require_can_add_skill(str(user.user_id), db)
+    _require_can_install_market_skill(str(user.user_id), db)
     ml.ensure_item_visible(db, ml.KIND_SKILL, body.slug, str(user.user_id), resource="marketplace_skill")
     result = mk.install_marketplace_skill(
         db, body.slug, owner_user_id=str(user.user_id), secrets=body.secrets

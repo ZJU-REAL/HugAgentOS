@@ -291,6 +291,7 @@ class ChatModeService:
             logger.debug("[chat_mode] 子智能体清单读取失败", exc_info=True)
 
         market_skills, market_agents, market_plugins = self._market_options(
+            owner_user_id,
             installed_skill_ids, {a["id"] for a in agents}
         )
 
@@ -317,8 +318,33 @@ class ChatModeService:
             "market_plugins": market_plugins,
         }
 
+    def _market_gate(self, owner_user_id: Optional[str]):
+        """Return ``allowed(kind, slug)`` for market items a private mode may install.
+
+        Official modes (``owner_user_id`` None) are configured by administrators and may use
+        every market item. Private modes install into the owner's account, so they follow
+        the same rules as the capability center: the per-kind permission bit and the
+        item's visibility scope.
+        """
+        from features.marketplace.install_permission import market_install_gate
+
+        try:
+            gate = market_install_gate(self.db, owner_user_id)
+        except Exception:  # noqa: BLE001
+            logger.warning("[chat_mode] 市场权限读取失败，私有模式不提供市场项", exc_info=True)
+            return lambda kind, slug: False
+
+        def allowed(kind: str, slug: str) -> bool:
+            # The market is optional here: a failed visibility read hides the item, never breaks the page.
+            try:
+                return gate(kind, slug)
+            except Exception:  # noqa: BLE001
+                return False
+
+        return allowed
+
     def _market_options(
-        self, installed_skill_ids: set, installed_agent_ids: set
+        self, owner_user_id: Optional[str], installed_skill_ids: set, installed_agent_ids: set
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
         """市场里尚未安装的技能 / 子智能体 / 插件。取不到就返回空——市场是锦上添花，
         它挂了不该让模式配置页打不开。
@@ -387,7 +413,9 @@ class ChatModeService:
                 )
         except Exception:  # noqa: BLE001
             logger.debug("[chat_mode] 插件市场清单读取失败", exc_info=True)
-        return skills, agents, plugins
+        allowed = self._market_gate(owner_user_id)
+        keep = lambda kind, rows: [r for r in rows if allowed(kind, r["id"][len(MARKET_PREFIX):])]  # noqa: E731
+        return keep("skill", skills), keep("agent", agents), keep("plugin", plugins)
 
     def _install_market_refs(
         self, out: Dict[str, Any], owner_user_id: Optional[str]
@@ -397,6 +425,7 @@ class ChatModeService:
         安装作用域跟模式归属走：官方模式装成全局，私有模式装到本人名下。单条装失败
         只丢那一条（记日志），不让整次保存失败——用户改的是模式，不该被市场的问题挡住。
         """
+        allowed = self._market_gate(owner_user_id)
         for key, installer in (
             ("skill_ids", "skill"),
             ("agent_ids", "agent"),
@@ -412,6 +441,9 @@ class ChatModeService:
                     resolved.append(sid)
                     continue
                 slug = sid[len(MARKET_PREFIX):]
+                if not allowed(installer, slug):
+                    logger.warning("[chat_mode] 用户 %s 无权安装市场项 %s，已跳过", owner_user_id, sid)
+                    continue
                 try:
                     if installer == "skill":
                         from core.harness.registry.marketplace_catalog import marketplace_catalog

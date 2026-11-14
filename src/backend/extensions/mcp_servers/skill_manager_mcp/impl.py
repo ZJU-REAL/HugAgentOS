@@ -99,7 +99,7 @@ def install_from_marketplace(
 
 
     with SessionLocal() as db:
-        cap_err = _require_cap(db, user_id, "can_add_skill")
+        cap_err = _require_cap(db, user_id, "can_install_market_skill")
         if cap_err:
             return cap_err
         # 可见范围守卫：对该用户不可见的 scoped 条目按不存在处理（与用户端安装接口一致）

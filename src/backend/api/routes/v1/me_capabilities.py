@@ -22,7 +22,7 @@ from typing import Dict, List, Optional
 from core.harness.registry.run_capabilities import has_run_capabilities
 from features.desktop.local.skills import editor as local_editor
 from core.auth.backend import UserContext, get_current_user
-from core.auth.capabilities import resolve_user_capabilities
+from core.auth.capabilities import OWN_FLAG, can_manage_owned, resolve_user_capabilities
 from core.config.settings import settings
 from core.db.engine import get_db
 from core.db.threads import run_in_session
@@ -51,6 +51,17 @@ def _require_flag(user_id: str, db: Session, flag: str, label: str) -> None:
     # Personal explicit (user management) → team default (team management) → off by default
     if not resolve_user_capabilities(db, user_id).get(flag, False):
         raise AccessDeniedError(message=f"管理员未开放{label}功能", reason=f"{flag}_disabled")
+
+
+def _require_own_or_market(user_id: str, db: Session, kind: str) -> None:
+    """Removing / re-iconing something you already own: either self-add or market install is enough.
+
+    A user allowed only to install from the market must still be able to remove what
+    they installed.
+    """
+    if not can_manage_owned(resolve_user_capabilities(db, user_id), kind):
+        label = "自助添加技能" if kind == "skill" else "自助添加 MCP"
+        raise AccessDeniedError(message=f"管理员未开放{label}功能", reason=f"{OWN_FLAG[kind]}_disabled")
 
 
 # ── MCP ──────────────────────────────────────────────────────────────────────
@@ -166,7 +177,7 @@ def delete_my_mcp_server(
     db: Session = Depends(get_db),
 ):
     """删除自己添加的私有 MCP。只能删自己的（owner 校验）。"""
-    _require_flag(str(user.user_id), db, "can_add_mcp", "自助添加 MCP")
+    _require_own_or_market(str(user.user_id), db, "mcp")
     row = (
         db.query(AdminMcpServer)
         .filter(
@@ -433,7 +444,7 @@ def delete_my_skill(
     """删除自己上传的私有技能。只能删自己的（owner 校验）。"""
     if has_run_capabilities():
         return success_response(data=local_editor.uninstall(str(user.user_id), skill_id))
-    _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
+    _require_own_or_market(str(user.user_id), db, "skill")
     row = (
         db.query(AdminSkill)
         .filter(
@@ -473,7 +484,7 @@ def set_my_skill_icon(
     """给自己的私有技能设置图标（owner 校验）。空串=恢复默认。"""
     if has_run_capabilities():
         return success_response(data=local_editor.icon(str(user.user_id), skill_id, body.icon))
-    _require_flag(str(user.user_id), db, "can_add_skill", "自助添加技能")
+    _require_own_or_market(str(user.user_id), db, "skill")
     row = (
         db.query(AdminSkill)
         .filter(AdminSkill.skill_id == skill_id, AdminSkill.owner_user_id == str(user.user_id))

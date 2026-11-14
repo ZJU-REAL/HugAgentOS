@@ -113,6 +113,11 @@ def get_plugin_info(*, user_id: str, slug: str) -> Dict[str, Any]:
     from core.capabilities.plugins import management as plugin_service
 
     with SessionLocal() as db:
+        # 可见范围守卫：对该用户不可见的 scoped 条目按不存在处理（与用户端详情接口一致）。
+        from features.marketplace import edition as ml
+
+        if not ml.is_item_visible(db, ml.KIND_PLUGIN, slug, user_id):
+            return {"ok": False, "message": f"❌ 插件市场里找不到「{slug}」。"}
         detail = None
         try:
             detail = plugin_service.get_plugin_detail(slug, db)
@@ -172,9 +177,14 @@ def install_plugin(
     from core.capabilities.plugins import management as plugin_service
 
     with SessionLocal() as db:
-        cap_err = _require_cap(db, user_id, "can_import_plugin")
+        cap_err = _require_cap(db, user_id, "can_install_market_plugin")
         if cap_err:
             return cap_err
+        # 可见范围守卫：与用户端安装接口一致；不要包 try——守卫出错就该报错，不能对不可见条目失败开放。
+        from features.marketplace import edition as ml
+
+        if not ml.is_item_visible(db, ml.KIND_PLUGIN, slug, user_id):
+            return {"ok": False, "message": f"❌ 插件市场里找不到「{slug}」。"}
         try:
             res = plugin_service.install_plugin(
                 db,

@@ -1,5 +1,3 @@
-import { openRunSubscription } from '../runSubscriptionClient';
-import { streamResumeSeed } from '../utils/streamResume';
 import { message } from 'antd';
 import { t } from '../i18n';
 import { cancelChatRun, followChatRun, getActiveChatRun, getLoop } from '../api';
@@ -10,6 +8,7 @@ import { reloadChatHistory } from './useChatInit';
 import { processLoopStream } from './useLoopMode';
 import { useLoopStore } from '../stores/loopStore';
 import type { StreamingContext } from './streamingContext';
+import { followRunStream, withRunFollowLock } from './runFollow';
 
 export function createStreamRecovery(ctx: Pick<StreamingContext, 'abortControllersRef' | 'interruptedNoticeShownRef' | 'processRegenerateStream' | 'reconcileDurableSteerQueue' | 'reconcilingRef' | 'settleQueuedMessageAfterRun'> & { serverRunDiscoveryRef: { current: Set<string> } }) {
 
@@ -225,23 +224,12 @@ export function createStreamRecovery(ctx: Pick<StreamingContext, 'abortControlle
       lastOffset: active.last_event_offset || 0,
     });
 
-    // ── 跨标签页互斥：同一 run 只允许一个标签页跟随 SSE ──
-    // 过去复制标签页/多开时两个标签页同时 follow 同一 run，各自用不同的
-    // 身份建气泡，互相覆盖 localStorage，产生重复/半截气泡与
-    // "回答无对应问题"（问题17）。Web Locks 随标签页关闭自动释放。
-    const runLockName = `hugagent_run_follow_${active.run_id}`;
+    // 跨标签页互斥：同一 run 只允许一个标签页跟随 SSE（问题17）。
     const activeRun = active;
-    const doFollowRun = () => followActiveRun(chatId, activeRun, uid);
-    const locksApi = typeof navigator !== 'undefined' ? navigator.locks : undefined;
-    if (locksApi?.request) {
-      return await locksApi.request(runLockName, { ifAvailable: true }, async (lock: unknown) => {
-        if (!lock) return false; // 另一个标签页正在跟随该 run
-        if (useChatStore.getState().sendingChatIds.has(chatId)) return false;
-        return await doFollowRun();
-      });
-    } else {
-      return await doFollowRun();
-    }
+    return await withRunFollowLock(active.run_id, async () => {
+      if (useChatStore.getState().sendingChatIds.has(chatId)) return false;
+      return await followActiveRun(chatId, activeRun, uid);
+    }, false);
   }
 
 
@@ -313,34 +301,23 @@ export function createStreamRecovery(ctx: Pick<StreamingContext, 'abortControlle
       return;
     }
 
-    // 非思考模式可从已保存的正文和 offset 续播；思考模式必须重放，
-    // 因为消息行没有保存内联思考解析器所处的阶段。
-    await reloadChatHistory(chatId);
-    const base = useChatStore.getState().store.chats[chatId]?.messages
-      .find((m) => m.role === 'assistant' && m.messageId === active.message_id);
-    const seedFrom = streamResumeSeed(base);
-
-    addSendingChatId(chatId);
-
+    // 历史先拉齐，再以库里那一行为基态接上流（与其它只读视图共用 followRunStream）。
     const abortController = new AbortController();
     ctx.abortControllersRef.current.set(chatId, abortController);
     let streamOutcome: Awaited<ReturnType<typeof processChatStream>> | undefined;
 
     try {
-      const r = await openRunSubscription(active.run_id, abortController.signal, chatId);
-      if (!r.ok || !r.body) return false;
-      streamOutcome = await ctx.processRegenerateStream(r, chatId, {
-        enableThinking: !!active.enable_thinking,
+      const followed = await followRunStream(chatId, active, {
         signal: abortController.signal,
-        seedFrom,
+        consume: (response, id, opts) => ctx.processRegenerateStream(response, id, opts),
       });
+      if (!followed.opened || !followed.outcome) return false;
+      streamOutcome = followed.outcome;
       return streamOutcome.settled || streamOutcome.aborted;
     } catch (e) {
       return e instanceof Error && e.name === 'AbortError' && isRunCancelledByUser(active.run_id);
     } finally {
       ctx.abortControllersRef.current.delete(chatId);
-      removeSendingChatId(chatId);
-      useChatStore.getState().clearActiveRun(chatId);
       ctx.settleQueuedMessageAfterRun(
         chatId,
         streamOutcome?.bubbleUid,

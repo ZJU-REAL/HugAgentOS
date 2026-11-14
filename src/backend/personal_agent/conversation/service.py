@@ -1,11 +1,16 @@
 """Owner-scoped conversation operations."""
-from sqlalchemy import select
+from sqlalchemy import select, or_, func
 
 import uuid
 
 from core.db.models import ChatSession, ChatMessage, Artifact
 from core.db.repository.chat import ChatMessageRepository
 from personal_agent.models import PersonalWorkItem, PersonalMessageTask
+
+def shown_in_chat():
+    """Rows the owner sees in the conversation. The instruction a schedule writes when it fires is
+    kept for the Router and the Worker, but the owner only sees the result it leads to."""
+    return or_(ChatMessage.role != "user", func.coalesce(ChatMessage.extra_data["origin"].as_string(), "") != "schedule")
 
 class ConversationService:
     def __init__(self, context):
@@ -48,12 +53,21 @@ class ConversationService:
             sync_thread(self.db, self.db.get(PersonalWorkItem, task_id), self.user_id)
         return message
 
+    def _scheduled_titles(self, rows):
+        """{task id: schedule title} for the tasks behind these replies that a schedule started."""
+        from personal_agent.scheduling.schedules import SCHEDULE_KEY_PREFIX
+        ids = {ident for row in rows if row.role == "assistant" and (ident := (row.extra_data or {}).get("work_item_id"))}
+        if not ids: return {}
+        tasks = self.db.scalars(select(PersonalWorkItem).where(PersonalWorkItem.id.in_(ids),
+            PersonalWorkItem.request_key.like(SCHEDULE_KEY_PREFIX + "%")))
+        return {task.id: (task.checkpoint or {}).get("title") or "" for task in tasks}
+
     def list(self, after_seq=0, limit=100, before_seq=None):
         agent = self.context.identity.agent()
         if agent is None:
             if self.chat_id: raise LookupError("Conversation not found")
             return []
-        query = select(ChatMessage).where(ChatMessage.chat_id == self.id(), ChatMessage.role.in_(["user", "assistant"]))
+        query = select(ChatMessage).where(ChatMessage.chat_id == self.id(), ChatMessage.role.in_(["user", "assistant"]), shown_in_chat())
         descending = before_seq is not None or after_seq == 0
         if before_seq is not None: query = query.where(ChatMessage.chat_seq < before_seq)
         elif after_seq: query = query.where(ChatMessage.chat_seq > after_seq)
@@ -65,6 +79,7 @@ class ConversationService:
         from personal_agent.conversation.associations import message_links
         from personal_agent.delivery.delivery import artifacts_for_message
         links = message_links(self.db, [r.message_id for r in rows])
+        scheduled = self._scheduled_titles(rows)
         return [{"id": row.message_id, "seq": row.chat_seq, "role": row.role, "content": row.content,
                  "origin": (row.extra_data or {}).get("origin"),
                  "channel_type": ((row.extra_data or {}).get("channel_origin") or {}).get("channel_type"),
@@ -73,6 +88,7 @@ class ConversationService:
                  "task_links": links[row.message_id],
                  "reply_to": (row.extra_data or {}).get("reply_to"),
                  "heartbeat": bool((row.extra_data or {}).get("heartbeat")),
+                 "schedule_title": scheduled.get((row.extra_data or {}).get("work_item_id")) if row.role == "assistant" else None,
                  "streaming": bool((row.extra_data or {}).get("streaming")),
                  "activity": (row.extra_data or {}).get("activity"),
                  "artifacts": artifacts_for_message(self.db, row, self.user_id),

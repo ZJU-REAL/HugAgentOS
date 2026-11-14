@@ -195,6 +195,17 @@ def init_db():
 
 
 def _init_schema():
+    _init_schema_tables()
+    if engine.dialect.name == "sqlite":
+        # SQLite skips alembic, so data copies that ship as migrations run here once.
+        from core.db.data_repair import copy_market_permissions_once
+
+        with engine.begin() as connection:
+            if copy_market_permissions_once(connection):
+                logger.info("Market install permissions split from self-add permissions")
+
+
+def _init_schema_tables():
     if engine.dialect.name == "sqlite":
         from core.db.batch_retirement import retire_batch_execution
         from sqlalchemy import inspect

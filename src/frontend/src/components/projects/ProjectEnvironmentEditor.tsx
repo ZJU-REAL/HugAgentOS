@@ -3,6 +3,8 @@ import { Alert, Button, Radio, Spin } from 'antd';
 import type { EnvironmentField, ProjectEnvironment } from '../../api/projectEnvironment';
 import ProjectEnvironmentMarkets from './ProjectEnvironmentMarkets';
 import ProjectEnvironmentResourcePicker from './ProjectEnvironmentResourcePicker';
+import { useAuthStore } from '../../stores';
+import { canInstallFromMarket } from '../../utils/marketPermission';
 import { visibleEnvironmentDependencies } from './environmentDependencyDisplay';
 import { useProjectEnvironment } from './useProjectEnvironment';
 import { t } from '../../i18n';
@@ -16,6 +18,7 @@ export default function ProjectEnvironmentEditor({ value, onChange, projectId, o
   onReadyChange?: (ready: boolean) => void;
 }) {
   const [market, setMarket] = useState<EnvironmentField | null>(null);
+  const authUser = useAuthStore((s) => s.authUser);
   const { options, loading, error, preview, previewError, ready, load, installed, retryPreview } =
     useProjectEnvironment(value, onChange, projectId);
 
@@ -46,7 +49,7 @@ export default function ProjectEnvironmentEditor({ value, onChange, projectId, o
           field={field} value={value[field]} options={options?.[field]}
           dependencies={dependencies}
           onChange={ids => onChange({ ...value, [field]: ids })}
-          onMarket={() => setMarket(field)} />)}
+          onMarket={canInstallFromMarket(authUser, field) ? () => setMarket(field) : undefined} />)}
       </Spin>
       {previewError && <Alert type="error" message={previewError}
         action={<Button onClick={retryPreview}>{t('重试')}</Button>} />}

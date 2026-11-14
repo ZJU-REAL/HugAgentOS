@@ -43,9 +43,9 @@ def routes(route_class, require_json_write):
         user: UserContext = Depends(require_auth()),
         db: Session = Depends(get_db),
     ):
-        from api.routes.v1.plugins import _require_can_import_plugin
+        from api.routes.v1.plugins import _require_plugin_manage
 
-        _require_can_import_plugin(user.user_id, db)
+        _require_plugin_manage(user.user_id, db)
         response.headers["Cache-Control"] = "no-store"
         return success_response(
             data=plugin_upgrades.decide(

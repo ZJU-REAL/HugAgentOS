@@ -97,8 +97,10 @@ async def follow(user_id: str) -> AsyncIterator[str]:
 
     A signal names its topics: a conversation id when that conversation's messages changed,
     ``operation:<id>`` when a session operation's receipt changed, ``device:<id>`` and
-    ``device:<id>:<chat>`` when a linked computer's own chat list or one of its chats changed.
-    Tasks, computers and the agent's settings change without a topic of their own.
+    ``device:<id>:<chat>`` when a linked computer's own chat list or one of its chats changed,
+    ``channels`` when one of the person's channel bots changed, ``computer`` when the agent changed
+    what the cloud computer's screen shows. Tasks, computers and the agent's settings change without
+    a topic of their own.
     """
     log = feed()
     try:
@@ -155,24 +157,30 @@ def _device_came_online(device) -> bool:
 
 # Bookkeeping columns no page shows: renewing a lease is not a change.
 _QUIET_COLUMNS = {"lease_until"}
+# A bot hearing a message stamps these; its list entry looks the same.
+_QUIET_CHANNEL_COLUMNS = _QUIET_COLUMNS | {"last_event_at", "updated_at"}
+CHANNELS_TOPIC = "channels"
+COMPUTER_TOPIC = "computer"
 
 
-def _really_changed(obj) -> bool:
+def _really_changed(obj, quiet=_QUIET_COLUMNS) -> bool:
     """A modified row that holds a different value afterwards, outside the bookkeeping columns.
 
     Writers often assign a value equal to the stored one (a turn's reply ids on every flush); the
     session still lists the row as modified, but nothing a page shows has changed.
     """
-    return any(attr.key not in _QUIET_COLUMNS and attr.history.has_changes() for attr in inspect(obj).attrs)
+    return any(attr.key not in quiet and attr.history.has_changes() for attr in inspect(obj).attrs)
 
 
 def _refs(session: Session) -> set:
     """("user"|"agent"|"chat"|"message", id, topic) for every Personal Agent row this flush wrote."""
     from core.db.models import ChatMessage, ChatSession
+    from integrations.channels.models import ChannelConnection
     from personal_agent import models
 
     refs = set()
-    dirty = [(o, "dirty") for o in session.dirty if _really_changed(o)]
+    dirty = [(o, "dirty") for o in session.dirty
+             if _really_changed(o, _QUIET_CHANNEL_COLUMNS if isinstance(o, ChannelConnection) else _QUIET_COLUMNS)]
     for obj, kind in [(o, "new") for o in session.new] + dirty + [(o, "deleted") for o in session.deleted]:
         if isinstance(obj, ChatMessage):
             chat = obj.chat_id or ""
@@ -192,6 +200,10 @@ def _refs(session: Session) -> set:
             refs.add(("agent", obj.agent_id, None))
         elif isinstance(obj, models.PersonalMessageTask):
             refs.add(("message", obj.message_id, None))
+        elif isinstance(obj, ChannelConnection):
+            # A bot connected, failed, was renamed, enabled or removed: the channel list shows it.
+            if obj.owner_user_id:
+                refs.add(("user", obj.owner_user_id, CHANNELS_TOPIC))
     return refs
 
 
@@ -244,6 +256,7 @@ def _collect(session, _context):
 def _bulk_owners():
     """For bulk UPDATE/DELETE statements on watched tables: the columns naming each row's owner, and its ref."""
     from core.db.models import ChatMessage
+    from integrations.channels.models import ChannelConnection
     from personal_agent import models
 
     agent = ((lambda m: (m.agent_id,)), lambda row: ("agent", row[0], None))
@@ -254,6 +267,7 @@ def _bulk_owners():
         models.PersonalAgent: ((lambda m: (m.user_id,)), lambda row: ("user", row[0], None)),
         models.PersonalDevice: ((lambda m: (m.user_id,)), lambda row: ("user", row[0], None)),
         models.PersonalSessionOperation: ((lambda m: (m.user_id, m.id)), lambda row: ("user", row[0], "operation:" + row[1])),
+        ChannelConnection: ((lambda m: (m.owner_user_id,)), lambda row: ("user", row[0], CHANNELS_TOPIC)),
     }
 
 

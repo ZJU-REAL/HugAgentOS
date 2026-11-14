@@ -122,6 +122,7 @@ export const PANELS_DICT: Record<string, string> = {
   '退出登录不会丢失任何数据，你仍可以登录此账号。': 'Signing out will not delete any data. You can sign back in at any time.',
   '退出登录': 'Sign out',
   '定时任务': 'Scheduled Tasks',
+  '定时任务：{title}': 'Scheduled task: {title}',
   '定时任务已重命名': 'Scheduled task renamed',
   '重命名失败': 'Rename failed',
   '导出失败': 'Export failed',

@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from 'react';
 import { motion } from 'motion/react';
-import { Button, Drawer, Switch, Tooltip } from 'antd';
-import { DeleteOutlined, EditOutlined, LeftOutlined, RobotOutlined, UploadOutlined, ExportOutlined, KeyOutlined } from '@ant-design/icons';
-import type { UserAgentItem, AvailableResources } from '../../stores/agentStore';
+import { Button, Drawer, Form, Input, Modal, Switch, Tooltip, message } from 'antd';
+import { DeleteOutlined, EditOutlined, FormOutlined, LeftOutlined, RobotOutlined, UploadOutlined, ExportOutlined, KeyOutlined } from '@ant-design/icons';
+import { useAgentStore, type UserAgentItem, type AvailableResources } from '../../stores/agentStore';
 import { EditionAgentBadge, useEditionAgentPolicy } from '../../agentEdition';
 import { ChannelBotsPanel } from '../settings/ChannelBotsPanel';
 import { AgentApiModal } from './AgentApiModal';
@@ -54,6 +54,23 @@ export function AgentDetailView({
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
   const [botDrawerOpen, setBotDrawerOpen] = useState(false);
   const [apiOpen, setApiOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [renameForm] = Form.useForm<{ name: string }>();
+  const updateAgent = useAgentStore((s) => s.updateAgent);
+  const submitRename = async () => {
+    const { name } = await renameForm.validateFields();
+    setRenaming(true);
+    try {
+      await updateAgent(selectedAgent.agent_id, { name: name.trim() });
+      message.success(t('已重命名为「{name}」', { name: name.trim() }));
+      setRenameOpen(false);
+    } catch (e) {
+      message.error(t('重命名失败：{reason}', { reason: (e as Error).message || t('请检查网络后重试') }));
+    } finally {
+      setRenaming(false);
+    }
+  };
   const editionAgentPolicy = useEditionAgentPolicy();
     const isBuiltin = selectedAgent.owner_type === 'builtin';
     const canToggle = canEdit || isBuiltin;
@@ -275,12 +292,13 @@ export function AgentDetailView({
                 )}
                 {canEdit && (
                   <>
-                    <Tooltip title={t('编辑')}>
+                    {/* Without the build permission only on/off and the name can change. */}
+                    <Tooltip title={canAddAgent ? t('编辑') : t('重命名')}>
                       <Button
-                        aria-label={t('编辑')}
-                        icon={<EditOutlined />}
+                        aria-label={canAddAgent ? t('编辑') : t('重命名')}
+                        icon={canAddAgent ? <EditOutlined /> : <FormOutlined />}
                         className="jx-agentDetail-iconBtn"
-                        onClick={() => onEdit()}
+                        onClick={canAddAgent ? () => onEdit() : () => { renameForm.setFieldsValue({ name: selectedAgent.name }); setRenameOpen(true); }}
                       />
                     </Tooltip>
                     <Tooltip title={t('删除')}>
@@ -308,6 +326,26 @@ export function AgentDetailView({
             </div>
 
             <AgentApiModal agent={selectedAgent} open={apiOpen} onClose={() => setApiOpen(false)} />
+            <Modal
+              open={renameOpen}
+              title={t('重命名智能体')}
+              okText={t('保存')}
+              confirmLoading={renaming}
+              onOk={() => void submitRename()}
+              onCancel={() => setRenameOpen(false)}
+              destroyOnHidden
+            >
+              <Form form={renameForm} layout="vertical" onFinish={() => void submitRename()}>
+                <Form.Item
+                  name="name"
+                  label={t('名称')}
+                  rules={[{ required: true, whitespace: true, message: t('请输入名称') }]}
+                  extra={t('管理员未开放自建智能体，只能开关或重命名，不能修改提示词和绑定。')}
+                >
+                  <Input maxLength={255} autoFocus />
+                </Form.Item>
+              </Form>
+            </Modal>
             {submissionModal}
             <Drawer
               title={t('渠道机器人')}

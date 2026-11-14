@@ -36,6 +36,7 @@ export function PluginsPage() {
   const fetchCatalog = useCatalogStore((s) => s.fetchCatalog);
   const { manageQuery, setManageQuery, panelEntryNonce } = useCatalogStore();
   const canImportPlugin = useAuthStore((s) => s.authUser?.can_import_plugin === true);
+  const canInstallMarketPlugin = useAuthStore((s) => s.authUser?.can_install_market_plugin === true);
   // CE 无用户/管理员体系，全局安装的默认插件不标「管理员」
   const isCE = useEditionStore((s) => s.edition === 'ce');
   const { title, subtitle } = usePanelHeader('plugins', {
@@ -284,14 +285,16 @@ export function PluginsPage() {
               <span className="jx-mcp-searchPlaceholder">{t('搜索插件关键词')}</span>
             </div>
           )}
-          {canImportPlugin && (
+          {(canImportPlugin || canInstallMarketPlugin) && (
             <>
-              <input ref={importInputRef} type="file" accept=".zip" style={{ display: 'none' }}
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleImportFile(f); e.target.value = ''; }} />
+              {canImportPlugin && (
+                <input ref={importInputRef} type="file" accept=".zip" style={{ display: 'none' }}
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleImportFile(f); e.target.value = ''; }} />
+              )}
               <Dropdown
                 menu={{ items: [
-                  { key: 'market', icon: <AppstoreAddOutlined />, label: t('从插件市场获取'), onClick: () => setMarketOpen(true) },
-                  { key: 'upload', icon: <UploadOutlined />, label: t('导入插件包（zip）'), onClick: () => importInputRef.current?.click() },
+                  canInstallMarketPlugin ? { key: 'market', icon: <AppstoreAddOutlined />, label: t('从插件市场获取'), onClick: () => setMarketOpen(true) } : null,
+                  canImportPlugin ? { key: 'upload', icon: <UploadOutlined />, label: t('导入插件包（zip）'), onClick: () => importInputRef.current?.click() } : null,
                 ] }}
               >
                 <Button type="primary" icon={<PlusOutlined />} style={{ marginLeft: 8 }}>
@@ -307,7 +310,9 @@ export function PluginsPage() {
         {/* Installed plugins (card grid consistent with the skill library / MCP library). The plugin marketplace is moved into a modal, opened per permission. */}
         {shownInstalled.length === 0 ? (
           <Empty
-            description={canImportPlugin ? t('还没有安装插件，点击右上角「添加插件」从插件市场获取') : t('还没有可用插件')}
+            description={canInstallMarketPlugin
+              ? t('还没有安装插件，点击右上角「添加插件」从插件市场获取')
+              : canImportPlugin ? t('还没有安装插件，点击右上角「添加插件」导入插件包') : t('还没有可用插件')}
             image={Empty.PRESENTED_IMAGE_SIMPLE}
             style={{ marginTop: 40 }}
           />

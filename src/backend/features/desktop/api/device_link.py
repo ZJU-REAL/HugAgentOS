@@ -45,7 +45,7 @@ def _view(link: Optional[store.Link]):
     }
 
 
-# The probe starts a driver process; the UI polls the status, so reuse a recent answer.
+# The probe starts a driver process; status reads after each change reuse a recent answer.
 PROBE_TTL = 30
 _probe_cache: dict = {}
 
@@ -79,7 +79,9 @@ async def _status(owner, fresh: bool = False):
 
 
 @router.get("", summary="本机连接状态")
-async def status(user: UserContext = Depends(get_current_user)):
+async def status(fresh: bool = False, user: UserContext = Depends(get_current_user)):
+    """``fresh`` probes the system permissions again: the page asks for it when it comes back into
+    view, since a permission granted in the system settings sends no event of its own."""
     if not bridge_enabled():
         raise HTTPException(404, "Not Found")
     owner = current_account()
@@ -88,7 +90,34 @@ async def status(user: UserContext = Depends(get_current_user)):
         # (kept per account) pauses until it is back; say so instead of just "offline".
         return success_response(data={"state": "signed_out", "link": None, "error": None,
                                       "last_contact": None, "activity": None})
-    return success_response(data=await _status(linked_account(user)))
+    return success_response(data=await _status(linked_account(user), fresh))
+
+
+# A quiet status stream still sends a comment this often, so a closed page is noticed.
+EVENTS_KEEPALIVE = 15
+
+
+@router.get("/events", summary="本机连接状态变化（SSE）")
+async def events(user: UserContext = Depends(get_current_user)):
+    """``changed`` whenever what this computer's link status shows is different; the page then reads
+    the status itself. ``ready`` first, so a page that reconnects reads it once."""
+    if not bridge_enabled():
+        raise HTTPException(404, "Not Found")
+    import json
+    from core.infra.responses import sse_response
+
+    async def stream():
+        seen = runner.version
+        yield "data: " + json.dumps({"type": "ready"}) + "\n\n"
+        while True:
+            version = await runner.watch(seen, EVENTS_KEEPALIVE)
+            if version == seen:
+                yield ": keepalive\n\n"
+                continue
+            seen = version
+            yield "data: " + json.dumps({"type": "changed"}) + "\n\n"
+
+    return sse_response(stream())
 
 
 class LinkBody(BaseModel):

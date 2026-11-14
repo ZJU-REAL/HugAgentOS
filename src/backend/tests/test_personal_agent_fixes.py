@@ -88,7 +88,12 @@ def test_schedule_validation_and_single_fire_per_occurrence(sessions):
         assert sorted(task["title"] for task in service.tasks.list()) == ["Call", "Mail"]
         left = schedules.listing(service.identity.agent().config)
         assert [item["id"] for item in left] == [daily["id"]] and once["id"] not in str(left)
-        assert service.conversation.list()[0]["origin"] == "schedule"
+        # The instruction is kept for the agent but not shown to the owner.
+        from core.db.models import ChatMessage
+        from sqlalchemy import select
+        kept = db.scalars(select(ChatMessage).where(ChatMessage.role == "user")).all()
+        assert sorted((row.extra_data or {}).get("origin") for row in kept) == ["schedule", "schedule"]
+        assert service.conversation.list() == []
         schedules.delete(db, "owner", daily["id"])
         assert schedules.listing(service.identity.agent().config) == []
 

@@ -1203,3 +1203,26 @@ def test_server_message_reads_nested_and_validation_errors():
     assert server_message(b'{"detail":"Run not found"}') == "Run not found"
     assert server_message(b'{"detail":[{"loc":["body","steer_id"],"msg":"too long"},{"msg":"bad mode"}]}') == "too long; bad mode"
     assert server_message(b"plain failure") == "plain failure"
+
+
+async def test_status_streams_hear_a_shown_change_and_not_a_heartbeat():
+    import asyncio
+    runner = link_runner.Runner()
+    runner.state = "connected"
+    runner.mailbox = link_runner.Mailbox(ACCOUNT, make_link(), on_change=runner.changed)
+    runner.changed()
+    seen = runner.version
+    # A heartbeat only moves the last contact time, which the UI does not show.
+    runner.mailbox.last_contact = time.time()
+    runner.changed()
+    assert await runner.watch(seen, 0.01) == seen
+    waiting = asyncio.ensure_future(runner.watch(seen, 5))
+    await asyncio.sleep(0)
+    runner.mailbox.contact = "offline"
+    runner.changed()
+    assert await waiting == seen + 1
+    # A change made while no stream was waiting is not lost: the next wait returns at once.
+    runner.mailbox.contact = "connected"
+    runner.changed()
+    assert await runner.watch(seen + 1, 5) == seen + 2
+    runner.mailbox.journal.close()

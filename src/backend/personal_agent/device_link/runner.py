@@ -135,8 +135,10 @@ async def bounded(action, seconds: float, what: str, failed=None):
 class Mailbox:
     """One linked device of one account."""
 
-    def __init__(self, account: str, link: store.Link, on_done=None):
+    def __init__(self, account: str, link: store.Link, on_done=None, on_change=None):
         self.account = account
+        # Told when something the desktop UI shows may have changed (contact, activity, failures).
+        self._on_change = on_change or (lambda: None)
         self.link = link
         # Commands and session operations run in lanes of their own: a long session
         # operation never holds a screen command back until its deadline passes. Each lane
@@ -332,6 +334,7 @@ class Mailbox:
             except Exception:
                 logger.exception("[device-link] heartbeat failed unexpectedly")
                 self.contact = "offline"
+            self._on_change()
             # The next heartbeat is due in HEARTBEAT seconds, or sooner when this computer's chats changed.
             await chat_changes.wait(HEARTBEAT, self.last_report, seen)
 
@@ -478,10 +481,12 @@ class Mailbox:
     async def run(self, kind: str, ident: str, action, seconds: float, failed=None):
         key = (kind, ident)
         self.activities[key] = {"kind": kind, "id": ident, "since": time.time()}
+        self._on_change()
         try:
             return await bounded(action, seconds, f"{kind} {ident}", failed)
         finally:
             self.activities.pop(key, None)
+            self._on_change()
 
     def note(self, operation, receipt) -> None:
         """Count and log a failed session operation, once, without its data."""
@@ -489,6 +494,7 @@ class Mailbox:
             return
         self.failures += 1
         self.last_failure = {"op": operation, "error": receipt.get("error"), "at": time.time()}
+        self._on_change()
         logger.warning(
             "[device-link] session operation %s failed: %s (%s, http_status=%s, exception=%s)",
             operation, receipt.get("error"), contract.receipt_status(receipt),
@@ -551,6 +557,10 @@ class Runner:
         self._wake = asyncio.Event()
         self._task: Optional[asyncio.Task] = None
         self._stopping = False
+        # What the desktop UI was last shown, and a counter its status streams wait on.
+        self._shown: Optional[dict] = None
+        self.version = 0
+        self._next = asyncio.Event()
 
     def start(self) -> None:
         self._stopping = False
@@ -564,6 +574,7 @@ class Runner:
         exc = task.exception()
         logger.error("[device-link] loop ended unexpectedly: %r; restarting", exc)
         self.state, self.error = "error", type(exc).__name__ if exc else "stopped"
+        self.changed()
         asyncio.get_running_loop().call_later(OFFLINE_RETRY, self._restart)
 
     def _restart(self) -> None:
@@ -581,6 +592,28 @@ class Runner:
     def wake(self) -> None:
         """Pick up a changed link or consent now instead of after the current pause."""
         self._wake.set()
+
+    def changed(self) -> None:
+        """Tell open status streams if what the UI shows is different now.
+
+        The last contact time moves on every heartbeat and is not shown, so it alone is no change.
+        """
+        view = {key: value for key, value in self.snapshot().items() if key != "last_contact"}
+        if view == self._shown:
+            return
+        self._shown = view
+        self.version += 1
+        self._next.set()
+        self._next = asyncio.Event()
+
+    async def watch(self, seen: int, timeout: float) -> int:
+        """The status version once it is past ``seen``, or after ``timeout`` seconds without a change."""
+        if self.version == seen:
+            try:
+                await asyncio.wait_for(self._next.wait(), timeout)
+            except asyncio.TimeoutError:
+                pass
+        return self.version
 
     def snapshot(self) -> dict:
         """What the desktop UI shows about this computer's link."""
@@ -600,6 +633,8 @@ class Runner:
         }
 
     async def _pause(self, seconds: float) -> None:
+        # Every pass ends here, after it set the state it found.
+        self.changed()
         if seconds > 0:
             try:
                 await asyncio.wait_for(self._wake.wait(), seconds)
@@ -628,7 +663,7 @@ class Runner:
                         continue
                     if self.mailbox is None:
                         self.state = "connecting"
-                        self.mailbox = Mailbox(owner[0], link, on_done=self.wake)
+                        self.mailbox = Mailbox(owner[0], link, on_done=self.wake, on_change=self.changed)
                         self.mailbox.start()
                     self.mailbox.link = link
                     busy = await self.mailbox.step()

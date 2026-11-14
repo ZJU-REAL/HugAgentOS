@@ -8,8 +8,9 @@ POST   /v1/agent-marketplace/submissions        Submit a self-built sub-agent fo
 GET    /v1/agent-marketplace/submissions        My listing-submission list
 DELETE /v1/agent-marketplace/submissions/{id}   Withdraw a submission (pending/rejected can be withdrawn)
 
-Permissions: browsing/viewing details is open to all logged-in users; **installing + submitting for listing require ``can_add_agent``**
-(consistent with sub-agent creation; opened per user/team via Config admin "User Management / Team Management → Permission Config").
+Permissions: browsing/viewing details is open to all logged-in users; **installing requires
+``can_install_market_agent``; submitting for listing requires ``can_add_agent``** (the same bit as
+building your own sub-agent). Both are granted per user, team or role in the Config backend.
 After installation the clone appears in the "Sub-agents" panel, with bound skills/tools already installed in place.
 """
 
@@ -30,7 +31,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from core.auth.backend import get_current_user, UserContext
-from core.auth.capabilities import resolve_user_capabilities
+from core.auth.capabilities import require_capability, resolve_user_capabilities
 from core.db.engine import get_db
 from core.infra.exceptions import AccessDeniedError
 from core.infra.responses import created_response, success_response
@@ -44,7 +45,11 @@ logger = logging.getLogger(__name__)
 def _require_can_add_agent(user_id: str, db: Session) -> None:
     # Personal explicit (User Management) → team default (Team Management) → off by default
     if not resolve_user_capabilities(db, user_id)["can_add_agent"]:
-        raise AccessDeniedError(message="管理员未开放自建/安装子智能体功能", reason="can_add_agent_disabled")
+        raise AccessDeniedError(message="管理员未开放自建子智能体功能", reason="can_add_agent_disabled")
+
+
+def _require_can_install_market_agent(user_id: str, db: Session) -> None:
+    require_capability(db, user_id, "can_install_market_agent", "管理员未开放从智能体市场安装功能")
 
 
 @router.get("/agents", summary="子智能体市场列表")
@@ -87,8 +92,8 @@ def install_agent(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """把市场子智能体克隆为「仅自己可见可用」的私有子智能体（绑定的技能/工具随装）。需 ``can_add_agent`` 权限。"""
-    _require_can_add_agent(str(user.user_id), db)
+    """把市场子智能体克隆为「仅自己可见可用」的私有子智能体（绑定的技能/工具随装）。需 ``can_install_market_agent`` 权限。"""
+    _require_can_install_market_agent(str(user.user_id), db)
     ml.ensure_item_visible(db, ml.KIND_AGENT, body.slug, str(user.user_id), resource="marketplace_agent")
     result = am.install_marketplace_agent(
         db, body.slug, owner_user_id=str(user.user_id), operator_name=user.username,

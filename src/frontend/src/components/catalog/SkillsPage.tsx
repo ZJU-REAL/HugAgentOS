@@ -46,6 +46,7 @@ export function SkillsPage() {
 
   const fetchCatalog = useCatalogStore((s) => s.fetchCatalog);
   const canAddSkill = useAuthStore((s) => s.authUser?.can_add_skill === true);
+  const canInstallMarketSkill = useAuthStore((s) => s.authUser?.can_install_market_skill === true);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedKind, setSelectedKind] = useState<'skills' | 'agents'>('skills');
@@ -202,7 +203,7 @@ export function SkillsPage() {
               <span className="jx-mcp-searchPlaceholder">{t('搜索技能关键词')}</span>
             </div>
           )}
-          {canAddSkill && (
+          {(canAddSkill || canInstallMarketSkill) && (
             <>
               <input
                 ref={fileInputRef}
@@ -214,9 +215,9 @@ export function SkillsPage() {
               <Dropdown
                 menu={{
                   items: [
-                    { key: 'market', icon: <AppstoreAddOutlined />, label: t('从技能市场获取'), onClick: () => setMarketplaceOpen(true) },
-                    { key: 'write', icon: <EditOutlined />, label: t('手写新建技能'), onClick: openCreateSkill },
-                    { key: 'upload', icon: <UploadOutlined />, label: t('上传技能包（zip）'), onClick: () => fileInputRef.current?.click() },
+                    canInstallMarketSkill ? { key: 'market', icon: <AppstoreAddOutlined />, label: t('从技能市场获取'), onClick: () => setMarketplaceOpen(true) } : null,
+                    canAddSkill ? { key: 'write', icon: <EditOutlined />, label: t('手写新建技能'), onClick: openCreateSkill } : null,
+                    canAddSkill ? { key: 'upload', icon: <UploadOutlined />, label: t('上传技能包（zip）'), onClick: () => fileInputRef.current?.click() } : null,
                   ],
                 }}
               >
@@ -271,7 +272,8 @@ export function SkillsPage() {
                 onChange={(v) => toggleEnabled('skills', item.id, v)}
                 actions={item.owner === 'self' && (
                   <>
-                    {(() => {
+                    {/* Apply / edit / export need the author permission; market-only users can still delete. */}
+                    {canAddSkill && (() => {
                       const sub = subBySkill.get(item.id);
                       if (sub?.status === 'pending') {
                         return (
@@ -312,20 +314,24 @@ export function SkillsPage() {
                         />
                       );
                     })()}
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={<EditOutlined />}
-                      title={t('编辑技能')}
-                      onClick={(e) => { e.stopPropagation(); void handleEditSkill(item.id); }}
-                    />
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={<DownloadOutlined />}
-                      title={t('导出技能包（zip）')}
-                      onClick={(e) => { e.stopPropagation(); void handleExportSkill(item.id); }}
-                    />
+                    {canAddSkill && (
+                      <>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<EditOutlined />}
+                          title={t('编辑技能')}
+                          onClick={(e) => { e.stopPropagation(); void handleEditSkill(item.id); }}
+                        />
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<DownloadOutlined />}
+                          title={t('导出技能包（zip）')}
+                          onClick={(e) => { e.stopPropagation(); void handleExportSkill(item.id); }}
+                        />
+                      </>
+                    )}
                     <Popconfirm
                       title={t('删除这个私有技能？')}
                       okText={t('删除')}

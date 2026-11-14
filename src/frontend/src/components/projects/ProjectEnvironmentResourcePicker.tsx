@@ -16,7 +16,8 @@ export default function ProjectEnvironmentResourcePicker({ field, value, options
   options?: EnvironmentOptions[EnvironmentField];
   dependencies: EnvironmentPreview['dependencies'];
   onChange: (ids: string[]) => void;
-  onMarket: () => void;
+  /** Omitted when the user may not install this kind from its market. */
+  onMarket?: () => void;
 }) {
   const resource = resources[field];
   const required = dependencies.filter(item => item.kind === field).map(item => item.id);
@@ -27,9 +28,11 @@ export default function ProjectEnvironmentResourcePicker({ field, value, options
   return <div className="jx-projectEnvironment-resource">
     <div className="jx-projectEnvironment-label">
       <label htmlFor={`project-env-${field}`}>{resource.icon} {t(resource.label)}</label>
-      <Button type="link" size="small" icon={<ShopOutlined />} onClick={onMarket}>
-        {t('从市场获取')}
-      </Button>
+      {onMarket && (
+        <Button type="link" size="small" icon={<ShopOutlined />} onClick={onMarket}>
+          {t('从市场获取')}
+        </Button>
+      )}
     </div>
     <Select id={`project-env-${field}`} aria-label={t(resource.label)} mode="multiple"
       style={{ width: '100%' }} value={selected} allowClear

@@ -103,13 +103,18 @@ _CAPABILITY_STORES = (
 )
 
 
-def copy_lab_permission_to_sites(conn: sa.engine.Connection) -> int:
-    """Seed the new ``sites_enabled`` bit from ``lab_enabled`` wherever lab was configured.
+def copy_permission_bit(conn: sa.engine.Connection, source: str, target_bit: str) -> int:
+    """Seed a newly split capability bit from the bit it was split from (see ``copy_permission_bits``)."""
+    return copy_permission_bits(conn, ((source, target_bit),))
 
-    Sites used to follow the lab permission. After the split nobody should gain or lose
-    sites access on upgrade, so every personal, team and role setting of ``lab_enabled``
-    is copied to ``sites_enabled`` unless that bit is already set. Missing tables (CE has
-    no teams or roles) are skipped. Returns the number of rows changed.
+
+def copy_permission_bits(conn: sa.engine.Connection, pairs) -> int:
+    """Seed newly split capability bits from the bits they were split from.
+
+    For each ``(source, target_bit)`` pair: wherever ``source`` was configured (personal,
+    team or role) and ``target_bit`` is not yet set, ``target_bit`` gets the same value, so
+    nobody gains or loses access on upgrade. Each table is read once for all pairs. Missing
+    tables (CE has no teams or roles) are skipped. Returns rows changed.
     """
     import json
 
@@ -121,13 +126,67 @@ def copy_lab_permission_to_sites(conn: sa.engine.Connection) -> int:
         target = sa.table(table, sa.column(key), sa.column(column, sa.JSON))
         for row_key, raw in conn.execute(sa.select(target.c[key], target.c[column])).fetchall():
             value = json.loads(raw) if isinstance(raw, str) else raw
-            if not isinstance(value, dict) or "sites_enabled" in value:
+            if not isinstance(value, dict):
                 continue
-            lab = value.get("lab_enabled")
-            if not isinstance(lab, bool) or (grant_only and not lab):
-                continue
-            conn.execute(
-                target.update().where(target.c[key] == row_key).values({column: {**value, "sites_enabled": lab}})
-            )
-            changed += 1
+            added = {}
+            for source, target_bit in pairs:
+                bit = value.get(source)
+                if target_bit in value or not isinstance(bit, bool) or (grant_only and not bit):
+                    continue
+                added[target_bit] = bit
+            if added:
+                conn.execute(target.update().where(target.c[key] == row_key).values({column: {**value, **added}}))
+                changed += 1
     return changed
+
+
+def copy_lab_permission_to_sites(conn: sa.engine.Connection) -> int:
+    """Seed the new ``sites_enabled`` bit from ``lab_enabled`` wherever lab was configured."""
+    return copy_permission_bit(conn, "lab_enabled", "sites_enabled")
+
+
+MARKET_PERMISSION_SPLIT = (("can_add_skill", "can_install_market_skill"), ("can_add_mcp", "can_install_market_mcp"))
+PLUGIN_AGENT_MARKET_SPLIT = (
+    ("can_import_plugin", "can_install_market_plugin"),
+    ("can_add_agent", "can_install_market_agent"),
+)
+# One marker per migration, so a database that already ran the first copy still runs the second.
+_MARKET_SPLIT_STEPS = (
+    ("data-repair:mktperm01", MARKET_PERMISSION_SPLIT),
+    ("data-repair:mktperm02", PLUGIN_AGENT_MARKET_SPLIT),
+)
+
+
+def copy_market_permissions_once(conn: sa.engine.Connection) -> bool:
+    """SQLite twin of migrations ``mktperm01`` and ``mktperm02`` (SQLite databases skip alembic).
+
+    Each copy runs exactly once, recorded by a ``content_blocks`` marker: copying on every
+    start would undo an administrator who later sets a market bit back to "follow".
+    Returns True when any copy ran.
+    """
+    from datetime import datetime, timezone
+
+    tables = set(sa.inspect(conn).get_table_names())
+    if "content_blocks" not in tables or "users_shadow" not in tables:
+        return False
+    blocks = sa.table(
+        "content_blocks", sa.column("id"), sa.column("payload", sa.JSON),
+        sa.column("updated_at"), sa.column("updated_by"),
+    )
+    ran = False
+    for marker, pairs in _MARKET_SPLIT_STEPS:
+        if conn.execute(sa.select(blocks.c.id).where(blocks.c.id == marker)).first():
+            continue
+        copy_permission_bits(conn, pairs)
+        # Two processes starting together may both get here; the copy is idempotent, so the
+        # loser of the marker insert just carries on instead of failing startup.
+        try:
+            with conn.begin_nested():
+                conn.execute(blocks.insert().values(
+                    id=marker, payload={"done": True},
+                    updated_at=datetime.now(timezone.utc), updated_by="data_repair",
+                ))
+        except sa.exc.IntegrityError:
+            continue
+        ran = True
+    return ran
