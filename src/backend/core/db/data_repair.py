@@ -94,3 +94,40 @@ def remove_desktop_site_prompt_parts(conn: sa.engine.Connection) -> int:
             blocks.update().where(blocks.c.id == "prompt_versions").values(payload=updated)
         )
     return repaired
+
+
+# Where capability bits are stored: (table, key column, JSON column, grant-only).
+# Roles store granted bits only (``True``); users and teams store explicit ``True``/``False``.
+_CAPABILITY_STORES = (
+    ("users_shadow", "user_id", "metadata", False),
+)
+
+
+def copy_lab_permission_to_sites(conn: sa.engine.Connection) -> int:
+    """Seed the new ``sites_enabled`` bit from ``lab_enabled`` wherever lab was configured.
+
+    Sites used to follow the lab permission. After the split nobody should gain or lose
+    sites access on upgrade, so every personal, team and role setting of ``lab_enabled``
+    is copied to ``sites_enabled`` unless that bit is already set. Missing tables (CE has
+    no teams or roles) are skipped. Returns the number of rows changed.
+    """
+    import json
+
+    tables = set(sa.inspect(conn).get_table_names())
+    changed = 0
+    for table, key, column, grant_only in _CAPABILITY_STORES:
+        if table not in tables:
+            continue
+        target = sa.table(table, sa.column(key), sa.column(column, sa.JSON))
+        for row_key, raw in conn.execute(sa.select(target.c[key], target.c[column])).fetchall():
+            value = json.loads(raw) if isinstance(raw, str) else raw
+            if not isinstance(value, dict) or "sites_enabled" in value:
+                continue
+            lab = value.get("lab_enabled")
+            if not isinstance(lab, bool) or (grant_only and not lab):
+                continue
+            conn.execute(
+                target.update().where(target.c[key] == row_key).values({column: {**value, "sites_enabled": lab}})
+            )
+            changed += 1
+    return changed

@@ -12,12 +12,13 @@ from core.db.engine import get_db
 from core.infra.responses import paginated_response, success_response
 from features.sites.edition import SiteUpdateScopeFields, serialize_site_scope, site_management_permission, site_scope_ref
 from features.sites.password import MAX_PASSWORD_LENGTH
+from features.sites.permission import require_sites_permission
 from features.sites.service import SiteService
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-router = APIRouter(prefix="/v1/sites", tags=["Sites"])
+router = APIRouter(prefix="/v1/sites", tags=["Sites"], dependencies=[Depends(require_sites_permission)])
 
 
 class UpdateSiteRequest(SiteUpdateScopeFields):

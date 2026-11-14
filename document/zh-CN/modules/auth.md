@@ -141,6 +141,7 @@ SSO 提供方响应必须是 JSON 对象，且成功码必须为有限数值 0�
 | `can_add_skill` | 关 | `PATCH /v1/config/users/{id}/skill-permission` | 能力中心自助上传 / 手写私有技能（`api/routes/v1/me_capabilities.py`） |
 | `can_add_mcp` | 关 | `PATCH /v1/config/users/{id}/mcp-permission` | 能力中心自助添加私有远程 MCP（HTTP/SSE） |
 | `lab_enabled` | **开** | `PATCH /v1/config/users/{id}/lab-permission` | 实验室模块入口与访问 |
+| `sites_enabled` | **开** | `PATCH /v1/config/users/{id}/sites-permission` | 站点入口、站点管理与发布（已发布站点的公开地址不受影响）；从 `lab_enabled` 拆出，升级时复制了已有的实验室设置 |
 | `allowed_apps` | 无限制 | `PATCH /v1/config/users/{id}/app-permissions` | 应用可见范围；`None`=全部启用应用，列表=白名单（空列表=全屏蔽） |
 | `role: super_admin` | 无 | （直接写 metadata） | `require_super_admin` 依赖放行；可绕过团队角色检查 |
 

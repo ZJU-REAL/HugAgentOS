@@ -85,13 +85,18 @@ def definitions(db, user_id=None, include_disabled=False):
     return values
 
 
+# Built-in modules gated by an account capability (the frontend mirrors this in sidebar/items.ts).
+BUILTIN_CAPABILITIES = {"lab": "lab_enabled", "sites": "sites_enabled"}
+
+
 def permitted(item, caps, layout):
     key = item["applicationKey"]
     identifier = key if key.startswith("plugin:") else item["declaration"]["id"]
     if key in layout["hidden"]:
         return False
     if key.startswith("builtin:") and identifier not in WHITELIST_BUILTINS:
-        return identifier not in {"lab", "sites"} or caps["lab_enabled"]
+        capability = BUILTIN_CAPABILITIES.get(identifier)
+        return capability is None or caps[capability]
     allowed = caps["allowed_apps"]
     return allowed is None or identifier in allowed
 

@@ -1,6 +1,8 @@
 // Frontend defaults: serve as the fallback while the store has not yet loaded, aligned with the backend DEFAULT_PAGE_CONFIG
 // After the backend seeds, frontend polling overrides these values. When changing values, keep content_blocks.py in sync.
 
+import type { SidebarLayout } from './sidebarLayout';
+
 export interface PageConfig {
   branding: {
     product_name: string;
@@ -46,8 +48,11 @@ export interface PageConfig {
       /** Browser tab icon of the three admin pages; empty = follow branding.favicon_url. */
       favicon_url: string;
     };
+    /** Legacy single layout; kept for the workbench policy bridge. The sidebars read `layouts`. */
     sidebar_items: string[];
     menu_items: string[];
+    /** Module placement per sidebar layout: each user's chosen layout reads its own entry. */
+    layouts: Record<SidebarLayout, LayoutNavigation>;
   };
   texts: Record<string, string>;
   auth: {
@@ -56,16 +61,24 @@ export interface PageConfig {
   };
 }
 
-// "Projects" no longer appears in the main navigation by default: browsing/entering projects goes through the sidebar "Projects" group, and selecting/creating goes through the input-box
-// project dropdown. LAYOUT_ITEMS still keeps the projects definition, and the backend page config can add it back as needed.
-// ⚠️ 这两个数组只是**出厂默认值**，不是最终形态——运行时以 DB 里的
-// `page_config.navigation.sidebar_items / menu_items` 为准（见 Sidebar.tsx 的 usePageConfig）。
-// 管理员随时可在 /config →「页面配置」里把任意入口在「侧边栏 / 用户菜单 / 隐藏」三栏间拖动、
-// 调序、或一键「恢复默认」回到这里的取值。新增入口只要进 LAYOUT_ITEMS，就自动出现在那个编排界面里。
-//
-// 当前默认的取舍：能力中心从底部菜单提到一级导航（其四类能力做成二级导航）；定时任务从应用中心、
-// 站点从实验室各自拆出来成一级导航；知识库并入我的空间的 Tab、智能体并入能力中心的二级导航，
-// 因此都不再单列；应用中心与项目反向下沉到用户下拉菜单，主导航只留高频入口。
+/** Shell modules the sidebar can place. Applications and plugins never join this set. */
+export const MODULE_KEYS = ['my_space', 'automation', 'ability_center', 'projects', 'sites', 'app_center', 'lab'] as const;
+export type ModuleKey = typeof MODULE_KEYS[number];
+export const SIDEBAR_LAYOUT_KEYS: readonly SidebarLayout[] = ['modern', 'classic'];
+/** `sidebar_items`: primary navigation in this order. `more_items`: the 「更多」 menu in this order. Absent = hidden. */
+export interface LayoutNavigation { sidebar_items: ModuleKey[]; more_items: ModuleKey[] }
+export const DEFAULT_LAYOUT_NAVIGATION: Readonly<LayoutNavigation> = {
+  sidebar_items: ['my_space', 'automation', 'ability_center'],
+  more_items: ['projects', 'sites', 'app_center', 'lab'],
+};
+export const defaultLayoutNavigation = (): LayoutNavigation => ({
+  sidebar_items: [...DEFAULT_LAYOUT_NAVIGATION.sidebar_items],
+  more_items: [...DEFAULT_LAYOUT_NAVIGATION.more_items],
+});
+
+// Legacy single-layout placement. The workbench layout policy still mirrors these two arrays, but the
+// sidebars no longer read them: each layout reads `navigation.layouts.<layout>` (DEFAULT_LAYOUT_NAVIGATION
+// when unset), which administrators arrange per layout in /config →「页面配置」→「侧边栏布局」.
 export const DEFAULT_SIDEBAR_ITEMS = ['ability_center', 'automation', 'sites', 'my_space'];
 export const DEFAULT_MENU_ITEMS = ['settings', 'app_center', 'projects', 'lab'];
 
@@ -139,6 +152,7 @@ export const DEFAULT_PAGE_CONFIG: PageConfig = {
     },
     sidebar_items: [...DEFAULT_SIDEBAR_ITEMS],
     menu_items: [...DEFAULT_MENU_ITEMS],
+    layouts: { modern: defaultLayoutNavigation(), classic: defaultLayoutNavigation() },
   },
   texts: {
     input_placeholder: '请输入您的问题…',
@@ -201,6 +215,7 @@ export function mergePageConfig(remote: Partial<PageConfig> | null | undefined):
         remote.navigation?.menu_items,
         DEFAULT_PAGE_CONFIG.navigation.menu_items,
       ),
+      layouts: normalizeLayouts(remote.navigation?.layouts),
     },
     texts: { ...DEFAULT_PAGE_CONFIG.texts, ...(remote.texts || {}) },
     auth: { ...DEFAULT_PAGE_CONFIG.auth, ...(remote.auth || {}) },
@@ -246,6 +261,25 @@ function mergeAdminPlatform(
     apidoc_label: pick(r.apidoc_label, def.apidoc_label),
     favicon_url: pick(r.favicon_url, def.favicon_url),
   };
+}
+
+function moduleKeys(value: unknown, taken: ReadonlySet<string>): ModuleKey[] {
+  return normalizeLayoutKeys(value, []).filter((key): key is ModuleKey =>
+    (MODULE_KEYS as readonly string[]).includes(key) && !taken.has(key));
+}
+
+/** Each layout keeps its own order; a module sits in at most one place and unknown keys are dropped. */
+export function normalizeLayoutNavigation(value: unknown): LayoutNavigation {
+  const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  const sidebarSource = Array.isArray(raw.sidebar_items) ? raw.sidebar_items : DEFAULT_LAYOUT_NAVIGATION.sidebar_items;
+  const sidebar = moduleKeys(sidebarSource, new Set());
+  const moreSource = Array.isArray(raw.more_items) ? raw.more_items : DEFAULT_LAYOUT_NAVIGATION.more_items;
+  return { sidebar_items: sidebar, more_items: moduleKeys(moreSource, new Set(sidebar)) };
+}
+
+function normalizeLayouts(value: unknown): Record<SidebarLayout, LayoutNavigation> {
+  const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  return { modern: normalizeLayoutNavigation(raw.modern), classic: normalizeLayoutNavigation(raw.classic) };
 }
 
 function normalizeLayoutKeys(value: unknown, fallback: string[]): string[] {

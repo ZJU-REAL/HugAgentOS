@@ -2516,6 +2516,8 @@ export interface AuthUser extends EditionAuthUserFields {
   allowed_apps?: string[] | null;
   /** undefined/true = Lab enabled by default; false = hide and forbid access to the Lab module */
   lab_enabled?: boolean;
+  /** undefined/true = Sites enabled by default; false = hide the Sites module and refuse site management and publishing */
+  sites_enabled?: boolean;
   /** Whether API keys may be used (default false; controlled by the Config admin platform) */
   can_use_api_key?: boolean;
   /** Whether the user may self-service add skills in the capability center (default false) */

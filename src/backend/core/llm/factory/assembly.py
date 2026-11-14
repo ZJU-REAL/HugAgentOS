@@ -31,7 +31,7 @@ from core.llm.mcp import server_guidance
 
 
 def _append_mcp_server_guidance(system_prompt, mcp_resources, tool_schemas, manifest_builder, log, elapsed):
-    """Add what each connected MCP server is for; tool schemas carry only per-tool text."""
+    """Add connected MCP servers' handshake instructions; tool schemas carry only per-tool text."""
     visible = {
         str((schema.get("function") or schema).get("name") or "")
         for schema in tool_schemas or []

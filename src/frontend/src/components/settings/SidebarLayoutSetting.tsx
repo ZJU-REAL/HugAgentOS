@@ -5,7 +5,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { useSidebarLayoutStore } from '../../stores/sidebarLayoutStore';
 import { t } from '../../i18n';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
-import { applySidebarLayout, type SidebarLayout } from '../../utils/sidebarLayout';
+import { applySidebarLayout, sidebarLayoutText } from '../../utils/sidebarLayout';
 import '../../styles/sidebar-layout-setting.css';
 
 export function SidebarLayoutSetting() {
@@ -16,10 +16,7 @@ export function SidebarLayoutSetting() {
   const [applying, setApplying] = useState(false);
   const isDesktop = useDeploymentModeStore(s => s.isDesktop);
   const [messageApi, holder] = message.useMessage();
-  const choices: { value: SidebarLayout; label: string; description: string }[] = [
-    { value: 'classic', label: t('经典模式'), description: t('文字导航、项目与历史对话集中在同一侧栏') },
-    { value: 'modern', label: t('现代模式'), description: t('图标导航与模块侧栏分开显示') },
-  ];
+  const choices = (['classic', 'modern'] as const).map(value => ({ value, ...sidebarLayoutText(value) }));
   return <>
     {holder}
     <div className="jx-settings-card"><div className="jx-layoutSetting">
