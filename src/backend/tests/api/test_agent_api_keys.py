@@ -401,3 +401,56 @@ def test_upload_cannot_attach_to_another_scopes_chat(db, monkeypatch, tmp_path):
         )
         assert response.status_code == 403
     assert db.query(Artifact).count() == 0
+
+
+def test_first_turn_may_attach_files_uploaded_into_the_keys_session(db, monkeypatch, tmp_path):
+    from core.chat.schemas import AttachmentItem
+
+    key, _ = _key(db)
+    user = _user(key)
+    client = _upload_client(db, monkeypatch, tmp_path, user)
+    response = client.post(
+        "/v1/file/upload", data={"chat_id": "cn-attach"},
+        files={"file": ("a.txt", io.BytesIO(b"x"), "text/plain")},
+    )
+    assert response.status_code == 200, response.text
+    request = ChatRequest(
+        chat_id="cn-attach", message="Read it", agent_id=key.agent_id,
+        attachments=[AttachmentItem(name="a.txt", file_id=response.json()["file_id"])],
+    )
+    _, scope = prepare_agent_api_request(db, user, request)
+    assert scope["chat_id"] == "cn-attach"
+
+
+@pytest.mark.parametrize("where", ["unbound", "owner_chat", "other_key_chat", "other_chat_same_key", "deleted", "missing"])
+def test_attachments_outside_the_keys_session_are_rejected(db, where):
+    from fastapi import HTTPException
+    from core.chat.schemas import AttachmentItem
+    from core.db.models import Artifact, ChatSession
+
+    key, _ = _key(db)
+    user = _user(key)
+    other, _ = _key(db, agent_id="ua_two")
+    prepare_agent_api_request(db, _user(other), ChatRequest(chat_id="other-chat", message="Hi", agent_id="ua_two"))
+    prepare_agent_api_request(db, user, ChatRequest(chat_id="mine-old", message="Hi", agent_id=key.agent_id))
+    db.add(ChatSession(chat_id="owner-chat", user_id="owner", title="Private"))
+    chat_id = {
+        "unbound": None, "owner_chat": "owner-chat", "other_key_chat": "other-chat",
+        "other_chat_same_key": "mine-old", "deleted": "mine",
+    }.get(where)
+    if where != "missing":
+        db.add(Artifact(
+            artifact_id="art-x", user_id="owner", chat_id=chat_id, type="document", title="secret.txt",
+            filename="secret.txt", size_bytes=1, mime_type="text/plain", storage_key="k",
+            deleted_at=datetime.now(timezone.utc) if where == "deleted" else None,
+        ))
+    db.commit()
+    request = ChatRequest(
+        chat_id="mine", message="Read it", agent_id=key.agent_id,
+        attachments=[AttachmentItem(name="secret.txt", file_id="art-x")],
+    )
+    with pytest.raises(HTTPException) as exc:
+        prepare_agent_api_request(db, user, request)
+    assert exc.value.detail == {"code": "api_attachment_out_of_scope"}
+    record = db.query(AgentApiCallLog).filter(AgentApiCallLog.error_code == "api_attachment_out_of_scope").one()
+    assert record.status == "failed"

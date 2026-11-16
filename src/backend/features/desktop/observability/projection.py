@@ -115,15 +115,23 @@ def public_payload(kind, payload):
     fields = set(FIELDS[kind].split()) | EXTRA_FIELDS
     truncated = []
     result = scrub({k: v for k, v in payload.items() if k in fields}, truncated=truncated)
-    while len(json.dumps(result, ensure_ascii=False).encode()) > MAX_EVENT_BYTES - 4096:
-        candidates = [
-            k
-            for k in result
-            if k not in {"chat_id", "run_id", "message_id", "call_id", "truncated"}
+    size = len(json.dumps(result, ensure_ascii=False).encode())
+    if size > MAX_EVENT_BYTES - 4096:
+        # Serialize each field once and track the total by per-field deltas.
+        encoded = {k: json.dumps(v, ensure_ascii=False) for k, v in result.items()}
+        shrinkable = [
+            k for k in result if k not in {"chat_id", "run_id", "message_id", "call_id", "truncated"}
         ]
-        largest = max(candidates, key=lambda k: len(json.dumps(result[k], ensure_ascii=False)))
-        result[largest] = str(result[largest])[:8192] + "\n[truncated]"
-        truncated.append(True)
+        while size > MAX_EVENT_BYTES - 4096 and shrinkable:
+            largest = max(shrinkable, key=lambda k: len(encoded[k]))
+            # A field is cut at most once: cutting it again would not shrink
+            # it, and choosing it again would loop forever.
+            shrinkable.remove(largest)
+            before = len(encoded[largest].encode())
+            result[largest] = str(result[largest])[:8192] + "\n[truncated]"
+            encoded[largest] = json.dumps(result[largest], ensure_ascii=False)
+            size += len(encoded[largest].encode()) - before
+            truncated.append(True)
     if truncated:
         result["truncated"] = True
     return result

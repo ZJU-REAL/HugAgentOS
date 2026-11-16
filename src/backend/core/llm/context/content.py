@@ -2,6 +2,7 @@
 from __future__ import annotations
 from core.models.constants import IMAGE_TOKEN_RESERVE
 from typing import Any, Mapping
+from core.infra.budget_search import largest_fitting
 from core.infra.immutable import thaw_json
 from core.harness.execution_manifest import canonical_json
 from core.llm.context import ir_constants
@@ -92,43 +93,37 @@ def truncate_text(text: str, max_tokens: int, *, tail_only: bool = False) -> str
     max_bytes = max(4, max_tokens * 4)
     if len(text.encode("utf-8")) <= max_bytes:
         return text
-    # Character slicing is deterministic and safe for Unicode. Iterate down if
-    # multi-byte text still exceeds the byte reserve.
-    max_chars = max(1, max_bytes)
-    head = 0
-    tail = 0
-    marker = ""
+    # One-sided cuts keep the longest whole-character prefix or suffix within
+    # the byte reserve; "ignore" drops only the split character's stray bytes.
     if tail_only:
-        tail = max_chars
-        result = text[-tail:]
-    elif max_chars < 40:
-        head = max_chars
-        result = text[:head]
-    else:
-        marker = "\n[… omitted …]\n"
-        body = max(2, max_chars - len(marker))
-        head = max(1, int(body * 0.6))
-        tail = max(1, body - head)
-        result = text[:head] + marker + text[-tail:]
-    while len(result.encode("utf-8")) > max_bytes and len(result) > 1:
-        if tail_only:
-            tail = max(1, tail - 1)
-            result = text[-tail:]
-        elif marker:
-            # Preserve both semantic ends; shrink the larger slice first.
-            if head >= tail and head > 1:
-                head -= 1
-            elif tail > 1:
-                tail -= 1
-            elif head > 1:
-                head -= 1
-            else:
-                break
-            result = text[:head] + marker + text[-tail:]
-        else:
-            head = max(1, head - 1)
-            result = text[:head]
-    return result
+        return text.encode("utf-8")[-max_bytes:].decode("utf-8", errors="ignore")
+    max_chars = max(1, max_bytes)
+    if max_chars < 40:
+        return text.encode("utf-8")[:max_bytes].decode("utf-8", errors="ignore")
+    # Head and tail start sized in characters from the byte reserve and shrink
+    # one character at a time, larger slice first, until the UTF-8 size fits.
+    # That shrink is monotone, so its first fitting state is binary-searched.
+    marker = "\n[… omitted …]\n"
+    body = max(2, max_chars - len(marker))
+    head0 = max(1, int(body * 0.6))
+    tail0 = max(1, body - head0)
+
+    def split(total: int) -> tuple[int, int]:
+        # Shrinking always takes one character from the larger slice (head on
+        # a tie), so after any number of steps the split is fixed by its sum.
+        head = min(head0, max(total // 2, total - tail0))
+        return head, total - head
+
+    def joined(total: int) -> str:
+        head, tail = split(total)
+        return text[:head] + marker + text[-tail:]
+
+    # Both slices bottom out at one character; that state is returned even
+    # when it still exceeds the byte reserve.
+    total = largest_fitting(
+        2, head0 + tail0, lambda total: len(joined(total).encode("utf-8")) <= max_bytes
+    )
+    return joined(total)
 
 
 def truncate_content(content: Any, max_tokens: int, policy: str) -> Any:

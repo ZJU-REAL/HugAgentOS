@@ -1670,15 +1670,11 @@ export async function getKBChunks(
   page = 1,
   pageSize = 100,
 ): Promise<KBChunk[]> {
-  try {
-    const wrapped = await apiRequest<unknown>(
-      `/v1/catalog/kb/${kbId}/chunks?document_id=${docId}&page=${page}&page_size=${pageSize}`,
-    );
-    const data = unwrapData<{ items?: KBChunk[] }>(wrapped);
-    return Array.isArray(data.items) ? data.items : [];
-  } catch {
-    return [];
-  }
+  const wrapped = await apiRequest<unknown>(
+    `/v1/catalog/kb/${encodeURIComponent(kbId)}/chunks?document_id=${encodeURIComponent(docId)}&page=${page}&page_size=${pageSize}`,
+  );
+  const data = unwrapData<{ items?: KBChunk[] }>(wrapped);
+  return Array.isArray(data.items) ? data.items : [];
 }
 
 export interface KBChunkChild {

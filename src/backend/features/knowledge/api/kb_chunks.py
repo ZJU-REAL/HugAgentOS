@@ -17,7 +17,7 @@ from features.knowledge.api import kb_helpers
 
 @router.get("/{kb_id}/chunks", summary="获取文档分块列表（含标签和问题）")
 def list_chunks(
-    kb_id: str = Path(..., description="KB space ID"),
+    kb_id: str = Path(..., description="Local or external knowledge collection ID"),
     document_id: Optional[str] = Query(None, description="Filter by document ID"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -31,7 +31,21 @@ def list_chunks(
     kb_repo = KBRepository(db)
     kb_space = kb_repo.get_space(kb_id)
     if not kb_space:
-        raise ResourceNotFoundError(resource_type="kb_space", resource_id=kb_id)
+        from features.knowledge.edition import is_enabled
+
+        if not is_enabled():
+            raise ResourceNotFoundError(resource_type="kb_space", resource_id=kb_id)
+        from features.knowledge.edition import get_dataset_levels, list_document_chunks
+
+        if kb_id not in get_dataset_levels(db, user.user_id, [kb_id]):
+            raise AccessDeniedError(message="Access denied", reason="No access to this knowledge base")
+        if not document_id:
+            raise BadRequestError(message="External chunk listing requires document_id")
+        result = list_document_chunks(kb_id, document_id, page=page, page_size=page_size)
+        return paginated_response(
+            items=result["items"], page=page, page_size=page_size,
+            total_items=result["total"], message="Chunks retrieved successfully",
+        )
     # Public KBs are readable by all logged-in users (chunks are read-only viewing)
     if not kb_helpers.can_read_space(db, kb_space, user.user_id):
         raise AccessDeniedError(message="Access denied", reason="Not the KB owner")
