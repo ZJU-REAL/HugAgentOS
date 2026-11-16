@@ -105,8 +105,14 @@ class SandboxInfo:
 
 
 class SandboxProvider(Protocol):
-    """Sandbox driver interface. Each provider implementation must declare
-    ``name`` for logging and health reporting."""
+    """Execution contract every sandbox provider satisfies, including the
+    providers a session route (``register_sandbox_route``) hands out.
+
+    Providers do not subclass this Protocol, so it gives them nothing at
+    runtime: each provider declares every member itself, and members carry no
+    defaults here, because a default would only document a value no provider
+    has. ``tests/sandbox/test_provider_contract.py`` checks the real classes.
+    """
 
     name: str
 
@@ -114,7 +120,8 @@ class SandboxProvider(Protocol):
     # 没有别的隔离边界，命令必须带着 ``ProcessRequest.sandbox_launch`` 执行；
     # False 表示隔离由容器提供，OS 沙箱在那里既无处施加也无意义——调用方据此
     # 决定要不要构造 launch，避免出现"构造了但没人施加"的静默失效。
-    runs_on_host: bool = False
+    # 每个实现都要显式声明；调用方直接读，不用 getattr 兜底。
+    runs_on_host: bool
 
     async def run_to_completion(self, req: ProcessRequest) -> ProcessResult:
         """Run once and await the final result; internal callers never manage handles."""
@@ -237,10 +244,16 @@ class SandboxProvider(Protocol):
 
     async def health(self) -> bool: ...
 
-    # ── Read-only admin interface (for the security admin console; all pure
-    # queries with zero side effects) ──────────────
-    # Unsupported capabilities should raise SandboxAdminNotSupported, and the
-    # caller degrades the display accordingly.
+
+class SandboxAdmin(Protocol):
+    """Read-only admin view for the security console; all pure queries with
+    zero side effects. Only the ordinary provider serves it (the console reads
+    ``get_sandbox_provider()``, whose router forwards these to the ordinary
+    provider), so session-route providers need not implement it.
+
+    Unsupported capabilities should raise SandboxAdminNotSupported, and the
+    caller degrades the display accordingly.
+    """
 
     def admin_capabilities(self) -> "SandboxAdminCapabilities":
         """Declare how far this provider supports the read-only sandbox
@@ -262,3 +275,7 @@ class SandboxProvider(Protocol):
         ...
 
     def admin_pool_stats(self) -> dict: ...
+
+
+class OrdinarySandboxProvider(SandboxProvider, SandboxAdmin, Protocol):
+    """What ``SANDBOX_PROVIDER`` selects: execution plus the admin view."""

@@ -12,12 +12,12 @@ from dataclasses import dataclass
 
 from core.config.settings import settings
 
-from .protocol import SandboxProvider
+from .protocol import OrdinarySandboxProvider
 
 logger = logging.getLogger(__name__)
 
 
-def _ordinary_provider() -> SandboxProvider:
+def _ordinary_provider() -> OrdinarySandboxProvider:
     if process_state().provider is not None:
         return process_state().provider
 
@@ -43,7 +43,7 @@ def _ordinary_provider() -> SandboxProvider:
     return process_state().provider
 
 
-def get_sandbox_provider() -> SandboxProvider:
+def get_sandbox_provider() -> OrdinarySandboxProvider:
     from core.sandbox.sessions.router import SessionSandboxRouter
 
     return SessionSandboxRouter(_ordinary_provider())
@@ -56,7 +56,7 @@ def reset_provider_cache() -> None:
 
 @dataclass
 class FactoryState:
-    provider: SandboxProvider | None = None
+    provider: OrdinarySandboxProvider | None = None
 
 
 _STATE = FactoryState()

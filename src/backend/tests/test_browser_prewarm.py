@@ -203,7 +203,7 @@ async def test_initial_managed_start_cancellation_retains_handle_until_cleanup(t
         return {"session_id": "owned-start", "output": ""}
     async def write(handle, **kwargs):
         cleaned.append((handle, kwargs["chars"]))
-    provider = SimpleNamespace(start_process=start, write_stdin=write)
+    provider = SimpleNamespace(runs_on_host=False, start_process=start, write_stdin=write)
     monkeypatch.setattr(confinement, "launch_policy", lambda *a: {})
     task = asyncio.create_task(interactive.launch(provider, selected, module, "owner", "chat", {"token": "fixture-only"}))
     await entered.wait()

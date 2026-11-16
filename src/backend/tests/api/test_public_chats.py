@@ -217,13 +217,13 @@ def test_public_composer_capabilities_and_uploads(db, kind, resource):
                          ("/v1/tool-approval", "GET"), ("/v1/tool-approval", "PUT"),
                          ("/v1/file/upload", "POST")):
         assert authenticate_public_chat(request(link["token"], "a" * 48, path, method), db)
-    metadata = service.prepare_visitor_upload(db, user, "upload-chat")
+    metadata = service.prepare_scoped_upload(db, user, "upload-chat")
     assert metadata["public_chat_visitor"] == user.public_chat_visitor
     assert public_session_matches(db.get(ChatSession, "upload-chat"), user)
     with pytest.raises(HTTPException):
-        service.prepare_visitor_upload(db, other, "upload-chat")
+        service.prepare_scoped_upload(db, other, "upload-chat")
     with pytest.raises(HTTPException):
-        service.prepare_visitor_upload(db, user, "another", folder_id="folder")
+        service.prepare_scoped_upload(db, user, "another", folder_id="folder")
     file = Artifact(artifact_id="uploaded", user_id="owner", chat_id="upload-chat",
                     filename="hello.txt", mime_type="text/plain", storage_key="hello",
                     type="document", title="Hello", size_bytes=5, extra_data=metadata)

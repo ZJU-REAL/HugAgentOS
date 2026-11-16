@@ -29,7 +29,7 @@ from core.db.models import AgentApiCallLog, ChatRun, UserApiKey
 from core.auth.agent_api import begin_agent_api_call, bind_agent_api_run, list_agent_api_calls, prepare_agent_api_request
 from tests.api.test_agent_api_scope import db, _key, _user
 from core.chat.schemas import ChatRequest
-from tests.db_support import share_session
+from tests.db_support import share_bind, share_session
 
 
 def _app(db, monkeypatch, *, user_id="owner", middleware=False):
@@ -333,3 +333,71 @@ async def test_cancel_rejection_is_not_a_new_agent_invocation(db, monkeypatch):
         )
     assert response.status_code == 409
     assert db.query(AgentApiCallLog).count() == 0
+
+
+def _upload_client(db, monkeypatch, tmp_path, user):
+    import core.files.storage
+    from fastapi.testclient import TestClient
+    from api.routes.v1 import file_upload
+    from core.files.storage.factory import process_state
+    from core.files.storage.local import LocalStorageBackend
+
+    monkeypatch.setenv("STORAGE_PATH", str(tmp_path / "storage"))
+    storage = LocalStorageBackend()
+    monkeypatch.setattr(process_state(), "storage_instance", storage)
+    monkeypatch.setattr(core.files.storage, "get_storage", lambda: storage)
+    app = FastAPI()
+    app.include_router(file_upload.router)
+    app.dependency_overrides[get_current_user] = lambda: user
+    app.dependency_overrides[get_db] = lambda: db
+    return TestClient(app)
+
+
+def test_first_turn_upload_creates_the_keys_session_and_is_readable(db, monkeypatch, tmp_path):
+    from core.auth.agent_api import make_agent_api_scope
+    from core.db.models import Artifact, ChatSession
+    from core.llm.api_runtime.agent import artifact_in_scope, parse_api_scope
+
+    key, _ = _key(db)
+    user = _user(key)
+    client = _upload_client(db, monkeypatch, tmp_path, user)
+    response = client.post(
+        "/v1/file/upload", data={"chat_id": "cn-first"},
+        files={"file": ("table.xlsx", io.BytesIO(b"bytes"), "application/octet-stream")},
+    )
+    assert response.status_code == 200, response.text
+    file_id = response.json()["file_id"]
+    db.expire_all()
+    assert db.get(ChatSession, "cn-first").extra_data["agent_api_scope"]["api_key_id"] == key.id
+    artifact = db.get(Artifact, file_id)
+    assert artifact.chat_id == "cn-first"
+    assert artifact.extra_data["agent_api_key_id"] == key.id
+    share_bind(monkeypatch, db.bind)
+    scope = parse_api_scope(
+        make_agent_api_scope(user, "cn-first"), owner_user_id="owner",
+        chat_id="cn-first", agent_id=key.agent_id,
+    )
+    assert artifact_in_scope(file_id, scope)
+    # The first message reuses the session the upload created.
+    prepare_agent_api_request(
+        db, user, ChatRequest(chat_id="cn-first", message="Read it", agent_id=key.agent_id)
+    )
+
+
+def test_upload_cannot_attach_to_another_scopes_chat(db, monkeypatch, tmp_path):
+    from core.db.models import Artifact, ChatSession
+
+    db.add(ChatSession(chat_id="owner-chat", user_id="owner", title="Private"))
+    db.commit()
+    other, _ = _key(db, agent_id="ua_two")
+    prepare_agent_api_request(
+        db, _user(other), ChatRequest(chat_id="other-chat", message="Hi", agent_id="ua_two")
+    )
+    client = _upload_client(db, monkeypatch, tmp_path, _user(_key(db)[0]))
+    for chat_id in ("owner-chat", "other-chat"):
+        response = client.post(
+            "/v1/file/upload", data={"chat_id": chat_id},
+            files={"file": ("a.txt", io.BytesIO(b"x"), "text/plain")},
+        )
+        assert response.status_code == 403
+    assert db.query(Artifact).count() == 0

@@ -136,19 +136,22 @@ def set_visitor_approval_mode(db, user, mode):
     db.commit()
 
 
-def prepare_visitor_upload(db, user, chat_id, folder_id=None):
+def prepare_scoped_upload(db, user, chat_id, folder_id=None):
+    """Bind a scoped key's upload to its own session, creating it on the first turn."""
     from core.chat.schemas import ChatRequest
     from core.auth.agent_api import prepare_agent_api_request
     from core.projects.api import prepare_project_api_request
 
-    if not chat_id or folder_id:
+    if user.public_chat_visitor and (not chat_id or folder_id):
         raise HTTPException(422, detail="A public upload requires its conversation")
     body = ChatRequest(chat_id=chat_id, message="Upload", agent_id=user.api_key_agent_id,
                        project_id=user.api_key_project_id)
     prepare_project_api_request(db, user, body)
     prepare_agent_api_request(db, user, body)
-    return {"public_chat_visitor": user.public_chat_visitor, "public_chat_key_id": user.api_key_id,
-            "agent_api_key_id": user.api_key_id}
+    meta = {"agent_api_key_id": user.api_key_id}
+    if user.public_chat_visitor:
+        meta.update(public_chat_visitor=user.public_chat_visitor, public_chat_key_id=user.api_key_id)
+    return meta
 
 
 def validate_visitor_attachments(db, user, attachments):

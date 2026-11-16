@@ -44,6 +44,9 @@ class OpenSandboxProvider(
     _OpenSandboxConnectionMixin,
 ):
     name = "opensandbox"
+    # Commands run inside a separate container; the container is the isolation
+    # boundary, so there is no host OS sandbox to apply.
+    runs_on_host = False
 
     # 类属性兜底：有测试绕过 __init__ 直接造实例，亲和层读不到就会 AttributeError。
     # None 表示未锚定服务循环，装饰器退化为就地执行。
