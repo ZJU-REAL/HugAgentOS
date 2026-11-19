@@ -228,12 +228,50 @@ def sync_builtin_skills_to_sandbox_dir() -> int:
 # 公共技能（内置 + owner_user_id 为空的全局技能）放共享目录 get_sandbox_skills_dir()；
 # 私有技能（用户自己创建/从市场安装的）放各自的用户目录 get_user_skills_dir(uid)。
 # 沙箱里挂的是**用户目录**（/workspace/skills），公共技能以相对软链
-# ``<id> -> ../skills_shared/<id>`` 出现在里面，共享目录另挂到 /workspace/skills_shared。
-# 相对软链在三处都解析得到同一份文件：宿主机（skills_shared -> ../sandbox_skills）、
+# ``<id> -> ../.skills_shared/<id>`` 出现在里面，共享目录另挂到隐藏的
+# /workspace/.skills_shared —— 它只是让软链能解析的落点，模型只需要认 /workspace/skills。
+# 相对软链在三处都解析得到同一份文件：宿主机（.skills_shared -> ../sandbox_skills）、
 # opensandbox 沙箱、script-runner 会话工作区。因此一个用户的沙箱里只有公共技能加他
 # 自己的私有技能，别人的私有技能（含市场技能安装时写入的 secrets.json）不可见，
 # 而且不复制任何文件、不随用户数增长占盘。
-SHARED_LINK_NAME = "skills_shared"
+SHARED_LINK_NAME = ".skills_shared"
+# 旧布局的中转名（非隐藏，模型 ls /workspace 会看到）。仍保留为保留名，迁移见
+# _migrate_legacy_shared_links。
+LEGACY_SHARED_LINK_NAME = "skills_shared"
+_RESERVED_VIEW_NAMES = frozenset({SHARED_LINK_NAME, LEGACY_SHARED_LINK_NAME})
+
+
+def _shared_link_target(name: str) -> Path:
+    """Relative target of a user view's link to one shared skill."""
+    return Path("..") / SHARED_LINK_NAME / name
+
+
+def _replace_symlink(link: Path, target: Path) -> None:
+    """Atomically point ``link`` at ``target`` (a reader never sees it missing)."""
+    tmp = link.with_name(f".{link.name}.relink-{os.getpid()}")
+    if tmp.is_symlink():
+        tmp.unlink()
+    tmp.symlink_to(target, target_is_directory=True)
+    os.replace(tmp, link)
+
+
+def _migrate_legacy_shared_links(root: Path) -> None:
+    """Repoint every view link from ``../skills_shared/<id>`` to the hidden hop, then drop the old hop.
+
+    Idempotent and safe to race: each link is swapped atomically, and the old hop
+    is removed last, so a view not yet migrated keeps resolving until then.
+    """
+    legacy_prefix = Path("..") / LEGACY_SHARED_LINK_NAME
+    for view in root.iterdir():
+        if view.name in _RESERVED_VIEW_NAMES or view.is_symlink() or not view.is_dir():
+            continue
+        for entry in view.iterdir():
+            if entry.is_symlink() and entry.readlink() == legacy_prefix / entry.name:
+                _replace_symlink(entry, _shared_link_target(entry.name))
+    try:
+        (root / LEGACY_SHARED_LINK_NAME).unlink()
+    except FileNotFoundError:
+        pass
 
 
 def get_user_skills_root() -> Path:
@@ -258,13 +296,15 @@ def get_user_skills_root() -> Path:
         except FileExistsError:
             if not link.is_symlink() or link.readlink() != expected:
                 raise
+    if (root / LEGACY_SHARED_LINK_NAME).is_symlink():
+        _migrate_legacy_shared_links(root)
     return root
 
 
 def _safe_dir_name(user_id: Optional[str]) -> str:
     """Return a user id usable as a directory name, or "" when it isn't one."""
     value = (user_id or "").strip()
-    if not value or value in (".", "..", SHARED_LINK_NAME):
+    if not value or value in (".", "..") or value in _RESERVED_VIEW_NAMES:
         return ""
     if "/" in value or "\\" in value or value.startswith("."):
         return ""
@@ -319,11 +359,15 @@ def sync_user_skill_view(user_id: Optional[str]) -> Optional[Path]:
     have = {e.name for e in view.iterdir() if e.is_symlink()}
     for name in wanted - have:
         try:
-            (view / name).symlink_to(Path("..") / SHARED_LINK_NAME / name, target_is_directory=True)
+            (view / name).symlink_to(_shared_link_target(name), target_is_directory=True)
         except FileExistsError:  # a real dir of the same name wins (private skill)
             pass
     for name in have - wanted:
         (view / name).unlink()
+    for name in have & wanted:
+        # Links from an older layout (or a hand-edited view) point elsewhere.
+        if (view / name).readlink() != _shared_link_target(name):
+            _replace_symlink(view / name, _shared_link_target(name))
     return view
 
 
@@ -412,7 +456,7 @@ def _prune_orphan_sandbox_skill_dirs(live_skill_owners: dict) -> int:
         removed += 1
 
     for user_dir in get_user_skills_root().iterdir():
-        if user_dir.name == SHARED_LINK_NAME or not user_dir.is_dir() or user_dir.is_symlink():
+        if user_dir.name in _RESERVED_VIEW_NAMES or not user_dir.is_dir() or user_dir.is_symlink():
             continue
         for entry in user_dir.iterdir():
             if entry.is_symlink() or not entry.is_dir():

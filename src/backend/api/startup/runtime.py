@@ -178,60 +178,11 @@ async def _shutdown_device_link():
     await runner.stop()
 
 async def _startup_reconcile_datasource_catalog():
-    """Finish local capability reconciliation before the readiness gate opens."""
+    """Sync one MCP connector row per data source before the readiness gate opens."""
     from orchestration.workers.edition_startup import reconcile_datasource_catalog
 
     reconcile_datasource_catalog()
 
-
-async def _startup_recover_datasource_sidecars():
-    """Recover configured DBHub/ES MCP sidecars without blocking API startup."""
-    import asyncio
-
-    from api.app import app
-
-    async def _recover() -> None:
-        try:
-            from orchestration.workers.edition_startup import recover_datasource_sidecars
-
-            result = await recover_datasource_sidecars()
-            failures = [
-                state.get("error", "unknown error")
-                for key in ("dbhub", "es")
-                if (state := result.get(key) or {}).get("desired") and not state.get("ok")
-            ]
-            if failures:
-                logger.warning(
-                    "[startup] datasource sidecar recovery incomplete: %s",
-                    "; ".join(failures),
-                )
-                return
-            recovered = [
-                key for key in ("dbhub", "es") if (state := result.get(key) or {}).get("desired")
-            ]
-            if recovered:
-                logger.info(
-                    "[startup] datasource sidecars ready: %s",
-                    ", ".join(recovered),
-                )
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[startup] datasource sidecar recovery failed: %s", exc)
-
-    app.state.datasource_sidecar_recovery_task = asyncio.create_task(_recover())
-
-async def _shutdown_datasource_sidecar_recovery():
-    import asyncio
-    import contextlib
-
-    from api.app import app
-
-    task = getattr(app.state, "datasource_sidecar_recovery_task", None)
-    if task is not None and not task.done():
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
 
 _desktop_sync_worker = None
 

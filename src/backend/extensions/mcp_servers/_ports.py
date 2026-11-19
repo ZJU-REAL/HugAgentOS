@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 
 
-def _parse_port_offset(raw: str | None, *, highest_base_port: int = 9117) -> int:
+def _parse_port_offset(raw: str | None, *, highest_base_port: int = 9118) -> int:
     """Parse the optional local-desktop MCP port namespace.
 
     Compose and ordinary server deployments leave the value unset and retain

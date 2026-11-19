@@ -20,6 +20,8 @@ class MCPResource:
     display_name: str | None = None
     # Configured one-line purpose of the server (catalog / import metadata).
     description: str = ""
+    # Admin-declared per-tool approval policy (extra_config.tool_permissions).
+    tool_permissions: dict = field(default_factory=dict)
     _lease: object = None
     _closing: asyncio.Task | None = None
 

@@ -123,7 +123,7 @@ skills come only from the current user's rows. Existing source priorities resolv
   retired trees stay outside the sandbox skill mounts.
 - The shared root defaults to `$STORAGE_PATH/sandbox_skills`; private files live in the sibling
   `sandbox_skills_u/<user_id>` tree. User views reference shared skills through relative links.
-  Sandbox mounts at `/workspace/skills` and `/workspace/skills_shared` remain read-only.
+  Sandbox mounts at `/workspace/skills` and `/workspace/.skills_shared` remain read-only.
   The backend publishes and removes files through its writable source directory.
 - Web, admin, MCP and plugin deletion paths remove materialized files. New-session preparation also
   removes historical orphans using current sources, independently of another worker's cache

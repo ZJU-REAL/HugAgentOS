@@ -57,7 +57,6 @@ def build_default_tool_recovery_registry() -> ToolRecoveryRegistry:
         "Glob",
         "Grep",
         "view_text_file",
-        "get_data_context",
         "read_image",
         "read_artifact",
         "channel_read_attachment",

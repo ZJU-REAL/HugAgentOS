@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Set
 
 import core.capabilities.catalog.api as catalog
-from core.capabilities.catalog.loader import DB_HIDDEN_SERVERS, DB_UMBRELLA_ID
 from core.llm.factory.specs import AgentSpec
 from core.capabilities.mcp.service import McpServerConfigService
 
@@ -20,10 +19,7 @@ def effective_mcp_server_keys(
 ) -> list[str]:
     all_servers = _merged_servers(enabled_mcp_ids is None, owned_servers, bridge_servers)
     all_keys = list(all_servers.keys())
-    # Include the "database query" umbrella id in the gating set so it survives
-    # the runtime/catalog/spec intersection filters (it isn't a real server, so
-    # at the end it is expanded into the real DB servers and then discarded).
-    allow: Set[str] = set(all_keys) | {DB_UMBRELLA_ID}
+    allow: Set[str] = set(all_keys)
 
     # NOTE: Prompt config mcp_servers.enabled whitelist is intentionally
     # skipped here. All MCP servers are now DB-managed via admin panel,
@@ -47,14 +43,6 @@ def effective_mcp_server_keys(
     # Note: empty enabled_kb_ids [] means no KBs selected in frontend (e.g. catalog
     # KB list was empty because an external provider was unreachable). We do NOT remove the tool
     # in this case — the MCP impl will auto-resolve available KBs at call time.
-
-    # "Database query" umbrella expansion: when the user/catalog selects the
-    # single database_query, allow the actually enabled DB servers under it
-    # (query_database / db_query / es_query; apply switches is_enabled by data
-    # source type).
-    if DB_UMBRELLA_ID in allow:
-        allow |= {k for k in all_keys if k in DB_HIDDEN_SERVERS}
-    allow.discard(DB_UMBRELLA_ID)
 
     # A system copy and a private copy of one marketplace MCP expose the same
     # tool names: when both are selected, keep one.
@@ -140,13 +128,8 @@ def _required_mcp_server_keys(
     resolved: List[str] = []
     for connector_id in required_mcp_ids:
         connector_id = (aliases or {}).get(connector_id, connector_id)
-        if connector_id == DB_UMBRELLA_ID:
-            candidates = [key for key in enabled_mcp_keys if key in DB_HIDDEN_SERVERS]
-        else:
-            candidates = [connector_id] if connector_id in enabled else []
-        for key in candidates:
-            if key not in resolved:
-                resolved.append(key)
+        if connector_id in enabled and connector_id not in resolved:
+            resolved.append(connector_id)
     return resolved
 
 

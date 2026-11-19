@@ -28,7 +28,8 @@ Glob patterns (relative to the repo root); a match means the file is never copie
 
 - **Backend EE modules**: the complete `edition_ee/**` implementation root (Team/RBAC, SSO, license verification and gate, EE ORM, Dify integration), cloud storage (`core/files/storage/s3.py`, `oss.py`), the Cube sandbox provider, memory audit, skill distillation, and other EE services;
 - **EE routes**: `api/routes/v1/admin_*.py`, `config_*.py`, `audit.py`, `auth.py`, `team_files.py`, `service_configs.py`, `data_sources.py`, `db_metadata.py`, `gateway_*.py`;
-- **Industry MCP servers**: `extensions/mcp_servers/query_database_mcp/**`, `ai_chain_information_mcp/**`;
+- **Industry MCP servers**: `extensions/mcp_servers/ai_chain_information_mcp/**`;
+- **Database tools**: `features/datasources/**` and the per-data-source connector process `extensions/mcp_servers/database_mcp/**` (the `"database": 9118` line in `registry.py` is pruned too);
 - **Industry-specific frontend code and seeds**: the industry-chain Canvas,
   news and company-profile renderers, industry API client, and icon assets;
 - **The entire main-repo alembic chain** (`alembic/versions/**` — CE uses an independent chain from the overlay, see below);
@@ -54,9 +55,9 @@ Content edits that plain text substitution cannot express, implemented in `build
 
 | Pruner | Target | Action |
 |---|---|---|
-| `catalog_json` | `core/config/catalog.json` | drops the EE MCP seeds (`database_query`, `query_database`, `ai_chain_information_mcp`) |
+| `catalog_json` | `core/config/catalog.json` | drops the EE MCP seeds (`ai_chain_information_mcp`) |
 | `package_json` | `src/frontend/package.json` | renames to `hugagent-ui`; drops the commercially licensed `@univerjs/preset-sheets-advanced` and dead dependency `pptxgenjs`; pins `@univerjs/icons=1.1.1` to preserve the Univer 0.19 export contract when the main-repo lockfile is absent |
-| `requirements` | `requirements.txt` | retains the OpenSandbox SDK; drops cloud-storage and Cube dependencies (boto3 / oss2 / e2b-code-interpreter); moves neo4j / mem0ai into the separate `requirements-mem0.txt` (installed by default by the no-Docker installer) |
+| `requirements` | `requirements.txt` | retains the OpenSandbox SDK; drops cloud-storage and Cube dependencies (boto3 / oss2 / e2b-code-interpreter) and the database-tool drivers (pymysql / pymssql / oracledb / sqlglot); moves neo4j / mem0ai into the separate `requirements-mem0.txt` (installed by default by the no-Docker installer) |
 | `docker_compose` | `docker-compose.yml` | Retains OpenSandbox and configuration initialization; Docker CE selects the opensandbox profile by default. Script-runner keeps its optional profile. The controller uses a generated key and has no host port mapping. Enterprise gateway services and settings are removed |
 | `frontend_lock` | `package-lock.json` + frontend Dockerfile | deletes the lock (inevitably out of sync with the pruned package.json) and rewrites `npm ci` to `npm install` |
 | `repository_resources` | build and source references to bundled commercial fonts | removes the font-copy/install stanzas from CE Dockerfiles and the backend fallback to the repository font directory; a forbidden-artifact gate verifies the generated tree again |

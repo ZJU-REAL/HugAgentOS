@@ -357,6 +357,6 @@ def test_collect_reply_raises_user_facing_stream_error(monkeypatch):
 def test_markdown_strip_citation_markers():
     from integrations.channels.markdown import strip_citation_markers
 
-    assert strip_citation_markers("A[ref:internet_search-1]B[ref:query_database-12]") == "AB"
+    assert strip_citation_markers("A[ref:internet_search-1]B[ref:web_fetch-12]") == "AB"
     assert strip_citation_markers("无标记原样") == "无标记原样"
     assert strip_citation_markers("") == ""
