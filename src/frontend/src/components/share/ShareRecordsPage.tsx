@@ -53,7 +53,7 @@ function SiteShareSection() {
           </div>
         );
       })}
-      <div className="jx-shareSitesHint">{t('站点的可见性与删除在「实验室 → 站点」中管理')}</div>
+      <div className="jx-shareSitesHint">{t('站点的可见性与删除在「站点」页中管理')}</div>
     </div>
   );
 }

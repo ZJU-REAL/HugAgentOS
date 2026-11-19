@@ -15,7 +15,6 @@ export const ONBOARDING_DICT: Record<string, string> = {
   '先选择你最熟悉的语言': 'Start with your preferred language',
   '界面、设置和引导说明会使用该语言。': 'The interface, settings, and setup guidance will use this language.',
   '连接你的 AI 模型': 'Connect your AI model',
-  '这是运行对话和智能体任务所必需的核心服务。': 'This core service is required for conversations and agent tasks.',
   '主对话模型为必填项；索引模型和重排模型可按需配置。': 'The primary chat model is required. Index and reranker models are optional.',
   '让智能体访问实时信息': 'Give agents access to live information',
   '配置搜索服务后，天气、新闻和公开资料查询会更加完整。': 'Connect a search service for weather, news, and public information.',
@@ -52,7 +51,6 @@ export const ONBOARDING_DICT: Record<string, string> = {
   '留空自动探测': 'Leave blank to auto-detect',
   '留空即可——保存时会向模型服务查询真实上下文窗口，查不到再按模型名推断。':
     'Leaving this blank is fine — on save we ask the model service for its real context window and fall back to inferring it from the model name.',
-  '保存时会实际测试模型连通性，并自动指派给全部对话角色。': 'Saving tests the model connection and assigns it to every chat role.',
   '保存时会实际测试已填写模型的连通性并自动指派角色；索引模型和重排模型留空即可跳过。': 'Saving tests each completed model configuration and assigns its role. Leave the index or reranker model blank to skip it.',
   '这一步可以跳过': 'You can skip this step',
   '配置后，智能体可以获取实时网络信息；你也可以稍后在设置中完成。': 'Agents can retrieve live web information after setup. You can also configure this later in Settings.',
@@ -84,7 +82,6 @@ export const ONBOARDING_DICT: Record<string, string> = {
   '首次设置': 'First-run setup',
   '让我们完成最后几项配置': 'Let’s finish the last few settings',
   '步骤 {current} / {total}': 'Step {current} of {total}',
-  'HugAgentOS 社区版初始化': 'HugAgentOS Community Edition setup',
   '不填写即可跳过': 'Leave blank to skip',
   '完成并进入工作台': 'Finish and enter workspace',
 };

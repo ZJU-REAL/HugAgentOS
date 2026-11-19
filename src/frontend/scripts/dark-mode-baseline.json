@@ -131,9 +131,6 @@
   "src/components/kb/wikiGraphTheme.ts": {
     "js-inline-color": 14
   },
-  "src/components/lab/AutomationDetailPage.tsx": {
-    "js-inline-color": 3
-  },
   "src/components/loop/loop.css": {
     "css-literal-color": 4
   },
@@ -169,9 +166,6 @@
   },
   "src/components/tool/renderers/KBRenderer.tsx": {
     "js-inline-color": 1
-  },
-  "src/components/tool/renderers/MySpaceRenderer.tsx": {
-    "js-inline-color": 4
   },
   "src/components/tool/renderers/SearchRenderer.tsx": {
     "js-inline-color": 1

@@ -12,7 +12,6 @@ export const CHAT_FORK_DICT: Record<string, string> = {
   '待执行': 'Pending',
   '分叉时': 'At the branch point',
   '聊天操作': 'Chat actions',
-  '请在已有聊天中创建分支': 'Create a branch from an existing chat',
   '用法：/fork（不支持参数）': 'Usage: /fork (no arguments)',
   '历史工具结果（只读）': 'Historical tool result (read-only)',
   '请先完成一轮聊天，再创建聊天分支': 'Finish a chat turn before creating a branch',

@@ -1,7 +1,5 @@
 /** 英文字典（adminSkills 域）：key 为中文原文，value 为英文译文。 */
 export const ADMIN_SKILLS_DICT: Record<string, string> = {
-  '声明受控本体标签时使用 ontology:ConceptId；系统会按激活领域词表校验':
-    'Use ontology:ConceptId for governed ontology tags; active domain vocabularies validate them.',
   // ── SandboxDepsManager · 等待安装依赖的技能 ───────────────────────────
   '等待安装依赖的技能（{n}）': 'Skills awaiting dependency install ({n})',
   '这些技能由用户导入、检测到缺少依赖，已软禁用。重建沙盒装好依赖后会自动恢复可用并提示用户。':
@@ -51,7 +49,6 @@ export const ADMIN_SKILLS_DICT: Record<string, string> = {
   // ── 按钮/操作文字 ──────────────────────────────────────────────────
   '新建技能': 'New Skill',
   '上架审核': 'Publish Review',
-  '上传技能 (zip)': 'Upload Skill (zip)',
   '上传技能到市场 (zip)': 'Upload Skill to Marketplace (zip)',
   '上传技能到技能市场': 'Upload Skill to Skill Marketplace',
   '上架到市场': 'Publish to marketplace',
@@ -72,7 +69,6 @@ export const ADMIN_SKILLS_DICT: Record<string, string> = {
   '下架': 'Unpublish',
   '重新扫描': 'Rescan',
   '新建文件': 'New File',
-  '通过并入库': 'Approve & Save',
   '立即扫描': 'Scan Now',
   '查看日志': 'View Log',
   '应用依赖（rebuild 沙盒）': 'Apply Dependencies (rebuild sandbox)',
@@ -99,8 +95,6 @@ export const ADMIN_SKILLS_DICT: Record<string, string> = {
   // ── SOURCE_LABELS ──────────────────────────────────────────────────
   '内置': 'Built-in',
 
-  // ── STATUS_LABELS (SandboxDepsManager) ───────────────────────────
-
   // ── message.* — SkillsEditor ──────────────────────────────────────
   '加载上架申请失败：{msg}': 'Failed to load publish requests: {msg}',
   '加载详情失败：{msg}': 'Failed to load details: {msg}',
@@ -108,9 +102,6 @@ export const ADMIN_SKILLS_DICT: Record<string, string> = {
   '已下架': 'Unpublished',
   '已驳回': 'Rejected',
   '加载失败：{msg}': 'Failed to load: {msg}',
-  '技能创建成功': 'Skill created',
-  '技能上传成功：存 {stored} 个文件，跳过 {skippedN} 个二进制/资源文件（仅存文本）': 'Skill uploaded: {stored} file(s) saved, {skippedN} binary/asset file(s) skipped (text only)',
-  '技能上传成功：存 {stored} 个文件': 'Skill uploaded: {stored} file(s) saved',
   '上传失败：{msg}': 'Upload failed: {msg}',
   '技能配置已导出': 'Skill config exported',
   '技能已导出：{name}.zip': 'Skill exported: {name}.zip',
@@ -166,7 +157,6 @@ export const ADMIN_SKILLS_DICT: Record<string, string> = {
   '用户介绍 (Markdown)': 'User Introduction (Markdown)',
   '展示在能力中心详情页，建议三段：## 用途 / ## 适用场景 / ## 输出示例': 'Shown in Ability Center detail page. Recommended sections: ## Use Case / ## Scenarios / ## Output Examples',
   '标签（逗号分隔）': 'Tags (comma-separated)',
-  '允许工具（逗号分隔）': 'Allowed Tools (comma-separated)',
   '请输入执行指令': 'Please enter instructions',
   '展示名称': 'Display Name',
   '请输入展示名称': 'Please enter display name',
@@ -262,14 +252,8 @@ export const ADMIN_SKILLS_DICT: Record<string, string> = {
   '加载日志详情失败：{msg}': 'Failed to load log details: {msg}',
   '有依赖待应用 — 当前 hash {hash}，已应用 {applied}': 'Dependencies pending — current hash {hash}, applied {applied}',
   '沙盒依赖已与启用技能保持同步': 'Sandbox dependencies are in sync with enabled skills',
-  '正在 rebuild：{targets}（{status}）': 'Rebuilding: {targets} ({status})',
-  '聚合依赖预览': 'Aggregated Dependency Preview',
   '待安装': 'To install',
   '沙盒状态': 'Sandbox status',
-  '已在当前沙盒探测：聚合清单中的依赖均已安装，无需重建。':
-    'Probed the current sandbox: all dependencies in the aggregated list are already installed; no rebuild needed.',
-  '已在当前沙盒探测：{n} 个依赖尚未安装（标「待安装」），其余均已就绪；重建沙盒即可补齐。':
-    'Probed the current sandbox: {n} dependency(ies) not yet installed (marked "To install"); the rest are ready. Rebuild the sandbox to fill the gaps.',
   '无': 'None',
   'rebuild 历史': 'Rebuild History',
   '确认重建沙盒': 'Confirm Sandbox Rebuild',

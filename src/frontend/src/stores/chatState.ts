@@ -193,7 +193,7 @@ export interface ChatState {
    *  The historical planChat / workflowChat classification is kept (plan cards and workflow history
    *  stay recognisable); only the composer/routing flag is turned off. */
   exitChatMode: (mode: 'plan' | 'workflow') => void;
-  /** Enter "site building" mode (Lab → Sites): create a new siteChat session and switch to the
+  /** Enter "site building" mode (sidebar → Sites): create a new siteChat session and switch to the
    *  main chat, fully reusing the main-chat composer (attachments / projects / "+" menu).
    *  Mutually exclusive with plan / workflow. */
   /** Enter a site-building chat; automatically sets the installed "sites" plugin as activePlugin

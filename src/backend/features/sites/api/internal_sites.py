@@ -23,7 +23,6 @@ import logging
 from typing import List, Optional, Tuple
 
 from core.infra.responses import success_response
-from core.db.artifact_scope import personal_artifact_predicates
 from features.sites.edition import SitePublishScopeFields, site_scope_ref
 from features.sites.packaging import BUILD_SOURCE_EXCLUDES, SITE_SOURCE_EXCLUDES, pack_and_fetch_dir, resolve_project_context
 from fastapi import APIRouter, Header, HTTPException
@@ -475,7 +474,7 @@ async def publish(
                     f"站点已发布（打包目录：{src}，请确认这正是你改动的那份代码所在目录）。"
                     "请把访问地址（url 字段，站内相对链接，形如 "
                     "/site/<slug>/）以 markdown 链接形式告诉用户；用户也可在"
-                    "「实验室 → 站点」里管理它，或点站点卡片上的「编辑」按钮，通过对话继续修改这个站点。"
+                    "侧边栏「站点」里管理它，或点站点卡片上的「编辑」按钮，通过对话继续修改这个站点。"
                     f"后续要在本会话里继续改这个站点：改完文件后再调 publish_site 并带 site_id='{site.site_id}'。"
                     + mirror_note
                 ),

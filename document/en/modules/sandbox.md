@@ -11,7 +11,7 @@ All providers follow one boundary rule: **`session_id` (`chat_id` in a conversat
 
 ## The provider protocol (core/sandbox/protocol.py)
 
-Every provider implements the same `SandboxProvider` Protocol, with an internal completion API wrapping the managed process protocol; script-runner transports process operations over the sidecar HTTP interface:
+Every provider implements the `SandboxProvider` execution Protocol and declares `runs_on_host` explicitly (True means the process runs directly on the user's host, so commands must carry `ProcessRequest.sandbox_launch`). The provider that `SANDBOX_PROVIDER` selects also implements the read-only `SandboxAdmin` view; the two together are `OrdinarySandboxProvider`, while providers handed out by a session route only need the execution part. An internal completion API wraps the managed process protocol; script-runner transports process operations over the sidecar HTTP interface:
 
 | Method | Responsibility |
 |---|---|

@@ -4,10 +4,7 @@ export const MYSPACE_DICT: Record<string, string> = {
   'HTML预览': 'HTML preview',
   '源码': 'Source',
 
-  '文本文件编辑': 'Text file editing',
   '文件内容': 'File content',
-  '正在检查编辑权限…': 'Checking edit permissions…',
-  '无法编辑此文件': 'Unable to edit this file',
   '当前文件只读': 'This file is read-only',
   '在线编辑最多支持 2 MiB 文本': 'Online editing supports text up to 2 MiB',
   '在线编辑仅支持 UTF-8 文本': 'Online editing requires UTF-8 text',
@@ -65,8 +62,6 @@ export const MYSPACE_DICT: Record<string, string> = {
   '云文档、知识库、会话收藏与分享记录': 'Cloud docs, knowledge bases, saved chats and share records',
   '搜索云文档、知识库、会话收藏与分享记录…': 'Search cloud docs, knowledge bases, saved chats and share records…',
   '试试换个关键词': 'Try a different keyword',
-  '收起二级栏': 'Collapse sidebar',
-  '展开二级栏': 'Expand sidebar',
   '有效': 'Valid',
 
   // ── Folder operations ───────────────────────────────────────────────
@@ -95,8 +90,6 @@ export const MYSPACE_DICT: Record<string, string> = {
   '已删除文件夹及其下 {affected} 个文件': 'Deleted folder and {affected} file(s)',
   '文件夹已删除': 'Folder deleted',
   '已上传': 'Uploaded',
-  '建文件夹失败：': 'Failed to create folder: ',
-  '上传完成：成功 {ok} 个，失败 {failed} 个': 'Upload complete: {ok} succeeded, {failed} failed',
   '已创建': 'Created',
 
   // ── Upload ───────────────────────────────────────────────────────────
@@ -116,7 +109,6 @@ export const MYSPACE_DICT: Record<string, string> = {
 
   // ── Empty states ─────────────────────────────────────────────────────
   '当前文件夹暂无文件': 'No files in this folder',
-  '当前文件夹暂无内容，先新建文件夹或上传文件试试': 'This folder is empty. Try creating a folder or uploading a file.',
   '无文件': 'No file',
 
   // ── Pagination ───────────────────────────────────────────────────────
@@ -127,7 +119,6 @@ export const MYSPACE_DICT: Record<string, string> = {
   '打开定时任务失败': 'Failed to open scheduled task',
   '确定将这条会话从收藏列表中移除吗？': 'Remove this conversation from your favorites?',
   '保留': 'Keep',
-  '已取消收藏': 'Unfavorited',
   '取消收藏失败': 'Failed to unfavorite',
   '来自「{title}」': 'From "{title}"',
   '查看定时任务记录': 'View Scheduled Task Records',
@@ -137,19 +128,10 @@ export const MYSPACE_DICT: Record<string, string> = {
 
   // ── Knowledge base ───────────────────────────────────────────────────
   '请先创建至少一个私有知识库': 'Please create at least one private knowledge base first',
-  '当前选择中没有可加入知识库的文件': 'No eligible files in the current selection',
-  '请至少选择一个目标知识库': 'Please select at least one target knowledge base',
-  '已处理 {fileCount} 个文件，{addedCount} 条加入成功，{alreadyExistsCount} 条已存在': 'Processed {fileCount} files: {addedCount} added, {alreadyExistsCount} already existed',
   '已将 {fileCount} 个文件加入 {kbCount} 个知识库，正在索引': 'Added {fileCount} file(s) to {kbCount} knowledge base(s), indexing in progress',
-  '所选知识库中均已存在这些文件': 'All selected files already exist in the chosen knowledge bases',
   '加入知识库失败': 'Failed to add to knowledge base',
   '加入知识库': 'Add to Knowledge Base',
   '加入私有知识库': 'Add to Private Knowledge Base',
-  '确认加入': 'Confirm',
-  '选择一个或多个私有知识库，用于收录已选的 {n} 个文件': 'Select one or more private knowledge bases to add the {n} selected file(s)',
-  '选择一个或多个私有知识库，用于收录文件“{name}”': 'Select one or more private knowledge bases to add file "{name}"',
-  '请选择目标私有知识库': 'Select target knowledge base(s)',
-  '请选择一个或多个私有知识库': 'Select one or more knowledge bases',
   '查看已加入的知识库': 'View knowledge bases',
   '{n}个知识库': '{n} KB',
 
@@ -211,12 +193,8 @@ export const MYSPACE_DICT: Record<string, string> = {
   '暂无文件': 'No files',
   '确认引用': 'Confirm Reference',
   '确认导入': 'Confirm Import',
-  '已选 {files} 个文件 + {folders} 个文件夹': '{files} file(s) + {folders} folder(s) selected',
   '已选 {n} 个文件': '{n} file(s) selected',
-  '请选择要引用的文件或文件夹': 'Select files or folders to reference',
   '请选择要导入的文件': 'Select files to import',
-  '从我的空间引用': 'Reference from My Space',
-  '引用整个当前文件夹（含子文件夹下全部文件）': 'Reference entire current folder (including all files in subfolders)',
   '选择来源': 'Select source',
   '搜索文件名': 'Search by filename',
 
@@ -225,7 +203,6 @@ export const MYSPACE_DICT: Record<string, string> = {
   'Word 文档': 'Word Document',
   'Excel 表格': 'Excel Spreadsheet',
   'PPT 幻灯片': 'PowerPoint',
-  'WPS 文档': 'WPS Document',
   'CSV 表格': 'CSV',
   '文本文件': 'Text File',
   '移除文件': 'Remove file',
@@ -246,8 +223,6 @@ export const MYSPACE_DICT: Record<string, string> = {
   '此格式暂不支持预览': 'Preview not supported for this format',
   '点击文件右侧的眼睛图标': 'Click the eye icon next to a file',
   '支持图片、PDF、Office 文档、Markdown、代码等多种格式预览': 'Supports images, PDF, Office documents, Markdown, code, and more',
-  '下载原文件': 'Download original file',
-  '松开，上传到当前文件夹': 'Release to upload to the current folder',
   '松开，上传到本项目': 'Release to upload to this project',
 
   // ── 知识库 Tab（并入我的空间） ──

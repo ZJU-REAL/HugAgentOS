@@ -26,5 +26,4 @@ export const WORKBENCH_AUTH_DICT: Record<string,string> = {
   '目标登录发起 URL': 'Target login initiation URL',
   '旧应用尚未配置认证；请审核目标后显式选择认证方式': 'Legacy authentication needs configuration. Review the target and select an explicit mode.',
   '请管理员配置此应用的目标认证适配': 'Ask an administrator to configure target authentication for this application',
-  '目标域会接收宿主 Cookie，请使用隔离域名': 'The target would receive host cookies. Use an isolated hostname.',
 };
