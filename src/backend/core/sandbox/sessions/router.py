@@ -10,6 +10,17 @@ class SessionSandboxRouter:
     def __getattr__(self, name):
         return getattr(self._ordinary, name)
 
+    # Contract data members are named here rather than left to __getattr__,
+    # so the router visibly carries them and a provider that lacks one fails
+    # with that provider's name.
+    @property
+    def name(self):
+        return self._ordinary.name
+
+    @property
+    def runs_on_host(self):
+        return self._ordinary.runs_on_host
+
     def _for(self, session_id):
         from core.harness.registry import sandbox_route
 

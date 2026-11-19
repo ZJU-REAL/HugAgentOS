@@ -89,8 +89,7 @@ async def endpoint(provider, chat_id, user_id, port):
 async def launch(provider, installation, module, user_id, chat_id, config):
     config = {
         **config,
-        "_container_isolated": not getattr(provider, "runs_on_host", True)
-        and getattr(provider, "name", "") in {"opensandbox", "script_runner", "cube"},
+        "_container_isolated": not provider.runs_on_host,
     }
     runtime = module["resource"]
     source = (installation.package / runtime["entry"]).resolve()

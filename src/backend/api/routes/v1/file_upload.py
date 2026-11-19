@@ -57,17 +57,15 @@ def upload_user_file(
 
     user_id = str(user.user_id)
 
-    public_meta = {}
-    if user.public_chat_visitor:
-        from core.chat.public import prepare_visitor_upload
-        public_meta = prepare_visitor_upload(db, user, chat_id, folder_id)
-
-    # Verify the chat_id already exists in the database (the session may not yet be created at upload time)
+    # A scoped key's chat id names its own session; create it on the first-turn upload.
+    upload_meta = {}
     db_chat_id: Optional[str] = None
-    if chat_id:
-        exists = db.query(ChatSession.chat_id).filter(ChatSession.chat_id == chat_id).first()
-        if exists:
-            db_chat_id = chat_id
+    if user.public_chat_visitor or (chat_id and (user.api_key_agent_id or user.api_key_project_id)):
+        from core.chat.public import prepare_scoped_upload
+        upload_meta = prepare_scoped_upload(db, user, chat_id, folder_id)
+        db_chat_id = chat_id
+    elif chat_id and db.query(ChatSession.chat_id).filter(ChatSession.chat_id == chat_id).first():
+        db_chat_id = chat_id
 
     artifact_id, retry_meta, existing = prepare_upload(
         db,
@@ -140,7 +138,7 @@ def upload_user_file(
             user_folder_id=db_folder_id,
             source="user_upload",
             artifact_id=artifact_id,
-            extra={**retry_meta, **public_meta},
+            extra={**retry_meta, **upload_meta},
         )
     except HTTPException:
         db.rollback()

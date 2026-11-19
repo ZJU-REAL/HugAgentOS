@@ -95,6 +95,22 @@ def read_tree(root: Path) -> dict[str, bytes]:
     return files
 
 
+def ownership_hint(paths) -> str:
+    """Say who owns what and how to fix it, so EACCES is actionable from the log."""
+    me = f"{os.geteuid()}:{os.getegid()}" if hasattr(os, "geteuid") else "?"
+    parts = []
+    for path in paths:
+        try:
+            st = os.lstat(path)
+            parts.append(f"{path} owner={st.st_uid}:{st.st_gid} mode={st.st_mode & 0o7777:o}")
+        except OSError as exc:
+            parts.append(f"{path} ({exc.strerror})")
+    return (
+        f"backend runs as {me}; " + "; ".join(parts)
+        + f"; fix on the storage host: chown -R {me} <path> (paths are under STORAGE_PATH)"
+    )
+
+
 def remove_entry(path: Path) -> None:
     if path.is_symlink() or path.is_file():
         path.unlink()
@@ -135,7 +151,10 @@ def publish_tree(
         area = get_sandbox_skills_dir().parent / ".skill-publication"
         area.mkdir(parents=True, exist_ok=True)
         target.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix="publish-", dir=area) as tmp:
+        # The retired tree may hold files this account cannot delete; the new
+        # tree is already live by then, so a leftover in the staging area
+        # (outside every mount) must not fail the publish.
+        with tempfile.TemporaryDirectory(prefix="publish-", dir=area, ignore_cleanup_errors=True) as tmp:
             stage = Path(tmp) / "new"
             stage.mkdir()
             for name, data in files.items():
@@ -145,14 +164,20 @@ def publish_tree(
                 path.chmod(modes.get(name, 0o644))
             backup = Path(tmp) / "old"
             had_old = target.exists() or target.is_symlink()
-            if had_old:
-                os.replace(target, backup)
             try:
-                os.replace(stage, target)
-            except BaseException:
                 if had_old:
-                    os.replace(backup, target)
-                raise
+                    os.replace(target, backup)
+                try:
+                    os.replace(stage, target)
+                except BaseException:
+                    if had_old:
+                        os.replace(backup, target)
+                    raise
+            except PermissionError as exc:
+                raise PermissionError(
+                    exc.errno, f"{exc.strerror}; {ownership_hint([target.parent, target])}",
+                    str(target),
+                ) from exc
         return target
 
 
