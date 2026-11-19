@@ -25,6 +25,7 @@ import './config.css';
 import './task-monitor.css';
 import './projects.css';
 import './admin.css';
+import './console.css';
 import './evolution.css';
 import './memory-graph.css';
 import './onboarding.css';

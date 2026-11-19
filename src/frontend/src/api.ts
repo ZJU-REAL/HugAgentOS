@@ -1670,15 +1670,11 @@ export async function getKBChunks(
   page = 1,
   pageSize = 100,
 ): Promise<KBChunk[]> {
-  try {
-    const wrapped = await apiRequest<unknown>(
-      `/v1/catalog/kb/${kbId}/chunks?document_id=${docId}&page=${page}&page_size=${pageSize}`,
-    );
-    const data = unwrapData<{ items?: KBChunk[] }>(wrapped);
-    return Array.isArray(data.items) ? data.items : [];
-  } catch {
-    return [];
-  }
+  const wrapped = await apiRequest<unknown>(
+    `/v1/catalog/kb/${encodeURIComponent(kbId)}/chunks?document_id=${encodeURIComponent(docId)}&page=${page}&page_size=${pageSize}`,
+  );
+  const data = unwrapData<{ items?: KBChunk[] }>(wrapped);
+  return Array.isArray(data.items) ? data.items : [];
 }
 
 export interface KBChunkChild {
@@ -2528,11 +2524,13 @@ export interface AuthUser extends EditionAuthUserFields {
   can_add_mcp?: boolean;
   /** Whether the user may install MCPs from the MCP marketplace (default false) */
   can_install_market_mcp?: boolean;
-  /** Whether the user may install/import plugins in the capability center (default false; controlled by the Config admin platform) */
+  /** Whether the user may import plugin packages (zip / Claude Code / Codex) in the capability center (default false) */
   can_import_plugin?: boolean;
+  /** Whether the user may install plugins from the plugin marketplace (default false) */
   can_install_market_plugin?: boolean;
-  /** Whether the user may build their own sub-agents / install from and list on the sub-agent marketplace (default false) */
+  /** Whether the user may build or import their own sub-agents and submit them to the sub-agent marketplace (default false) */
   can_add_agent?: boolean;
+  /** Whether the user may install sub-agents from the sub-agent marketplace (default false) */
   can_install_market_agent?: boolean;
   /** Whether the user may run the autonomous loop (the "autonomous loop" toggle in chat mode, default true) */
   can_run_autonomous_loop?: boolean;

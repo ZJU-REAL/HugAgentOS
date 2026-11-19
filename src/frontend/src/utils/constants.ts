@@ -8,13 +8,15 @@ export type CatalogKind = Exclude<PanelKey, 'chat' | 'docs' | 'app_center' | 'sh
  *  A plugin tool's icon comes from its ``tool_meta`` contribution; see
  *  ``resolveToolIcon`` in ``utils/toolMeta.ts``. */
 export const TOOL_ICONS: Record<string, string> = {
-  query_database: '/icons/database.png',
   retrieve_dataset_content: '/icons/knowledge.png',
   retrieve_local_kb: '/icons/knowledge.png',
   list_datasets: '/icons/knowledge.png',
   internet_search: '/icons/internet.png',
   web_fetch: '/icons/internet-mcp.svg',
 };
+
+/** Icon for data source MCP tools (`<prefix>__execute_sql` …), matched by suffix in ``resolveToolIcon``. */
+export const DATABASE_TOOL_ICON = '/icons/database.png';
 
 /**
  * AgentScope 2.0 used to name MCP tools as `mcp__<server>__<tool>` (the backend now restores the bare

@@ -190,8 +190,6 @@ the database has no value.
 | `LANGSEARCH_API_KEY` | (empty) | LangSearch Web Search API key; required when LangSearch is selected | CE |
 | `DEEPSEEK_SEARCH_API_KEY` | (empty) | DeepSeek platform API key used for the Search API; required when DeepSeek is selected | CE |
 | `INTERNET_SEARCH_COUNTRY` / `INTERNET_SEARCH_AUTO_PARAMETERS` | (empty) | Tavily country ranking preference (general only; omitted when unset) / automatic parameters | CE |
-| `QUERY_DATABASE_URL` | `http://your-database-api-host:6200` | HTTP backend for the data-warehouse query tool | EE (industry tool) |
-| `QUERY_DATABASE_TIMEOUT_SECONDS` / `QUERY_DATABASE_RETRY_TIMES` / `QUERY_DATABASE_MAX_OUTPUT_TOKENS` | (empty) | Data-warehouse call parameters | EE |
 | `INDUSTRY_URL` / `INDUSTRY_AUTH_TOKEN` | (sample values) | Industry-chain information API | EE (industry tool) |
 | `COMPANY_API_URL` / `COMPANY_AUTH_TOKEN` | (empty) | Company-profile API | EE (industry tool) |
 | `BACKEND_INTERNAL_URL` | `http://backend:3001` | Internal address for MCP servers (e.g. site and browser tools) to call back into the backend | CE |

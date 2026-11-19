@@ -1,5 +1,6 @@
 """mcp catalog responsibilities."""
 from __future__ import annotations
+from features.marketplace import managed_items
 from typing import Any, Dict, Optional
 from features.marketplace.models import McpMarketInstallation, McpMarketItem, McpMarketVersion
 from core.infra.exceptions import ResourceNotFoundError
@@ -61,7 +62,9 @@ def item_dict(
         "version": version.version,
         "version_id": version.version_id,
         "transport": version.transport,
-        "url_origin": mcp_validation.safe_origin(version.url),
+        # An owned item points at an internal platform process; its address is not for display.
+        "url_origin": "" if managed_items.managed_by(version) else mcp_validation.safe_origin(version.url),
+        "managed_by": managed_items.managed_by(version),
         "auth_schema": auth_schema,
         "auth_config": auth_config,
         "requires_auth": requires_auth,

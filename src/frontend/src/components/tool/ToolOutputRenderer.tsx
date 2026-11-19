@@ -6,9 +6,75 @@ import { DataView } from './renderers/DataView';
 import { unwrapMcpResult } from './renderers/utils';
 import { mdToHtml } from '../../utils/markdown';
 import { t } from '../../i18n';
+import { databaseToolSuffix } from '../../utils/databaseTools';
 
 import { findGenericList, renderGenericList, renderFilePreview, renderLoadSkill } from './ToolOutputHelpers';
 export { ToolOutputBody } from './PluginToolOutputBody';
+interface SqlTable {
+  columns: string[];
+  rows: unknown[][];
+  row_count?: number;
+  truncated?: boolean;
+  note?: string;
+  affected_rows?: number;
+}
+
+/** Database MCP SQL result `{columns, rows, row_count, truncated, note?}`; null for any other shape. */
+function parseSqlTable(out: unknown): SqlTable | null {
+  let value = out;
+  if (Array.isArray(value) && value.every((b) => b && typeof b === 'object' && typeof (b as { text?: unknown }).text === 'string')) {
+    value = value.map((b) => (b as { text: string }).text).join('');
+  }
+  if (typeof value === 'string') {
+    try { value = JSON.parse(value); } catch { return null; }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  if (!Array.isArray(v.columns) || !Array.isArray(v.rows) || !v.rows.every(Array.isArray)) return null;
+  return {
+    columns: v.columns.map((c) => String(c)),
+    rows: v.rows as unknown[][],
+    row_count: typeof v.row_count === 'number' ? v.row_count : undefined,
+    truncated: v.truncated === true,
+    note: typeof v.note === 'string' ? v.note : undefined,
+    affected_rows: typeof v.affected_rows === 'number' ? v.affected_rows : undefined,
+  };
+}
+
+function cellText(v: unknown): string {
+  if (v == null) return '—';
+  return typeof v === 'object' ? JSON.stringify(v) : String(v);
+}
+
+function renderSqlTable(table: SqlTable): React.ReactNode {
+  const count = table.row_count ?? table.rows.length;
+  const parts: string[] = [];
+  if (table.affected_rows !== undefined) {
+    parts.push(t('影响 {n} 行', { n: table.affected_rows }));
+  }
+  if (table.columns.length) {
+    parts.push(table.truncated ? t('{n} 行（已截断）', { n: count }) : t('{n} 行', { n: count }));
+  }
+  if (table.note) parts.push(table.note);
+  return (
+    <div className="jx-tr-db">
+      {parts.length > 0 && <div className="jx-tr-dbHeader success">{parts.join(' · ')}</div>}
+      {table.columns.length > 0 && table.rows.length > 0 && (
+        <div className="jx-tr-tableWrap">
+          <table className="jx-tr-table">
+            <thead><tr>{table.columns.map((c, i) => <th key={i}>{c}</th>)}</tr></thead>
+            <tbody>
+              {table.rows.map((row, ri) => (
+                <tr key={ri}>{table.columns.map((_, ci) => <td key={ci}>{cellText(row[ci])}</td>)}</tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function renderToolOutputBody(
   toolName: string,
   out: unknown,
@@ -46,43 +112,9 @@ export function renderToolOutputBody(
     return renderFilePreview(out);
   }
 
-  if (toolName === 'query_database') {
-    const raw = (typeof out === 'object' && out !== null && typeof (out as any).result === 'string')
-      ? (out as any).result
-      : (typeof out === 'string' ? out : JSON.stringify(out, null, 2));
-    const str = raw as string;
-    const isSuccess = str.includes('✅') || str.includes('查询成功');
-    const isErr = str.includes('❌') || str.startsWith('错误');
-    let parsedData: any = null;
-    let headerText = '';
-    try {
-      const nlIdx = str.indexOf('\n\n');
-      if (nlIdx >= 0) {
-        headerText = str.slice(0, nlIdx).replace(/^[✅❌⚠️]\s*/u, '').trim();
-        parsedData = JSON.parse(str.slice(nlIdx + 2).trim());
-      }
-    } catch { /* noop */ }
-    return (
-      <div className="jx-tr-db">
-        {headerText && <div className={`jx-tr-dbHeader ${isErr ? 'error' : isSuccess ? 'success' : ''}`}>{headerText}</div>}
-        {parsedData && Array.isArray(parsedData) && parsedData.length > 0 && typeof parsedData[0] === 'object' ? (
-          <div className="jx-tr-tableWrap">
-            <table className="jx-tr-table">
-              <thead><tr>{Object.keys(parsedData[0]).map((k: string) => <th key={k}>{k}</th>)}</tr></thead>
-              <tbody>
-                {parsedData.map((row: any, ri: number) => (
-                  <tr key={ri}>{Object.values(row).map((v: any, ci: number) => <td key={ci}>{v == null ? '—' : String(v)}</td>)}</tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : parsedData != null ? (
-          <DataView value={parsedData} focus={highlight} />
-        ) : (
-          <div className={`jx-tr-dbText ${isErr ? 'error' : ''}`}>{str}</div>
-        )}
-      </div>
-    );
+  if (databaseToolSuffix(toolName)) {
+    const table = parseSqlTable(out);
+    if (table) return renderSqlTable(table);
   }
 
   if (toolName === 'list_datasets') {
@@ -315,7 +347,7 @@ export function renderToolOutputBody(
  *   1. **Plugin declaration** — an installed plugin claimed this tool in its
  *      `plugin.json` (an L2 module first, then an L0 view).
  *   2. **Host built-ins** — tools the product itself owns (`bash`, `Read`,
- *      `query_database`, …), which stay in `renderToolOutputBody`.
+ *      `list_datasets`, …), which stay in `renderToolOutputBody`.
  *   3. **Generic fallback** — a recognisable list, else the raw payload.
  *
  * The host therefore contains no branch naming a plugin's tool: which card a

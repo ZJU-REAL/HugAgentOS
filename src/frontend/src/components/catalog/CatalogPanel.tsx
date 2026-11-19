@@ -776,6 +776,31 @@ export function CatalogPanel() {
   const originalKind = hasOriginal ? kbOriginalKindOf(activeKbDoc?.filename || activeKbDoc?.title || '') : null;
   const showOriginal = docDetailTab === 'content' && !!originalKind && docContentView === 'original';
 
+  const [docChunksError, setDocChunksError] = useState(false);
+  const chunksRequest = useRef(0);
+  useEffect(() => {
+    chunksRequest.current += 1;
+    setDocChunksError(false);
+    setDocChunksLoading(false);
+  }, [selectedId, activeKbDoc?.id, setDocChunksLoading]);
+
+  const loadDocumentChunks = async () => {
+    if (!selectedId || !activeKbDoc || docChunksLoading || docChunks.length > 0) return;
+    const request = ++chunksRequest.current;
+    setDocChunksError(false);
+    setDocChunksLoading(true);
+    try {
+      const chunks = await getKBChunks(selectedId, activeKbDoc.id);
+      if (request !== chunksRequest.current) return;
+      setDocChunks(chunks);
+      resetChunkChildren();
+    } catch {
+      if (request === chunksRequest.current) setDocChunksError(true);
+    } finally {
+      if (request === chunksRequest.current) setDocChunksLoading(false);
+    }
+  };
+
   const openKbDocumentDetail = async (doc: KBDocument) => {
     setActiveKbDoc(doc);
     setDocContentView('original');
@@ -1504,21 +1529,7 @@ export function CatalogPanel() {
               <button className={`jx-kbDocTab${docDetailTab === 'content' ? ' active' : ''}`} onClick={() => setDocDetailTab('content')}>{t('内容预览')}</button>
               <button
                 className={`jx-kbDocTab${docDetailTab === 'chunks' ? ' active' : ''}`}
-                onClick={async () => {
-                  setDocDetailTab('chunks');
-                  if (docChunks.length === 0 && selectedId && activeKbDoc) {
-                    setDocChunksLoading(true);
-                    try {
-                      const chunks = await getKBChunks(selectedId, activeKbDoc.id);
-                      setDocChunks(chunks);
-                      resetChunkChildren();
-                    } catch {
-                      message.error(t('加载分块失败'));
-                    } finally {
-                      setDocChunksLoading(false);
-                    }
-                  }
-                }}
+                onClick={() => { setDocDetailTab('chunks'); void loadDocumentChunks(); }}
               >
                 {t('分块列表')}{docChunks.length > 0 ? ` (${docChunks.length})` : ''}
               </button>
@@ -1572,6 +1583,11 @@ export function CatalogPanel() {
               <div style={{ maxHeight: '52vh', overflow: 'auto' }}>
                 {docChunksLoading ? (
                   <div className="jx-kbDocLoading"><LoadingOutlined /> {t('正在加载分块列表…')}</div>
+                ) : docChunksError ? (
+                  <div role="alert">
+                    <Typography.Text type="danger">{t('加载分块失败')}</Typography.Text>
+                    <Button size="small" onClick={() => void loadDocumentChunks()}>{t('重试')}</Button>
+                  </div>
                 ) : docChunks.length === 0 ? (
                   <Typography.Text type="secondary">{t('暂无分块数据。')}</Typography.Text>
                 ) : (
@@ -1582,6 +1598,7 @@ export function CatalogPanel() {
                           <div className="jx-chunkIndex"><span className="jx-chunkIndexNum">{chunk.chunk_index + 1}</span></div>
                           <div className="jx-chunkHeaderRight">
                             <span className="jx-chunkContentLen">{chunk.content.length} 字</span>
+                            {selectedItem?.source === 'local' && (
                             <Button
                               size="small"
                               type="link"
@@ -1591,6 +1608,7 @@ export function CatalogPanel() {
                             >
                               {expandedChunkParents.has(chunk.chunk_id) ? t('收起子块') : t('查看子块')}
                             </Button>
+                            )}
                             {canEditChunks && (
                               <Button
                                 size="small"

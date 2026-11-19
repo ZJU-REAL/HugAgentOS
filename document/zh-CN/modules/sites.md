@@ -4,12 +4,12 @@
 
 「站点」让用户在对话里描述需求，由智能体生成完整的静态网站并一键发布——平台直接托管，任何人凭链接即可访问，之后还能继续通过对话迭代更新。整条链路：沙箱内生成多文件站点 → `publish_site` 工具发布 → nginx 反代后端托管路由对外服务。
 
-站点功能属**社区版（CE）**，入口在「实验室」（需管理员开通实验室权限）。
+站点功能属**社区版（CE）**，导航里有独立的「站点」入口（默认在「更多」菜单里，需持有站点权限 `sites_enabled`）。
 
 ## 使用方式
 
 1. 在对话里直接提出需求，例如「帮我做一个产品介绍网站并发布」。智能体会在沙箱里生成完整的静态站（HTML/CSS/JS/图片，须有 `index.html` 入口），然后调用 `publish_site` 工具发布，并把访问地址（形如 `/site/<slug>/`）交付到对话里。
-2. 打开「实验室 → 站点」可管理自己的全部站点：打开、复制链接、修改标题 / 访问地址 / 可见性 / 访问密码、删除。
+2. 打开侧边栏「站点」可管理自己的全部站点：打开、复制链接、修改标题 / 访问地址 / 可见性 / 访问密码、删除。
 3. 要修改已发布的站点，在**任意对话**里描述改动即可，不必回到原来那段会话——智能体先用 `list_sites` 工具查出站点编号与源码目录，再带 `site_id` 重新发布，URL 不变、版本号 +1。同一账号有多个站点且描述不明确时，智能体会先问你改哪一个。
 
 ## 可见性
@@ -73,7 +73,7 @@
 | 管理接口 | `src/backend/features/sites/api/sites.py`（`/v1/sites`） |
 | 访问密码 | `src/backend/features/sites/`（哈希 + 凭据）、`src/backend/features/sites/api/site_gate.py`（统一验证页） |
 | 数据表 | `sites`（`features/sites/models.py`） |
-| 前端管理面板 | `src/frontend/src/components/sites/SitesPanel.tsx`（实验室 → 站点）、`SitePasswordField.tsx`（密码管理） |
+| 前端管理面板 | `src/frontend/src/components/sites/SitesPanel.tsx`（侧边栏 → 站点）、`SitePasswordField.tsx`（密码管理） |
 | nginx 转发 | `src/frontend/default.conf.template` 的 `location /site/` |
 
 环境开关：`SITES_ENABLED=false` 可整体关闭发布工具（默认开启）。

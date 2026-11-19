@@ -36,7 +36,7 @@ HugAgentOS 提供**两个相互独立的管理入口**，分别面向内容运�
 
 | 分组 | 面板 | 后端路由 |
 |---|---|---|
-| 基础配置 | 系统配置 / 页面配置 / 应用配置 / 模型管理 / MCP 工具 / 提示词管理 | `service_configs.py`、`content.py`、`models.py`、`admin_mcp_servers.py`、`admin_prompts.py` |
+| 基础配置 | 系统配置 / 页面配置 / 应用配置 / 模型管理 / 连接器 / 数据库工具 / 提示词管理 | `service_configs.py`、`content.py`、`models.py`、`admin_mcp_servers.py`、`data_sources.py`、`db_metadata.py`、`admin_prompts.py` |
 | 用户与权限 | 用户管理 / 团队管理 / 注册码 | `config_users.py`、`config_teams.py`、`config_invites.py` |
 | 数据监控 | 用户调用日志 / Token 计费 / 用户聊天记录 / 工具・子智能体・技能调用日志 | `admin_usage_logs.py`、`admin_billing.py`、`admin_chat_history.py`、`admin_logs.py` |
 | 安全管理 | 沙盒管理 / 审计日志 / 系统健康 | `config_security.py` |
@@ -81,6 +81,10 @@ GitHub 绑定默认在此面板维护，也可用 `FEEDBACK_GITHUB_*` 环境变�
 ### MCP 管理（admin_mcp_servers）（商业版 EE：content_admin）
 
 `/v1/admin/mcp-servers`（`api/routes/v1/admin_mcp_servers.py`，`CONFIG_TOKEN`）：MCP 服务器配置 CRUD（存 `admin_mcp_servers` 表）、启停、连通性测试（test）、连接池重载（reload-pool）。详见 [MCP 工具](mcp-tools.md)。
+
+### 数据库工具（data_sources / db_metadata）（商业版 EE：system_config）
+
+`/v1/data-sources` 与 `/v1/db-meta`（`features/datasources/api/`，`CONFIG_TOKEN`）：数据源增删改、连通性测试、查看工具，以及表 / 字段元数据、枚举字典与黄金 SQL 治理。支持 MySQL、MariaDB、PostgreSQL、SQL Server、Oracle、SQLite 与 Elasticsearch。每个数据源自动成为一个独立 MCP 连接器（`db_<id>`，由 `database_mcp` 提供）：启停跟随数据源，删除数据源即删除连接器，没有总开关。只读保护默认开启；关闭后该数据源额外提供 `execute_write_sql`，按用户的工具审批模式确认执行。关系型数据源还可以在「可用表」里只开放选中的表（`GET/PUT /v1/data-sources/{id}/tables`），默认开放全部表；开放部分表时，其他表、系统目录和跨库访问都会被工具拒绝。工具清单与只读规则见 [MCP 工具](mcp-tools.md)。
 
 ### 子智能体（admin_agents）（商业版 EE：content_admin）
 
@@ -144,7 +148,7 @@ GitHub 绑定默认在此面板维护，也可用 `FEEDBACK_GITHUB_*` 环境变�
 
 ### 服务配置（service_configs）（商业版 EE：system_config）
 
-`/v1/service-configs`（`api/routes/v1/service_configs.py`，`CONFIG_TOKEN`）：外部服务配置中心——query_database、knowledge_base、industry、file_parser 四个分组的列表 / 批量更新 / 连通性测试 / 导入导出。全部端点都是管理写操作与探测，无公开读，整体归 EE。
+`/v1/service-configs`（`api/routes/v1/service_configs.py`，`CONFIG_TOKEN`）：外部服务配置中心——knowledge_base、industry、file_parser 三个分组的列表 / 批量更新 / 连通性测试 / 导入导出。全部端点都是管理写操作与探测，无公开读，整体归 EE。
 
 ## CE / EE 边界小结
 

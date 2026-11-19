@@ -11,7 +11,7 @@ def test_skill_selector_no_model():
     print("Testing skill selector without LLM...")
 
     enabled_ids = get_enabled_ids("skills")
-    available_ids = ["process-guidance", "economic-indicator-query"]
+    available_ids = ["process-guidance", "pdf-editing"]
 
     selected = select_skills_for_query(
         user_query="请梳理这个事项的申报流程",
@@ -43,7 +43,6 @@ def test_skill_selector_with_llm():
     enabled_ids = get_enabled_ids("skills")
     available_ids = [
         "process-guidance",
-        "economic-indicator-query",
         "pdf-editing",
     ]
 

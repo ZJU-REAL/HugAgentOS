@@ -44,7 +44,6 @@ SKIP_TOOLS = frozenset(
         "choose_design",
         "ask_user_question",
         "view_text_file",
-        "get_data_context",
         "load_skill",
         "Glob",
         "Grep",
@@ -97,5 +96,4 @@ TOOL_SPECS: Dict[str, types.CitationSpec] = {
     "wiki_read_page": types.CitationSpec(mode="whole", title="Wiki 页面", source_type="knowledge_base"),
     "web_fetch": types.CitationSpec(mode="whole", title="网页内容", source_type="internet"),
     # 数据/报告类（整份）
-    "query_database": types.CitationSpec(mode="whole", title="数据库查询结果", source_type="database"),
 }

@@ -133,7 +133,9 @@
 }
 
 @media (max-width: 960px){
-  .ant-layout{
+  /* Scoped to the main app shell: unscoped, this stacked every antd Layout on the
+     page, including the /config sider + content and /admin, below 960px. */
+  .jx-appShell .ant-layout{
     flex-direction:column !important;
   }
   .jx-sider{

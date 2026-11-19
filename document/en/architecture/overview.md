@@ -144,7 +144,7 @@ System prompts are no longer hardcoded: the version pool is stored in the `conte
 
 ### MCP tools as independent processes
 
-Each tool is a standalone MCP server under `src/backend/extensions/mcp_servers/<name>/`, all running inside the dedicated `mcp` container as long-lived streamable-http listeners (the port table in `extensions/mcp_servers/_ports.py` is the single source of truth). The backend connects through the run-owned native client in `core/llm/mcp/lifetime.py`. Benefits: a tool crash never affects the main process, document editing and export have moved into sandbox skills, and the tool tier can scale independently. The two industry tools, `query_database` and `ai_chain_information_mcp`, depend on intranet data sources and belong to the Enterprise Edition (EE). See [MCP Tools](../modules/mcp-tools.md).
+Each tool is a standalone MCP server under `src/backend/extensions/mcp_servers/<name>/`, all running inside the dedicated `mcp` container as long-lived streamable-http listeners (the port table in `extensions/mcp_servers/_ports.py` is the single source of truth). The backend connects through the run-owned native client in `core/llm/mcp/lifetime.py`. Benefits: a tool crash never affects the main process, document editing and export have moved into sandbox skills, and the tool tier can scale independently. The industry tool `ai_chain_information_mcp` depends on intranet data sources and belongs to the Enterprise Edition (EE). See [MCP Tools](../modules/mcp-tools.md).
 
 ### Runs decoupled from connections and processes
 

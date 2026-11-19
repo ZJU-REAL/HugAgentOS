@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.capabilities.skills.config import SHARED_LINK_NAME, get_default_skill_sources, get_sandbox_skills_dir, get_user_skills_dir, prune_orphan_sandbox_skill_dirs, purge_skill_sandbox_files, skill_files_dir, sync_user_skill_view
+from core.capabilities.skills.config import LEGACY_SHARED_LINK_NAME, SHARED_LINK_NAME, get_default_skill_sources, get_user_skills_root, get_sandbox_skills_dir, get_user_skills_dir, prune_orphan_sandbox_skill_dirs, purge_skill_sandbox_files, skill_files_dir, sync_user_skill_view
 
 
 def _a_builtin_skill_id() -> str:
@@ -67,6 +67,44 @@ def test_shared_link_resolves_from_the_view(skills_dir) -> None:
     assert (link / "SKILL.md").read_text(encoding="utf-8") == "# skill"
 
 
+def test_shared_hop_is_hidden_from_a_workspace_listing() -> None:
+    # The model only needs /workspace/skills; the hop it resolves through stays out of `ls /workspace`.
+    assert SHARED_LINK_NAME.startswith(".")
+
+
+def test_legacy_view_links_are_repointed_to_the_hidden_hop(skills_dir) -> None:
+    import os
+
+    _make(skills_dir, "cn-web-search")
+    root = get_user_skills_root()
+    # A view written by the old layout: a visible hop plus links through it.
+    os.symlink(f"../{skills_dir.name}", root / LEGACY_SHARED_LINK_NAME, target_is_directory=True)
+    (root / "alice").mkdir()
+    os.symlink(f"../{LEGACY_SHARED_LINK_NAME}/cn-web-search", root / "alice" / "cn-web-search",
+               target_is_directory=True)
+    (root / "alice" / "mine").mkdir()
+
+    root = get_user_skills_root()
+
+    link = root / "alice" / "cn-web-search"
+    assert str(link.readlink()) == f"../{SHARED_LINK_NAME}/cn-web-search"
+    assert (link / "SKILL.md").read_text(encoding="utf-8") == "# skill"
+    assert (root / "alice" / "mine").is_dir()
+    assert not (root / LEGACY_SHARED_LINK_NAME).is_symlink()
+    assert {e.name for e in (root / "alice").iterdir()} == {"cn-web-search", "mine"}
+
+
+def test_sync_repairs_a_link_with_a_stale_target(skills_dir) -> None:
+    _make(skills_dir, "cn-web-search")
+    view = sync_user_skill_view("alice")
+    (view / "cn-web-search").unlink()
+    (view / "cn-web-search").symlink_to("../elsewhere/cn-web-search", target_is_directory=True)
+
+    sync_user_skill_view("alice")
+
+    assert str((view / "cn-web-search").readlink()) == f"../{SHARED_LINK_NAME}/cn-web-search"
+
+
 def test_view_drops_links_of_removed_shared_skills(skills_dir) -> None:
     _make(skills_dir, "retired-skill")
     view = sync_user_skill_view("alice")
@@ -84,6 +122,7 @@ def test_no_view_without_a_usable_user_id(skills_dir) -> None:
     assert sync_user_skill_view("") is None
     assert get_user_skills_dir("..") is None
     assert get_user_skills_dir(SHARED_LINK_NAME) is None
+    assert get_user_skills_dir(LEGACY_SHARED_LINK_NAME) is None
 
 
 # ── 删除清理 ──────────────────────────────────────────────────────────────

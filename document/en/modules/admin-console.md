@@ -36,7 +36,7 @@ The CE/EE assignment of backend admin routes has one composed source of truth �
 
 | Group | Panels | Backend routes |
 |---|---|---|
-| Basic configuration | System config / page config / app config / model management / MCP tools / prompt management | `service_configs.py`, `content.py`, `models.py`, `admin_mcp_servers.py`, `admin_prompts.py` |
+| Basic configuration | System config / page config / app config / model management / connectors / database tools / prompt management | `service_configs.py`, `content.py`, `models.py`, `admin_mcp_servers.py`, `data_sources.py`, `db_metadata.py`, `admin_prompts.py` |
 | Users & permissions | User management / team management / invite codes | `config_users.py`, `config_teams.py`, `config_invites.py` |
 | Data monitoring | User call logs / token billing / user chat history / tool, sub-agent & skill call logs | `admin_usage_logs.py`, `admin_billing.py`, `admin_chat_history.py`, `admin_logs.py` |
 | Security | Sandbox management / audit logs / system health | `config_security.py` |
@@ -81,6 +81,10 @@ Cross-environment snapshot endpoints `GET /v1/content/prompts/export` / `POST /v
 ### MCP management (admin_mcp_servers) (Enterprise Edition: content_admin)
 
 `/v1/admin/mcp-servers` (`api/routes/v1/admin_mcp_servers.py`, `CONFIG_TOKEN`): MCP server configuration CRUD (stored in the `admin_mcp_servers` table), enable/disable, connectivity test, and connection pool reload. See [MCP Tools](mcp-tools.md).
+
+### Database tools (data_sources / db_metadata) (Enterprise Edition: system_config)
+
+`/v1/data-sources` and `/v1/db-meta` (`features/datasources/api/`, `CONFIG_TOKEN`): data source create/update/delete, connectivity tests and tool listing, plus governance of table/column metadata, value dictionaries and golden SQL. Supported types: MySQL, MariaDB, PostgreSQL, SQL Server, Oracle, SQLite and Elasticsearch. Each data source automatically becomes its own MCP connector (`db_<id>`, served by `database_mcp`): it is enabled and disabled with the data source and removed when the data source is deleted; there is no master switch. The read-only guard is on by default; turning it off adds `execute_write_sql` for that data source, which follows the user's tool-approval mode. A relational data source can also expose only selected tables under "Available tables" (`GET/PUT /v1/data-sources/{id}/tables`); by default every table is available. With a selection, the tools refuse other tables, system catalogs and cross-database names. See [MCP Tools](mcp-tools.md) for the tool suites and read-only rules.
 
 ### Sub-agents (admin_agents) (Enterprise Edition: content_admin)
 
@@ -144,7 +148,7 @@ There is also an API-oriented global audit query at `/v1/audit` (`api/routes/v1/
 
 ### Service configs (service_configs) (Enterprise Edition: system_config)
 
-`/v1/service-configs` (`api/routes/v1/service_configs.py`, `CONFIG_TOKEN`): the external service configuration center — list / batch update / connectivity test / import & export for the four groups query_database, knowledge_base, industry, and file_parser. Every endpoint is an administrative write or probe with no public reads, so the whole group is EE.
+`/v1/service-configs` (`api/routes/v1/service_configs.py`, `CONFIG_TOKEN`): the external service configuration center — list / batch update / connectivity test / import & export for the three groups knowledge_base, industry, and file_parser. Every endpoint is an administrative write or probe with no public reads, so the whole group is EE.
 
 ## CE / EE boundary summary
 

@@ -85,6 +85,14 @@ def update_market_item(
     if not item:
         raise ResourceNotFoundError("mcp_market_item", slug)
     version = mcp_versions.version_for_item(db, item)
+    from features.marketplace import managed_items
+
+    if managed_items.managed_by(version) and any(
+        value is not None
+        for value in (display_name, description, requires_auth, credential_mode, managed_credentials,
+                      oauth_registration, oauth_client_id, oauth_client_secret, oauth_scopes, auth_type)
+    ):
+        managed_items.refuse_admin_change(version, "修改名称、说明或认证方式")
     previous_auth_schema = list(version.auth_schema or [])
 
     if display_name is not None:
@@ -265,6 +273,9 @@ def delete_market_item(
     if not item:
         raise ResourceNotFoundError("mcp_market_item", slug)
     version = mcp_versions.version_for_item(db, item)
+    from features.marketplace import managed_items
+
+    managed_items.refuse_admin_change(version, "删除")
     if version.source_server_id:
         source = (
             db.query(AdminMcpServer)
@@ -294,6 +305,9 @@ def set_suspended(
     )
     if not item:
         raise ResourceNotFoundError("mcp_market_item", slug)
+    from features.marketplace import managed_items
+
+    managed_items.refuse_admin_change(mcp_versions.version_for_item(db, item), "停用或启用")
     now = utc_now()
     item.status = "suspended" if suspended else "active"
     item.status_reason = (reason or "").strip() if suspended else None

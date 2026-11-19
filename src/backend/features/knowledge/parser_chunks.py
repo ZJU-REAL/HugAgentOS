@@ -4,6 +4,7 @@ import json
 import re
 import uuid
 from typing import Optional
+from core.infra.budget_search import largest_fitting
 from features.knowledge import kb_parser_state
 from features.knowledge import parser_tokens
 from features.knowledge import parser_types
@@ -195,6 +196,42 @@ def parse_separators_form(raw: Optional[str]) -> Optional[list[str]]:
     return normalize_separators([str(x) for x in data])
 
 
+def _merge_parts(parts: list[str], sep: str, max_tokens: int, deeper_separators: list[str]) -> list[str]:
+    """Pack adjacent parts into chunks of at most ``max_tokens``.
+
+    Each chunk is the longest run of parts that fits, measured exactly with the
+    tokenizer and found by doubling then bisecting (O(log parts) tokenizations
+    per chunk). Empty parts at a chunk's start are dropped with their
+    separators; a part too big alone is split with the next separator level.
+    """
+    result: list[str] = []
+    start = 0
+    while start < len(parts):
+        first = start
+        while first < len(parts) and not parts[first]:
+            first += 1
+        if first == len(parts):
+            break
+        if parser_tokens.count_tokens(parts[first]) > max_tokens:
+            result.extend(recursive_split(parts[first], deeper_separators, max_tokens))
+            start = first + 1
+            continue
+
+        def fits(end: int) -> bool:
+            return parser_tokens.count_tokens(sep.join(parts[first:end])) <= max_tokens
+
+        # Double the run until a probe fails, then bisect between the last fit
+        # and that failure. Probes never re-tokenize past twice the chunk.
+        good, step = first + 1, 1
+        while good < len(parts) and fits(min(len(parts), good + step)):
+            good, step = min(len(parts), good + step), step * 2
+        if good < len(parts):
+            good = largest_fitting(good, min(len(parts), good + step) - 1, fits)
+        result.append(sep.join(parts[first:good]))
+        start = good
+    return result
+
+
 def recursive_split(text: str, separators: list[str], max_tokens: int) -> list[str]:
     """Recursively split text using a hierarchy of separators.
 
@@ -211,35 +248,7 @@ def recursive_split(text: str, separators: list[str], max_tokens: int) -> list[s
         if len(parts) <= 1:
             continue
 
-        # Merge adjacent small parts up to max_tokens
-        result: list[str] = []
-        current = ""
-        current_tokens = 0
-
-        for part in parts:
-            candidate = (current + sep + part) if current else part
-            candidate_tokens = parser_tokens.count_tokens(candidate)
-
-            if candidate_tokens <= max_tokens:
-                current = candidate
-                current_tokens = candidate_tokens
-            else:
-                if current:
-                    result.append(current)
-                # If this single part exceeds max_tokens, recurse deeper
-                part_tokens = parser_tokens.count_tokens(part)
-                if part_tokens > max_tokens:
-                    deeper = recursive_split(part, separators[i + 1:], max_tokens)
-                    result.extend(deeper)
-                    current = ""
-                    current_tokens = 0
-                else:
-                    current = part
-                    current_tokens = part_tokens
-
-        if current:
-            result.append(current)
-
+        result = _merge_parts(parts, sep, max_tokens, separators[i + 1:])
         if result:
             return result
 

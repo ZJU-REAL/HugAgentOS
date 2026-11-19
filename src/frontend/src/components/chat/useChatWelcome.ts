@@ -66,7 +66,7 @@ export function useChatWelcome(chat: ChatItem | undefined) {
     return homepageSuggestions.slice(start, start + HOME_SUGGESTIONS_PER_PAGE);
   }, [homepageSuggestions, suggestionPage, suggestionPageCount]);
 
-  // ── Resolve hero text: sub-agent uses its own name/description ──
+  // ── Resolve hero text: sub-agent uses its own name ──
   const isAgentChat = !!(chat?.agentId);
   const isSiteChat = !!chat?.siteChat;
   const isProjectChat = !!chat?.projectId;
@@ -76,7 +76,9 @@ export function useChatWelcome(chat: ChatItem | undefined) {
   const heroSubtitle = isSiteChat
     ? t('描述你想要的网站，AI 将为你生成并一键发布上线')
     : isAgentChat
-      ? (agentDetail?.description || agentDetail?.welcome_message || t('专业智能体'))
+      // Sub-agent chats show only the agent name: its description is routing
+      // text for the lead agent and read as a wall of large text here.
+      ? ''
       : cfgHeroSubtitle;
   const suggestedQuestions = isAgentChat ? (agentDetail?.suggested_questions || []) : [];
   const inputPlaceholder = isSiteChat

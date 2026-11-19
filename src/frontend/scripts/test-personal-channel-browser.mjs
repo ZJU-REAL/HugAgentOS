@@ -10,7 +10,7 @@ await build({
   stdin: { contents: `
 import { createRoot } from 'react-dom/client';
 import { ConfigProvider } from 'antd';
-import { ChannelEntry } from './src/components/personal-agent/ChannelEntry';
+import { ChannelEntry } from './src/components/personal-agent/channels/ChannelEntry';
 import './src/styles/variables.css';
 import './src/components/personal-agent/personal-agent.css';
 createRoot(document.getElementById('root')).render(<ConfigProvider theme={{token:{motion:false}}}><ChannelEntry agentName="Hugo" /></ConfigProvider>);

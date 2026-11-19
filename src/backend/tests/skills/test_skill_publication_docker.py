@@ -43,7 +43,7 @@ def inspect_new_sandbox(view, shared):
         "--mount",
         f"type=bind,source={view},target=/workspace/skills,readonly",
         "--mount",
-        f"type=bind,source={shared},target=/workspace/skills_shared,readonly",
+        f"type=bind,source={shared},target=/workspace/.skills_shared,readonly",
         "--entrypoint",
         "python",
         IMAGE,

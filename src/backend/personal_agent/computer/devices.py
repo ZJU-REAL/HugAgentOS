@@ -42,8 +42,7 @@ def checked_capabilities(capabilities):
 
 
 # What a desktop says about itself with each heartbeat: its session contract (contract.contract_version)
-# and app version. Bounded like the route that receives them.
-LINK_FIELDS = ("contract", "app_version")
+# and app version. Each value is bounded like the route that receives them.
 LINK_FIELD_CHARS = 64
 
 

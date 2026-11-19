@@ -11,7 +11,7 @@ OpenSandbox 基础执行、会话文件、个人空间与快照属于 CE 和 EE 
 
 ## Provider 协议（core/sandbox/protocol.py）
 
-所有 provider 实现同一个 `SandboxProvider` Protocol，内部完成入口封装底层进程协议；script-runner 通过 sidecar HTTP 接口执行进程操作：
+所有 provider 实现 `SandboxProvider` 执行协议，并显式声明 `runs_on_host`（True 表示直接在用户宿主机上起进程，命令必须带 `ProcessRequest.sandbox_launch`）。`SANDBOX_PROVIDER` 选中的 provider 还要实现只读的 `SandboxAdmin` 管理视图，两者合起来是 `OrdinarySandboxProvider`；会话路由分发的 provider 只需实现执行部分。内部完成入口封装底层进程协议；script-runner 通过 sidecar HTTP 接口执行进程操作：
 
 | 方法 | 职责 |
 |---|---|
@@ -148,7 +148,7 @@ artifact 送入沙盒、`Bash` 执行后 `/myspace` 写回同步；backend 与 s
 
 ## 技能目录只读挂载
 
-技能文件通过只读 bind mount 暴露在沙箱 `/workspace/skills/<id>`（`_make_skills_volumes`），挂的是**该用户自己的技能视图** `$HOST_STORAGE_PATH/sandbox_skills_u/<user_id>`：里面是他的私有技能加上指向公共技能的相对软链，公共技能库 `$HOST_STORAGE_PATH/sandbox_skills` 另挂到 `/workspace/skills_shared` 供软链解析（内置技能启动时同步进来、DB 技能按需物化，见[技能系统](agent-skills.md)）。于是所有技能仍是同一个路径，但别人安装的私有技能（含其 `secrets.json`）根本不在挂载范围内。没有用户 id 的沙箱只挂公共技能库。read-only 保证沙箱内不可篡改技能；目录 bind 是实时的，新导入技能立即可见。`HOST_STORAGE_PATH` 未配置时退回只挂内置源码树并告警。
+技能文件通过只读 bind mount 暴露在沙箱 `/workspace/skills/<id>`（`_make_skills_volumes`），挂的是**该用户自己的技能视图** `$HOST_STORAGE_PATH/sandbox_skills_u/<user_id>`：里面是他的私有技能加上指向公共技能的相对软链，公共技能库 `$HOST_STORAGE_PATH/sandbox_skills` 另挂到隐藏目录 `/workspace/.skills_shared` 供软链解析（模型只需要认 `/workspace/skills`）（内置技能启动时同步进来、DB 技能按需物化，见[技能系统](agent-skills.md)）。于是所有技能仍是同一个路径，但别人安装的私有技能（含其 `secrets.json`）根本不在挂载范围内。没有用户 id 的沙箱只挂公共技能库。read-only 保证沙箱内不可篡改技能；目录 bind 是实时的，新导入技能立即可见。`HOST_STORAGE_PATH` 未配置时退回只挂内置源码树并告警。
 
 ## 超长工具结果落盘
 
