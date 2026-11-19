@@ -60,6 +60,10 @@ psycopg2-binary>=2.9.9
 psycopg[binary,pool]>=3.2,<4
 sqlalchemy>=2.0.25
 alembic>=1.13.0
+# Data source drivers for the EE database MCP (mcp container; the CE build drops
+# them). psycopg 3 and httpx (Elasticsearch) are listed above; oracledb runs in
+# thin mode, so no Oracle client libraries are needed.
+# SQL parsing for the database MCP's read-only guard.
 
 # Object Storage
 boto3>=1.36.0

@@ -106,11 +106,10 @@ def resolve_bindings(
 
     avail = UserAgentService(db).list_available_resources(owner_user_id=owner_user_id)
     avail_skill = {s["id"] for s in avail.get("skills", [])}
-    # available-resources only lists AdminMcpServer rows; but built-in MCP tools (e.g.
-    # database_query) are catalog-defined and loaded at runtime by catalog id,
-    # and don't necessarily have a same-named AdminMcpServer row. Merge the catalog-enabled
-    # built-in MCP ids into the "resolvable" set, so these legitimate built-in tools aren't
-    # misjudged as "unresolvable" and dropped (once bound, the runtime connects on demand).
+    # available-resources only lists AdminMcpServer rows; built-in MCP tools are
+    # catalog-defined and loaded at runtime by catalog id, without a same-named row.
+    # Merge the catalog-enabled built-in MCP ids into the "resolvable" set, so these
+    # legitimate built-in tools aren't misjudged as "unresolvable" and dropped.
     avail_mcp = {s["id"] for s in avail.get("mcp_servers", [])} | set(get_enabled_ids("mcp"))
     avail_plugin = {p["id"] for p in avail.get("plugins", [])}
     avail_kb = {k["id"] for k in avail.get("kb_spaces", [])}
@@ -128,8 +127,10 @@ def resolve_bindings(
         "needs_secret": [],
     }
 
-    # MCP tools
-    for mid in bindings.get("mcp_server_ids", []):
+    # MCP tools. Portable ids (``database_query``) expand to this deployment's connectors.
+    for mid in _expand_portable_bindings(db, bindings.get("mcp_server_ids", []), avail_mcp, owner_user_id):
+        if mid in final["mcp_server_ids"]:
+            continue
         if mid in avail_mcp:
             final["mcp_server_ids"].append(mid)
             report["bound"].append(f"mcp:{mid}")
@@ -253,3 +254,42 @@ def install_marketplace_agent(
         "install_report": report,
         "message": "子智能体已安装",
     }
+
+
+def _expand_portable_bindings(db, mcp_ids: List[str], available: set,
+                              owner_user_id: Optional[str]) -> List[str]:
+    """Replace portable ids (e.g. ``database_query``) with this deployment's owned connectors.
+
+    A package travels between deployments, so it names a capability family rather
+    than server ids; the owning feature declares the alias (``managed_items``). The
+    installer gets every enabled connector of that family it can reach: global
+    copies and its own installed copies.
+    """
+    from features.marketplace import managed_items
+
+    aliases = managed_items.portable_bindings()
+    if not any(mid in aliases for mid in mcp_ids):
+        return list(mcp_ids)
+    from sqlalchemy import or_
+
+    from core.capabilities.mcp.service import mcp_owner
+    from core.db.models import AdminMcpServer
+
+    owners = [AdminMcpServer.owner_user_id.is_(None)]
+    if owner_user_id:
+        owners.append(AdminMcpServer.owner_user_id == owner_user_id)
+    rows = (
+        db.query(AdminMcpServer)
+        .filter(AdminMcpServer.is_enabled.is_(True), or_(*owners))
+        .order_by(AdminMcpServer.sort_order, AdminMcpServer.server_id)
+        .all()
+    )
+    out: List[str] = []
+    for mid in mcp_ids:
+        if mid not in aliases:
+            out.append(mid)
+            continue
+        family = [r.server_id for r in rows
+                  if mcp_owner(r.extra_config) == aliases[mid] and r.server_id in available]
+        out.extend(family or [mid])  # none reachable: reported as dropped
+    return out

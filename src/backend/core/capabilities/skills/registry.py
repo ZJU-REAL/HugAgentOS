@@ -184,7 +184,7 @@ def _parse_allowed_tools(fm: Dict[str, str]) -> List[str]:
 
     Examples:
         allowed_tools: search database chart
-        allowed_tools: web_search, database_query
+        allowed_tools: web_search, web_fetch
 
     Args:
         fm: Frontmatter dictionary.

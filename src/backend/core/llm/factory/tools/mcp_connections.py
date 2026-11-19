@@ -23,20 +23,45 @@ def _leaf_errors(exc):
         yield exc
 
 
-def _gate_client_tools(resource, specs):
-    """Client-provided tools pass the ordinary approval gate; server annotations are only hints."""
+# Admin-declared per-tool policy (``admin_mcp_servers.extra_config.tool_permissions``):
+# server annotations are only hints, so a tool that must be confirmed is declared by
+# the platform side. ``ask_destructive`` is confirmed even under the "approve for me"
+# preset; only "fully open" and trusted unattended runs answer it automatically.
+_DECLARED_OPS = {"ask": "execute", "ask_destructive": "delete"}
+
+
+def _gate_tools(resource, specs, op_for, *, kind, summary):
+    """Route the tools ``op_for`` selects through the approval gate (never trusting annotations)."""
     from core.sandbox.permissions.dispatch_models import DOMAIN_APPROVAL, PermissionIntent, ToolPermissionSpec
 
     for tool in resource.tools:
+        op = op_for(tool)
+        if op is None:
+            continue
         if tool.name in specs:
-            raise ValueError("Duplicate client tool name")
+            raise ValueError(f"Duplicate {kind} tool name")
         target = f"{resource.name}:{tool.name}"
+        text = summary(tool)
 
-        def resolve(_args, _runtime, target=target):
+        def resolve(_args, _runtime, target=target, op=op, text=text):
             return (PermissionIntent(domain=DOMAIN_APPROVAL, action="execute", target=target,
-                                     summary="Run client-provided tool", op="execute"),)
+                                     summary=text, op=op),)
 
-        tool.dispatch_spec = specs[tool.name] = ToolPermissionSpec(f"client-mcp:{target}", resolve)
+        key = f"{kind}-mcp:{target}" + ("" if kind == "client" else f":{op}")
+        tool.dispatch_spec = specs[tool.name] = ToolPermissionSpec(key, resolve)
+
+
+def _gate_declared_tools(resource, declared, specs):
+    if isinstance(declared, dict) and declared:
+        _gate_tools(resource, specs, lambda tool: _DECLARED_OPS.get(str(declared.get(tool.name) or "")),
+                    kind="declared", summary=lambda tool: f"运行「{resource.display_name}」的 {tool.name}")
+
+
+def _gate_client_tools(resource, specs):
+    """Client-provided tools pass the ordinary approval gate (unless already declared stricter)."""
+    _gate_tools(resource, specs,
+                lambda tool: None if getattr(tool, "dispatch_spec", None) is not None else "execute",
+                kind="client", summary=lambda tool: "Run client-provided tool")
 
 
 async def mcp_connections(
@@ -107,6 +132,7 @@ async def mcp_connections(
                 resource.client_session_lease = cfg.get("client_session_lease")
                 resource.display_name = cfg.get("display_name") or key
                 resource.description = str(cfg.get("description") or "")
+                resource.tool_permissions = cfg.get("tool_permissions") or {}
                 return own_factory_client(resource)
             except asyncio.CancelledError:
                 raise
@@ -126,6 +152,8 @@ async def mcp_connections(
             _note_unavailable("以下 MCP 服务连接失败，本轮无法使用其工具：" + "、".join(failed))
 
     for resource in mcp_resources:
+        # Declared policy holds for every transport; client tools are then gated too.
+        _gate_declared_tools(resource, resource.tool_permissions, toolkit.client_permission_specs)
         if resource.client_session_lease:
             _gate_client_tools(resource, toolkit.client_permission_specs)
 

@@ -59,3 +59,59 @@
 .jx-col-resize-handle:active::after {
   background: var(--color-primary);
 }
+
+/* ── ChatHistoryPanel：会话列表 + 消息查看两栏 ──
+   宽容器里左右两栏；容器窄于 720px 时上下堆叠（列表在上、限高），
+   否则右栏会被挤成几十像素宽。 */
+.jx-cfgChatHistory-wrap {
+  container-type: inline-size;
+}
+
+.jx-cfgChatHistory {
+  display: flex;
+  height: calc(100vh - 180px);
+  height: calc(100dvh - 180px);
+  min-height: 480px;
+  overflow: hidden;
+  background: var(--color-bg-container);
+  border-radius: 8px;
+}
+
+.jx-cfgChatHistory-list {
+  display: flex;
+  flex: 0 0 400px;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--color-border);
+}
+
+.jx-cfgChatHistory-viewer {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px;
+}
+
+@container (max-width: 720px) {
+  .jx-cfgChatHistory {
+    flex-direction: column;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .jx-cfgChatHistory-list {
+    flex: none;
+    max-height: 60vh;
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .jx-cfgChatHistory-viewer {
+    min-height: 320px;
+    overflow: visible;
+    padding: 16px;
+  }
+}

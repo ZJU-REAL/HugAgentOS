@@ -6,60 +6,13 @@ history, prompt text and model providers are intentionally outside this operatio
 
 from __future__ import annotations
 
-import re
 import uuid
 from datetime import datetime, timezone
 
 import sqlalchemy as sa
-import yaml
+from core.db.rebind_mcp_ids import rebind_value, rebind_mcp_ids
 
 CHART_SERVER_ID = "generate_chart_tool"
-
-
-def _without_servers(value, server_ids):
-    if isinstance(value, list):
-        return [
-            _without_servers(item, server_ids)
-            for item in value
-            if not (isinstance(item, str) and item in server_ids)
-            and not (isinstance(item, dict) and item.get("id") in server_ids)
-        ]
-    if isinstance(value, dict):
-        return {
-            key: _without_servers(item, server_ids)
-            for key, item in value.items()
-            if key not in server_ids
-        }
-    if isinstance(value, str):
-        # Older skill metadata stores allowed_tools as whitespace-separated text.
-        words = value.split()
-        if any(word in server_ids for word in words):
-            return " ".join(word for word in words if word not in server_ids)
-    return value
-
-
-def _clean_skill_header(content, server_ids):
-    if not isinstance(content, str):
-        return content
-    match = re.match(r"\A---[^\S\n]*\n(.*?)\n---(?=\n|$)", content, re.S)
-    if match is None:
-        return content
-
-    def clean_field(field):
-        key = field.group(1)
-        value = yaml.safe_load(field.group(0))[key]
-        tokens = value if isinstance(value, list) else re.split(r"[,\s]+", str(value or ""))
-        kept = [token for token in tokens if token and token not in server_ids]
-        if kept == [token for token in tokens if token]:
-            return field.group(0)
-        return f"{key}: {' '.join(kept)}" if kept else ""
-
-    header = re.sub(
-        r"(?m)^(allowed_tools|allowed-tools|mcp_servers|mcp-server-ids):[^\n]*(?:\n[ \t]+[^\n]*)*",
-        clean_field,
-        match.group(1),
-    )
-    return content[: match.start(1)] + header + content[match.end(1) :]
 
 
 def retire_chart_mcp(bind: sa.Connection) -> dict[str, int]:
@@ -123,35 +76,8 @@ def retire_chart_mcp(bind: sa.Connection) -> dict[str, int]:
     delete("model_role_assignments", lambda c: c.role_key == "chart")
     delete("catalog_overrides", lambda c: sa.and_(c.kind == "mcp", c.item_id.in_(server_ids)))
 
-    bindings = {
-        "user_agents": ("mcp_server_ids",),
-        "agent_market_submissions": ("bindings_snapshot",),
-        "chat_modes": ("mcp_server_ids",),
-        "scheduled_tasks": ("enabled_mcp_ids",),
-        "admin_skills": ("allowed_tools", "skill_content"),
-        "admin_skill_drafts": ("allowed_tools", "skill_content"),
-    }
-    for name, columns in bindings.items():
-        target = table(name)
-        if target is None:
-            continue
-        for column in columns:
-            if column not in target.c:
-                continue
-            conditions = [sa.cast(target.c[column], sa.Text).contains(sid) for sid in server_ids]
-            for row in bind.execute(sa.select(target).where(sa.or_(*conditions))).mappings():
-                cleaned = (
-                    _clean_skill_header(row[column], server_ids)
-                    if column == "skill_content"
-                    else _without_servers(row[column], server_ids)
-                )
-                if cleaned != row[column]:
-                    identity = sa.and_(*(key == row[key.name] for key in target.primary_key))
-                    values = {column: cleaned}
-                    if "updated_at" in target.c:
-                        values["updated_at"] = datetime.now(timezone.utc)
-                    bind.execute(target.update().where(identity).values(values))
-                    counts[name] = counts.get(name, 0) + 1
+    # Agents, modes, tasks and skills that named the chart server simply lose it.
+    counts.update(rebind_mcp_ids(bind, {server_id: [] for server_id in server_ids}))
 
     blocks = table("content_blocks")
     if blocks is not None:
@@ -160,7 +86,7 @@ def retire_chart_mcp(bind: sa.Connection) -> dict[str, int]:
                 blocks.c.id.in_(("catalog", "catalog_overrides", "tool_names", "mcp_tool_names"))
             )
         ).mappings():
-            cleaned = _without_servers(row["payload"], server_ids)
+            cleaned = rebind_value(row["payload"], {server_id: [] for server_id in server_ids})
             if cleaned != row["payload"]:
                 bind.execute(
                     blocks.update().where(blocks.c.id == row["id"]).values(payload=cleaned)

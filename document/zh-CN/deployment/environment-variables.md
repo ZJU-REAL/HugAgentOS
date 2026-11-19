@@ -188,8 +188,6 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 | `LANGSEARCH_API_KEY` | （空） | LangSearch Web Search API Key；选择 LangSearch 时必填 | CE |
 | `DEEPSEEK_SEARCH_API_KEY` | （空） | 调用 Search API 的 DeepSeek 开放平台 API Key；选择 DeepSeek 时必填 | CE |
 | `INTERNET_SEARCH_COUNTRY` / `INTERNET_SEARCH_AUTO_PARAMETERS` | （空） | Tavily 国家排名偏好（仅 general，未配置则不传）/ 自动参数 | CE |
-| `QUERY_DATABASE_URL` | `http://your-database-api-host:6200` | 数仓查询工具的 HTTP 后端 | EE（行业工具） |
-| `QUERY_DATABASE_TIMEOUT_SECONDS` / `QUERY_DATABASE_RETRY_TIMES` / `QUERY_DATABASE_MAX_OUTPUT_TOKENS` | （空） | 数仓查询调用参数 | EE |
 | `INDUSTRY_URL` / `INDUSTRY_AUTH_TOKEN` | （示例值） | 产业链信息 API | EE（行业工具） |
 | `COMPANY_API_URL` / `COMPANY_AUTH_TOKEN` | （空） | 企业画像 API | EE（行业工具） |
 | `BACKEND_INTERNAL_URL` | `http://backend:3001` | 站点、浏览器等 MCP 回调后端的内部地址 | CE |

@@ -10,33 +10,6 @@ PROVIDER_SCOPED_KNOWLEDGE_FIELDS = ("url", "api_key", "allowed_dataset_ids")
 
 
 SEED_CONFIGS: list[tuple[str, str | None, str, str, str, bool]] = [
-    # query_database
-    (
-        "query_database.url",
-        None,
-        "数据库查询接口 URL",
-        "NL2SQL 数据库查询服务地址",
-        "query_database",
-        False,
-    ),
-    ("query_database.timeout", "40", "超时时间(秒)", "请求超时时间", "query_database", False),
-    ("query_database.retry_times", "1", "重试次数", "请求失败重试次数", "query_database", False),
-    (
-        "query_database.max_output_tokens",
-        "45000",
-        "最大输出 Token",
-        "数据库查询最大输出 Token 数",
-        "query_database",
-        False,
-    ),
-    (
-        "database_query.capability_enabled",
-        "true",
-        "数据库查询能力总开关",
-        "控制统一「数据库查询」能力是否在能力中心可用。由数据库工具页维护，不写入 catalog.json。",
-        "query_database",
-        False,
-    ),
     (
         "knowledge_base.detail_max_chars",
         "50000",
@@ -269,10 +242,6 @@ SEED_CONFIGS: list[tuple[str, str | None, str, str, str, bool]] = [
 
 
 CONFIG_KEY_TO_ENV: dict[str, str] = {
-    "query_database.url": "QUERY_DATABASE_URL",
-    "query_database.timeout": "QUERY_DATABASE_TIMEOUT_SECONDS",
-    "query_database.retry_times": "QUERY_DATABASE_RETRY_TIMES",
-    "query_database.max_output_tokens": "QUERY_DATABASE_MAX_OUTPUT_TOKENS",
     "knowledge_base.detail_max_chars": "KB_DETAIL_CONTENT_MAX_CHARS",
     "file_parser.api_url": "FILE_PARSER_API_URL",
     "file_parser.timeout": "FILE_PARSER_TIMEOUT",

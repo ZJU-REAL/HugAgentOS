@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-from core.capabilities.catalog.loader import DB_HIDDEN_SERVERS, DB_UMBRELLA_ID, DB_UMBRELLA_NAME, DB_UMBRELLA_DESC, _database_query_capability_available
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -261,8 +260,6 @@ def _load_dynamic_mcp_specs() -> Dict[str, Dict[str, str]]:
 
     result: Dict[str, Dict[str, str]] = {}
     for sid in MCP_SERVERS.keys():
-        if sid in DB_HIDDEN_SERVERS:
-            continue
         result[sid] = {
             "id": sid,
             "name": MCP_SERVER_DISPLAY_NAMES.get(sid, sid),
@@ -274,24 +271,11 @@ def _load_dynamic_mcp_specs() -> Dict[str, Dict[str, str]]:
     # static MCP_SERVERS dict) for runtime detail lookups only.
     for row in enabled_admin_only_rows:
         sid = row.server_id
-        if sid in DB_HIDDEN_SERVERS:
-            continue
         result[sid] = {
             "id": sid,
             "name": row.display_name or sid,
             "description": row.description or f"MCP 服务：{sid}",
             "detail": row.user_intro or MCP_SERVER_USER_INTROS.get(sid, ""),
-        }
-
-    # Inject the synthetic umbrella only when this edition ships a database
-    # query runtime.  Otherwise the sync layer would recreate an item that the
-    # CE build deliberately removed from catalog.json.
-    if _database_query_capability_available():
-        result[DB_UMBRELLA_ID] = {
-            "id": DB_UMBRELLA_ID,
-            "name": DB_UMBRELLA_NAME,
-            "description": DB_UMBRELLA_DESC,
-            "detail": MCP_SERVER_USER_INTROS.get(DB_UMBRELLA_ID, ""),
         }
 
     return result

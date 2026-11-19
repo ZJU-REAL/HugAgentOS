@@ -119,7 +119,7 @@
   暂存和退休文件位于沙箱技能挂载之外。
 - 公共库默认为 `$STORAGE_PATH/sandbox_skills`，私有文件位于同级的
   `sandbox_skills_u/<user_id>`。用户视图通过相对链接引用公共技能。
-  沙箱仍以只读方式挂载 `/workspace/skills` 和 `/workspace/skills_shared`；
+  沙箱仍以只读方式挂载 `/workspace/skills` 和 `/workspace/.skills_shared`；
   后端通过可写的源目录发布和删除，因此无需放开沙箱写权限。
 - 网页、管理端、MCP 和插件删除路径会清理物化文件。新会话准备还会根据权威源移除历史孤儿，
   不依赖其他进程的缓存是否已经失效。启动同步也采用同一套来源选择和发布流程。

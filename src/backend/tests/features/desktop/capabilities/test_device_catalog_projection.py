@@ -269,63 +269,40 @@ def test_connector_projection_carries_the_cloud_icon(bridged, monkeypatch):
     assert "icon" not in by_id["no_icon"]
 
 
-def test_database_connectors_collapse_into_the_umbrella_item(bridged, monkeypatch):
-    """``query_database`` / ``db_query`` / ``es_query`` 在云端合并成一个「数据库查询」。
-
-    桌面端此前直接摊开云端下发的原始 server，同一份能力在网页端叫「数据库查询」、
-    在桌面端叫「Elasticsearch 查询」，用户会以为数据库工具没同步下来。
-    """
-    from core.capabilities.catalog.loader import DB_UMBRELLA_ID, DB_UMBRELLA_NAME
-
+def test_datasource_connectors_project_one_item_each(bridged, monkeypatch):
+    """每个数据源连接器在桌面端各自一条，名称/启停沿用云端下发的那份。"""
     monkeypatch.setattr(
         device_catalog,
         "_managed_connectors",
         lambda: [
-            {"server_id": "es_query", "display_name": "Elasticsearch 查询", "description": "",
+            {"server_id": "db_ds1", "display_name": "数据库：销售库", "description": "",
+             "enabled": True, "source_plugin": "", "icon": "/home/mcp/database.svg", "tools": []},
+            {"server_id": "db_ds2", "display_name": "数据库：日志", "description": "",
              "enabled": False, "source_plugin": "", "icon": "", "tools": []},
-            {"server_id": "query_database", "display_name": "数据库查询", "description": "",
-             "enabled": True, "source_plugin": "", "icon": "", "tools": []},
             {"server_id": "web_fetch", "display_name": "网站信息抓取", "description": "",
              "enabled": True, "source_plugin": "", "icon": "", "tools": []},
         ],
     )
 
-    items = device_catalog.catalog_overlay()["mcp"]
-    ids = [item["id"] for item in items]
+    by_id = {item["id"]: item for item in device_catalog.catalog_overlay()["mcp"]}
 
-    assert "es_query" not in ids and "query_database" not in ids
-    assert ids.count(DB_UMBRELLA_ID) == 1
-    umbrella = next(item for item in items if item["id"] == DB_UMBRELLA_ID)
-    assert umbrella["name"] == DB_UMBRELLA_NAME
-    # 任一成员开着，伞形就是开着的。
-    assert umbrella["enabled"] is True
-    assert "web_fetch" in ids
+    assert set(by_id) == {"db_ds1", "db_ds2", "web_fetch"}
+    assert by_id["db_ds1"]["name"] == "数据库：销售库"
+    assert by_id["db_ds1"]["icon"] == "/home/mcp/database.svg"
+    assert by_id["db_ds2"]["enabled"] is False
 
 
-def test_umbrella_toggle_reaches_every_member(bridged, monkeypatch):
-    """伞形条目本身没有对应的 server，开关必须落到它收拢的成员上。"""
-    from core.capabilities.catalog.loader import DB_UMBRELLA_ID
-
-    # bridge 模块在 import 时就把 bridge_enabled 绑成了本地名，得按这个名字打桩。
+def test_datasource_connector_toggle_writes_only_itself(bridged, monkeypatch):
     monkeypatch.setattr('features.desktop.auth.bridge.bridge_enabled', lambda: True)
-    monkeypatch.setattr(
-        bridge_managed_connectors,
-        'managed_connectors',
-        lambda: [
-            {"server_id": "es_query", "enabled": True},
-            {"server_id": "query_database", "enabled": True},
-            {"server_id": "web_fetch", "enabled": True},
-        ],
-    )
     written: list = []
     monkeypatch.setattr(
         'features.desktop.capabilities.mcp_json.set_managed_enabled',
         lambda profile, server_id, enabled: written.append((server_id, enabled)),
     )
 
-    assert bridge_managed_connectors.set_managed_connector_enabled(DB_UMBRELLA_ID, False) is True
+    assert bridge_managed_connectors.set_managed_connector_enabled("db_ds1", False) is True
 
-    assert sorted(written) == [("es_query", False), ("query_database", False)]
+    assert written == [("db_ds1", False)]
 
 
 def _install_plugin_with_ui(profile: str, slug: str, ui: dict, *, enabled: bool = True):

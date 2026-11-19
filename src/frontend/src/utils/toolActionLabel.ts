@@ -1,6 +1,7 @@
 import { t } from '../i18n';
 import { resolvePluginToolLabel, resolveToolDisplayName } from './toolMeta';
 import type { ToolIconKind } from './toolIconKind';
+import { databaseToolLabels, databaseToolSuffix } from './databaseTools';
 
 /**
  * 折叠态执行卡那一行的文案真源。
@@ -21,7 +22,6 @@ const SHELL = action(t('正在执行命令'), t('运行了命令'), 'terminal');
 const FILE_READ = action(t('正在读取文件'), t('读取了文件'), 'fileRead');
 const KB_QUERY = action(t('正在检索知识库'), t('检索了知识库'), 'knowledge');
 const KNOWLEDGE_MAP = action(t('正在查阅知识地图'), t('查阅了知识地图'), 'graph');
-const DB_QUERY = action(t('正在查询数据库'), t('查询了数据库'), 'database');
 const SKILL = action(t('正在激活技能'), t('激活了技能'), 'skill');
 const CAPABILITY_LIST = action(t('正在获取能力列表'), t('获取了能力列表'), 'catalog');
 const WORD_DOC = action(t('正在生成 Word 文档'), t('生成了 Word 文档'), 'word');
@@ -52,10 +52,6 @@ const TOOL_ACTIONS: Record<string, ToolAction> = {
   wiki_read_page: KNOWLEDGE_MAP,
   wiki_expand: KNOWLEDGE_MAP,
   wiki_fetch_source: KNOWLEDGE_MAP,
-  query_database: DB_QUERY,
-  db_query: DB_QUERY,
-  execute_sql: DB_QUERY,
-  search_objects: DB_QUERY,
   load_skill: SKILL,
   use_skill: SKILL,
   load_plugin: action(t('正在加载插件'), t('加载了插件'), 'plugin'),
@@ -78,9 +74,21 @@ const TOOL_ACTIONS: Record<string, ToolAction> = {
   save_project_instructions: action(t('正在更新项目说明'), t('更新了项目说明'), 'notes'),
 };
 
+/** Data source MCP tools (`<prefix>__execute_sql` …): wording from the one database tool table. */
+function databaseAction(toolName: string): ToolAction | undefined {
+  const suffix = databaseToolSuffix(toolName);
+  if (!suffix) return undefined;
+  const labels = databaseToolLabels(suffix);
+  return action(labels.running, labels.done, 'database');
+}
+
+function knownAction(toolName: string): ToolAction | undefined {
+  return TOOL_ACTIONS[toolName] || databaseAction(toolName);
+}
+
 /** Icon kind for a tool; unregistered tools (connectors, plugin tools) fall back to the wrench. */
 export function toolIconKind(toolName: string): ToolIconKind {
-  return TOOL_ACTIONS[toolName]?.icon ?? 'wrench';
+  return knownAction(toolName)?.icon ?? 'wrench';
 }
 
 /** 折叠行只认名字，不需要整个 ToolCall。 */
@@ -100,7 +108,7 @@ function fallbackAction(tool: LabeledTool): ToolAction {
 }
 
 function actionOf(tool: LabeledTool): ToolAction {
-  return TOOL_ACTIONS[tool.name] || fallbackAction(tool);
+  return knownAction(tool.name) || fallbackAction(tool);
 }
 
 /** 运行中的那一行：跟着当前正在跑的工具走。 */

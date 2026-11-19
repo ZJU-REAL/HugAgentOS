@@ -20,14 +20,22 @@ def _interval_seconds() -> float:
 
 
 def _monitored_slugs(db) -> list[str]:
-    return [
-        str(row[0])
-        for row in db.query(McpMarketItem.slug)
+    from features.marketplace import managed_items
+    from features.marketplace.models import McpMarketVersion
+
+    rows = (
+        db.query(McpMarketItem.slug, McpMarketVersion.listing_notice)
+        .outerjoin(McpMarketVersion, McpMarketVersion.version_id == McpMarketItem.latest_version_id)
         .filter(
             McpMarketItem.deleted_at.is_(None),
             McpMarketItem.status.in_(["active", "changed"]),
         )
         .all()
+    )
+    # Owned items (e.g. data sources) are not remote endpoints to drift-check.
+    return [
+        str(slug) for slug, notice in rows
+        if not managed_items.managed_by_notice(notice)
     ]
 
 

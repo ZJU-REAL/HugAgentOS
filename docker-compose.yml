@@ -143,7 +143,6 @@ services:
       ENABLE_SUMMARY: ${ENABLE_SUMMARY:-true}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_API_BASE: ${OPENAI_API_BASE:-https://api.openai.com/v1}
-      QUERY_DATABASE_URL: ${QUERY_DATABASE_URL:-}
       KNOWLEDGE_BASE: ${KNOWLEDGE_BASE:-}
       DIFY_URL: ${DIFY_URL:-}
       DIFY_API_KEY: ${DIFY_API_KEY:-}
@@ -290,10 +289,6 @@ services:
       BAIDU_API_KEY: ${BAIDU_API_KEY:-}
       LANGSEARCH_API_KEY: ${LANGSEARCH_API_KEY:-}
       DEEPSEEK_SEARCH_API_KEY: ${DEEPSEEK_SEARCH_API_KEY:-}
-      QUERY_DATABASE_URL: ${QUERY_DATABASE_URL:-}
-      QUERY_DATABASE_TIMEOUT_SECONDS: ${QUERY_DATABASE_TIMEOUT_SECONDS:-}
-      QUERY_DATABASE_RETRY_TIMES: ${QUERY_DATABASE_RETRY_TIMES:-}
-      QUERY_DATABASE_MAX_OUTPUT_TOKENS: ${QUERY_DATABASE_MAX_OUTPUT_TOKENS:-}
       BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:${BACKEND_PORT:-3001}}
       BACKEND_INTERNAL_TOKEN: ${BACKEND_INTERNAL_TOKEN:-}
       BACKEND_PORT: ${BACKEND_PORT:-3001}
@@ -316,46 +311,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 60s
-    networks:
-    - hugagent-network
-    restart: unless-stopped
-  dbhub:
-    profiles:
-    - dbhub
-    image: bytebase/dbhub:latest
-    container_name: hugagent-dbhub
-    logging: *id001
-    command:
-    - --transport
-    - http
-    - --port
-    - '8080'
-    - --host
-    - 0.0.0.0
-    - --allowed-hosts
-    - dbhub
-    - --config
-    - /config/dbhub.toml
-    environment:
-      TZ: ${TZ:-Asia/Shanghai}
-    volumes:
-    - ./docker/dbhub:/config:ro
-    networks:
-    - hugagent-network
-    restart: unless-stopped
-  es-mcp:
-    profiles:
-    - dbhub
-    image: docker.elastic.co/mcp/elasticsearch:latest
-    container_name: hugagent-es-mcp
-    logging: *id001
-    command:
-    - http
-    environment:
-      TZ: ${TZ:-Asia/Shanghai}
-    env_file:
-    - path: ./docker/dbhub/es.env
-      required: false
     networks:
     - hugagent-network
     restart: unless-stopped

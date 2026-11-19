@@ -71,6 +71,8 @@ class McpServerConfigService:
         self._cache: Optional[Dict[str, dict]] = None
         self._cache_all: Optional[Dict[str, dict]] = None  # includes disabled
         self._cache_ts: float = 0.0
+        # Cross-worker capability revision the cache was built at.
+        self._cache_rev: Optional[str] = None
         self._lock = threading.Lock()
 
     @classmethod
@@ -100,7 +102,7 @@ class McpServerConfigService:
             with self._lock:
                 return self._load_from_db(enabled_only, strict=True)
         now = time.monotonic()
-        if self._cache is not None and (now - self._cache_ts) < _CACHE_TTL:
+        if self._cache is not None and (now - self._cache_ts) < _CACHE_TTL and self._revision_current():
             return dict(self._cache) if enabled_only else dict(self._cache_all or self._cache)
 
         with self._lock:
@@ -110,13 +112,30 @@ class McpServerConfigService:
 
             return self._load_from_db(enabled_only)
 
+    def _revision_current(self) -> bool:
+        """Whether no worker committed a capability change since this cache was built."""
+        from core.db.capability_revision import current_revision
+
+        observed = current_revision()
+        if observed is None:  # unreadable revision: fall back to the TTL
+            return True
+        if observed != self._cache_rev:
+            self._cache_ts = 0.0  # also defeats the locked double-check below
+            return False
+        return True
+
     def _load_from_db(self, enabled_only: bool, *, strict: bool = False) -> Dict[str, dict]:
         """Load all servers from DB and rebuild cache."""
         enabled_map: Dict[str, dict] = {}
         all_map: Dict[str, dict] = {}
+        revision: Optional[str] = None
 
         try:
             with SessionLocal() as session:
+                from core.db.capability_revision import read_revision
+
+                # Read first: a change committed while loading makes the next lookup reload.
+                revision = read_revision(session)
                 # The global cache holds only public MCPs (owner_user_id is null). Private MCPs users add themselves
                 # do not enter the global pool/connection pool, to avoid leaking to other users; at runtime get_owned_servers
                 # loads and injects them per user_id separately.
@@ -163,6 +182,7 @@ class McpServerConfigService:
         self._cache = enabled_map
         self._cache_all = all_map
         self._cache_ts = time.monotonic()
+        self._cache_rev = revision
 
         return dict(enabled_map) if enabled_only else dict(all_map)
 
@@ -350,8 +370,8 @@ class McpServerConfigService:
 # gets ``http://127.0.0.1:<port>/mcp`` from the same definition. Only the
 # built-in servers the ``mcp`` container / ``_launcher`` actually serves are
 # included; plugin-provided servers (automation_task / skill_manager /
-# site_publish) arrive via plugin install, and external-service ones (db_query /
-# es_query) need their own containers, so neither belongs in the base seed.
+# site_publish) arrive via plugin install, and data-source connectors (``db_<id>``)
+# are written by the data-source page, so neither belongs in the base seed.
 from core.capabilities.mcp.builtin_specs import BUILTIN_MCP_SERVERS
 
 # Built-ins retired from the packaged runtime.  Keep this explicit tombstone
@@ -361,8 +381,23 @@ from core.capabilities.mcp.builtin_specs import BUILTIN_MCP_SERVERS
 RETIRED_BUILTIN_MCP_SERVER_IDS: Set[str] = {
     "report_export_mcp",
     "generate_chart_tool",
+    "query_database",
     *edition_retired_builtin_mcp_server_ids(),
 }
+
+
+# A feature that writes its own server rows (the data-source page writes one per
+# installed data source) marks them ``extra_config.managed_by = <owner>`` and names
+# itself in ``managed_label``. They are ordinary connectors at runtime, but editing
+# them from the generic MCP admin would be overwritten by the owner's next sync.
+def mcp_owner(extra_config: Optional[Dict[str, Any]]) -> Optional[str]:
+    """The feature that owns an ``admin_mcp_servers`` row, or None for an ordinary row."""
+    owner = extra_config.get("managed_by") if isinstance(extra_config, dict) else None
+    return str(owner) if owner else None
+
+
+def mcp_owner_label(extra_config: Optional[Dict[str, Any]]) -> str:
+    return str((extra_config or {}).get("managed_label") or (extra_config or {}).get("managed_by") or "")
 
 
 def is_removed_builtin_mcp_server(

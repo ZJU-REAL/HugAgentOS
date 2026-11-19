@@ -15,7 +15,6 @@
   },
   "mcp_servers": {
     "enabled": [
-      "query_database",
       "retrieve_dataset_content",
       "internet_search"
     ]
