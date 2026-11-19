@@ -65,7 +65,6 @@ export const CANVAS_EN: Record<string, string> = {
   // ── Canvas selection → chat ──────────────────────────────────────────
   '引用到对话': 'Quote in chat',
   '解释': 'Explain',
-  '翻译#selection': 'Translate',
   '解释这段内容': 'Explain this passage',
   '改写这段内容，让表达更清晰流畅': 'Rewrite this passage so it reads more clearly',
   '翻译这段内容：中文译成英文，其他语言译成中文': 'Translate this passage: Chinese into English, any other language into Chinese',

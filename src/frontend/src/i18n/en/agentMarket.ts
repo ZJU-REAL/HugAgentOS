@@ -2,7 +2,6 @@
 export const AGENT_MARKET_DICT: Record<string, string> = {
   // 市场弹窗
   '智能体市场': 'Agent Marketplace',
-  '浏览智能体市场': 'Browse agent marketplace',
   '加载智能体市场失败': 'Failed to load agent marketplace',
   '搜索智能体名称、描述、标签': 'Search agents by name, description, tags',
   '没有匹配的智能体': 'No matching agents',
@@ -69,7 +68,6 @@ export const AGENT_MARKET_DICT: Record<string, string> = {
   '审核「{name}」': 'Review "{name}"',
   '申请详情': 'Submission details',
   '查看 / 审核': 'View / review',
-  '{n} 个待审核': '{n} pending',
   '申请人：{n}': 'Submitter: {n}',
   '申请备注：{n}': 'Note: {n}',
   '上架分类（通过时可调整）': 'Category (adjustable on approval)',

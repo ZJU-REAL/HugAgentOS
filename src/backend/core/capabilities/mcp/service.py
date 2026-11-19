@@ -250,7 +250,8 @@ class McpServerConfigService:
             if extra_config.get(meta_key):
                 cfg[meta_key] = extra_config[meta_key]
         cfg["display_name"] = row.display_name or row.server_id
-        # Carried for display; the model sees only handshake instructions (core/llm/mcp/server_guidance.py).
+        # For catalog / desktop connector listings; the model sees only handshake instructions
+        # (core/llm/mcp/server_guidance.py).
         cfg["description"] = row.description or ""
         for timeout_key in ("execution_timeout", "transport_timeout"):
             timeout_value = extra_config.get(timeout_key)

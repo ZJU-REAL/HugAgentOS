@@ -387,7 +387,7 @@ The journal does not depend on the model calling a tool. When a reply or task fi
 
 ### Nightly Dreaming
 
-In Settings → Memory you can turn Dreaming on or off, choose the daily time (03:00 in the user's timezone by default), run it now, see the last and next run and the retry status, and open `DREAMS.md`. When many conversations are waiting, Dreaming runs early; a failed run retries with backoff.
+In Settings → Memory you can choose the daily time (03:00 in the user's timezone by default), run it now, see the last and next run and the retry status, and open `DREAMS.md`. When many conversations are waiting, Dreaming runs early; a failed run retries with backoff.
 
 Each run does this, in order:
 
@@ -398,7 +398,7 @@ Each run does this, in order:
 
 Analysis and organizing are done by restricted agents: they can only read the sources and read and write pages under `memory/`, with no network or shell, and cannot change `USER.md`, `MEMORY.md` or `_schema.md`. Sources and existing memory are treated as data, never as instructions.
 
-Updates to `USER.md` and the pinned section keep the old strict rule: only an explicit memory statement by the owner in the web conversation ("remember: …") is copied, word for word. Task results, assistant replies and other people in external channels never are.
+Dreaming never writes `USER.md` or the pinned section. When a source has an explicit memory statement by the owner ("remember: …") that is not in those files yet, the report only suggests adding it; the agent itself writes them when the owner asks in the conversation. Task results, assistant replies and other people in external channels never reach them.
 
 ### Change log, revert and snapshots
 

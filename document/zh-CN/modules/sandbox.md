@@ -11,7 +11,7 @@ OpenSandbox 基础执行、会话文件、个人空间与快照属于 CE 和 EE 
 
 ## Provider 协议（core/sandbox/protocol.py）
 
-所有 provider 实现同一个 `SandboxProvider` Protocol，内部完成入口封装底层进程协议；script-runner 通过 sidecar HTTP 接口执行进程操作：
+所有 provider 实现 `SandboxProvider` 执行协议，并显式声明 `runs_on_host`（True 表示直接在用户宿主机上起进程，命令必须带 `ProcessRequest.sandbox_launch`）。`SANDBOX_PROVIDER` 选中的 provider 还要实现只读的 `SandboxAdmin` 管理视图，两者合起来是 `OrdinarySandboxProvider`；会话路由分发的 provider 只需实现执行部分。内部完成入口封装底层进程协议；script-runner 通过 sidecar HTTP 接口执行进程操作：
 
 | 方法 | 职责 |
 |---|---|

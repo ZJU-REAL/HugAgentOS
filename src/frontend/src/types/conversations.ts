@@ -191,7 +191,7 @@ export interface ChatItem {
    *  一刷新就没，而工作流的一份计划要跨好几轮（提交作业 → 后台跑 → 交付轮收尾）才走完；
    *  这份快照就是刷新/切回来之后把计划栏还原成真实状态的依据。 */
   planProgress?: PlanProgressState;
-  /** Whether this chat was created via the site-building ("站点建站") entry (Lab → Sites) */
+  /** Whether this chat was created via the site-building ("站点建站") entry (sidebar → Sites) */
   siteChat?: boolean;
   /** Automation task ID — set on virtual sidebar entries for automation tasks */
   automationTaskId?: string;

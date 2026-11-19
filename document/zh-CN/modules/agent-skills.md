@@ -76,9 +76,9 @@
   [`2900a4a20f49`](https://github.com/iOfficeAI/OfficeCLI/commit/2900a4a20f49d6a94384d6ea7fb8cc0120999825)
   （2026-10-20），保留本系统的中文触发说明与运行环境、交付规则。
 
-- **`marketplace/` — 45 个可安装技能包**（安装制）：每个目录含原始 SKILL.md + 引用文件 + 一份 `marketplace.json` 清单。因为它们位于两层深的 `marketplace/<slug>/SKILL.md`，**不会**被内置加载器当作 default 技能自动加载——安装前不出现在 catalog、不注册给智能体，只有显式安装后才落库生效。
+- **`marketplace/` — 54 个可安装技能包**（安装制）：每个目录含原始 SKILL.md + 引用文件 + 一份 `marketplace.json` 清单。因为它们位于两层深的 `marketplace/<slug>/SKILL.md`，**不会**被内置加载器当作 default 技能自动加载——安装前不出现在 catalog、不注册给智能体，只有显式安装后才落库生效。
 
-  其中 10 个行业/品牌技能（经济指标查询、企业画像查询、产业链结构分析等，硬依赖 [EE 行业 MCP](mcp-tools.md)）属**商业版 EE**，社区版派生树通过 `ce/manifest.yaml` 剔除。
+  行业类技能（企业画像、产业链分析、行业资讯等，硬依赖 [EE 行业 MCP](mcp-tools.md)）不在这里，而是随商业版插件 `industry-knowledge-center` 分发；这里的 `process-guidance` 也属**商业版 EE**。社区版派生树通过 `ce/manifest.yaml` 剔除它们。
 
 ## 注入机制：技能如何进入提示词
 
@@ -273,7 +273,7 @@
 | `src/backend/core/capabilities/skills/backends/` | filesystem / database / composite 加载后端 |
 | `src/backend/core/llm/tools/skill_tool.py` | 受限 view_text_file + {baseDir} 替换 + Runtime Hint |
 | `src/backend/extensions/skills/default/` | 12 个内置技能（含 10 个 OfficeCLI 系列） |
-| `src/backend/extensions/skills/marketplace/` | 45 个可安装市场技能包 |
+| `src/backend/extensions/skills/marketplace/` | 54 个可安装市场技能包 |
 | `src/backend/features/marketplace/` | 市场列表/安装/凭据注入/上架审核 |
 | `src/backend/features/marketplace/api/marketplace.py` | 用户侧市场 API（浏览/安装/提交/撤回） |
 | `src/backend/features/marketplace/api/admin_marketplace.py` | 管理员市场 API（全局安装/审核上架） |

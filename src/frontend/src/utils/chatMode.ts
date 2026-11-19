@@ -20,7 +20,7 @@ export function resolveWorkflowModeActive(chat?: WorkflowModeChat): boolean {
   return chat.workflowChat === true;
 }
 
-/** 站点模式：会话由「实验室 → 站点」入口创建即成立，/init 那一轮除外（项目初始化命令自己走）。
+/** 站点模式：会话由侧边栏「站点」入口创建即成立，/init 那一轮除外（项目初始化命令自己走）。
  *  成立时后端在系统提示里注入建站 / 编辑规则——这段规则**不进用户消息**，所以刷新页面时
  *  用户气泡里只有用户自己打的字。 */
 export function resolveSiteModeActive(chat: SiteModeChat | undefined, message: string): boolean {

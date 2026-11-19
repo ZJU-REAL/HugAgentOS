@@ -18,8 +18,6 @@ class MCPResource:
     client_session_lease: tuple | None = None
     # Shown to the user as the source of these tools (tool-name clash notices).
     display_name: str | None = None
-    # Configured one-line purpose of the server (catalog / import metadata).
-    description: str = ""
     # Admin-declared per-tool approval policy (extra_config.tool_permissions).
     tool_permissions: dict = field(default_factory=dict)
     _lease: object = None
