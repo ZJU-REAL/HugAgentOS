@@ -4,8 +4,8 @@ import { PREVIEW_LEN, citeTag, preview } from './utils';
 import { t } from '../../../i18n';
 import { KBAssetThumbs } from '../../kb/KBAssetThumbs';
 import { extractAssetRefs, type KBAssetRef } from '../../kb/kbAssets';
+import { API_BASE } from '../../../utils/apiBase';
 
-const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
 
 type SetDetailModal = (modal: { title: string; body: React.ReactNode } | null) => void;
 
@@ -29,7 +29,7 @@ export function renderRetrieveDatasetContent(out: unknown, setDetailModal: SetDe
               body: <div className="jx-tr-detailBody" style={{ color: '#B3B3B3' }}>{t('正在加载全文…')}</div>,
             });
             try {
-              const resp = await authFetch(`${effectiveApiUrl}/v1/catalog/kb/${datasetId}/documents/${documentId}`);
+              const resp = await authFetch(`${API_BASE}/v1/catalog/kb/${datasetId}/documents/${documentId}`);
               const json = await resp.json();
               const detail = json?.data ?? json;
               const fullContent: string = detail?.content || content || t('暂无内容');

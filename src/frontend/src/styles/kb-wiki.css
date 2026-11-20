@@ -209,7 +209,6 @@
   @keyframes jx-wikiItemIn { from, to { opacity: 1; transform: translateY(0) } }
 }
 
-
 .jx-wikiListItem:hover {
   background: var(--color-bg-gray);
   border-color: var(--color-border);
@@ -245,21 +244,6 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-
-.jx-wikiListItemMeta {
-  display: flex;
-  gap: 10px;
-  font-size: 11px;
-  color: var(--color-text-placeholder);
-}
-
-.jx-wikiListItemSkeleton {
-  gap: 8px;
-  pointer-events: none;
-}
-
-.jx-wikiSkTitle { height: 14px; width: 62%; }
-.jx-wikiSkDesc { height: 11px; width: 90%; }
 
 .jx-wikiListEmpty {
   padding: var(--space-lg) var(--space-sm);
@@ -569,8 +553,7 @@
   border-radius: var(--radius-xs);
 }
 
-.jx-wikiGraphLoading,
-.jx-wikiGraphEmpty {
+.jx-wikiGraphLoading {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -644,16 +627,6 @@
   color: var(--color-text-placeholder);
 }
 
-.jx-wikiGraphFooter {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-sm);
-  padding: 4px 2px 0;
-  font-size: 13px;
-  color: var(--color-text-secondary);
-}
-
 /* ── 窄屏 ─────────────────────────────────────────────────────────────────── */
 
 @media (max-width: 1180px) {
@@ -673,7 +646,6 @@
 }
 
 /* ── 知识库详情内的「文档 / 知识 Wiki」视图切换 ─────────────────────────────── */
-
 
 /* ── 建库时的索引方式选择 ────────────────────────────────────────────────
    建库是高频轻量动作，这一区只承载「两张卡 + 一个粒度」的信息量：
@@ -1238,7 +1210,6 @@
   @keyframes jx-wikiGraphDrawerIn { from, to { opacity: 1;
     transform: translateX(0) } }
 }
-
 
 .jx-wikiGraphPanelHead {
   display: flex;

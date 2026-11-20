@@ -298,7 +298,7 @@ def configure_model(
     if test:
         from api.routes.v1.models import _test_connection
 
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             _test_connection(
                 provider="openai_compatible",
                 provider_type=provider_type,
@@ -1086,9 +1086,9 @@ def _engine_monitor(server, tracker, *, ready_file: Path, payload: dict,
             return
 
 def cmd_engine(args) -> int:
-    from datetime import datetime, timezone
+    from core.infra.time import utc_now
 
-    started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    started_at = utc_now().isoformat(timespec="seconds")
     home = data_dir().resolve()
     ready_file = (
         Path(args.ready_file).expanduser().resolve() if args.ready_file else home / "engine.json"

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Button, Empty, Input, Modal, Tag } from 'antd';
 import { CheckOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { t } from '../../i18n';
@@ -35,13 +35,16 @@ export function MarketPickerModal({
   const [q, setQ] = useState('');
   const [picked, setPicked] = useState<Map<string, MarketPickItem>>(new Map());
 
-  // 每次打开都从空选起：上一轮挑完的已经进表单了，残留勾选只会造成重复
-  useEffect(() => {
+  // 每次打开都从空选起：上一轮挑完的已经进表单了，残留勾选只会造成重复。
+  // 在渲染期按 open 的变化重置（而不是 effect 里 setState，省掉一轮多余渲染）。
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
     if (open) {
       setQ('');
       setPicked(new Map());
     }
-  }, [open]);
+  }
 
   const selectedSet = useMemo(() => new Set(selected), [selected]);
 
@@ -72,7 +75,7 @@ export function MarketPickerModal({
       okText={picked.size > 0 ? t('添加 {n} 项', { n: String(picked.size) }) : t('添加')}
       okButtonProps={{ disabled: picked.size === 0 }}
       width={640}
-      destroyOnClose
+      destroyOnHidden
     >
       <Input
         allowClear

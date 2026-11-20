@@ -27,7 +27,7 @@ from core.runs.journal import RunJournal
 from core.chat.steer_queue import SteerQueue, SteerQueueConflict
 from core.runs.tool_effects.journal import ToolEffectJournal
 from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.orm import sessionmaker
+from tests.db_support import session_factory
 
 POSTGRES_URL = os.getenv("RUN_JOURNAL_POSTGRES_URL", "").strip()
 pytestmark = pytest.mark.skipif(
@@ -85,7 +85,7 @@ def test_migrated_postgres_schema_and_atomic_claim():
     assert "chat_steer_queue" in inspector.get_table_names()
     assert "effect_id" in {column["name"] for column in inspector.get_columns("tool_call_logs")}
 
-    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+    sessions = session_factory(engine)
     suffix = uuid4().hex[:12]
     user_id = f"pg-journal-user-{suffix}"
     chat_id = f"pg-journal-chat-{suffix}"
@@ -286,7 +286,7 @@ def test_compaction_snapshot_lock_does_not_block_message_writes():
     deadlocked - every request, stream and health probe stopped answering.
     """
     engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
-    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+    sessions = session_factory(engine)
     suffix = uuid4().hex[:12]
     user_id = f"pg-lock-user-{suffix}"
     chat_id = f"pg-lock-chat-{suffix}"

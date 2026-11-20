@@ -9,12 +9,12 @@ export interface MonitorSubagent {
   isStreaming: boolean;
 }
 
-export interface MonitorFiles {
+interface MonitorFiles {
   input: CanvasArtifact[];
   output: CanvasArtifact[];
 }
 
-export interface MonitorToolStats {
+interface MonitorToolStats {
   calls: number;
   failed: number;
 }

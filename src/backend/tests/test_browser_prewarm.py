@@ -9,6 +9,7 @@ from core.db.models import ChatSession
 from core.capabilities.plugins.resources import installation, service
 import core.sandbox.processes.interactive as interactive
 from core.sandbox import factory
+from tests.db_support import share_factory
 
 HTTPClient = httpx.AsyncClient
 
@@ -23,7 +24,7 @@ def runtime(db_session, monkeypatch):
 
     monkeypatch.setenv("PLUGIN_RESOURCE_SECRET_KEY", "isolated-prewarm-fixture")
     # Reconcile and close run on sessions of their own (core.db.threads).
-    monkeypatch.setattr(db_engine, "SessionLocal", sessionmaker(bind=db_session.bind))
+    share_factory(monkeypatch, sessionmaker(bind=db_session.bind))
     db_session.add(ChatSession(chat_id="warm-chat", user_id="warm-user", title="warm"))
     db_session.commit()
     module = {"id": "browser", "resource": {"entry": "runtime", "callable": "worker:main", "prewarm": True}}
@@ -86,7 +87,7 @@ async def test_router_starts_warm_worker_in_background_and_close_reclaims_it(run
     db.add(InstalledPlugin(install_id=selected.install_id, slug=selected.slug, name="Browser", owner_user_id="warm-user"))
     db.commit()
     monkeypatch.setattr(device_catalog, "active", lambda: False)
-    monkeypatch.setattr(db_engine, "SessionLocal", sessionmaker(bind=db.bind))
+    share_factory(monkeypatch, sessionmaker(bind=db.bind))
     ensured, entered, release = [], asyncio.Event(), asyncio.Event()
     original = interactive.launch
     async def launch(*args):
@@ -225,7 +226,7 @@ async def test_close_fence_blocks_readmission_until_provider_close_finishes(runt
     db.add(InstalledPlugin(install_id=selected.install_id, slug=selected.slug, name="Browser", owner_user_id="warm-user"))
     db.commit()
     monkeypatch.setattr(device_catalog, "active", lambda: False)
-    monkeypatch.setattr(db_engine, "SessionLocal", sessionmaker(bind=db.bind))
+    share_factory(monkeypatch, sessionmaker(bind=db.bind))
     entered, release = asyncio.Event(), asyncio.Event()
     async def close(chat):
         entered.set()
@@ -284,7 +285,7 @@ async def test_failed_warm_shutdown_reports_sandbox_dirty(runtime, monkeypatch):
     from core.capabilities.plugins.resources import prewarm
     from sqlalchemy.orm import sessionmaker
     db, _, _, _ = runtime
-    monkeypatch.setattr(db_engine, "SessionLocal", sessionmaker(bind=db.bind))
+    share_factory(monkeypatch, sessionmaker(bind=db.bind))
     await service.create("browser", "browser", "warm-user", "warm-chat", _prewarm=True)
     db.commit()
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: HTTPClient(

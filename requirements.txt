@@ -28,20 +28,17 @@ ollama>=0.3.0
 
 # MCP Integration
 mcp==2.3.0
-# Keep the SSE dependency within FastAPI 0.115 Starlette constraints.
+# Not imported directly: transitive dependency of mcp, pinned so it stays within
+# FastAPI 0.115's Starlette constraints.
 sse-starlette==3.0.3
 
 # Additional Tools
-tavily-python>=0.5.0
+# (internet_search_mcp calls the Tavily REST API through httpx; no SDK needed.)
 beautifulsoup4>=4.12.0
 lxml>=5.0.0
-# Heavy office/chart deps (python-docx, pypdf, pdfplumber, matplotlib,
-# Pillow) live in `requirements-mcp.txt` and only get installed inside the
-# dedicated `mcp` container.
-# openpyxl + python-pptx stay in backend so file_parser can parse xlsx /
-# pptx in-process for the read_artifact tool and the file_context preview
-# hook — both must keep working even if individual office MCP servers are
-# disabled by the user.
+# Office document editing runs in the sandbox skills, not in the backend/mcp
+# images. openpyxl + python-pptx stay here so file_parser can parse xlsx / pptx
+# in-process for the read_artifact tool and the file_context preview hook.
 openpyxl>=3.1.0
 python-pptx>=0.6.23
 # 微信渠道扫码绑定：iLink 只回扫码链接，需在后端渲染成二维码 PNG（Pillow 由 python-pptx 带入）。
@@ -49,10 +46,6 @@ qrcode[pil]>=7.4.2
 
 # Redis
 redis[asyncio]>=5.0.0
-# In-process Redis substitute for the no-Docker local/quick-install profile
-# (REDIS_URL=memory://). Single-process only; the compose deployment still uses
-# a real redis. fakeredis 2.21+ honours blocking XREAD / GETDEL / INCRBYFLOAT.
-fakeredis>=2.21.0
 
 # Database
 psycopg2-binary>=2.9.9
@@ -60,6 +53,10 @@ psycopg2-binary>=2.9.9
 psycopg[binary,pool]>=3.2,<4
 sqlalchemy>=2.0.25
 alembic>=1.13.0
+# Data source drivers for EE data sources (features/datasources/engines loads
+# them lazily; the CE build drops them). psycopg 3 and httpx (Elasticsearch) are
+# listed above; oracledb runs in thin mode, so no Oracle client libraries are needed.
+# SQL parsing for the data source read-only guard (features/datasources).
 
 # Object Storage
 boto3>=1.36.0
@@ -72,9 +69,7 @@ python-multipart>=0.0.9
 # Logging
 structlog>=23.2.0
 
-# Security
-safety>=3.0.0
-bandit>=1.7.5
+# Security (scanners such as bandit / safety are dev-only: pyproject [dev])
 argon2-cffi>=23.1.0
 
 # Scheduling

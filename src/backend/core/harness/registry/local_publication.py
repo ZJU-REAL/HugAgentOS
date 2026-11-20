@@ -32,7 +32,6 @@ class LocalPublication(Protocol):
 
 
 def register_local_publication(provider: LocalPublication) -> None:
-    pass
     registration_state().provider = provider
 
 def local_publication() -> LocalPublication:

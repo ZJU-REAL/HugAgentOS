@@ -55,8 +55,8 @@ export function AutomationPanel() {
   const routeTaskId = useRouteSubs()[0] ?? null;
 
   const { title, subtitle } = usePanelHeader('automation', {
-    title: '定时任务',
-    subtitle: '按计划自动执行任务，也可随时手动触发；在对话中描述即可快速创建',
+    title: t('定时任务'),
+    subtitle: t('按计划自动执行任务，也可随时手动触发；在对话中描述即可快速创建'),
   });
 
   const [tab, setTab] = useState<AutomationTab>('tasks');

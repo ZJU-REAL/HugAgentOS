@@ -1,5 +1,5 @@
 import {PROTOCOL_VERSION} from '@hugagent/workbench-protocol';
-import {validateMessage} from './messageBounds';
+import {validateMessage} from '@hugagent/workbench-protocol/message-bounds';
 import {workspaceErrorCode} from './workspaceErrorCode';
 export interface WorkspaceRoute {path:string;requestId:string}
 export interface WorkspaceInfo {

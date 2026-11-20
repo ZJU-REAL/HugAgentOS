@@ -10,10 +10,10 @@ from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 import core.db.engine as dbe
 from core.db.models import AdminMcpServer, AdminSkill, InstalledPlugin
+from tests.db_support import session_factory, share_factory
 
 OWNER = "pm_test_user"
 OTHER = "pm_other_user"
@@ -26,8 +26,8 @@ def pm_env(tmp_path, monkeypatch):
     url = f"sqlite:///{tmp_path}/pm.db"
     engine = create_engine(url)
     dbe.Base.metadata.create_all(engine)
-    TestSession = sessionmaker(bind=engine, expire_on_commit=False)
-    monkeypatch.setattr(dbe, "SessionLocal", TestSession)
+    TestSession = session_factory(engine)
+    share_factory(monkeypatch, TestSession)
 
     from core.files.artifacts import store
 
@@ -184,28 +184,6 @@ def test_get_plugin_info_unknown_slug_fails_cleanly(pm_env):
 # ── Install → list → disable → enable → uninstall ───────────────────────────
 
 # ── The self-uninstall guard ────────────────────────────────────────────────
-
-# ── Import from the shared artifact store ───────────────────────────────────
-
-def test_plugin_root_detection_matches_the_importer(pm_env):
-    """"什么算插件包"只能有一套判定。
-
-    导入器认原生 / .claude-plugin / .codex-plugin 三种布局；本地若少认一种，
-    同一个包就会"后台上传能装、对话里说不是插件包"。
-    """
-    from extensions.mcp_servers._packaging import is_plugin_root, locate_root
-
-    for layout in ("plugin.json", ".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
-        d = Path(pm_env.engine.url.database).parent / f"pkg_{layout.replace('/', '_')}"
-        f = d / layout
-        f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(json.dumps({"name": "x"}), encoding="utf-8")
-        assert is_plugin_root(d), f"{layout} 布局没被认成插件包"
-        assert locate_root(d) == d
-
-    empty = Path(pm_env.engine.url.database).parent / "pkg_empty"
-    empty.mkdir(parents=True, exist_ok=True)
-    assert not is_plugin_root(empty)
 
 # ── Isolation / read-only global plugins ────────────────────────────────────
 

@@ -90,8 +90,6 @@ def _stub_run_dependencies(monkeypatch, db_session) -> None:
         return "run_1"
 
     import core.capabilities.catalog.resolver as resolver_mod
-    import core.chat.service as chat_service_mod
-    pass
 
     monkeypatch.setattr(chat_session_context, 'load_session_messages', lambda *a, **k: [])
     monkeypatch.setattr(

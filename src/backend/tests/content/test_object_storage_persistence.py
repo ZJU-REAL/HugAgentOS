@@ -14,6 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from core.files.artifacts import store
 from core.files.content import public_assets
 from core.files.storage.entries import StorageEntry
+from tests.db_support import share_factory
 
 
 class Objects:
@@ -190,7 +191,7 @@ def test_catalog_choices_survive_cache_and_local_file_loss(db_session, tmp_path,
     from core.db import engine
     from core.capabilities.catalog import common, loader, api
     monkeypatch.setenv("STORAGE_TYPE", "s3")
-    monkeypatch.setattr(engine, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
+    share_factory(monkeypatch, sessionmaker(bind=db_session.get_bind()))
     monkeypatch.setattr(common, "CATALOG_PATH", tmp_path / "absent.json")
     defaults = {"skills": [{"id": "a", "enabled": True}, {"id": "b", "enabled": True}],
                 "agents": [], "mcp": [], "kb": []}
@@ -217,7 +218,7 @@ def test_catalog_db_outage_does_not_fall_back_to_ephemeral_write(tmp_path, monke
     def unavailable():
         raise ConnectionError("isolated database failure")
 
-    monkeypatch.setattr(engine, "SessionLocal", unavailable)
+    share_factory(monkeypatch, unavailable)
     with pytest.raises(ConnectionError):
         loader._write_catalog({"skills": []})
     assert not common.CATALOG_PATH.exists()

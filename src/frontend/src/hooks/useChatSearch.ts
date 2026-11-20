@@ -2,7 +2,9 @@ import { useEffect, useRef } from 'react';
 import { searchSessions } from '../api';
 import { useUIStore } from '../stores';
 export function useChatSearch() {
-  const { searchKeyword, setSearchResults, setSearchLoading } = useUIStore();
+  const searchKeyword = useUIStore((s) => s.searchKeyword);
+  const setSearchResults = useUIStore((s) => s.setSearchResults);
+  const setSearchLoading = useUIStore((s) => s.setSearchLoading);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // ── Search debounce ──
   // Use searchSessions (which fully resolves mode fields like agentName/planChat via

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import type { OntologyTagOption } from '../types';
+import { API_BASE } from '../utils/apiBase';
 import { createApiResponseError } from '../utils/apiError';
 
 export interface AgentChangeHistoryItem {
@@ -64,14 +65,12 @@ interface AgentState {
   setCurrentAgent: (agent: UserAgentItem | null) => void;
 }
 
-const apiBase = () => (import.meta.env.VITE_API_BASE_URL as string) || '/api';
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBase()}${path}`, {
+  const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     credentials: 'include',
     headers: { 'Content-Type': 'application/json', ...(options?.headers ?? {}) },
@@ -140,7 +139,7 @@ export const useAgentStore = create<AgentState>((set) => ({
   importAgents: async (file) => {
     const formData = new FormData();
     formData.append('file', file);
-    const response = await fetch(`${apiBase()}/v1/agents/import`, {
+    const response = await fetch(`${API_BASE}/v1/agents/import`, {
       method: 'POST',
       credentials: 'include',
       body: formData,
@@ -160,7 +159,7 @@ export const useAgentStore = create<AgentState>((set) => ({
   },
 
   exportAgent: async (agentId) => {
-    const response = await fetch(`${apiBase()}/v1/agents/${agentId}/export`, {
+    const response = await fetch(`${API_BASE}/v1/agents/${agentId}/export`, {
       credentials: 'include',
     });
     if (!response.ok) {

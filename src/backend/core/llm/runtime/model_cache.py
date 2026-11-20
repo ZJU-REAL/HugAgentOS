@@ -110,15 +110,6 @@ def get_provider_model(provider_id: str, mode: str = "medium"):
     return instance
 
 
-def resolve_chat_mode(ctx) -> str:
-    """Resolve the final chat_mode (turbo/fast/medium/high/max) from agent.state (AgentRuntimeState)."""
-    raw = getattr(ctx, "chat_mode", None)
-    if raw in ("turbo", "fast", "low", "medium", "high", "xhigh", "max"):
-        return raw
-    # Fallback for legacy clients
-    return "medium" if getattr(ctx, "enable_thinking", True) else "fast"
-
-
 @dataclass
 class ModelCacheState:
     model_cache: dict[tuple[Any, ...], Any] = field(default_factory=lambda: {})

@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from features.knowledge import kb_vector_state
 from features.knowledge import vector_client
+from features.knowledge.vector_fields import milvus_literal
 
 RRF_K = 60
 # Sparse half of a hybrid query; the dense half runs on the caller's thread.
@@ -51,7 +52,7 @@ def hybrid_search(
 
     clauses: list[str] = []
     if kb_ids:
-        clauses.append(f'(user_id == "{user_id}" and kb_id in {json.dumps(kb_ids)})')
+        clauses.append(f"(user_id == {milvus_literal(user_id)} and kb_id in {json.dumps(kb_ids)})")
     if public_kb_ids:
         clauses.append(f"kb_id in {json.dumps(public_kb_ids)}")
     if not clauses:
@@ -76,7 +77,7 @@ def hybrid_search(
             collection_name=kb_vector_state.COLLECTION_NAME,
             data=[query_vec],
             anns_field="dense_embedding",
-            search_params={"metric_type": "IP"},
+            search_params=vector_client.dense_search_params(top_k * 2),
             limit=top_k * 2,
             filter=expr,
             output_fields=output_fields,
@@ -105,11 +106,10 @@ def hybrid_search(
             timeout=timeout,
         )[0]
 
-    sparse_future = _SUB_SEARCH_POOL.submit(
-        _ranking, "sparse_embedding", [text_to_sparse(query)], {"metric_type": "IP"}
-    )
+    sparse_data, sparse_params = vector_client.sparse_search_request(query)
+    sparse_future = _SUB_SEARCH_POOL.submit(_ranking, "sparse_embedding", sparse_data, sparse_params)
     dense_hits = _ranking(
-        "dense_embedding", [query_vec], {"metric_type": "IP", "params": {"nprobe": 10}}
+        "dense_embedding", [query_vec], vector_client.dense_search_params(top_k * 3)
     )
     sparse_hits = sparse_future.result()
 
@@ -131,9 +131,12 @@ def build_sparse_text(content: str, tags: list[str]) -> str:
 
 
 def text_to_sparse(text: str) -> dict[int, float]:
-    """Convert text to a bag-of-words sparse vector using term-frequency + hashing.
+    """Legacy client-side sparse vector: term-frequency + hashing.
 
-    Compatible with Milvus SPARSE_FLOAT_VECTOR field (v2.4+).
+    Only for the legacy collection, whose stored rows were built with it; queries
+    must use the same tokenisation to match them. Its regex keeps a whole run of
+    Chinese characters as one token, which is why the current collection uses
+    Milvus's BM25 function with a jieba analyzer instead.
     Each unique token is hashed to a dimension index; value = TF.
     """
     import hashlib

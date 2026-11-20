@@ -43,7 +43,7 @@ def _resolve_agent_model_runtime(agent: Any, fallback_model_name: Any = "") -> T
 
 
 def _compaction_budget_inputs(agent: Any, context_window: int) -> Dict[str, Any]:
-    """Read the exact frozen prompt/tool surface cached by agent_factory."""
+    """Read the exact frozen prompt/tool surface cached by the agent factory."""
     system_prompt, tool_schema = compacting_agent.frozen_prompt_surface(agent)
     return {
         "system_prompt": system_prompt,

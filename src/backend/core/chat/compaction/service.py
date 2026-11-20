@@ -14,6 +14,7 @@ from core.models.context_window import AUTO_COMPACT_MAX_RATIO, resolve_model_con
 from core.llm.context.budget import estimate_context_budget, should_compact
 from core.chat.compaction.history import normalize_rows
 from core.chat.compaction.summary import _load_base_system_prompt, summarize_without_checkpoint
+from core.db.threads import run_db
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +150,7 @@ def resolve_trigger_ratio() -> float:
     ⚠️ **Not for hot paths.** Reading the console goes through
     ``SystemConfigService``, which opens a DB session and seeds missing config
     rows on a cold cache — real I/O, including writes. Callers resolve it once
-    where a turn is set up (``agent_factory`` stamps it on the agent) and pass
+    where a turn is set up (``core.llm.factory`` stamps it on the agent) and pass
     the value into :func:`resolve_token_limit`, which stays pure. The short memo
     below keeps a burst of turn setups from repeating that read.
     """
@@ -330,7 +331,7 @@ async def maybe_run_pre_turn_compaction(
             context_window = resolve_model_context_window(model_name or "")
         limit = resolve_token_limit(context_window, ratio=resolve_trigger_ratio())
         effective_system_prompt = (
-            _load_base_system_prompt() if system_prompt is None else system_prompt
+            await run_db(_load_base_system_prompt) if system_prompt is None else system_prompt
         )
         budget_estimate = estimate_context_budget(
             system_prompt=effective_system_prompt,

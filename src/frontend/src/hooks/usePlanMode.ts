@@ -4,6 +4,30 @@ import { stripMcpToolPrefix } from '../utils/constants';
 import { useChatStore } from '../stores';
 import type { ChatMessage, MessageSegment, ToolCall } from '../types';
 import { newMessageUid } from '../utils/messageIdentity';
+import { parseSSE } from '../utils/sse';
+
+/** Frame of the plan execute stream (fields vary by `type`). */
+interface PlanStreamEvent {
+  type?: string;
+  run_id?: unknown;
+  message_id?: unknown;
+  step_id?: string;
+  step_order?: number;
+  title?: string;
+  delta?: string;
+  tool_id?: string;
+  tool_name?: string;
+  tool_display_name?: unknown;
+  subagent_name?: unknown;
+  tool_args?: ToolCall['input'];
+  result?: ToolCall['output'];
+  status?: string;
+  summary?: string;
+  error?: string;
+  completed_steps?: number;
+  total_steps?: number;
+  result_text?: string;
+}
 
 
 /** Mark the approval decision on the newest preview plan segment carrying planId
@@ -50,14 +74,11 @@ export async function processPlanExecuteStream(
   // recovered stream so the same plan is never duplicated above the composer.
   useChatStore.getState().setPlanProgress(chatId, null);
 
-  const decoder = new TextDecoder();
-  const execReader = response.body?.getReader();
-  if (!execReader) return;
+  if (!response.body) return;
 
   const bubbleUid = options.bubbleUid ?? newMessageUid();
   const appendAssistant = makePlanAppender(chatId, bubbleUid);
 
-  let execBuf = '';
   const stepResults: Record<string, { status: string; summary: string; text: string; title: string; order: number; step_id: string }> = {};
   const toolCalls: ToolCall[] = [];
   let planTitle = '';
@@ -116,86 +137,73 @@ export async function processPlanExecuteStream(
   updatePlanCard(true);
 
   try {
-    while (true) {
-      const { done, value } = await execReader.read();
-      if (done) break;
-      execBuf += decoder.decode(value, { stream: true });
-      const blocks = execBuf.split(/\n\n+/);
-      execBuf = blocks.pop() || '';
-      for (const block of blocks) {
-        for (const line of block.split(/\r?\n/)) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith('data:')) continue;
-          const data = trimmed.slice(5).trim();
-          if (data === '[DONE]') break;
-          try {
-            const evt = JSON.parse(data);
-            const stepId = evt.step_id as string | undefined;
-            // First frame run_started — store activeRun so the stop button is usable
-            if (evt.type === 'run_started' && typeof evt.run_id === 'string') {
-              useChatStore.getState().setActiveRun(chatId, {
-                runId: evt.run_id,
-                messageId: typeof evt.message_id === 'string' ? evt.message_id : '',
-              });
-              continue;
-            }
-            switch (evt.type) {
-              case 'plan_step_start':
-                if (stepId) stepResults[stepId] = { status: 'running', summary: '', text: '', title: evt.title || '', order: evt.step_order || 0, step_id: stepId };
-                updatePlanCard(true);
-                break;
-              case 'plan_step_progress':
-                if (stepId && stepResults[stepId]) { stepResults[stepId].text += evt.delta || ''; updatePlanCard(true); }
-                break;
-              case 'tool_call': {
-                if (stepId) {
-                  let tcDisplayName = typeof evt.tool_display_name === 'string' && evt.tool_display_name.trim()
-                    && !evt.tool_display_name.trim().startsWith('mcp__')
-                    ? evt.tool_display_name.trim()
-                    : undefined;
-                  if (tcDisplayName && typeof evt.subagent_name === 'string' && evt.subagent_name.trim()) {
-                    tcDisplayName += `:${(evt.subagent_name as string).trim()}`;
-                  }
-                  toolCalls.push({ id: evt.tool_id, name: stripMcpToolPrefix(evt.tool_name || 'unknown'), displayName: tcDisplayName, input: evt.tool_args, status: 'running', timestamp: Date.now() });
-                  updatePlanCard(true);
-                }
-                break;
-              }
-              case 'tool_result': {
-                if (evt.tool_id) {
-                  const idx = toolCalls.findIndex(t => t.id === evt.tool_id);
-                  if (idx >= 0) {
-                    let resultDisplayName: string | undefined;
-                    if (typeof evt.subagent_name === 'string' && evt.subagent_name.trim()) {
-                      resultDisplayName = t('调用智能体：{name}', { name: (evt.subagent_name as string).trim() });
-                    }
-                    toolCalls[idx] = { ...toolCalls[idx], output: evt.result, status: 'success', ...(resultDisplayName ? { displayName: resultDisplayName } : {}) };
-                    updatePlanCard(true);
-                  }
-                }
-                break;
-              }
-              case 'plan_step_complete':
-                if (stepId && stepResults[stepId]) {
-                  stepResults[stepId].status = evt.status || 'success';
-                  stepResults[stepId].summary = evt.summary || '';
-                  stepResults[stepId].text = '';
-                  updatePlanCard(true);
-                }
-                break;
-              case 'plan_error':
-                if (stepId && stepResults[stepId]) { stepResults[stepId].status = 'failed'; stepResults[stepId].summary = evt.error || t('执行出错'); }
-                updatePlanCard(true);
-                break;
-              case 'plan_complete': {
-                planCompleted = true;
-                updatePlanCard(false, 'complete', evt.completed_steps, evt.total_steps, evt.result_text || undefined);
-                break;
-              }
-            }
-          } catch { /* skip invalid JSON */ }
+    for await (const evt of parseSSE<PlanStreamEvent>(response)) {
+      // A malformed frame must not end the plan card, so each event is applied on its own.
+      try {
+        const stepId = evt.step_id as string | undefined;
+        // First frame run_started — store activeRun so the stop button is usable
+        if (evt.type === 'run_started' && typeof evt.run_id === 'string') {
+          useChatStore.getState().setActiveRun(chatId, {
+            runId: evt.run_id,
+            messageId: typeof evt.message_id === 'string' ? evt.message_id : '',
+          });
+          continue;
         }
-      }
+        switch (evt.type) {
+          case 'plan_step_start':
+            if (stepId) stepResults[stepId] = { status: 'running', summary: '', text: '', title: evt.title || '', order: evt.step_order || 0, step_id: stepId };
+            updatePlanCard(true);
+            break;
+          case 'plan_step_progress':
+            if (stepId && stepResults[stepId]) { stepResults[stepId].text += evt.delta || ''; updatePlanCard(true); }
+            break;
+          case 'tool_call': {
+            if (stepId) {
+              let tcDisplayName = typeof evt.tool_display_name === 'string' && evt.tool_display_name.trim()
+                && !evt.tool_display_name.trim().startsWith('mcp__')
+                ? evt.tool_display_name.trim()
+                : undefined;
+              if (tcDisplayName && typeof evt.subagent_name === 'string' && evt.subagent_name.trim()) {
+                tcDisplayName += `:${(evt.subagent_name as string).trim()}`;
+              }
+              toolCalls.push({ id: evt.tool_id, name: stripMcpToolPrefix(evt.tool_name || 'unknown'), displayName: tcDisplayName, input: evt.tool_args, status: 'running', timestamp: Date.now() });
+              updatePlanCard(true);
+            }
+            break;
+          }
+          case 'tool_result': {
+            if (evt.tool_id) {
+              const idx = toolCalls.findIndex(t => t.id === evt.tool_id);
+              if (idx >= 0) {
+                let resultDisplayName: string | undefined;
+                if (typeof evt.subagent_name === 'string' && evt.subagent_name.trim()) {
+                  resultDisplayName = t('调用智能体：{name}', { name: (evt.subagent_name as string).trim() });
+                }
+                toolCalls[idx] = { ...toolCalls[idx], output: evt.result, status: 'success', ...(resultDisplayName ? { displayName: resultDisplayName } : {}) };
+                updatePlanCard(true);
+              }
+            }
+            break;
+          }
+          case 'plan_step_complete':
+            if (stepId && stepResults[stepId]) {
+              stepResults[stepId].status = evt.status || 'success';
+              stepResults[stepId].summary = evt.summary || '';
+              stepResults[stepId].text = '';
+              updatePlanCard(true);
+            }
+            break;
+          case 'plan_error':
+            if (stepId && stepResults[stepId]) { stepResults[stepId].status = 'failed'; stepResults[stepId].summary = evt.error || t('执行出错'); }
+            updatePlanCard(true);
+            break;
+          case 'plan_complete': {
+            planCompleted = true;
+            updatePlanCard(false, 'complete', evt.completed_steps, evt.total_steps, evt.result_text || undefined);
+            break;
+          }
+        }
+      } catch { /* skip a frame that cannot be applied */ }
     }
   } catch (e: unknown) {
     // 用户中断（停止按钮 / 关闭计划模式）：AbortError 原来直接往上抛，卡片就停在
@@ -210,8 +218,6 @@ export async function processPlanExecuteStream(
       return;
     }
     throw e;
-  } finally {
-    try { execReader.releaseLock(); } catch { /* ignore */ }
   }
 
   toolCalls.forEach(tc => { if (tc.status === 'running') tc.status = 'success'; });
@@ -278,32 +284,10 @@ export async function readPlanSse(
   onEvent?: (event: Record<string, unknown>) => void,
 ): Promise<Array<Record<string, unknown>>> {
   const events: Array<Record<string, unknown>> = [];
-  const reader = response.body?.getReader();
-  if (!reader) return events;
-  const decoder = new TextDecoder();
-  let buf = '';
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      const blocks = buf.split(/\n\n+/);
-      buf = blocks.pop() || '';
-      for (const block of blocks) {
-        for (const line of block.split(/\r?\n/)) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith('data:')) continue;
-          const data = trimmed.slice(5).trim();
-          if (data === '[DONE]') return events;
-          try {
-            const parsed = JSON.parse(data);
-            events.push(parsed);
-            if (onEvent) onEvent(parsed);
-          } catch { /* skip */ }
-        }
-      }
-    }
-  } finally { reader.releaseLock(); }
+  for await (const parsed of parseSSE<Record<string, unknown>>(response)) {
+    events.push(parsed);
+    if (onEvent) onEvent(parsed);
+  }
   return events;
 }
 

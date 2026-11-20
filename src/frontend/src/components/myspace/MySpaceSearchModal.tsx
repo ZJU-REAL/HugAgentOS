@@ -186,7 +186,7 @@ export function MySpaceSearchModal({ onOpenChat, onPreviewFile }: Props) {
       footer={null}
       closable={false}
       width={640}
-      maskClosable
+      mask={{ closable: true }}
       destroyOnHidden
       className="jx-searchModal"
       afterOpenChange={(open) => { if (open) inputRef.current?.focus(); }}

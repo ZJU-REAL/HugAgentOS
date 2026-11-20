@@ -248,7 +248,7 @@ export function SystemModelPanel() {
       title: t('角色'),
       dataIndex: 'role_key',
       render: (v: string, r: ModelRoleAssignment) => (
-        <Space direction="vertical" size={0}>
+        <Space orientation="vertical" size={0}>
           <Text>{t((r.label as string) || v)}</Text>
           <Text type="secondary" style={{ fontSize: 12 }}>{v}</Text>
         </Space>
@@ -387,7 +387,7 @@ export function SystemModelPanel() {
         onCancel={() => setEditorOpen(false)}
         onOk={() => void handleSave()}
         confirmLoading={saving}
-        destroyOnClose
+        destroyOnHidden
         width={520}
       >
         <Form form={form} layout="vertical">

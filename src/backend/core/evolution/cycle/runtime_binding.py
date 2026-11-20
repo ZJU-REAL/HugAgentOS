@@ -41,18 +41,31 @@ logger = logging.getLogger(__name__)
 # Bundles are small and short-lived; a bounded in-process cache keeps the hot
 # path free of database reads. The Episode assembler persists what it needs.
 _MAX_CACHED_BUNDLES = 512
+# Every run adds one index entry; without a cap a long-lived process leaks one
+# per run. Runs are short, so the oldest bindings are long finished.
+_MAX_CACHED_RUN_BINDINGS = 4096
 
 
 def _remember(bundle: AssetBundle, run_id: Optional[str], capability_scope: str = "") -> None:
-    with process_state().lock:
-        process_state().bundles[bundle.bundle_id] = bundle
+    state = process_state()
+    with state.lock:
+        state.bundles[bundle.bundle_id] = bundle
         if run_id:
-            process_state().run_to_bundle[(str(run_id), str(capability_scope))] = bundle.bundle_id
-        if len(process_state().bundles) > _MAX_CACHED_BUNDLES:
+            key = (str(run_id), str(capability_scope))
+            state.run_to_bundle.pop(key, None)
+            state.run_to_bundle[key] = bundle.bundle_id
+        if len(state.bundles) > _MAX_CACHED_BUNDLES:
             # Cheap eviction: drop the oldest insertion. Losing a cached bundle
             # is harmless — it is re-resolvable from the persisted Episode.
-            for stale_key in list(process_state().bundles.keys())[: len(process_state().bundles) - _MAX_CACHED_BUNDLES]:
-                process_state().bundles.pop(stale_key, None)
+            evicted = set(list(state.bundles.keys())[: len(state.bundles) - _MAX_CACHED_BUNDLES])
+            for stale_key in evicted:
+                state.bundles.pop(stale_key, None)
+            for run_key in [k for k, v in state.run_to_bundle.items() if v in evicted]:
+                state.run_to_bundle.pop(run_key, None)
+        overflow = len(state.run_to_bundle) - _MAX_CACHED_RUN_BINDINGS
+        if overflow > 0:
+            for run_key in list(state.run_to_bundle.keys())[:overflow]:
+                state.run_to_bundle.pop(run_key, None)
 
 
 def get_bundle(bundle_id: str) -> Optional[AssetBundle]:

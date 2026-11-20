@@ -1,6 +1,6 @@
 # This file is generated. Do not edit it by hand.
 # Regenerate with: npm --prefix desktop run lock:desktop
-# input-sha256: 26d239807f2f80b5ea87f553e79c38efd686e3bb379968bb9f1b32c39ed42b4c
+# input-sha256: d00d8f1733d51d95295db380206b4434699894fd7a2de1a3d179022f8ec81cdb
 # Target: CPython 3.11 on Linux x86_64
 agentscope @ https://github.com/agentscope-ai/agentscope/archive/ed357feb78a45ff02df155bb5610eab9bf543832.tar.gz
     # via -r desktop/requirements-desktop.txt
@@ -181,7 +181,6 @@ httpx==0.28.1
     #   ollama
     #   openai
     #   qdrant-client
-    #   tavily-python
 httpx-sse==0.4.3
     # via dashscope
 httpx2==2.16.0
@@ -261,7 +260,7 @@ mcp-types==2.3.0
     # via mcp
 mdurl==0.1.2
     # via markdown-it-py
-mem0ai==2.0.14
+mem0ai==2.2.1
     # via -r desktop/requirements-desktop.txt
 milvus-lite==3.2.2
     # via
@@ -484,7 +483,6 @@ requests==2.34.2
     #   opentelemetry-exporter-otlp-proto-http
     #   posthog
     #   requests-toolbelt
-    #   tavily-python
     #   tiktoken
 requests-toolbelt==1.0.0
     # via lark-oapi
@@ -541,14 +539,10 @@ structlog==26.1.0
     # via -r desktop/requirements-desktop.txt
 tabulate==0.10.0
     # via -r desktop/requirements-desktop.txt
-tavily-python==0.7.27
-    # via -r desktop/requirements-desktop.txt
 tenacity==9.1.4
     # via google-genai
 tiktoken==0.13.0
-    # via
-    #   litellm
-    #   tavily-python
+    # via litellm
 tokenizers==0.23.1
     # via litellm
 tqdm==4.70.0

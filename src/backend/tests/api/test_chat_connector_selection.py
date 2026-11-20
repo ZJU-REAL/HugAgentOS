@@ -49,8 +49,9 @@ def test_connector_display_name_cannot_bypass_the_enforceable_id():
         raise AssertionError("connector_name without connector_id must be rejected")
 
 
-def test_database_connector_resolves_to_concrete_server_keys():
+def test_datasource_connector_resolves_to_its_own_server_key():
+    # Each data source is its own ``db_<id>`` server: no umbrella expansion.
     assert _required_mcp_server_keys(
-        ["database_query"],
-        ["internet_search", "db_query", "es_query"],
-    ) == ["db_query", "es_query"]
+        ["db_ds1", "db_missing"],
+        ["internet_search", "db_ds1", "db_ds2"],
+    ) == ["db_ds1"]

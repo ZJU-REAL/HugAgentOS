@@ -1,4 +1,4 @@
-"""local graph responsibilities."""
+"""Wiki link graph for local KBs: global top-N and ego (BFS) views with resolved link titles."""
 from __future__ import annotations
 from typing import Any, Dict, List, Sequence
 from core.db.engine import SessionLocal
@@ -87,7 +87,6 @@ def wiki_graph(
                     "truncated": False,
                     "total": len(rows),
                     "returned": 0,
-                    "total_pages": len(rows),
                 },
             }
     else:
@@ -124,10 +123,8 @@ def wiki_graph(
             "center": center,
             "depth": depth if mode == "ego" else None,
             "truncated": len(rows) > len(selected),
-            # 前端类型声明读 total/returned；total_pages 是旧键，保留兼容
             "total": len(rows),
             "returned": len(nodes),
-            "total_pages": len(rows),
         },
     }
 

@@ -4,12 +4,12 @@
 
 **Sites** lets users describe what they need in a conversation and have the agent generate a complete static website and publish it in one step — hosted directly by the platform, accessible to anyone with the link, and updatable later through further conversation. The full pipeline: multi-file site generated in the sandbox → published via the `publish_site` tool → served publicly through an nginx-proxied backend hosting route.
 
-Sites is a **Community Edition (CE)** feature, located in the **Lab** panel (requires Lab access granted by an admin).
+Sites is a **Community Edition (CE)** feature, with its own **Sites** navigation entry (in the "More" menu by default; shown to users who hold the Sites permission, `sites_enabled`).
 
 ## How to use
 
 1. Ask in chat, e.g. "Build a product intro website and publish it." The agent generates a complete static site in the sandbox (HTML/CSS/JS/images with an `index.html` entry), calls the `publish_site` tool, and delivers the access URL (like `/site/<slug>/`) in the conversation.
-2. Open **Lab → Sites** to manage all your sites: open, copy link, edit title / address / visibility / access password, delete.
+2. Open **Sites** in the sidebar to manage all your sites: open, copy link, edit title / address / visibility / access password, delete.
 3. To modify a published site, describe the changes in **any** conversation — you don't have to return to the original one. The agent first calls the `list_sites` tool to look up the site ID and source directory, then republishes with that `site_id`; the URL stays the same and the version increments. When the account has several sites and the request is ambiguous, the agent asks which one to change.
 
 ## Visibility
@@ -73,7 +73,7 @@ The platform counts HTML page views per site (asset files excluded), shown on th
 | Management API | `src/backend/features/sites/api/sites.py` (`/v1/sites`) |
 | Access password | `src/backend/features/sites/` (hash + credential), `src/backend/features/sites/api/site_gate.py` (unified password page) |
 | Database table | `sites` (`features/sites/models.py`) |
-| Frontend management panel | `src/frontend/src/components/sites/SitesPanel.tsx` (Lab → Sites), `SitePasswordField.tsx` (password management) |
+| Frontend management panel | `src/frontend/src/components/sites/SitesPanel.tsx` (sidebar → Sites), `SitePasswordField.tsx` (password management) |
 | nginx forwarding | `location /site/` in `src/frontend/default.conf.template` |
 
 Environment switch: `SITES_ENABLED=false` disables the publish tool entirely (enabled by default).

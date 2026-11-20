@@ -14,7 +14,6 @@ class EvaluationPolicy(Protocol):
 
 
 def register_evaluation_policy(policy: EvaluationPolicy) -> None:
-    pass
     registration_state().policy = policy
 
 

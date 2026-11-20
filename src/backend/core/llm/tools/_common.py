@@ -1,20 +1,21 @@
-"""Shared helpers for the new file-operation tools."""
+"""Shared helpers for the file-operation tools."""
 
 from __future__ import annotations
-
 
 import asyncio
 import base64
 import json
 import logging
 import mimetypes
+import os
 import shlex
 from typing import Any, Optional
 
-from agentscope.message import Base64Source, DataBlock, TextBlock
+from agentscope.message import Base64Source, DataBlock
 
-# AgentScope 2.0: tool functions must return ToolChunk; aliased (its fields are a superset of ToolChunk).
+# AgentScope 2.0: tool functions must return ToolChunk.
 from agentscope.tool._response import ToolChunk
+from core.llm.tools._tool_helpers import resp_json
 from core.projects.edition import ProjectScope
 
 logger = logging.getLogger(__name__)
@@ -43,20 +44,27 @@ async def resp_image(
     )
 
 
-def resp_json(payload: dict[str, Any]) -> ToolChunk:
-    """Wrap a JSON dict as a single-text-block ToolChunk.
+def _read_bytes(path: str) -> bytes:
+    with open(path, "rb") as handle:
+        return handle.read()
 
-    Mirrors ``core.llm.tool._resp_json``. Re-implemented here so this package
-    has zero cross-imports back to the large monolithic ``tool.py``.
-    """
-    return ToolChunk(
-        content=[
-            TextBlock(
-                type="text",
-                text=json.dumps(payload, ensure_ascii=False),
-            )
-        ]
-    )
+
+def _write_bytes(path: str, data: bytes) -> None:
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(path, "wb") as handle:
+        handle.write(data)
+
+
+async def read_local_bytes(path: str) -> bytes:
+    """Read a host file (desktop local mode) in a worker thread."""
+    return await asyncio.to_thread(_read_bytes, path)
+
+
+async def write_local_bytes(path: str, data: bytes) -> None:
+    """Write a host file, creating its parent folders, in a worker thread."""
+    await asyncio.to_thread(_write_bytes, path, data)
 
 
 def response_metadata(response: ToolChunk, metadata: dict[str, Any]) -> ToolChunk:

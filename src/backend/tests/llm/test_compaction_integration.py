@@ -15,6 +15,7 @@ from core.models.completions.single_turn import Endpoint
 from core.llm.context import budget as budget
 from core.chat.compaction import service as S
 from core.chat.service import ChatService
+from tests.db_support import share_factory
 
 
 def _endpoint():
@@ -368,7 +369,7 @@ def test_pre_turn_compaction_triggers_and_writes_checkpoint(db_session, monkeypa
 
     monkeypatch.setattr('core.chat.compaction.summary._summarize', fake_summarize)
     # Checkpoint persistence goes through the global SessionLocal → point it at the test DB
-    monkeypatch.setattr(engine_mod, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
+    share_factory(monkeypatch, sessionmaker(bind=db_session.get_bind()))
 
     history = [
         {"role": "user", "content": "问题一"},
@@ -421,7 +422,7 @@ def test_pre_turn_in_turn_view_keeps_current_user_last(db_session, monkeypatch):
         return "摘要"
 
     monkeypatch.setattr('core.chat.compaction.summary._summarize', fake_summarize)
-    monkeypatch.setattr(engine_mod, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
+    share_factory(monkeypatch, sessionmaker(bind=db_session.get_bind()))
 
     history = [
         {"role": "user", "content": "旧问题" * 100},

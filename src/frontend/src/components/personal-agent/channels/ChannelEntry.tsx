@@ -18,6 +18,16 @@ export function ChannelMark({ type, size = 20 }: { type?: ChannelType; size?: nu
   return <span className={'pa-channel-mark pa-channel-mark--' + meta.tint} style={{ width: size, height: size, fontSize: Math.round(size * 0.55) }} aria-hidden="true">{meta.mark}</span>;
 }
 
+/** Why a bot's binding counts as failed; empty when it is healthy. */
+function failureReasons(bot: PersonalChannel, detail: ChannelBot | undefined, failure: string | undefined): string[] {
+  const reasons: string[] = [];
+  if (failure || bot.status === 'error') reasons.push(failure || detail?.last_error || t('绑定失败，请重试'));
+  if (!bot.enabled) reasons.push(t('已停用'));
+  else if (bot.status === 'disconnected') reasons.push(t('连接已断开，请重试'));
+  if (detail?.device_online === false) reasons.push(t('设备离线'));
+  return reasons;
+}
+
 interface ChannelEntryProps {
   agentName: string;
   conversations?: PersonalConversation[];
@@ -35,18 +45,11 @@ export function ChannelEntry({ agentName, conversations = [], selectedChatId, on
   const [failures, setFailures] = useState<Record<string, string>>({});
   const [checking, setChecking] = useState(false);
   const revision = useRef(0);
-  const [busy, setBusy] = useState<string>();
   const load = useCallback(async () => {
     try { setBots(await personalApi.channels()); } catch (exc) { message.error(errorText(exc)); }
   }, []);
   useEffect(() => { void load(); }, [load]);
 
-  async function toggle(bot: PersonalChannel, enabled: boolean) {
-    setBusy(bot.channel_id);
-    try { setBots(await personalApi.routeChannel(bot.channel_id, enabled)); }
-    catch (exc) { message.error(errorText(exc)); }
-    finally { setBusy(undefined); }
-  }
   const refresh = useCallback(async (validate = false) => {
     const current = ++revision.current;
     setChecking(true);
@@ -72,14 +75,14 @@ export function ChannelEntry({ agentName, conversations = [], selectedChatId, on
     finally { if (current === revision.current) setChecking(false); }
   }, []);
   // While the dialog is open: each bot's connection is checked with its IM platform when the dialog opens and when
-  // the page is shown again; in between, the change feed says when a bot or its routing changed. Nothing polls.
+  // the page is shown again; in between, the change feed says when a bot or its allowed accounts changed. Nothing polls.
   useEffect(() => {
     if (!open) return;
     // One read at a time, in order: a later read would otherwise discard a platform check still in flight.
     let chain = refresh(true);
     const next = (validate: boolean) => { chain = chain.then(() => refresh(validate)); };
     const unsubscribe = subscribePersonalChanges(signal => {
-      // A bot's own row carries the channels topic; routing and allowed accounts live in the agent's settings,
+      // A bot's own row carries the channels topic; allowed accounts live in the agent's settings,
       // which change without a topic.
       if (signal.type === 'ready' || (signal.type === 'changed' && (!signal.topics.length || signal.topics.includes(CHANNELS_TOPIC)))) next(false);
     });
@@ -87,8 +90,8 @@ export function ChannelEntry({ agentName, conversations = [], selectedChatId, on
     document.addEventListener('visibilitychange', shown);
     return () => { unsubscribe(); revision.current += 1; document.removeEventListener('visibilitychange', shown); };
   }, [open, refresh]);
-  async function bound(id: string) {
-    await personalApi.routeChannel(id, true);
+  // Hugo answers every bot bound here; nothing else to set up.
+  async function bound() {
     await refresh(true);
     setBinding(undefined);
   }
@@ -106,19 +109,17 @@ export function ChannelEntry({ agentName, conversations = [], selectedChatId, on
           {CHANNELS.map(meta => {
             const items = bots.filter(bot => bot.channel_type === meta.type);
             const connected = items.some(bot => bot.enabled && bot.status === 'connected' && !failures[bot.channel_id] && details.find(item => item.channel_id === bot.channel_id)?.device_online !== false);
-            const unhealthy = items.some(bot => bot.status === 'error' || !bot.enabled || bot.status === 'disconnected' || failures[bot.channel_id] || details.find(item => item.channel_id === bot.channel_id)?.device_online === false);
+            const reasons = [...new Set(items.flatMap(bot => failureReasons(bot, details.find(item => item.channel_id === bot.channel_id), failures[bot.channel_id])))];
+            const unhealthy = reasons.length > 0;
             return <section key={meta.type} className="pa-channel-card" data-channel={meta.type}>
               <header><ChannelMark type={meta.type} size={28} /><strong>{t(meta.label)}</strong>
                 <span className={connected && !unhealthy && !checkError ? 'pa-channel-state pa-channel-state--on' : 'pa-channel-state'} role="status">{checkError && items.length ? t('状态待检查') : unhealthy ? t('绑定异常') : connected ? t('绑定成功') : items.length ? t('连接中') : t('未接入')}</span></header>
-              {items.map(bot => {
-                const detail = details.find(item => item.channel_id === bot.channel_id);
-                return <div key={bot.channel_id}>
-                  {!bot.enabled && <span className="pa-channel-state">{t('已停用')}</span>}
-                  {detail?.device_online === false && <Alert type="warning" title={t('设备离线')} />}
-                  {(bot.status === 'error' || failures[bot.channel_id]) && <Alert type="error" title={failures[bot.channel_id] || detail?.last_error || t('绑定失败，请重试')} />}
-                  {bot.status === 'disconnected' && bot.enabled && <Alert type="warning" title={t('连接已断开，请重试')} />}
-                  {bot.personal_agent && <ChannelAllowed bot={bot} onChange={setBots} onRefresh={() => void refresh()} />}
-                  {onSelectChat && bot.personal_agent && <div className="pa-channel-conversations">
+              {unhealthy
+                // A failed binding shows only why it failed, then the rebind / retry buttons below.
+                ? reasons.map(reason => <Alert key={reason} type="error" title={reason} />)
+                : items.map(bot => <div key={bot.channel_id}>
+                  <ChannelAllowed bot={bot} onChange={setBots} onRefresh={() => void refresh()} />
+                  {onSelectChat && <div className="pa-channel-conversations">
                     {conversations.filter(item => item.channel_id === bot.channel_id).map(item =>
                       <Button key={item.chat_id} block type={selectedChatId === item.chat_id ? 'default' : 'text'}
                         aria-current={selectedChatId === item.chat_id ? 'page' : undefined}
@@ -126,9 +127,7 @@ export function ChannelEntry({ agentName, conversations = [], selectedChatId, on
                         {t('渠道会话')}
                       </Button>)}
                   </div>}
-                  {(!bot.personal_agent && bot.enabled) && <Button size="small" onClick={() => void toggle(bot, true)} loading={busy === bot.channel_id}>{t('交给 {name} 处理', { name: agentName })}</Button>}
-                </div>;
-              })}
+                </div>)}
               {open && binding === meta.type ? <ChannelBindingForm key={meta.type} type={meta.type} onBound={bound} onCancel={() => setBinding(undefined)} /> :
                 (!items.length || (unhealthy && meta.type === 'weixin')) && <Button size="small" type="dashed" icon={<PlusOutlined />} onClick={() => setBinding(meta.type)}>{items.length ? t('重新绑定') : t('绑定机器人')}</Button>}
               {unhealthy && <Button size="small" loading={checking} onClick={() => void refresh(true)}>{t('重试')}</Button>}

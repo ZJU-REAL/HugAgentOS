@@ -34,7 +34,6 @@ Tasks live in the `scheduled_tasks` table (`ScheduledTask` in `edition_ee/db/mod
 |---|---|
 | `POST ""` / `GET ""` / `GET /{task_id}` / `PATCH /{task_id}` / `DELETE /{task_id}` | Task CRUD |
 | `POST /{task_id}/pause` / `resume` / `trigger` | Pause / resume / fire manually |
-| `POST /{task_id}/activate-sidebar` | Activate the task's chat group in the sidebar |
 | `GET /{task_id}/runs` | Run history (`scheduled_task_runs` table: status, duration, result summary, linked chat) |
 | `GET /notifications/list` / `POST /notifications/read` / `delete` | Automation result notifications (Redis list `jx:notifications:{user_id}`, latest 50 kept, 7-day TTL) |
 

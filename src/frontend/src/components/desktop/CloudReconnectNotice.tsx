@@ -1,4 +1,5 @@
 import { useDelayedFlag } from '../../hooks/useDelayedFlag';
+import { t } from '../../i18n';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import './capabilitySync.css';
 
@@ -8,5 +9,5 @@ export function CloudReconnectNotice() {
   // 一次续期抖动几秒内就恢复，不值得打断用户。
   const visible = useDelayedFlag(reconnecting, { showAfter: 3000, minVisible: 1000 });
   if (!visible) return null;
-  return <div className="jx-cloudReconnect" role="status">与云端的连接已中断，正在自动重连…</div>;
+  return <div className="jx-cloudReconnect" role="status">{t('与云端的连接已中断，正在自动重连…')}</div>;
 }

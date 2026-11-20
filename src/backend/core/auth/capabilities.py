@@ -261,6 +261,12 @@ def resolve_user_capabilities(db: Session, user_id: str) -> Dict[str, Any]:
     chain is "personal → role → team → system" (both role and team degrade
     defensively to ``{}``).
     """
+    return _resolve_user_meta_and_capabilities(db, user_id)[1]
+
+
+def _resolve_user_meta_and_capabilities(
+    db: Session, user_id: str
+) -> tuple[Dict[str, Any], Dict[str, Any]]:
     from core.auth.edition import default_capability_layers_for_user
     from core.db.models import UserShadow
 
@@ -269,4 +275,23 @@ def resolve_user_capabilities(db: Session, user_id: str) -> Dict[str, Any]:
     caps = resolve_capabilities(meta, *default_capability_layers_for_user(db, user_id))
     if settings.edition.edition == "ce":
         caps["can_create_public_kb"] = False
-    return caps
+    return meta, caps
+
+
+def account_capability_payload(db: Session, user_id: str) -> Dict[str, Any]:
+    """Effective permission fields for the current account, as serialized to clients.
+
+    Same field set as ``GET /v1/auth/session/check``: ``allowed_apps``, every
+    boolean flag, ``can_use_personal_agent`` (module switch + permission) and the
+    two page-admin flags (implied by ``super_admin``). Used by ``GET /v1/me`` so
+    API-key callers, which have no session cookie, can read their permissions.
+    """
+    from personal_agent import access as personal_agent_access
+
+    meta, caps = _resolve_user_meta_and_capabilities(db, user_id)
+    return {
+        "allowed_apps": caps.get("allowed_apps"),
+        **{k: bool(caps.get(k)) for k in BOOL_CAPABILITY_DEFAULTS if k not in PAGE_ADMIN_FLAGS},
+        "can_use_personal_agent": personal_agent_access.visible(meta, caps),
+        **page_admin_flags(meta, caps),
+    }

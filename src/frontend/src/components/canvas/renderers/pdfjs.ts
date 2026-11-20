@@ -2,7 +2,6 @@ import type * as PdfJs from 'pdfjs-dist';
 
 export type PdfJsModule = typeof PdfJs;
 export type PdfDocument = PdfJs.PDFDocumentProxy;
-export type PdfPage = PdfJs.PDFPageProxy;
 
 // pdf.js resolves CMaps (CJK text), standard fonts and image-codec wasm by
 // "baseUrl + filename". Vite hashes each asset, so map filenames to emitted

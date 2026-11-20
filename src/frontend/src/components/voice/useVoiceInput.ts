@@ -6,7 +6,7 @@ import { VoiceCapture } from './voiceCapture';
 import { voiceAnchor } from './voiceAnchor';
 import { t } from '../../i18n';
 
-export type VoicePhase = 'idle' | 'connecting' | 'recording' | 'processing' | 'error';
+type VoicePhase = 'idle' | 'connecting' | 'recording' | 'processing' | 'error';
 type Session = { capture: VoiceCapture; abort: AbortController; insert: (text: string) => boolean; blob?: Blob; text?: string };
 
 export function useVoiceInput(contextKey: string, input: RefObject<HTMLElement | null>, accountInput = true) {

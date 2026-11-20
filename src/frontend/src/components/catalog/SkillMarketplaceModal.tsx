@@ -11,10 +11,14 @@ import { useIsMobileViewport } from '../../hooks/useIsMobileViewport';
 import { stripMarkdown } from '../../utils/markdown';
 import { SearchOutlined, FireOutlined, DownloadOutlined, KeyOutlined, CheckOutlined, LeftOutlined, FileTextOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons';
 import type { MarketplaceSkill, MarketplaceSkillDetail, MarketplaceFetchers, MarketVisibilityValue } from '../../types';
-import { mdToHtml } from '../../utils/markdown';
 import { SPRING, staggerStyle } from '../../utils/motionTokens';
 import { VisibilityScopeModal, ContinuousLoadSentinel } from '../common';
 import { SkillAvatar, categoryPreset } from './skillIcons';
+import { MarkdownHtml } from '../common/MarkdownHtml';
+
+/** Category sentinel for "all"; never shown as-is. */
+const ALL_CATEGORIES = '__all__';
+
 function MarketIcon({ skill, size }: { skill: MarketplaceSkill; size?: number }) {
   return <SkillAvatar icon={skill.icon_url || categoryPreset(skill.category)} seed={skill.slug} size={size || 40} />;
 }
@@ -39,7 +43,7 @@ export function SkillMarketplaceModal({
   const [items, setItems] = useState<MarketplaceSkill[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [query, setQuery] = useState('');
-  const [category, setCategory] = useState<string>('全部');
+  const [category, setCategory] = useState<string>(ALL_CATEGORIES);
   const [page, setPage] = useState(1);
   const [installingSlug, setInstallingSlug] = useState<string | null>(null);
   const [detail, setDetail] = useState<MarketplaceSkillDetail | null>(null);
@@ -61,7 +65,7 @@ export function SkillMarketplaceModal({
   useEffect(() => {
     if (open) {
       setQuery('');
-      setCategory('全部');
+      setCategory(ALL_CATEGORIES);
       setPage(1);
       setDetail(null);
       void load();
@@ -217,7 +221,7 @@ export function SkillMarketplaceModal({
   const q = query.trim().toLowerCase();
   const filtered = useMemo(() => {
     return items.filter((it) => {
-      if (category !== '全部' && it.category !== category) return false;
+      if (category !== ALL_CATEGORIES && it.category !== category) return false;
       if (!q) return true;
       return `${it.display_name} ${it.summary} ${it.tags.join(' ')} ${it.author}`.toLowerCase().includes(q);
     });
@@ -237,7 +241,7 @@ export function SkillMarketplaceModal({
     items: filtered.map((item) => ({ slug: item.slug, name: item.display_name, deletable: !!fetchers.remove && !!item.deletable })),
     onDeleted: async () => { setDetail(null); await load(); },
   });
-  const cats = useMemo(() => ['全部', ...categories], [categories]);
+  const cats = useMemo(() => [ALL_CATEGORIES, ...categories], [categories]);
   // Install button (reused in list card / detail page): three states install → loading → installed.
   // A single Button swaps props (rather than hard-switching two Buttons), the background color goes through a CSS transition,
   // the text hands off via AnimatePresence mode="wait", and the installed-state Check icon springs in.
@@ -319,14 +323,14 @@ export function SkillMarketplaceModal({
               <div className="jx-mk-detailHeadInfo">
                 <div className="jx-mk-detailName">
                   {detail.display_name}
-                  {detail.featured && <Tag color="orange" bordered={false} className="jx-mk-badge"><FireOutlined /> {t('精选')}</Tag>}
+                  {detail.featured && <Tag color="orange" variant="filled" className="jx-mk-badge"><FireOutlined /> {t('精选')}</Tag>}
                 </div>
                 <div className="jx-mk-cardMeta">
-                  <Tag bordered={false} className="jx-mk-catTag">{detail.category}</Tag>
+                  <Tag variant="filled" className="jx-mk-catTag">{detail.category}</Tag>
                   {detail.builtin ? (
-                    <Tag color="blue" bordered={false} className="jx-mk-badge">{t('内置')}</Tag>
+                    <Tag color="blue" variant="filled" className="jx-mk-badge">{t('内置')}</Tag>
                   ) : detail.source === 'community' ? (
-                    <Tag color="purple" bordered={false} className="jx-mk-badge">{t('社区共享 · {author}', { author: detail.author })}</Tag>
+                    <Tag color="purple" variant="filled" className="jx-mk-badge">{t('社区共享 · {author}', { author: detail.author })}</Tag>
                   ) : (
                     <span className="jx-mk-dl"><DownloadOutlined /> {detail.downloads}</span>
                   )}
@@ -347,16 +351,16 @@ export function SkillMarketplaceModal({
             {detail.summary && <p className="jx-mk-detailSummary">{stripMarkdown(detail.summary)}</p>}
             {detail.tags?.length > 0 && (
               <div className="jx-mk-tags" style={{ marginBottom: 12 }}>
-                {detail.tags.map((t, i) => <Tag key={i} bordered={false} className="jx-mk-tag">{t}</Tag>)}
+                {detail.tags.map((t, i) => <Tag key={i} variant="filled" className="jx-mk-tag">{t}</Tag>)}
               </div>
             )}
             {detail.required_secrets?.length > 0 && (
               <div className="jx-mk-secretsNote">
-                <KeyOutlined /> 安装时需配置：{detail.required_secrets.map((s) => s.label || s.key).join('、')}
+                <KeyOutlined /> {t('安装时需配置：{items}', { items: detail.required_secrets.map((s) => s.label || s.key).join(t('、')) })}
               </div>
             )}
             <div className="jx-mk-detailBodyTitle">{t('技能说明（SKILL.md）')}</div>
-            <div className="jx-mk-detailBody jx-md" dangerouslySetInnerHTML={{ __html: mdToHtml(detail.instructions || '暂无内容') }} />
+            <MarkdownHtml className="jx-mk-detailBody jx-md" markdown={detail.instructions || t('暂无内容')} />
             {detail.files?.length > 0 && (
               <>
                 <div className="jx-mk-detailBodyTitle">{t('附带文件（{n}）', { n: detail.files.length })}</div>
@@ -405,7 +409,7 @@ export function SkillMarketplaceModal({
                         aria-hidden="true"
                       />
                     )}
-                    <span className="jx-mk-catChipLabel">{c}</span>
+                    <span className="jx-mk-catChipLabel">{c === ALL_CATEGORIES ? t('全部') : c}</span>
                   </button>
                 ))}
               </div>
@@ -430,16 +434,16 @@ export function SkillMarketplaceModal({
                       <div className="jx-mk-cardHead">
                         <div className="jx-mk-cardNameRow">
                           <span className="jx-mk-cardName" title={skill.display_name}>{skill.display_name}</span>
-                          {skill.featured && <Tag color="orange" bordered={false} className="jx-mk-badge"><FireOutlined /> {t('精选')}</Tag>}
+                          {skill.featured && <Tag color="orange" variant="filled" className="jx-mk-badge"><FireOutlined /> {t('精选')}</Tag>}
                         </div>
                         <div className="jx-mk-cardMeta">
-                          <Tag bordered={false} className="jx-mk-catTag">{skill.category}</Tag>
-                          {skill.market_enabled === false && <Tag color="default" bordered={false}>{t('已下架')}</Tag>}
-                          {fetchers.visibility && skill.visibility === 'scoped' && <Tag color="gold" bordered={false}>{t('指定可见')}</Tag>}
+                          <Tag variant="filled" className="jx-mk-catTag">{skill.category}</Tag>
+                          {skill.market_enabled === false && <Tag color="default" variant="filled">{t('已下架')}</Tag>}
+                          {fetchers.visibility && skill.visibility === 'scoped' && <Tag color="gold" variant="filled">{t('指定可见')}</Tag>}
                           {skill.builtin ? (
-                            <Tag color="blue" bordered={false} className="jx-mk-badge">{t('内置')}</Tag>
+                            <Tag color="blue" variant="filled" className="jx-mk-badge">{t('内置')}</Tag>
                           ) : skill.source === 'community' ? (
-                            <Tag color="purple" bordered={false} className="jx-mk-badge">{t('社区')}</Tag>
+                            <Tag color="purple" variant="filled" className="jx-mk-badge">{t('社区')}</Tag>
                           ) : (
                             <span className="jx-mk-dl"><DownloadOutlined /> {skill.downloads}</span>
                           )}
@@ -450,7 +454,7 @@ export function SkillMarketplaceModal({
                     <div className="jx-mk-cardDesc" title={stripMarkdown(skill.summary)}>{stripMarkdown(skill.summary) || '—'}</div>
                     <div className="jx-mk-cardFoot" style={{ flexWrap: 'wrap' }}>
                       <div className="jx-mk-tags">
-                        {(skill.tags || []).slice(0, 3).map((t, i) => <Tag key={i} bordered={false} className="jx-mk-tag">{t}</Tag>)}
+                        {(skill.tags || []).slice(0, 3).map((t, i) => <Tag key={i} variant="filled" className="jx-mk-tag">{t}</Tag>)}
                       </div>
                       <span style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                         {enableSwitch(skill)}

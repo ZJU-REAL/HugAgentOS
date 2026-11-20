@@ -1,4 +1,4 @@
-"""identity responsibilities."""
+"""Desktop bridge cloud identity: persisted state, account/authorization checks, credentials and cloud request headers."""
 from __future__ import annotations
 from features.desktop.capabilities import skill_paths
 from features.desktop.capabilities import skill_views
@@ -103,7 +103,6 @@ def current_credentials(state: Dict[str, Any]) -> Dict[str, Any]:
 
 def note_rejected_credential(state: Dict[str, Any], exc: BaseException) -> None:
     """Only a refusal of the live token schedules re-sync on its next renewal."""
-    pass  # State is owned by its responsibility module.
     import httpx
 
     if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 401:
@@ -132,7 +131,6 @@ def cloud_headers(state: Dict[str, Any]) -> Dict[str, str]:
 
 def clear_state() -> None:
     """Logout invalidates the account immediately, including in-flight responses."""
-    pass  # State is owned by its responsibility module.
     with bridge_client_state.state_lock:
         bridge_client_state.state, bridge_client_state.state_loaded = None, True
         bridge_client_state.credential_rejected = ""
@@ -169,7 +167,6 @@ def rebuild_identity_views() -> None:
 
 
 def get_state() -> Optional[Dict[str, Any]]:
-    pass  # State is owned by its responsibility module.
     with bridge_client_state.state_lock:
         if not bridge_client_state.state_loaded:
             bridge_client_state.state = load_state_from_db()
@@ -231,8 +228,6 @@ def clear_partial_selection():
 
 
 def reset_for_tests() -> None:  # pragma: no cover - 仅测试用
-    pass  # State is owned by its responsibility module.
-    pass  # State is owned by its responsibility module.
     from features.desktop.bridge import skills as desktop_cloud_skills
 
     with bridge_client_state.state_lock:

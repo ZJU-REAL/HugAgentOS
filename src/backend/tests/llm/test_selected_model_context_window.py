@@ -26,7 +26,6 @@ def test_model_builder_uses_selected_provider_window(monkeypatch):
 
 
 def test_post_turn_trigger_uses_frozen_window_not_same_name_provider(monkeypatch):
-    pass
     from core.models import context_window as context_manager
     from core.chat.compaction import service as compaction_service
 

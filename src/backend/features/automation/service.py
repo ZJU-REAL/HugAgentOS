@@ -1,7 +1,7 @@
 """Automation service — CRUD for scheduled tasks and run history."""
 
-from typing import Optional, List, Dict, Any, Tuple
-from datetime import datetime, timezone
+from typing import Optional, List, Dict, Any
+from core.infra.time import utc_now
 import uuid
 
 from features.automation import scheduling
@@ -153,18 +153,6 @@ class AutomationService:
             q = q.filter(ScheduledTask.sidebar_activated == sidebar_activated)
         return q.order_by(ScheduledTask.created_at.desc()).offset(offset).limit(limit).all()
 
-    def activate_sidebar(self, task_id: str, user_id: str) -> Optional[ScheduledTask]:
-        """Mark a task as sidebar-activated (idempotent)."""
-        task = self.get_task(task_id, user_id)
-        if not task:
-            return None
-        if not task.sidebar_activated:
-            task.sidebar_activated = True
-            task.updated_at = datetime.now(timezone.utc)
-            self.db.commit()
-            self.db.refresh(task)
-        return task
-
     def update_task(
         self,
         task_id: str,
@@ -193,7 +181,7 @@ class AutomationService:
             task.next_run_at = None
         elif "cron_expression" in kwargs or "schedule_type" in kwargs:
             task.next_run_at = scheduling.compute_next_run(task.cron_expression, task.timezone)
-        task.updated_at = datetime.now(timezone.utc)
+        task.updated_at = utc_now()
         if commit:
             self.db.commit()
             self.db.refresh(task)
@@ -209,7 +197,7 @@ class AutomationService:
         for k, v in kwargs.items():
             if hasattr(task, k):
                 setattr(task, k, v)
-        task.updated_at = datetime.now(timezone.utc)
+        task.updated_at = utc_now()
         self.db.commit()
         self.db.refresh(task)
         return task
@@ -243,7 +231,6 @@ class AutomationService:
         import sqlalchemy as sa
 
         from core.db.models import ChatSession
-        from core.infra.time import utc_now
 
         chat_ids = {
             chat_id
@@ -274,7 +261,7 @@ class AutomationService:
         if not task or task.status != "active":
             return None
         task.status = "paused"
-        task.updated_at = datetime.now(timezone.utc)
+        task.updated_at = utc_now()
         self.db.commit()
         self.db.refresh(task)
         return task
@@ -297,7 +284,7 @@ class AutomationService:
             None if task.schedule_type == "manual"
             else scheduling.compute_next_run(task.cron_expression, task.timezone)
         )
-        task.updated_at = datetime.now(timezone.utc)
+        task.updated_at = utc_now()
         self.db.commit()
         self.db.refresh(task)
         return task
@@ -326,7 +313,7 @@ class AutomationService:
 
         重复点击幂等——时间戳被覆盖，仍然只排队一次。
         """
-        task.manual_trigger_at = datetime.now(timezone.utc)
+        task.manual_trigger_at = utc_now()
         task.updated_at = task.manual_trigger_at
         self.db.commit()
 
@@ -340,7 +327,7 @@ class AutomationService:
         if self._is_oneshot_done(task):
             task.status = "completed"
             task.next_run_at = None
-            task.updated_at = datetime.now(timezone.utc)
+            task.updated_at = utc_now()
             self.db.commit()
 
     # ── Run history ───────────────────────────────────────────────

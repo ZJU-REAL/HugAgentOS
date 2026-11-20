@@ -15,6 +15,7 @@ import asyncio
 import pytest
 from core.infra import leader
 from core.infra.ephemeral import LocalEphemeralState
+from tests.clock_support import FakeClock
 
 
 @pytest.fixture()
@@ -37,13 +38,14 @@ async def test_only_one_process_holds_a_role(shared_store):
 
 
 @pytest.mark.asyncio
-async def test_a_lapsed_lease_moves_the_role_to_the_next_process(shared_store):
+async def test_a_lapsed_lease_moves_the_role_to_the_next_process(shared_store, monkeypatch):
+    clock = FakeClock().install(monkeypatch, "core.infra.ephemeral")
     holder = leader.Leadership("backend", lease_seconds=1)
     successor = leader.Leadership("backend", lease_seconds=1)
     assert await holder._hold() is True
     assert await successor._hold() is False
 
-    await asyncio.sleep(1.05)  # 持有者不再续租 == 进程没了
+    clock.advance(1.05)  # 持有者不再续租 == 进程没了
 
     assert await successor._hold() is True
     assert await holder._hold() is False

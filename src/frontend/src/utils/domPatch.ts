@@ -79,9 +79,3 @@ export function morphChildren(target: Node, source: Node, textPatch?: TextPatch)
   for (let i = olds.length - 1; i >= shared; i -= 1) target.removeChild(olds[i]);
   for (let i = shared; i < news.length; i += 1) target.appendChild(prepareNode(news[i], textPatch));
 }
-
-export function patchHtml(container: HTMLElement, html: string): void {
-  const template = document.createElement('template');
-  template.innerHTML = html;
-  morphChildren(container, template.content);
-}

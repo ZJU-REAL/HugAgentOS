@@ -18,7 +18,7 @@ from core.llm.context.rendering import next_request_sequence, render_context_ite
 from core.llm.context.ir_constants import KIND_USER_INPUT, POLICY_NEVER
 from core.llm.context.items import make_text_context_item
 from core.llm.tools._common import resolve_sandbox_session
-from core.db.threads import run_in_session
+from core.db.threads import run_db, run_in_session
 
 logger = logging.getLogger(__name__)
 
@@ -280,9 +280,9 @@ def _run_subagent_in_thread(
             # A resumed run brings its own context forward, which already contains
             # whatever it inherited the first time.
             if resume_messages:
-                agent.state.context.extend(session_to_msgs(resume_messages))
+                agent.state.context.extend(await run_db(session_to_msgs, resume_messages))
             elif shared_messages:
-                agent.state.context.extend(session_to_msgs(shared_messages))
+                agent.state.context.extend(await run_db(session_to_msgs, shared_messages))
 
             prompt_parts = []
             if context_summary:

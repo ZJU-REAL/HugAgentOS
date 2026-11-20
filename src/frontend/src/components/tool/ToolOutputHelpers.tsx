@@ -1,8 +1,8 @@
 import React from 'react';
 import { Tag } from 'antd';
 import { DataView } from './renderers/DataView';
-import { mdToHtml } from '../../utils/markdown';
 import { t } from '../../i18n';
+import { MarkdownHtml } from '../common/MarkdownHtml';
 type SkillLoadPayload = {
   kind?: string;
   skill_id?: string;
@@ -194,7 +194,7 @@ export function renderLoadSkill(out: unknown): React.ReactNode {
           </div>
         )}
         {detail ? (
-          <div className="jx-md jx-tr-skillBody" dangerouslySetInnerHTML={{ __html: mdToHtml(detail) }} />
+          <MarkdownHtml className="jx-md jx-tr-skillBody" markdown={detail} />
         ) : (
           <div className="jx-tr-skillEmpty">{t('暂无详情')}</div>
         )}

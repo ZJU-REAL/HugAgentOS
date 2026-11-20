@@ -7,6 +7,7 @@ import { formatDateTime } from './utils/date';
 import { staggerStyle } from './utils/motionTokens';
 import { usePageConfig, usePageConfigPolling } from './hooks/usePageConfig';
 import { t } from './i18n';
+import { API_BASE } from './utils/apiBase';
 
 type ShareMessageItem = {
   role: 'user' | 'assistant';
@@ -26,7 +27,6 @@ type SharePayload = {
   items: ShareMessageItem[];
 };
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
 
 function formatShareExpiry(value?: string | null) {
   if (!value) return t('长期');

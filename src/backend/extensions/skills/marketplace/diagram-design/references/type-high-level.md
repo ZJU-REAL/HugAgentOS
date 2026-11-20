@@ -1,5 +1,7 @@
 # High-Level
 
+> **HugAgentOS 版本说明**：上游的 `verify-*.py` / `test-verify-*.py` / `lint-*.py` / `build-*-examples.py` 等维护脚本没有随技能导入，文中要求运行它们的步骤在本版本不可用；安装版只提供 `{baseDir}/scripts/self_check.py`、`export_*.py` 与 `*_extract.py`，需要自检时改用 `self_check.py` 并按文中的检查项人工核对。
+
 **Best for:** end-to-end data stack overviews — ingestion → storage → query → analytics → visualization — deployed on a container orchestrator (Kubernetes, ECS, Nomad). Combines a phase chevron banner, deployment boundary, orchestration bar, identity footer, and (optionally) a right-side vertical chevron strip for cross-cutting concerns (Orchestration, Security, Observability).
 
 This type is **parametric**. The diagram is fully determined by a small list of inputs (chevrons, sources, components, connections). The formulas below tell you exactly where every shape lands given those inputs — two generations from the same inputs must produce visually identical SVG.

@@ -239,3 +239,27 @@ async def test_incomplete_status_is_never_cached_as_finished(setup):
             language="bash", session_id=item.session_id, user_id="alice"), yield_time_ms=0)
     record = await binding.get(item.session_id)
     assert all(command.get("finished") is not True for command in record.commands.values())
+
+
+async def test_idle_client_is_closed_by_the_next_connect(setup, monkeypatch):
+    import features.evaluation.sandbox_provider.provider as module
+
+    provider, sandbox, _ = setup
+    item = await binding.create("alice", "box", 60)
+    other = await binding.create("alice", "other-box", 60)
+    await provider.get_file(item.session_id, "/a", user_id="alice")
+    monkeypatch.setattr(module, "_IDLE_CONNECTION_SECONDS", -1)
+    monkeypatch.setattr(module, "_SWEEP_INTERVAL_SECONDS", -1)
+    await provider.get_file(other.session_id, "/a", user_id="alice")
+    sandbox.close.assert_awaited_once()
+    assert [key[1] for key in provider._connections] == ["other-box"]
+
+
+async def test_forget_connections_leaves_the_binding_alone(setup):
+    provider, sandbox, _ = setup
+    item = await binding.create("alice", "box", 60)
+    await provider.get_file(item.session_id, "/a", user_id="alice")
+    await provider.forget_connections("box")
+    sandbox.close.assert_awaited_once()
+    assert not provider._connections
+    assert (await binding.get(item.session_id)).phase != "closed"

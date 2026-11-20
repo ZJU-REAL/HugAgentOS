@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
-from core.capabilities.catalog.api import get_enabled_ids, is_enabled
+from core.capabilities.catalog.api import get_enabled_ids
 from core.capabilities.catalog.runtime import get_runtime_catalog
 
 logger = logging.getLogger(__name__)
@@ -45,24 +45,12 @@ def enabled_skill_ids_from_context(context: Dict[str, Any]) -> Optional[List[str
     return _extract_ids_from_context(context, "enabled_skills")
 
 
-def enabled_agent_ids_from_context(context: Dict[str, Any]) -> Optional[List[str]]:
-    return _extract_ids_from_context(context, "enabled_agents")
-
-
 def enabled_mcp_ids_from_context(context: Dict[str, Any]) -> Optional[List[str]]:
     return _extract_ids_from_context(context, "enabled_mcps")
 
 
 def enabled_kb_ids_from_context(context: Dict[str, Any]) -> Optional[List[str]]:
     return _extract_ids_from_context(context, "enabled_kbs")
-
-
-def is_agent_route_enabled(route: str, context: Dict[str, Any]) -> bool:
-    """Check whether a given agent/sub-agent route is enabled for this request."""
-    ids = enabled_agent_ids_from_context(context)
-    if isinstance(ids, list):
-        return route in set(ids)
-    return is_enabled("agents", route)
 
 
 # ── Full resolution (static catalog + public DB capabilities + overrides) ───

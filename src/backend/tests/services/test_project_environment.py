@@ -8,12 +8,13 @@ def inventory_database(db_session, monkeypatch):
     from core.db import engine
     from sqlalchemy.orm import sessionmaker
 
-    monkeypatch.setattr(engine, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
+    share_factory(monkeypatch, sessionmaker(bind=db_session.get_bind()))
     monkeypatch.setattr(loader_factory_module, 'global_loader', None)
 
 
 from core.db.models import Project, UserShadow
 from core.projects.environment.service import ProjectEnvironmentService
+from tests.db_support import share_factory
 
 
 def test_empty_custom_environment_is_distinct_from_all_and_persists(db_session):

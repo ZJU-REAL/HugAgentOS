@@ -22,7 +22,6 @@ def conversation(db, peer="alice", bot="bot", kind="p2p"):
         conn = ChannelConnection(channel_id=bot, owner_user_id="owner", channel_type="lark",
             app_id=bot, display_name=bot, config={}, transport="long_conn", enabled=True)
         db.add(conn)
-        svc.identity.agent().config = {**svc.identity.agent().config, "channel_ids": [*(svc.identity.agent().config or {}).get("channel_ids", []), bot]}
         db.commit()
     msg = InboundMsg(channel_id=bot, channel_type="lark", text="hello",
         external_conversation_id=peer, chat_type=kind, sender_name=peer)

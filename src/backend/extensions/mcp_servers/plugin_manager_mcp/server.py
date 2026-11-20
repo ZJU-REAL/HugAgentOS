@@ -9,27 +9,16 @@ separate actions. Caller ownership comes from X-Current-User-Id.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+import asyncio
+from typing import Any, Dict
 
 from mcp.server.mcpserver import Context, MCPServer
 
+from extensions.mcp_servers._context import current_user
 from extensions.mcp_servers.plugin_manager_mcp import impl
 
 mcp = MCPServer("hugagent-plugin-manager")
 
-_HDR_USER = "x-current-user-id"
-
-def _hdr(ctx: Optional[Context], name: str) -> Optional[str]:
-    if ctx is None:
-        return None
-    try:
-        v = ctx.request_context.request.headers.get(name)
-        return v or None
-    except Exception:
-        return None
-
-def _user(ctx: Optional[Context]) -> str:
-    return _hdr(ctx, _HDR_USER) or ""
 
 @mcp.tool()
 async def search_plugin_market(
@@ -44,7 +33,7 @@ async def search_plugin_market(
     - category：按分类过滤（可选）。
     找到目标后**建议先用 get_plugin_info(slug)** 看看它会带进来什么，再决定装不装。
     """
-    return impl.search_plugin_market(user_id=_user(ctx), query=query, category=category)
+    return await asyncio.to_thread(impl.search_plugin_market, user_id=current_user(ctx), query=query, category=category)
 
 @mcp.tool()
 async def get_plugin_info(
@@ -57,7 +46,7 @@ async def get_plugin_info(
     用户问"这插件是干嘛的 / 装了会怎样 / 它安全吗"时也用它。
     返回里的 required_secrets 就是安装时要准备的凭据清单。
     """
-    return impl.get_plugin_info(user_id=_user(ctx), slug=slug)
+    return await asyncio.to_thread(impl.get_plugin_info, user_id=current_user(ctx), slug=slug)
 
 @mcp.tool()
 async def install_plugin_from_marketplace(
@@ -73,10 +62,10 @@ async def install_plugin_from_marketplace(
       不要自己编一个假的填进去。
     【铁律】未成功拿到 ✅ 前不要声称已安装。需要管理员开启"自助导入插件"权限。
     """
-    return impl.install_plugin(user_id=_user(ctx), slug=slug, secrets=secrets or {})
+    return await asyncio.to_thread(impl.install_plugin, user_id=current_user(ctx), slug=slug, secrets=secrets or {})
 
 from extensions.mcp_servers.management_registration import register
-register(mcp, "plugin-manager", _user)
+register(mcp, "plugin-manager", current_user)
 
 def main() -> None:
     from extensions.mcp_servers import _serve

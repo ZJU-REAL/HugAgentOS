@@ -181,6 +181,8 @@ async def test_scheduler_waits_for_explicit_stop_without_execution_deadline(live
         await asyncio.Event().wait()
 
     monkeypatch.setattr(runner, "astream_chat_workflow", workflow)
+    # Guard, not a no-op: the scheduler has no execution deadline. If one is ever added back
+    # under this name, the 0.3s value fires during the wait below and the test fails.
     monkeypatch.setattr(
         'orchestration.automations.automation_scheduler.TASK_EXECUTION_TIMEOUT_S',
         0.3,

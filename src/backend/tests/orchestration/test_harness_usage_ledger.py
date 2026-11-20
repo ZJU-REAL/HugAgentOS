@@ -6,7 +6,6 @@ from types import SimpleNamespace
 
 import core.chat.followups as chat_followups
 import pytest
-from core.db.engine import Base
 from core.harness.events import Event, EventSink
 from core.harness.hooks import HookBus
 from core.harness.usage import AttemptUsage, MemoryUsageRecorder, UsageAttempt
@@ -15,17 +14,12 @@ from core.llm.runtime.state import AgentRuntimeState
 from core.models.usage import instrument_model_usage, model_usage_scope, record_provider_failure
 from core.harness.ledger import DurableEventStore, HarnessUsageLedger
 from core.runs.journal import RunJournal
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from tests.db_support import file_engine, session_factory
 
 @pytest.fixture()
 def ledger_env(tmp_path):
-    engine = create_engine(
-        f"sqlite:///{tmp_path / 'harness-ledger.sqlite'}",
-        connect_args={"check_same_thread": False},
-    )
-    Base.metadata.create_all(engine)
-    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+    engine = file_engine(tmp_path / 'harness-ledger.sqlite')
+    sessions = session_factory(engine)
     RunJournal(sessions).accept(
         run_id="run-ledger",
         message_id="msg-ledger",

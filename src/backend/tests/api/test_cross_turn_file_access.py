@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import core.chat.context as chat_context
+from tests.db_support import share_factory
 
 # ── helpers ────────────────────────────────────────────────────────────────
 
@@ -131,9 +132,7 @@ def test_collect_historical_includes_user_uploaded(monkeypatch):
 
     import core.db.engine as engine_mod
 
-    monkeypatch.setattr(
-        engine_mod, "SessionLocal", lambda: _MockSession(artifacts=artifacts, messages=messages)
-    )
+    share_factory(monkeypatch, lambda: _MockSession(artifacts=artifacts, messages=messages))
 
     result = chat_context.collect_historical_attachments("chat_x", "user_1", set())
     assert [r["file_id"] for r in result] == ["ua_1", "ua_2"]
@@ -175,9 +174,7 @@ def test_collect_historical_includes_ai_generated_from_assistant_messages(monkey
 
     import core.db.engine as engine_mod
 
-    monkeypatch.setattr(
-        engine_mod, "SessionLocal", lambda: _MockSession(artifacts=artifacts, messages=messages)
-    )
+    share_factory(monkeypatch, lambda: _MockSession(artifacts=artifacts, messages=messages))
 
     result = chat_context.collect_historical_attachments("chat_x", "user_1", set())
     ids = [r["file_id"] for r in result]
@@ -210,9 +207,7 @@ def test_collect_historical_finds_imported_artifact_from_other_chat(monkeypatch)
 
     import core.db.engine as engine_mod
 
-    monkeypatch.setattr(
-        engine_mod, "SessionLocal", lambda: _MockSession(artifacts=artifacts, messages=messages)
-    )
+    share_factory(monkeypatch, lambda: _MockSession(artifacts=artifacts, messages=messages))
 
     result = chat_context.collect_historical_attachments("chat_x", "user_1", set())
     assert [r["file_id"] for r in result] == ["ai_imported_rpt"]
@@ -235,11 +230,7 @@ def test_collect_historical_infers_source_from_id_prefix(monkeypatch):
 
     import core.db.engine as engine_mod
 
-    monkeypatch.setattr(
-        engine_mod,
-        "SessionLocal",
-        lambda: _MockSession(artifacts=[art_user, art_ai], messages=messages),
-    )
+    share_factory(monkeypatch, lambda: _MockSession(artifacts=[art_user, art_ai], messages=messages))
 
     result = chat_context.collect_historical_attachments("chat_x", "user_1", set())
     by_id = {r["file_id"]: r["source"] for r in result}
@@ -257,9 +248,7 @@ def test_collect_historical_excludes_current_turn_file_ids(monkeypatch):
 
     import core.db.engine as engine_mod
 
-    monkeypatch.setattr(
-        engine_mod, "SessionLocal", lambda: _MockSession(artifacts=artifacts, messages=messages)
-    )
+    share_factory(monkeypatch, lambda: _MockSession(artifacts=artifacts, messages=messages))
 
     result = chat_context.collect_historical_attachments(
         "chat_x", "user_1", exclude_file_ids={"ua_1"}
@@ -283,9 +272,7 @@ def test_collect_historical_dedupes_across_messages(monkeypatch):
 
     import core.db.engine as engine_mod
 
-    monkeypatch.setattr(
-        engine_mod, "SessionLocal", lambda: _MockSession(artifacts=artifacts, messages=messages)
-    )
+    share_factory(monkeypatch, lambda: _MockSession(artifacts=artifacts, messages=messages))
 
     result = chat_context.collect_historical_attachments("chat_x", "user_1", set())
     assert [r["file_id"] for r in result] == ["ua_1", "ua_2"]
@@ -299,9 +286,7 @@ def test_collect_historical_marks_missing_artifact_as_deleted(monkeypatch):
 
     import core.db.engine as engine_mod
 
-    monkeypatch.setattr(
-        engine_mod, "SessionLocal", lambda: _MockSession(artifacts=[], messages=messages)
-    )
+    share_factory(monkeypatch, lambda: _MockSession(artifacts=[], messages=messages))
 
     result = chat_context.collect_historical_attachments("chat_x", "user_1", set())
     assert result[0]["deleted"] is True
@@ -316,9 +301,7 @@ def test_collect_historical_hides_foreign_user_artifact(monkeypatch):
 
     import core.db.engine as engine_mod
 
-    monkeypatch.setattr(
-        engine_mod, "SessionLocal", lambda: _MockSession(artifacts=artifacts, messages=messages)
-    )
+    share_factory(monkeypatch, lambda: _MockSession(artifacts=artifacts, messages=messages))
 
     result = chat_context.collect_historical_attachments("chat_x", "user_1", set())
     assert result[0]["deleted"] is True
@@ -335,7 +318,7 @@ def test_collect_historical_empty_inputs_returns_empty():
 def test_collect_historical_no_messages_returns_empty(monkeypatch):
     import core.db.engine as engine_mod
 
-    monkeypatch.setattr(engine_mod, "SessionLocal", lambda: _MockSession(artifacts=[], messages=[]))
+    share_factory(monkeypatch, lambda: _MockSession(artifacts=[], messages=[]))
     assert chat_context.collect_historical_attachments("chat_x", "user_1", set()) == []
 
 
@@ -352,9 +335,7 @@ def test_collect_historical_honors_soft_cap(monkeypatch):
 
     import core.db.engine as engine_mod
 
-    monkeypatch.setattr(
-        engine_mod, "SessionLocal", lambda: _MockSession(artifacts=artifacts, messages=messages)
-    )
+    share_factory(monkeypatch, lambda: _MockSession(artifacts=artifacts, messages=messages))
 
     result = chat_context.collect_historical_attachments("chat_x", "user_1", set())
     assert 0 < len(result) < 50

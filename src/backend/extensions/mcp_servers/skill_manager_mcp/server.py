@@ -9,27 +9,16 @@ separate actions. Caller ownership comes from X-Current-User-Id.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+import asyncio
+from typing import Any, Dict
 
 from mcp.server.mcpserver import Context, MCPServer
 
+from extensions.mcp_servers._context import current_user
 from extensions.mcp_servers.skill_manager_mcp import impl
 
 mcp = MCPServer("hugagent-skill-manager")
 
-_HDR_USER = "x-current-user-id"
-
-def _hdr(ctx: Optional[Context], name: str) -> Optional[str]:
-    if ctx is None:
-        return None
-    try:
-        v = ctx.request_context.request.headers.get(name)
-        return v or None
-    except Exception:
-        return None
-
-def _user(ctx: Optional[Context]) -> str:
-    return _hdr(ctx, _HDR_USER) or ""
 
 @mcp.tool()
 async def search_marketplace(
@@ -44,7 +33,7 @@ async def search_marketplace(
     - category：按分类过滤（可选）。
     找到目标后用 install_from_marketplace(slug) 安装。
     """
-    return impl.search_marketplace(user_id=_user(ctx), query=query, category=category)
+    return await asyncio.to_thread(impl.search_marketplace, user_id=current_user(ctx), query=query, category=category)
 
 @mcp.tool()
 async def install_from_marketplace(
@@ -59,7 +48,7 @@ async def install_from_marketplace(
     - secrets：按市场技能 required_secrets 的 key 传入凭据，例如 {"IMAGE_GEN_API_KEY":"..."}。
     【铁律】未成功拿到 ✅ 前不要声称已安装。需要管理员开启"自助添加技能"权限。
     """
-    return impl.install_from_marketplace(user_id=_user(ctx), slug=slug, secrets=secrets or {})
+    return await asyncio.to_thread(impl.install_from_marketplace, user_id=current_user(ctx), slug=slug, secrets=secrets or {})
 
 @mcp.tool()
 async def submit_to_marketplace(
@@ -78,12 +67,11 @@ async def submit_to_marketplace(
     - note：给审核管理员的说明（可选）。
     【说明】这是"申请"，不是直接上架；需管理员审核通过。需要"自助添加技能"权限。
     """
-    return impl.submit_to_marketplace(
-        user_id=_user(ctx), skill_id=skill_id, category=category, summary=summary, note=note
+    return await asyncio.to_thread(impl.submit_to_marketplace, user_id=current_user(ctx), skill_id=skill_id, category=category, summary=summary, note=note
     )
 
 from extensions.mcp_servers.management_registration import register
-register(mcp, "skill-manager", _user)
+register(mcp, "skill-manager", current_user)
 
 def main() -> None:
     from extensions.mcp_servers import _serve

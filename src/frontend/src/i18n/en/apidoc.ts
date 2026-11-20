@@ -14,8 +14,6 @@ export const APIDOC_DICT: Record<string, string> = {
   '默认：': 'Default:',
   '展开嵌套结构': 'Expand nested structure',
 
-  // ApiDocPanel — ParamGroup columns
-
   // ApiDocPanel — Tabs / detail
   '参数 ({n})': 'Parameters ({n})',
   '无参数': 'No parameters',
@@ -59,7 +57,6 @@ export const APIDOC_DICT: Record<string, string> = {
   '请选择接口查看详情': 'Select an endpoint to view details',
 
   // ApiDocApp
-  'HugAgentOS — 接口文档': 'HugAgentOS — API Docs',
   '返回 Config': 'Back to Config',
   '打开 Swagger': 'Open Swagger',
   '打开 ReDoc': 'Open ReDoc',

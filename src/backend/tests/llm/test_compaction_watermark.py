@@ -17,6 +17,7 @@ from core.llm.context import compaction as C
 from core.chat.service import ChatService
 from core.chat.compaction_types import CompactionCASConflict
 from sqlalchemy.orm import sessionmaker
+from tests.db_support import share_factory
 
 CHAT_ID = "chat_compaction_watermark"
 
@@ -193,9 +194,7 @@ def test_message_arriving_during_summary_stays_in_tail(db_session, monkeypatch):
     svc = _session(db_session)
     _message(svc, "m1", "user", "snapshot question")
     _message(svc, "m2", "assistant", "snapshot answer")
-    monkeypatch.setattr(
-        engine_mod, "SessionLocal", sessionmaker(bind=db_session.get_bind())
-    )
+    share_factory(monkeypatch, sessionmaker(bind=db_session.get_bind()))
     _keep_recent(monkeypatch, 0)
 
     async def summarize_then_insert(history, *, timeout):
@@ -260,9 +259,7 @@ def test_two_compactors_overlap_but_only_lease_holder_publishes(
 ):
     svc = _session(db_session)
     _message(svc, "m1", "user", "source")
-    monkeypatch.setattr(
-        engine_mod, "SessionLocal", sessionmaker(bind=db_session.get_bind())
-    )
+    share_factory(monkeypatch, sessionmaker(bind=db_session.get_bind()))
     _keep_recent(monkeypatch, 0)
     summarizing = asyncio.Event()
     finish = asyncio.Event()
@@ -336,9 +333,7 @@ def test_checkpoint_write_failure_is_explicit_and_emits_no_fake_notice(
 ):
     svc = _session(db_session)
     _message(svc, "m1", "user", "source")
-    monkeypatch.setattr(
-        engine_mod, "SessionLocal", sessionmaker(bind=db_session.get_bind())
-    )
+    share_factory(monkeypatch, sessionmaker(bind=db_session.get_bind()))
 
     async def fake_summary(history, *, timeout):
         return "summary"
@@ -405,9 +400,7 @@ def test_pre_turn_rechecks_authoritative_snapshot_before_summarizing(
 ):
     svc = _session(db_session)
     _message(svc, "m1", "user", "small authoritative history")
-    monkeypatch.setattr(
-        engine_mod, "SessionLocal", sessionmaker(bind=db_session.get_bind())
-    )
+    share_factory(monkeypatch, sessionmaker(bind=db_session.get_bind()))
     real = config_settings.settings
     cfg = dataclasses.replace(real.compaction, token_limit=100)
     monkeypatch.setattr(config_settings, "settings", dataclasses.replace(real, compaction=cfg))
@@ -441,9 +434,7 @@ def test_pre_turn_and_post_turn_store_the_same_budget_manifest_shape(
 ):
     svc = _session(db_session)
     _message(svc, "m1", "user", "question" * 100)
-    monkeypatch.setattr(
-        engine_mod, "SessionLocal", sessionmaker(bind=db_session.get_bind())
-    )
+    share_factory(monkeypatch, sessionmaker(bind=db_session.get_bind()))
     _keep_recent(monkeypatch, 0, token_limit=1)
 
     async def fake_summary(history, *, timeout):
@@ -498,9 +489,7 @@ def test_rolling_compaction_keeps_one_lineage_without_duplicate_or_loss(
     svc = _session(db_session)
     _message(svc, "m1", "user", "round-one-question")
     _message(svc, "m2", "assistant", "round-one-answer-round-one-answer")
-    monkeypatch.setattr(
-        engine_mod, "SessionLocal", sessionmaker(bind=db_session.get_bind())
-    )
+    share_factory(monkeypatch, sessionmaker(bind=db_session.get_bind()))
     # Ten tokens: round one keeps only its answer verbatim, round two keeps
     # question + answer, and the earlier summary joins the older region.
     _keep_recent(monkeypatch, 10)

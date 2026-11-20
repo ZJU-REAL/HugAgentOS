@@ -7,7 +7,7 @@ import os
 from typing import Any, Dict, List
 
 from features.knowledge.edition import get_accessible_local_kb_ids, is_shared_visibility
-from features.knowledge.edition import MAX_RETRIEVE_TOKENS, RETRIEVE_MAX_CONCURRENCY, RETRIEVE_REQUEST_TIMEOUT_SECONDS, RETRIEVE_TOTAL_TIMEOUT_SECONDS, DatasetRetrievalTimeoutError, DatasetRetrievalUnavailableError, list_external_datasets, retrieve_dataset_content, retrieve_dataset_content_async
+from features.knowledge.edition import MAX_RETRIEVE_TOKENS, RETRIEVE_MAX_CONCURRENCY, RETRIEVE_REQUEST_TIMEOUT_SECONDS, RETRIEVE_TOTAL_TIMEOUT_SECONDS, DatasetRetrievalTimeoutError, DatasetRetrievalUnavailableError, list_external_datasets, retrieve_dataset_content_async
 from extensions.mcp_servers.retrieve_dataset_content_mcp.local_impl import (
     LOCAL_RETRIEVE_STAGE_TIMEOUT_SECONDS,
     LOCAL_RETRIEVE_TOTAL_TIMEOUT_SECONDS,
@@ -77,7 +77,6 @@ def list_all_datasets(
     if is_enabled():
         public_items = list_external_datasets(
             allowed_dataset_ids=allowed_dataset_ids,
-            allowed_kb_ids=allowed_kb_ids,
             current_user_id=current_user_id,
         )
     else:
@@ -101,7 +100,6 @@ __all__ = [
     "RETRIEVE_TOTAL_TIMEOUT_SECONDS",
     "_build_runtime_local_kb_section",
     "list_all_datasets",
-    "retrieve_dataset_content",
     "retrieve_dataset_content_async",
     "retrieve_local_kb",
 ]

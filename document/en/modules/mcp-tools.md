@@ -2,7 +2,7 @@
 
 > Last updated: 2026-08-26
 
-HugAgentOS's tool ecosystem is built on [MCP (Model Context Protocol)](https://modelcontextprotocol.io): every category of external capability (internet search, web fetching, database queries, chart generation, ...) is an independent MCP server, all running inside a dedicated `mcp` container that the backend reaches over the streamable-http transport. This design has three payoffs:
+HugAgentOS's tool ecosystem is built on [MCP (Model Context Protocol)](https://modelcontextprotocol.io): every category of external capability (internet search, web fetching, database queries, ...) is an independent MCP server, all running inside a dedicated `mcp` container that the backend reaches over the streamable-http transport. This design has three payoffs:
 
 - **Server-level pluggability** — enabling/disabling a capability is one catalog entry or one toggle in the admin console, never a code change;
 - **Failure isolation** — a crashed tool process is restarted by the launcher without touching the backend;
@@ -24,7 +24,7 @@ must execute in separate rounds.
                        ┌──────────────────── mcp container (docker/Dockerfile.mcp) ──┐
                        │  extensions.mcp_servers._launcher (one child process per server)│
 ┌─────────┐  HTTP  ┌───┴────┐   :9100  retrieve_dataset_content (KB retrieval)│
-│ backend │───────▶│streama-│   :9101  query_database (data warehouse, EE)    │
+│ backend │───────▶│streama-│   :9101  reserved (retired NL2SQL MCP)          │
 │ (FastAPI│        │ble-http│   :9102  internet_search                        │
 │  agent) │        │        │   :9103  unified Industry Knowledge Center (EE)│
 └─────────┘        │        │   :9104  reserved (retired chart MCP)          │
@@ -33,6 +33,7 @@ must execute in separate rounds.
   mcp_pool.py)     └───┬────┘   :9108  automation_task (automation plugin)    │
                        │        9109–9111 reserved (former office MCPs)       │
                        │        :9112  skill_manager                          │
+                       │        :9118  database (one connector per data source, EE)│
                        └──────────────────────────────────────────────────────┘
 ```
 
@@ -51,19 +52,19 @@ The built-in registry, `src/backend/extensions/mcp_servers/registry.py`, declare
 | Server (directory) | Port | Tools | Edition |
 |---|---|---|---|
 | `retrieve_dataset_content_mcp` | 9100 | `retrieve_dataset_content` / `list_datasets` / `retrieve_local_kb` | Community CE |
-| `query_database_mcp` | 9101 | `query_database` | **Enterprise EE** |
 | `internet_search_mcp` | 9102 | `internet_search` | Community CE |
 | `ai_chain_information_mcp` | 9103 | 27 industry, enterprise, news, policy, report, patent, and technology tools | **Enterprise EE (Industry Knowledge Center plugin)** |
 | `web_fetch_mcp` | 9106 | `web_fetch` | Community CE |
 | `automation_task_mcp` | 9108 | `create_scheduled_task` / `list_scheduled_tasks` / `update_scheduled_task` etc. | Community CE (automation plugin) |
 | `skill_manager_mcp` | 9112 | `search_marketplace` / `install_from_marketplace` / `register_skill` / `list_my_skills` / `submit_to_marketplace` / `delete_skill` | Community CE |
+| `database_mcp` | 9118 | One `<prefix>__*` tool suite per data source (see database below) | **Enterprise EE** |
 
 > Edition boundaries follow the
 > [open-source and commercialization plan](../editions/overview.md). The
-> Industry Knowledge Center plugin and data-warehouse query depend on industry
-> data sources and are Enterprise-only. The CE derivation pipeline physically
-> removes the plugin's one self-contained MCP and 14 Skills through
-> `ce/manifest.yaml`. General-purpose tools ship in Community Edition.
+> Industry Knowledge Center plugin, which depends on industry data sources, and
+> the database tools are Enterprise-only. The CE derivation pipeline physically
+> removes the plugin's one self-contained MCP and 14 Skills, plus `database_mcp`
+> and `features/datasources`, through `ce/manifest.yaml`. General-purpose tools ship in Community Edition.
 
 ### retrieve_dataset_content — knowledge-base retrieval (CE)
 
@@ -74,10 +75,6 @@ The retrieval entry point for knowledge-base RAG; one server exposes three tools
 - **`retrieve_local_kb(kb_id, query, top_k)`**: retrieval against the platform's self-hosted private knowledge bases.
 
 It is the only **per-request** server: for each chat request the backend injects the allowed KB IDs, current user ID and reranker flag as **HTTP headers** (`X-Allowed-Dataset-Ids` / `X-Allowed-Kb-Ids` / `X-Current-User-Id` / `X-Reranker-Enabled`; see `core/llm/factory/build.py::_apply_runtime_kb_constraints`), and the server reads them from `ctx.request_context` to enforce multi-user isolation. See the [knowledge base module](knowledge-base.md).
-
-### query_database — data-warehouse query (Enterprise EE)
-
-`query_database(question, employee-id)`: passes the user's complete natural-language question as a whole to the intranet data-warehouse service, which performs question decomposition, multi-table joins and NL2SQL internally and returns verifiable, precise metric values (industrial added value, growth rates, total profit, etc.). The tool description ranks it as the **highest-priority data source for precise numeric questions**. It cannot run without the intranet warehouse, hence Enterprise-only.
 
 ### internet_search — web search (CE)
 
@@ -172,6 +169,21 @@ Lets the agent maintain the current user's automations from a conversation: `cre
 ### skill_manager — skill management (CE)
 
 Supports the capability center and skill-management plugins: `search_marketplace` searches the marketplace, `install_from_marketplace` installs a marketplace skill, `register_skill` registers a personal skill from an uploaded package, `list_my_skills` lists the current user's skills, `submit_to_marketplace` files a review submission, and `delete_skill` removes a personal skill. The service layer reuses skill permission checks and owner isolation in both CE and EE.
+
+### database — database tools, one MCP per data source (EE)
+
+Every data source an administrator adds under `/config` → **Database Tools** becomes its own MCP connector: an `admin_mcp_servers` row `db_<data source id>` (display name "数据库：<name>") pointing at the shared `database_mcp` process (9118), with an encrypted `X-Datasource-Id` header naming the data source. There is no master switch and no per-tool switch: enabling or disabling the data source enables or disables its connector, and deleting the data source deletes it. Only `features/datasources` writes these rows (startup reconcile plus every create/update/delete); migrations and catalog seeds never do. `database_mcp` talks to the databases directly through drivers (psycopg / pymysql / pymssql / oracledb thin mode / sqlite3, httpx for Elasticsearch), reads the data source configuration from the application database, and verifies the backend's signed invocation header.
+
+Tool names are `<prefix>__<tool>`, where the prefix is the data source id (lower-cased, `-` replaced by `_`, at most 40 characters):
+
+| Data source type | Tools |
+|---|---|
+| MySQL / MariaDB / PostgreSQL / SQL Server / Oracle / SQLite | `list_schemas`, `list_tables`, `describe_table`, `sample_rows`, `execute_sql`, `explain_query`, `get_business_context`; plus `execute_write_sql` when the read-only guard is off |
+| Elasticsearch (`database` is the allowed index pattern) | `list_indices`, `get_mappings`, `search`, `esql`, `get_document`, `get_business_context` |
+
+Read-only execution has two layers: sqlglot first rejects multi-statement and non-read SQL, then the statement runs in a read-only transaction where the database supports one (PostgreSQL, MySQL/MariaDB, Oracle; SQLite is opened with `mode=ro`) and is always rolled back. Statements time out after 30 s, results are capped at 1,000 rows (20 for samples) and about 60k characters. `execute_write_sql` appears only when the data source's read-only guard is off and is confirmed like a deletion: "ask each time" and "approve for me" both stop for the user, and only "fully open" and unattended entry points (scheduled tasks, IM channels) run it without asking. The platform writes this policy into the connector's `extra_config.tool_permissions`; it does not rely on the server's own tool annotations. `get_business_context` returns the business comments, value dictionaries and golden SQL from metadata governance.
+
+When an admin exposes only some tables under "Available tables", the listing tools show only those tables, and every table a statement names (apart from its own CTEs) must be selected. System catalogs (`information_schema`, `pg_catalog`, `sys`, Oracle `ALL_*` and so on), cross-database names, user-defined table functions and functions that run SQL given as a string (`query_to_xml`, `dbms_xmlgen`) are refused. Tables read inside views or functions cannot be seen in the statement; for full isolation, grant the database account access to the selected tables only.
 
 ## A uniform server layout
 
@@ -435,6 +447,7 @@ docker-compose up -d --build mcp
 | `src/backend/core/config/mcp_config.py` | Built-in server URL builder (http://mcp:NNNN/mcp/) |
 | `src/backend/core/config/catalog.json` | Capability catalog: MCP enable/disable seeds |
 | `src/backend/api/routes/v1/admin_mcp_servers.py` | Admin custom-MCP API |
+| `src/backend/features/datasources/` | Data source CRUD, `db_<id>` connector-row reconcile, driver engines, and tool definitions (EE) |
 | `src/backend/api/routes/v1/me_capabilities.py` | User self-service private MCP / skill API |
 | `src/backend/features/marketplace/api/mcp_marketplace.py` | User-facing MCP marketplace API |
 | `src/backend/features/marketplace/api/admin_mcp_marketplace.py` | Admin MCP marketplace and review API |

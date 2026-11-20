@@ -200,7 +200,7 @@ export function MySpaceImportModal({ draftKey, open, onClose, title }: Props) {
         </div>
       }
       className="jx-spaceImportModal"
-      destroyOnClose
+      destroyOnHidden
     >
       <div className="jx-spaceImportLayout">
         <div className="jx-spaceImportLeft">

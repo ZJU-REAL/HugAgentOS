@@ -102,7 +102,7 @@ type AnyColumn = Record<string, unknown> & {
   fixed?: unknown;
 };
 
-export interface UseResizableColumnsResult<C> {
+interface UseResizableColumnsResult<C> {
   columns: C[];
   components: typeof RESIZABLE_COMPONENTS;
   /** Extra props passed through to <Table> (currently only tableLayout:'fixed', ensuring dragging takes effect immediately). */

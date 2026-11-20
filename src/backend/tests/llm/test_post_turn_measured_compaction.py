@@ -14,6 +14,7 @@ from core.llm.context import compaction as C
 from core.llm.context import budget as budget
 from core.chat.compaction.coordinator import CompactionCoordinator
 from core.chat.service import ChatService
+from tests.db_support import share_factory
 
 INPUTS = {
     "system_prompt": "",
@@ -48,7 +49,7 @@ def test_measured_threshold_publishes_checkpoint_despite_lower_estimate(db_sessi
                 "extra_data": extra,
             }
         )
-    monkeypatch.setattr(engine_mod, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
+    share_factory(monkeypatch, sessionmaker(bind=db_session.get_bind()))
     cfg = dataclasses.replace(
         config_settings.settings.compaction, enabled=True, keep_recent_tokens=1
     )
@@ -164,7 +165,7 @@ def test_finalizing_covered_assistant_fences_only_mid_turn_checkpoint(
     assert current is None
     history = _load_history(svc, chat, repair=False)
     assert "after additional model step" in str(history)
-    monkeypatch.setattr(engine_mod, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
+    share_factory(monkeypatch, sessionmaker(bind=db_session.get_bind()))
     cfg = dataclasses.replace(
         config_settings.settings.compaction, enabled=True, keep_recent_tokens=1
     )

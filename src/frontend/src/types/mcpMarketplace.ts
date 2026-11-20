@@ -79,6 +79,8 @@ export interface McpMarketItem extends EditionMarketplaceItemFields {
   credentials_managed_by_admin: boolean;
   supports_admin_credentials: boolean;
   curated?: boolean;
+  /** Owning feature (e.g. "datasources"): edited there, not in the market editor. */
+  managed_by?: string | null;
   requires_user_credentials: boolean;
   tools: McpMarketTool[];
   tool_count: number;

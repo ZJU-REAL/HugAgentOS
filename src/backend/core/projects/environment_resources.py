@@ -91,13 +91,6 @@ def environment_resources(db, user_id):
     for item in resources["mcp_servers"]:
         graph["mcp_ids"].setdefault(item["id"], {**item, "dependencies": {}})
 
-    from core.capabilities.catalog.loader import DB_HIDDEN_SERVERS, DB_UMBRELLA_ID
-
-    if DB_UMBRELLA_ID in graph["mcp_ids"]:
-        graph["mcp_ids"][DB_UMBRELLA_ID]["dependencies"] = {
-            "mcp_ids": [m for m in sorted(DB_HIDDEN_SERVERS) if m in graph["mcp_ids"]]
-        }
-
     from core.capabilities.plugins.management import list_installed
 
     callable_plugins = {

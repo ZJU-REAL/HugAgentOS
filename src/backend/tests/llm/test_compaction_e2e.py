@@ -17,6 +17,7 @@ from core.db.models import ChatSession
 from core.llm.context import compaction as C
 from core.chat.compaction import service as S
 from core.chat.service import ChatService
+from tests.db_support import share_factory
 
 CHAT_ID = "chat_e2e"
 
@@ -37,7 +38,7 @@ def patched_sessionlocal(db_session, monkeypatch):
 
     import core.db.engine as engine
 
-    monkeypatch.setattr(engine, "SessionLocal", _fake_sessionlocal)
+    share_factory(monkeypatch, _fake_sessionlocal)
     real = config_settings.settings
     monkeypatch.setattr(
         config_settings,

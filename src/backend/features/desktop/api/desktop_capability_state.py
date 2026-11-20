@@ -1,10 +1,8 @@
-"""desktop capability state responsibilities."""
+"""Shared state of the desktop capability gateway routes: lazy upstream HTTP client, bearer scheme and header forwarding rules."""
 from __future__ import annotations
 from typing import Optional
 import httpx
-from fastapi import APIRouter
 from fastapi.security import HTTPBearer
-from features.desktop.gateway.observability import ObservedGatewayRoute
 
 
 

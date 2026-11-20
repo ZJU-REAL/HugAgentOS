@@ -20,11 +20,11 @@ export default function PromptConfigPage() {
       <Typography.Title level={3} style={{ margin: 0 }}>{t('提示词管理')}</Typography.Title>
       <Button href="/">{t('返回')}</Button>
     </Space>
-    {authorized ? <PromptsEditor token={token} fetchFn={promptFetch} /> : <Space direction="vertical" style={{ width: '100%', maxWidth: 480 }}>
-      <Alert type="info" showIcon message={t('使用当前管理员登录，或输入 Config Token 管理提示词。')} />
+    {authorized ? <PromptsEditor token={token} fetchFn={promptFetch} /> : <Space orientation="vertical" style={{ width: '100%', maxWidth: 480 }}>
+      <Alert type="info" showIcon title={t('使用当前管理员登录，或输入 Config Token 管理提示词。')} />
       <Input.Password value={token} onChange={e => setToken(e.target.value)} placeholder="Config Token" onPressEnter={enter} />
       <Button type="primary" loading={loading} onClick={enter}>{t('进入提示词管理')}</Button>
-      {error && <Alert type="error" showIcon message={error} />}
+      {error && <Alert type="error" showIcon title={error} />}
     </Space>}
   </main>;
 }

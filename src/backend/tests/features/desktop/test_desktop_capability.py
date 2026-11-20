@@ -28,6 +28,7 @@ from features.desktop.capability import security as security
 from features.desktop.bridge import client as bridge
 from core.capabilities.manifest_protocol import build_manifest, canonical_hash
 from sqlalchemy.orm import sessionmaker
+from tests.db_support import share_factory
 
 
 def _use_test_database(monkeypatch, db_session):
@@ -253,11 +254,7 @@ def test_bridge_account_switch_clears_previous_manifest(monkeypatch):
         'refresh_manifest_async',
         lambda force=False: refreshed.append(force),
     )
-    monkeypatch.setattr(
-        engine,
-        "SessionLocal",
-        lambda: (_ for _ in ()).throw(RuntimeError("database unavailable")),
-    )
+    share_factory(monkeypatch, lambda: (_ for _ in ()).throw(RuntimeError('database unavailable')))
 
     bridge_client.set_state("https://cloud-b.example", "token-b", 3600)
 

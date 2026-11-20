@@ -129,27 +129,46 @@ def _finish_failure(job_id: str, worker_id: str, error: Exception) -> Optional[s
     return message_id
 
 
+def _unsettled_terminal_message_ids(db) -> list[str]:
+    """Messages whose effects are all terminal but that lack a settlement row.
+
+    One set-based query: the settlement row itself is the completion marker, so
+    once history is repaired this returns nothing and startup does no per-message
+    work.
+    """
+    from sqlalchemy import and_, exists
+    from sqlalchemy.orm import aliased
+
+    settlement = aliased(MemoryOutbox)
+    effect = aliased(MemoryOutbox)
+    has_settlement = exists().where(
+        and_(settlement.message_id == MemoryOutbox.message_id, settlement.job_kind == "settlement")
+    )
+    has_open_effect = exists().where(
+        and_(
+            effect.message_id == MemoryOutbox.message_id,
+            effect.job_kind != "settlement",
+            effect.status.notin_(sorted(common._TERMINAL)),
+        )
+    )
+    return [
+        value
+        for (value,) in db.query(MemoryOutbox.message_id)
+        .filter(MemoryOutbox.job_kind == "pipeline", ~has_settlement, ~has_open_effect)
+        .distinct()
+        .all()
+    ]
+
+
 def reconcile_settlement_jobs() -> int:
     """Repair terminal historical rows that lack a settlement receipt."""
 
     with common.SessionLocal() as db:
-        message_ids = [
-            value
-            for (value,) in db.query(MemoryOutbox.message_id)
-            .filter(MemoryOutbox.job_kind == "pipeline")
-            .distinct()
-            .all()
-        ]
+        message_ids = _unsettled_terminal_message_ids(db)
     created = 0
     for message_id in message_ids:
         with common.SessionLocal() as db:
-            existed = (
-                db.query(MemoryOutbox.id)
-                .filter_by(message_id=message_id, job_kind="settlement")
-                .first()
-                is not None
-            )
             row_id = _enqueue_settlement_if_ready(db, message_id, common._utcnow())
             db.commit()
-            created += int(row_id is not None and not existed)
+            created += int(row_id is not None)
     return created

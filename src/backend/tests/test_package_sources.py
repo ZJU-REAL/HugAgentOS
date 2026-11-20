@@ -1,5 +1,6 @@
 """CLI composes package providers before installing default or selected plugins."""
 from unittest.mock import Mock
+from tests.db_support import share_factory
 
 
 def test_cli_install_initializes_package_sources(monkeypatch):
@@ -10,7 +11,7 @@ def test_cli_install_initializes_package_sources(monkeypatch):
     monkeypatch.setattr(package_sources.registration_state(), 'sources', {})
     monkeypatch.setattr(package_sources.registration_state(), 'upgrade_policy', None)
     db = Mock()
-    monkeypatch.setattr(engine, "SessionLocal", lambda: db)
+    share_factory(monkeypatch, lambda: db)
     seen = []
     def install(session, slug, **kwargs):
         assert session is db

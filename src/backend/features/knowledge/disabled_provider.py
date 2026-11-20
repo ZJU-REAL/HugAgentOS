@@ -45,6 +45,12 @@ def open_original_document(*args, **kwargs):
     return None
 
 
+def list_document_chunks(dataset_id: str, document_id: str, *, page: int = 1, page_size: int = 20) -> dict:
+    from core.infra.exceptions import ResourceNotFoundError
+
+    raise ResourceNotFoundError(resource_type="kb_document", resource_id=document_id)
+
+
 def get_allowed_collection_ids(*args, **kwargs):
     return None
 
@@ -75,6 +81,7 @@ __all__ = [
     "get_collections_async",
     "get_document_detail",
     "open_original_document",
+    "list_document_chunks",
     "get_provider_cache_identity",
     "get_provider_name",
     "is_enabled",

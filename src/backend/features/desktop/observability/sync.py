@@ -18,7 +18,7 @@ from core.db.models import (
     ToolCallLog,
     UserShadow,
 )
-from features.desktop.models import DesktopOutbox, utcnow
+from features.desktop.models import DesktopOutbox, utc_now_iso
 from features.desktop.observability.projection import FIELDS, insert_for, key, public_payload
 from sqlalchemy import event, func, or_, select, update
 
@@ -77,7 +77,7 @@ def enqueue(db, identity, local_user_id, kind, oid, *, deleted=False, initial=Fa
         pending=True,
         deleted=deleted,
         digest="",
-        updated_at=utcnow(),
+        updated_at=utc_now_iso(),
     )
     stmt = insert_for(db, DesktopOutbox).values(**values)
     if initial:
@@ -89,7 +89,7 @@ def enqueue(db, identity, local_user_id, kind, oid, *, deleted=False, initial=Fa
                 "revision": DesktopOutbox.revision + 1,
                 "pending": True,
                 "deleted": deleted,
-                "updated_at": utcnow(),
+                "updated_at": utc_now_iso(),
             },
         )
     db.execute(stmt)

@@ -6,11 +6,10 @@ Phase 2 (execute):  Steps are executed sequentially, each with its own agent.
 
 from __future__ import annotations
 from core.llm import prompt_rendering as prompt_rendering_module
-from core.llm import prompt_versions as prompt_versions_module
 from core.harness import log_context
 from core.harness import log_writer
 
-from core.db.threads import run_in_session
+from core.db.threads import run_db, run_in_session
 import asyncio
 import json
 import logging
@@ -153,35 +152,19 @@ def _resolve_plugin_capabilities(
 
 
 def _load_plan_prompt(available_tools_desc: str = "（暂无工具信息）") -> str:
-    """Load and render the plan-mode system prompt.
+    """Load and render the plan-mode system prompt (reads the database and disk).
 
     Resolution order:
     1. Active "plan_mode" version in the Config version-management pool
-    2. Legacy: active "system" version's part "system/90_plan_mode"
-       (pre-migration fallback)
-    3. Filesystem file prompts/prompt_text/plan_mode/plan_mode.system.md
-    4. Hardcoded minimal fallback
+    2. Filesystem file prompts/prompt_text/plan_mode/plan_mode.system.md
+    3. Hardcoded minimal fallback
     """
     template: Optional[str] = None
 
     try:
-        from core.llm import prompt_versions as pvs
-
         rendered = prompt_rendering_module.render_active_prompt("plan_mode")
         if rendered and rendered.strip():
             template = rendered
-        else:
-            # Legacy path: some system versions may still carry system/90_plan_mode
-            av = prompt_versions_module.get_active_version("system")
-            if av:
-                for p in av.get("parts") or []:
-                    if (p.get("part_id") or "").strip() == "system/90_plan_mode" and p.get(
-                        "is_enabled", True
-                    ):
-                        content = p.get("content") or ""
-                        if content.strip():
-                            template = content
-                            break
     except Exception as exc:
         logger.debug("plan_mode: prompt_version_service miss (%s)", exc)
 
@@ -445,7 +428,7 @@ async def astream_generate_plan(
     tools_desc = _build_tools_description(
         enabled_mcp_ids, enabled_skill_ids, visible_agents, plugins
     )
-    system_prompt = _load_plan_prompt(tools_desc)
+    system_prompt = await run_db(_load_plan_prompt, tools_desc)
 
     try:
         # ``enabled_skill_ids=[]`` keeps the factory from falling back to all
@@ -801,11 +784,11 @@ async def astream_execute_plan(
             return list(step_list) if step_list else None
         return list(global_list)
 
-    def _cancellation_requested() -> bool:
+    async def _cancellation_requested() -> bool:
         if not run_id:
             return False
         try:
-            return is_run_cancelled(run_id)
+            return await run_db(is_run_cancelled, run_id)
         except Exception:
             return False
 
@@ -821,7 +804,7 @@ async def astream_execute_plan(
             # Re-read the plan's status to check for cancellation
             if (
                 await run_in_session(_plan_status, plan_id) == "cancelled"
-                or _cancellation_requested()
+                or await _cancellation_requested()
             ):
                 cancelled = True
                 await run_in_session(_update_step, step.step_id, status="skipped")
@@ -933,7 +916,7 @@ async def astream_execute_plan(
                 # ── Direct agent.reply() with timeout + heartbeats ──
                 from core.llm.runtime.message_compat import session_to_msgs
 
-                agent.state.context.extend(session_to_msgs(prepared_history))
+                agent.state.context.extend(await run_db(session_to_msgs, prepared_history))
 
                 # Inject file context (content must be a list of blocks).
                 file_context = _build_file_context(uploaded_files or [])
@@ -982,7 +965,7 @@ async def astream_execute_plan(
                                 timeout=15,
                             )
                         except asyncio.TimeoutError:
-                            if _cancellation_requested():
+                            if await _cancellation_requested():
                                 logger.warning(
                                     "[plan-exec] step %d cancel requested; cancelling reply_task",
                                     step.step_order,
@@ -1408,47 +1391,14 @@ async def astream_execute_plan(
         )
         yield {"type": "plan_error", "plan_id": plan_id, "error": str(exc)}
     finally:
-        # Now that SSE stream is done, safely terminate all MCP processes.
-        _terminate_mcp_processes(_all_mcp_clients)
+        # The stream is done: close every MCP client in the task that opened it.
+        try:
+            await close_clients(_all_mcp_clients)
+        except Exception as exc:  # noqa: BLE001 - cleanup must not mask the plan outcome
+            logger.debug("plan_mode: MCP client close failed (%s)", exc)
         _all_mcp_clients.clear()
         try:
             _log_ctx.__exit__(None, None, None)
-        except Exception:
-            pass
-
-
-def _terminate_mcp_processes(mcp_clients: list) -> None:
-    """Kill MCP subprocess PIDs and neutralize async cleanup references.
-
-    The MCP StdIOStatefulClient uses an AsyncExitStack that holds async
-    generators (stdio_client) with anyio cancel scopes.  If these objects
-    are garbage-collected from a different asyncio Task than the one that
-    created them, anyio raises 'Attempted to exit cancel scope in a
-    different task' which crashes the ASGI SSE response.
-
-    Fix: terminate the subprocess, then clear the AsyncExitStack's internal
-    callback deque so GC won't trigger the async generator cleanup.
-    """
-    for client in mcp_clients:
-        try:
-            proc = getattr(client, "_process", None) or getattr(client, "process", None)
-            if proc is not None and getattr(proc, "returncode", None) is None:
-                proc.terminate()
-        except Exception:
-            pass
-        # Neutralize ALL async references to prevent GC-triggered cancel
-        # scope crash.  The client holds:
-        #   client.client  → stdio_client async generator (has cancel scope)
-        #   client.stack   → AsyncExitStack (holds generator's __aexit__)
-        #   client.session → ClientSession
-        try:
-            stack = getattr(client, "stack", None)
-            if stack is not None and hasattr(stack, "_exit_callbacks"):
-                stack._exit_callbacks.clear()
-            client.stack = None
-            client.session = None
-            client.client = None  # the async generator itself
-            client.is_connected = False
         except Exception:
             pass
 

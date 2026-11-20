@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 #: 调用方没给 limit 时一页多少条。这是默认页长、不是上限：调用方可以调大、可以翻页，
 #: 也可以填 0 表示一次要全部。
+# The scan script runs inside the sandbox; read its source once.
+_GLOB_SCAN_SOURCE = Path(__file__).with_name("glob_scan.py").read_text()
+
 DEFAULT_GLOB_PAGE_SIZE = 100
 
 
@@ -63,9 +66,8 @@ def register_glob(
         # /myspace → /workspace/myspace/<uid>
         path = to_physical_path(path, user_id, session_id=_sess, scope=scope)
 
-        source = Path(__file__).with_name("glob_scan.py").read_text()
         args = json.dumps({"root": path, "pattern": pattern, "limit": page_size, "cursor": cursor})
-        script = "python3 -c " + shell_quote(source) + " " + shell_quote(args)
+        script = "python3 -c " + shell_quote(_GLOB_SCAN_SOURCE) + " " + shell_quote(args)
 
         exit_code, stdout, stderr = await sandbox_exec_bash(
             script,

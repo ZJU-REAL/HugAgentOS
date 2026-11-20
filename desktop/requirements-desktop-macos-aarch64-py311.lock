@@ -1,6 +1,6 @@
 # This file is generated. Do not edit it by hand.
 # Regenerate with: npm --prefix desktop run lock:desktop
-# input-sha256: 319f56df510e8e9673685efa00f2a4ac4fb5b2bb2cc43f9a7ad8f626994f38f7
+# input-sha256: fcc39ec8e54a24572c6195c6613c7a511d99ecaec4efaa248030f9fb065a36ff
 # Target: CPython 3.11 on macOS Apple Silicon
 agentscope @ https://github.com/agentscope-ai/agentscope/archive/ed357feb78a45ff02df155bb5610eab9bf543832.tar.gz
     # via -r desktop/requirements-desktop.txt
@@ -185,7 +185,6 @@ httpx==0.28.1
     #   ollama
     #   openai
     #   qdrant-client
-    #   tavily-python
 httpx-sse==0.4.3
     # via dashscope
 httpx2==2.16.0
@@ -267,7 +266,7 @@ mcp-types==2.3.0
     # via mcp
 mdurl==0.1.2
     # via markdown-it-py
-mem0ai==2.0.14
+mem0ai==2.2.1
     # via -r desktop/requirements-desktop.txt
 milvus-lite==3.2.2
     # via
@@ -494,7 +493,6 @@ requests==2.34.2
     #   opentelemetry-exporter-otlp-proto-http
     #   posthog
     #   requests-toolbelt
-    #   tavily-python
     #   tiktoken
 requests-toolbelt==1.0.0
     # via lark-oapi
@@ -553,14 +551,10 @@ sympy==1.14.0
     # via onnxruntime
 tabulate==0.10.0
     # via -r desktop/requirements-desktop.txt
-tavily-python==0.7.27
-    # via -r desktop/requirements-desktop.txt
 tenacity==9.1.4
     # via google-genai
 tiktoken==0.13.0
-    # via
-    #   litellm
-    #   tavily-python
+    # via litellm
 tokenizers==0.23.1
     # via litellm
 tqdm==4.70.0

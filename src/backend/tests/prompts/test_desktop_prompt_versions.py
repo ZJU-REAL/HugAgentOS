@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from core.db.models import ContentBlock
 from core.llm import prompt_storage as pvs
 from prompts.desktop_templates import render_desktop_part, desktop_version
+from tests.db_support import share_factory
 
 @pytest.fixture
 def db(monkeypatch):
@@ -17,7 +18,7 @@ def db(monkeypatch):
     prompt_storage_module.invalidate_cache()
     with Session(engine) as session:
         monkeypatch.setattr(pvs, "SessionLocal", lambda: Session(engine))
-        monkeypatch.setattr("core.db.engine.SessionLocal", lambda: Session(engine))
+        share_factory(monkeypatch, lambda: Session(engine))
         yield session
     prompt_storage_module.invalidate_cache()
     engine.dispose()

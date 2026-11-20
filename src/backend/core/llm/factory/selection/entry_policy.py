@@ -6,6 +6,7 @@ from typing import List
 
 from core.llm.factory.models import RequiredCapabilities, StickyCapabilities
 from core.llm.factory.request import AgentRequest
+from core.db.threads import run_db
 
 
 async def entry_policy(request: AgentRequest):
@@ -121,7 +122,7 @@ async def entry_policy(request: AgentRequest):
 
     from core.sandbox.permissions.approval import resolve_approval_mode
 
-    request.approval_mode = resolve_approval_mode(
+    request.approval_mode = await run_db(resolve_approval_mode,
         request.approval_mode, user_id=request.current_user_id
     )
 

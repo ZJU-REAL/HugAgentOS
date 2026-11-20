@@ -1,12 +1,10 @@
 """Desktop installation indexes and durable observation delivery records."""
-from core.db.utc_datetime import UTCDateTime
-from core.infra.time import utc_now
-from datetime import datetime
+from sqlalchemy import JSON, BigInteger, Boolean, Column, Index, Integer, String, Text
+
 from core.db.engine import Base
 from core.db.models import JSONType
-from sqlalchemy import Boolean, Column, Index, Integer, String, Text
-from datetime import datetime, timezone
-from sqlalchemy import JSON, BigInteger, Boolean, Column, Index, Integer, String, Text
+from core.db.utc_datetime import UTCDateTime
+from core.infra.time import utc_now
 
 
 class DeviceCapabilityInstallation(Base):
@@ -94,8 +92,9 @@ class DeviceCapabilityComponent(Base):
         Index("idx_dev_cap_comp_component", "component_install_id"),
     )
 
-def utcnow():
-    return datetime.now(timezone.utc).isoformat()
+def utc_now_iso() -> str:
+    """Current UTC time as an ISO-8601 string (the desktop sync tables store timestamps as text)."""
+    return utc_now().isoformat()
 
 class DesktopOutbox(Base):
     __tablename__ = "desktop_observability_outbox"
@@ -110,7 +109,7 @@ class DesktopOutbox(Base):
     pending = Column(Boolean, nullable=False, default=True)
     deleted = Column(Boolean, nullable=False, default=False)
     digest = Column(String(64), nullable=False, default="")
-    updated_at = Column(String(40), nullable=False, default=utcnow)
+    updated_at = Column(String(40), nullable=False, default=utc_now_iso)
     __table_args__ = (
         Index("idx_desktop_outbox_pending", "cloud_base", "subject", "device_id", "pending"),
     )
@@ -127,7 +126,7 @@ class DesktopRecord(Base):
     run_id = Column(String(128), nullable=False, default="")
     observation = Column(String(16), nullable=False, default="desktop")
     payload = Column(JSON, nullable=False)
-    received_at = Column(String(40), nullable=False, default=utcnow)
+    received_at = Column(String(40), nullable=False, default=utc_now_iso)
     __table_args__ = (
         Index("idx_desktop_records_identity", "kind", "observation", "user_id", "device_id", "object_id", unique=True),
         Index("idx_desktop_records_user_kind", "user_id", "kind", "received_at"),
@@ -139,7 +138,7 @@ class DesktopSyncDevice(Base):
     id = Column(String(64), primary_key=True)
     user_id = Column(String(64), nullable=False)
     device_id = Column(String(128), nullable=False)
-    last_seen = Column(String(40), nullable=False, default=utcnow)
+    last_seen = Column(String(40), nullable=False, default=utc_now_iso)
     pending = Column(Integer, nullable=False, default=0)
     capture_errors = Column(Integer, nullable=False, default=0)
     reconciling = Column(Boolean, nullable=False, default=False)

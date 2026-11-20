@@ -22,7 +22,6 @@ export const CANVAS_EN: Record<string, string> = {
   '{app}（默认）': '{app} (default)',
   '正在读取关联应用…': 'Loading applications…',
   '重新读取关联应用': 'Retry loading applications',
-  '请输入有效的网页地址': 'Enter a valid web address',
   '打开失败': 'Unable to open',
   '新标签页': 'New tab',
   '网页地址': 'Web address',
@@ -65,7 +64,6 @@ export const CANVAS_EN: Record<string, string> = {
   // ── Canvas selection → chat ──────────────────────────────────────────
   '引用到对话': 'Quote in chat',
   '解释': 'Explain',
-  '翻译#selection': 'Translate',
   '解释这段内容': 'Explain this passage',
   '改写这段内容，让表达更清晰流畅': 'Rewrite this passage so it reads more clearly',
   '翻译这段内容：中文译成英文，其他语言译成中文': 'Translate this passage: Chinese into English, any other language into Chinese',

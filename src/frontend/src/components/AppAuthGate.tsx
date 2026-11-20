@@ -30,7 +30,7 @@ export function AppAuthGate({ children }: { children: ReactNode }) {
         title={t('修改默认密码')}
         footer={null}
         closable={false}
-        maskClosable={false}
+        mask={{ closable: false }}
         keyboard={false}
         width={480}
       >

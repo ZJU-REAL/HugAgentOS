@@ -1,3 +1,7 @@
+# S3 space-mount sidecar image (s3fs + docker/space-mount.py).
+# Not built by docker-compose.yml: the Kubernetes deployment references it through
+# OPENSANDBOX_SPACE_MOUNT_IMAGE (deploy_kit/kubernetes/space_mounts.py), so the image
+# is built and pushed separately for Kubernetes deployments.
 FROM python:3.12-slim-bookworm
 RUN apt-get update && apt-get install -y --no-install-recommends s3fs fuse ca-certificates && rm -rf /var/lib/apt/lists/* && echo user_allow_other >> /etc/fuse.conf
 COPY docker/space-mount.py /opt/space-mount.py

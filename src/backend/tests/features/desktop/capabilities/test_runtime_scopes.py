@@ -15,6 +15,7 @@ from features.desktop.bridge import skills as cloud_skills
 from core.capabilities.manifest_protocol import skill_content_hash
 from tests.features.desktop.capabilities.test_runtime_recovery import _zip, durable_index, state
 from tests.db_support import share_session
+from tests.db_support import share_factory
 
 
 @pytest.fixture
@@ -371,7 +372,7 @@ async def test_recovery_adapter_executes_proven_root_but_never_rebuilds_child(se
             [],
         )
 
-    monkeypatch.setattr("core.db.engine.SessionLocal", Db)
+    share_factory(monkeypatch, Db)
     monkeypatch.setattr("core.llm.factory.create_agent_executor", create)
     intent = SimpleNamespace(
         run_id="root-run",

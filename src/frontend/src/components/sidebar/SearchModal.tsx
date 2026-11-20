@@ -289,7 +289,7 @@ export function SearchModal({ onNewChat, onSelectChat, onSelectSearchResult }: S
       footer={null}
       closable={false}
       width={640}
-      maskClosable
+      mask={{ closable: true }}
       destroyOnHidden
       className="jx-searchModal"
       // Focus only after the enter transition finishes (replacing the original 80ms setTimeout magic number), to avoid focus stealing the transition
@@ -314,7 +314,7 @@ export function SearchModal({ onNewChat, onSelectChat, onSelectSearchResult }: S
             }
           }}
         />
-        <span className="jx-searchModalKbd" aria-label="快捷键">⌘K</span>
+        <span className="jx-searchModalKbd" aria-label={t('快捷键')}>⌘K</span>
         <button
           type="button"
           className="jx-searchModalClose"
@@ -333,7 +333,7 @@ export function SearchModal({ onNewChat, onSelectChat, onSelectSearchResult }: S
           value={historyTimeFilter}
           onChange={(v) => setHistoryTimeFilter(v as HistoryTimeFilter)}
           options={TIME_OPTIONS}
-          popupClassName="jx-searchModalFilterPopup"
+          classNames={{ popup: { root: "jx-searchModalFilterPopup" } }}
           className="jx-searchModalFilterSelect"
           popupMatchSelectWidth={false}
         />
@@ -345,7 +345,7 @@ export function SearchModal({ onNewChat, onSelectChat, onSelectSearchResult }: S
           value={historyTopicFilter}
           onChange={(v) => setHistoryTopicFilter(v)}
           options={TYPE_OPTIONS}
-          popupClassName="jx-searchModalFilterPopup"
+          classNames={{ popup: { root: "jx-searchModalFilterPopup" } }}
           className="jx-searchModalFilterSelect"
           popupMatchSelectWidth={false}
         />

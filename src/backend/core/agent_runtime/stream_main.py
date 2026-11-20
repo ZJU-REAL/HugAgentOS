@@ -74,9 +74,7 @@ async def stream_main(turn: MainTurn):
                     yield {
                         "type": "tool_call_start",
                         "tool_name": tool_name,
-                        "tool_display_name": display_names.TOOL_DISPLAY_NAMES.get(
-                            tool_name, tool_name
-                        ),
+                        "tool_display_name": display_names.tool_display_name(tool_name),
                         "tool_id": payload.get("id", ""),
                     }
 
@@ -142,7 +140,7 @@ async def stream_main(turn: MainTurn):
                 display_name = (
                     "加载技能"
                     if is_skill_load
-                    else display_names.TOOL_DISPLAY_NAMES.get(tool_name, tool_name)
+                    else display_names.tool_display_name(tool_name)
                 )
                 safe_args = tool_args if isinstance(tool_args, dict) else {}
                 turn.ontology_trace.append(

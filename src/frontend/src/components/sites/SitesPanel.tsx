@@ -250,9 +250,9 @@ export function SitesPanel() {
           placeholder={t('搜索站点或 MCP 服务')}
         />
 
-        {siteError && <Alert type="error" showIcon message={siteError}
+        {siteError && <Alert type="error" showIcon title={siteError}
           action={<Button onClick={() => void reload()}>{t('重试')}</Button>} />}
-        {applications.error && <Alert type="error" showIcon message={applications.error}
+        {applications.error && <Alert type="error" showIcon title={applications.error}
           action={<Button onClick={() => void applications.reload()}>{t('重试')}</Button>} />}
         {showSkeleton ? <Skeleton active paragraph={{ rows: 3 }} /> : pending ? <div aria-busy="true" /> : empty ? (
           <Empty

@@ -98,7 +98,7 @@ CI 不缓存 `desktop/generated`，而且运行时构建不可复现（macOS 签
 - **Windows**：updater 以 `/UPDATE` 调用 NSIS，不会触发卸载钩子；运行时在 `%LOCALAPPDATA%` 下，不受影响。
   小包不要用于手动安装或软件分发，文件名和下载页都要区分。
 - **macOS**：运行时随签名一起归档；reqwest 写入的文件不带 quarantine。需要实测下载后的 LibreOffice / OfficeCLI 能正常启动。
-- **Linux**：只给 AppImage 打小包。UOS deb 与 linux-aarch64 首期保持完整包。
+- **Linux**：只给 AppImage 打小包。UOS deb 首期保持完整包；后续已在 `desktop-uos` 中按同一设计实现小更新包（见 desktop-uos/README.md）。
 
 ## 上线
 不需要过渡版本：获取运行时的逻辑在新壳里，旧客户端只负责下载和安装小包。

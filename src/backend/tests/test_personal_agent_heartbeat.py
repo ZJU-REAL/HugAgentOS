@@ -17,6 +17,7 @@ from personal_agent.scheduling import schedules
 from personal_agent.scheduling.schedules import update_timed as update_config
 from tests.test_personal_agent import personal_agent_on  # noqa: F401  (module on, user permitted)
 from tests.test_personal_agent_routing import claim, end, prepared, result, scripted, sessions, tools_for, turn  # noqa: F401
+from tests.db_support import share_factory
 
 CHECKLIST = "# HEARTBEAT.md\n\n- 有等待批准超过 2 小时的任务时提醒我\n"
 # The untouched template of the older heartbeat: a heading and a comment, no items.
@@ -116,13 +117,13 @@ def agent_row(db, uid="owner"):
 # ---------------------------------------------------------------- settings and the list
 
 def test_settings_are_validated_and_merged(beats):
-    current = {"channel_ids": ["bot"], "heartbeat": {"enabled": False, "stats": {"quiet": 3}, "next_run": 5.0}}
+    current = {"heartbeat": {"enabled": False, "stats": {"quiet": 3}, "next_run": 5.0}}
     for bad in ({"unknown": 1}, {"next_run": 1}, {"active_hours": {"start": "25:00", "end": "08:00"}}, {"active_hours": {"start": "08:00"}},
                 {"active_hours": {"start": "08:00", "end": "08:00"}}, {"channel_id": "other"}, {"proactive": {}}, {"told": []}):
         with pytest.raises(ValueError): heartbeat.validate(bad, current)
     now = 1_000_000.0
     # The switch and the interval of older clients are accepted and not stored.
-    merged = heartbeat.validate({"enabled": True, "every_minutes": 15, "channel_id": "bot"}, current, now)
+    merged = heartbeat.validate({"enabled": True, "every_minutes": 15, "channel_id": "bot"}, current, now, channels={"bot"})
     assert merged["channel_id"] == "bot" and merged["stats"] == {"quiet": 3} and merged["next_run"] == 5.0
     assert merged["enabled"] is False and "every_minutes" not in merged
     assert heartbeat.validate({"channel_id": ""}, {**current, "heartbeat": merged})["channel_id"] is None
@@ -1059,7 +1060,7 @@ def test_the_weekly_audit_takes_one_evening_and_counts_what_the_leads_missed(bea
     days = {heartbeat.audit_day("pa_" + str(n)) for n in range(60)}
     assert days == {0, 1, 2, 3, 4} and heartbeat.audit_day("pa_x") == heartbeat.audit_day("pa_x")
     monkeypatch.setattr(heartbeat, "SessionLocal", factory)
-    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
+    share_factory(monkeypatch, factory)
     monkeypatch.setenv("PERSONAL_AGENT_LOCAL_VOLUME_ROOT", str(beats["workspace"].parent.parent))
     monkeypatch.setattr(heartbeat, "jitter", lambda agent_id: 0)
     monkeypatch.setattr(proactive_probe, "mail_account", lambda db, agent: None)
@@ -1701,9 +1702,15 @@ async def test_summaries_and_scheduled_results_go_to_the_owners_direct_chat_only
     # A private message from anyone not listed never receives the owner's alerts.
     stranger = {**direct, "msg": {"text": "hi", "chat_type": "p2p", "sender_id": "mallory"}, "owner": False,
                 "sender_keys": ["id:mallory"]}
+    from integrations.channels.models import ChannelConnection
     with factory() as db:
         assert home_origin(db, agent_row(db).chat_id) is None
-        update_config(db, "owner", lambda c: c.update(channel_ids=["bot", "bot2"], channel_allowed={
+        # Hugo answers every bot its owner bound, with nothing else to set up.
+        for ident, kind in (("bot", "lark"), ("bot2", "wecom")):
+            db.add(ChannelConnection(channel_id=ident, owner_user_id="owner", channel_type=kind, app_id=ident,
+                                     display_name=ident, config={}, transport="long_conn", enabled=True))
+        db.commit()
+        update_config(db, "owner", lambda c: c.update(channel_allowed={
             **listed_owner("bot", "alice")["channel_allowed"], **listed_owner("bot2", "alice")["channel_allowed"]}))
         svc = AgentContext(db, "owner")
         for key, origin in (("d", direct), ("d2", later), ("g", group), ("s", stranger)):
@@ -1716,8 +1723,10 @@ async def test_summaries_and_scheduled_results_go_to_the_owners_direct_chat_only
         for choice, expected in (("bot", direct), ("bot2", later), ("none", None), ("gone", None)):
             update_config(db, "owner", lambda c: c.update(heartbeat={**c["heartbeat"], "channel_id": choice}))
             assert home_origin(db, chat_id) == expected
-        # A bot that is no longer connected is not written to, chosen or not.
-        update_config(db, "owner", lambda c: c.update(channel_ids=["bot"], heartbeat={**c["heartbeat"], "channel_id": None}))
+        # A bot that is no longer Hugo's (moved to a sub-agent) is not written to, chosen or not.
+        db.get(ChannelConnection, "bot2").agent_id = "sub"
+        db.commit()
+        update_config(db, "owner", lambda c: c.update(heartbeat={**c["heartbeat"], "channel_id": None}))
         assert home_origin(db, chat_id) == direct
     ident = await admitted_beat_again(beats)
     await turn(ident, scripted("有一个任务等你批准。"))

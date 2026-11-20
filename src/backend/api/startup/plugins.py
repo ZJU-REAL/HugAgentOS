@@ -1,6 +1,5 @@
 """Application lifecycle operations."""
 import os
-import sys
 from core.config.settings import settings
 from core.infra.logging import get_logger
 logger = get_logger(__name__)

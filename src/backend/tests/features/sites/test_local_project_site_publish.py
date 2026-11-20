@@ -14,6 +14,7 @@ from core.db.engine import Base
 from core.db.models import ChatSession, Project, UserShadow
 from features.sites.desktop_publish import package_local_site
 from features.sites.packaging import safe_extract_tar
+from tests.db_support import share_factory
 
 
 @pytest.fixture
@@ -21,7 +22,7 @@ def local_project(tmp_path, monkeypatch):
     engine = create_engine(f"sqlite:///{tmp_path / 'local.db'}")
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine)
-    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
+    share_factory(monkeypatch, factory)
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: True)
     monkeypatch.setenv("SCRIPT_RUNNER_WORKSPACE", str(tmp_path / "workspace"))
     root = tmp_path / "Desktop" / "测试站点"

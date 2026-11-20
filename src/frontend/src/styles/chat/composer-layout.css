@@ -123,7 +123,6 @@
 
 /* In empty state, input width matches design */
 
-.jx-emptyWrap .jx-inputArea,
 .jx-empty .jx-inputArea,
 .jx-homeInput .jx-inputArea{
   position:relative;
@@ -132,7 +131,6 @@
   width:100%;
 }
 
-.jx-emptyWrap .jx-inputArea::before,
 .jx-empty .jx-inputArea::before,
 .jx-homeInput .jx-inputArea::before{
   display:none;
@@ -206,43 +204,6 @@
   height:16px;
   opacity:.7;
 }
-
-.jx-composerActions{
-  position:absolute;
-  right:10px;
-  bottom:10px;
-  display:flex;
-  align-items:center;
-  gap:8px;
-}
-
-.jx-composerActions .ant-btn{
-  min-height:32px;
-}
-
-.jx-metaPill{
-  display:inline-flex;align-items:center;gap:8px;
-  padding:7px 10px;border-radius:999px;
-  border:1px solid rgba(17,24,39,.10);
-  background:color-mix(in srgb, var(--color-bg-container) 85%, transparent);
-  color:color-mix(in srgb, var(--color-text) 74%, transparent);
-  font-size:12px; font-weight:700;
-  outline:none;
-  box-shadow:none;
-}
-
-.jx-statusDot{
-  width:6px;
-  height:6px;
-  border-radius:50%;
-  flex-shrink:0;
-  outline:none;
-  box-shadow:none;
-}
-
-.jx-statusDot.connected{background:var(--color-success)}
-
-.jx-statusDot.disconnected{background:var(--color-error)}
 
 .jx-headerTopicTag{
   flex-shrink:0;

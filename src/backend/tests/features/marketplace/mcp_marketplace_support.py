@@ -273,3 +273,14 @@ def _patch_install_side_effects(monkeypatch, *, resolves_to: str = "172.27.0.4")
     monkeypatch.setattr(mcp_administration, 'refresh_mcp_caches', lambda: None)
     monkeypatch.setattr(mcp_versions, 'refresh_mcp_caches', lambda: None)
     monkeypatch.setattr(mcp_publishing, 'refresh_mcp_caches', lambda: None)
+
+
+class MemoryState:
+    def __init__(self):
+        self.values = {}
+
+    async def get(self, key):
+        return self.values.get(key)
+
+    async def put(self, key, value, **kwargs):
+        self.values[key] = value

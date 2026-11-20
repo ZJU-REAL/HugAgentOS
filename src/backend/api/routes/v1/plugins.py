@@ -63,10 +63,7 @@ def _parse_secrets(secrets: Optional[str]) -> Dict[str, str]:
 
 def _require_can_import_plugin(user_id: str, db: Session) -> None:
     """Plugin package import permission: personal explicit -> role -> team default -> off by default."""
-    if not resolve_user_capabilities(db, user_id)["can_import_plugin"]:
-        raise AccessDeniedError(
-            message="管理员未开放导入插件包功能", reason="can_import_plugin_disabled"
-        )
+    require_capability(db, user_id, "can_import_plugin", "管理员未开放导入插件包功能")
 
 
 def _require_can_install_market_plugin(user_id: str, db: Session) -> None:

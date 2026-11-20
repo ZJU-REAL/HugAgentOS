@@ -15,11 +15,9 @@ import core.jobs.state as state
 import core.jobs.supervisor as jobs_supervisor
 import core.jobs.supervisor as supervisor
 import pytest
-from core.db.engine import Base
 from core.jobs.store import JobService
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+from tests.db_support import memory_engine, share_factory
 
 
 class Sandbox:
@@ -73,13 +71,10 @@ class Sandbox:
 
 @pytest.fixture
 def sandbox(monkeypatch):
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
+    engine = memory_engine()
     session = sessionmaker(bind=engine)
     monkeypatch.setattr(state, "SessionLocal", session)
-    monkeypatch.setattr("core.db.engine.SessionLocal", session)
+    share_factory(monkeypatch, session)
     monkeypatch.setattr(jobs_owner.process_state(), 'loop', None)
     monkeypatch.setattr(jobs_supervisor.process_state(), 'entries', {})
     box = Sandbox()

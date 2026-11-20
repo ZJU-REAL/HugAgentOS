@@ -3,9 +3,8 @@ from __future__ import annotations
 import base64
 import logging
 import time
-from pathlib import Path
 from typing import Any, Optional
-from core.db.threads import run_in_session
+from core.db.threads import run_db, run_in_session
 logger = logging.getLogger(__name__)
 
 class CubeCredentials:
@@ -77,7 +76,7 @@ class CubeCredentials:
                 return None
             verdict = await verify_and_refresh(user_id)
             if verdict == "invalid":
-                mark_login_expired(user_id)
+                await run_db(mark_login_expired, user_id)
                 logger.info("[cube] 钉钉凭据已失效，置 disconnected user=%s", user_id)
                 return None
             fresh = await self._export_live_dingtalk_bundle(user_id)

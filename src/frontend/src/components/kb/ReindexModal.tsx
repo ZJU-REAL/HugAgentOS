@@ -5,14 +5,7 @@ import { reindexKBDocument } from '../../api';
 import type { IndexingConfig } from '../../api';
 import { parseSeparators } from '../../utils/separators';
 import { t } from '../../i18n';
-
-const CHUNK_METHOD_OPTIONS = [
-  { value: 'structured', label: t('结构感知（按标题和段落）') },
-  { value: 'recursive', label: t('递归分块（多级分隔符）') },
-  { value: 'embedding_semantic', label: t('语义分块（基于嵌入相似度）⭐ 推荐') },
-  { value: 'laws', label: t('法律文书') },
-  { value: 'qa', label: t('问答对') },
-];
+import { CHUNK_METHOD_OPTIONS } from './chunkMethods';
 
 const labelStyle = { marginBottom: 4, fontSize: 12, color: '#808080' } as const;
 

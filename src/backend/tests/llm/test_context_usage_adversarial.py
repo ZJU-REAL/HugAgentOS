@@ -7,6 +7,7 @@ from api.routes.v1.chats.history import get_context_usage
 from core.llm.context.usage import build_compaction_context_usage, build_context_usage_snapshot
 from core.chat.service import ChatService
 from core.db.models import ChatSession
+from tests.db_support import share_factory
 
 
 def _setup(db):
@@ -88,7 +89,7 @@ def test_midturn_checkpoint_counts_the_active_system_and_tool_surface(db_session
     svc.message_repo.create(
         dict(message_id="new-input", chat_id="usage-audit", role="user", content="new input")
     )
-    monkeypatch.setattr(engine, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
+    share_factory(monkeypatch, sessionmaker(bind=db_session.get_bind()))
     monkeypatch.setattr(
         config_settings,
         "settings",

@@ -80,14 +80,14 @@ def write_sandbox_audit_sync(record: Dict[str, Any]) -> None:
     if isinstance(args_safe, dict):
         cmd = args_safe.get("command")
         if cmd is not None:
-            preview, _ = log_context.truncate_text(str(cmd), 2000)
+            preview, _ = log_context.truncate_log_text(str(cmd), 2000)
             details["command"] = preview
         # File/search tools: record path and pattern (not large fields like content) to trace what was changed/read.
         for k in ("file_path", "filename", "path", "pattern", "artifact_id", "name"):
             if args_safe.get(k) is not None:
                 details[k] = args_safe[k]
     if record.get("error_message"):
-        details["error"], _ = log_context.truncate_text(str(record["error_message"]), 500)
+        details["error"], _ = log_context.truncate_log_text(str(record["error_message"]), 500)
 
     insert_sandbox_audit(
         action=action,
@@ -116,7 +116,7 @@ def write_skill_sandbox_audit_sync(record: Dict[str, Any]) -> None:
         "script_language": record.get("script_language"),
     }
     if record.get("error_message"):
-        details["error"], _ = log_context.truncate_text(str(record["error_message"]), 500)
+        details["error"], _ = log_context.truncate_log_text(str(record["error_message"]), 500)
 
     insert_sandbox_audit(
         action="sandbox.skill.run",

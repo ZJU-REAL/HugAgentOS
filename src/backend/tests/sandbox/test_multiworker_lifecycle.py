@@ -91,6 +91,8 @@ def test_queued_snapshot_renewal_keeps_binding_without_resetting_idle(monkeypatc
     monkeypatch.setattr(runtime.settings.sandbox, 'idle_ttl_s', 60)
     a = worker('a')
     a._renew = AsyncMock()
+    from tests.clock_support import FakeClock
+    clock = FakeClock().install(monkeypatch, 'core.infra.ephemeral')
     async def scenario():
         sess = await a._get_or_create_session('chat', 'user')
         sess.last_active_ts = time.monotonic() - 120
@@ -98,7 +100,7 @@ def test_queued_snapshot_renewal_keeps_binding_without_resetting_idle(monkeypatc
         last_active = time.time() - 120
         await sandbox_session_store.put(key, json.dumps({'sandbox_id': sess.sandbox.id, 'active_at': last_active}), ttl=1)
         await a._protect_queued_snapshots([('chat', sess)])
-        await asyncio.sleep(1.05)
+        clock.advance(1.05)
         assert await session_registry.lookup('chat') == sess.sandbox.id
         assert not await session_registry.in_use_elsewhere('chat', 60)
     asyncio.run(scenario())

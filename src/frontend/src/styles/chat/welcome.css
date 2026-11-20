@@ -297,54 +297,6 @@
   color:var(--color-text-secondary);
 }
 
-/* legacy — kept so nothing breaks */
-
-.jx-emptyIntro{
-  text-align:center;
-  font-size:13px;
-  line-height:1.9;
-  color:color-mix(in srgb, var(--color-text) 72%, transparent);
-}
-
-.jx-emptyIntro strong{color:var(--color-primary)}
-
-.jx-emptyGuide{
-  border:1px solid rgba(18,109,255,.16);
-  background:color-mix(in srgb, var(--color-bg-container) 86%, transparent);
-  border-radius:14px;
-  padding:12px;
-}
-
-.jx-emptyGuideTitle{
-  font-size:12px;
-  font-weight:900;
-  color:var(--color-primary);
-  margin-bottom:8px;
-}
-
-.jx-emptyPromptList{
-  display:flex;
-  flex-wrap:wrap;
-  gap:8px;
-}
-
-.jx-emptyPromptBtn{
-  border-radius:10px !important;
-  min-height:40px;
-  text-align:left;
-  white-space:normal;
-}
-
-.jx-recommendBar{
-  border-radius:12px;
-  border:1px solid rgba(18,109,255,.20);
-  background:rgba(18,109,255,.06);
-  padding:8px 12px;
-  font-size:12px;
-  color:var(--color-primary);
-  font-weight:700;
-}
-
 .jx-composer{
   border:none !important;
   border-radius:0 !important;

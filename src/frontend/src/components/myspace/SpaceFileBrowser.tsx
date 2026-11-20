@@ -145,7 +145,7 @@ export function SpaceFileBrowser({ kind }: { kind: 'personal' | 'team' }) {
         </>}
       </div>
     </div>}
-    {error && <Alert type="error" showIcon message={error} />}
+    {error && <Alert type="error" showIcon title={error} />}
     {showSkeleton ? <MySpaceSkeleton tab="assets" assetFilter={filter} />
       : pending ? <div aria-busy="true" />
       : !selected || (!files.length && (filter === 'image' || !folders.length)) ? <div className="jx-mySpace-empty"><Empty description={t('当前文件夹暂无文件')} /></div>
@@ -167,7 +167,7 @@ export function SpaceFileBrowser({ kind }: { kind: 'personal' | 'team' }) {
       <AssetTypeSwitch value={filter} onChange={setFilter} />
       <div className="jx-mySpace-filterTools">
         {kind === 'personal' && path && <Button type="text" className="jx-mySpace-backBtn" icon={<ArrowLeftOutlined />} onClick={() => setPath(parts.slice(0, -1).join('/'))}>{t('返回上级')}</Button>}
-        {kind === 'personal' && writable && isMobile && <Dropdown trigger={['click']} placement="bottomRight" overlayClassName="jx-mySpace-addMenu" menu={{ items: [
+        {kind === 'personal' && writable && isMobile && <Dropdown trigger={['click']} placement="bottomRight" classNames={{ root: "jx-mySpace-addMenu" }} menu={{ items: [
           { key: 'directory', icon: <FolderAddOutlined />, label: t('新建文件夹'), disabled: busy, onClick: () => { setName(''); setDialog('directory'); } },
           { key: 'file', icon: <UploadOutlined />, label: t(filter === 'image' ? '上传图片' : '上传文件'), disabled: busy, onClick: () => fileInput.current?.click() },
           { key: 'folder', icon: <FolderOpenOutlined />, label: t('上传文件夹'), disabled: busy, onClick: () => folderInput.current?.click() },

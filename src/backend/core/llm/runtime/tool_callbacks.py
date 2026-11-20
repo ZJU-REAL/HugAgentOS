@@ -1,4 +1,19 @@
-"Tool-call soft warnings (observation only — never blocks).\n\nHistorical background: after the AgentScope migration, tool progress goes through\nrouting/streaming.py's msg_queue polling, and the old callback mechanism was deprecated.\nThis module is revived as **observation only**: once the code-execution capability is\nenabled in all modes (CODE_CAPABILITY_ENABLED), the default tool set grows larger, and the\nmodel may waver between semantically overlapping tools (docs/code-execution-merge-proposal\n§3.4 / §5.5). Here, during the gradual rollout, we record suspicious co-occurrences to help\ndiagnose whether the model goes off track. **Does not block any call**, and never raises.\n\nUsage (called once per tool_call by the streaming layer):\n\n    from core.llm.runtime.tool_callbacks import note_tool_call\n    note_tool_call(state, tool_name, tool_args)\n\n``state`` is an arbitrary per-run mutable dict (held by StreamingAgent); this module manages its own keys.\n"
+"""Tool-call soft warnings (observation only — never blocks).
+
+With the code-execution capability enabled (``CODE_CAPABILITY_ENABLED``) the
+default tool set is larger, and the model may waver between semantically
+overlapping tools. This module records suspicious co-occurrences to help
+diagnose whether the model goes off track. It **does not block any call**, and
+never raises.
+
+Usage (called once per tool_call by the streaming layer):
+
+    from core.llm.runtime.tool_callbacks import note_tool_call
+    note_tool_call(state, tool_name, tool_args)
+
+``state`` is an arbitrary per-run mutable dict (held by StreamingAgent); this
+module manages its own keys.
+"""
 
 from __future__ import annotations
 

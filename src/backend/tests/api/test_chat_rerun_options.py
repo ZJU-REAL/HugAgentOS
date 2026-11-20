@@ -18,7 +18,6 @@ def test_rerun_model_and_mode_survive_admission(monkeypatch, tmp_path, operation
     from core.db import engine as db_engine
     from core.chat.operations import schemas as models
     from core.chat.operations import session_context
-    pass
 
     engine, Session = _route_database(tmp_path)
     Base.metadata.create_all(engine)

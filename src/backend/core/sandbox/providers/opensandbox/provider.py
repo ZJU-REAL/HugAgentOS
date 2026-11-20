@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import threading
-from weakref import WeakValueDictionary
 from pathlib import Path
 from typing import Any, Optional
 
@@ -10,6 +8,7 @@ import core.sandbox.sessions.registry as session_registry
 from core.config.settings import settings
 from core.sandbox.errors import SandboxError, SandboxFileTooLargeError
 from core.sandbox.processes.completion import CompletionMixin
+from core.sandbox.providers.session_locks import SessionLockMixin
 from core.sandbox.processes.dispatch import _on_service_loop
 from core.sandbox.protocol import ProcessRequest
 from core.sandbox.providers.opensandbox.admin import _OpenSandboxAdminMixin
@@ -42,6 +41,7 @@ class OpenSandboxProvider(
     _OpenSandboxAdminMixin,
     _OpenSandboxAdoptionMixin,
     _OpenSandboxConnectionMixin,
+    SessionLockMixin,
 ):
     name = "opensandbox"
     # Commands run inside a separate container; the container is the isolation
@@ -102,11 +102,8 @@ class OpenSandboxProvider(
         # 事故形态极隐蔽：谁先碰 provider 谁把锁绑走，另一个 loop 的沙箱保活 touch_session
         # 从此每次都抛、又被调用方 except 掉 —— 保活静默失效，沙箱空闲 600s 被回收，
         # 正在跑的批量作业连同 workspace 一起消失，而作业状态还停在 running。
-        # 单锁跨 loop 本来就不可能работать（只会抛），按 loop 分桶严格优于现状。
-        self._session_locks: WeakValueDictionary[tuple[int, str], asyncio.Lock] = WeakValueDictionary()
-        # 注册表锁只保护上面这个 dict 的读写（临界区里没有 await），所以用线程锁即可，
-        # 天然跨 loop 可用 —— 换成 asyncio.Lock 就会重新引入上面那个 bug。
-        self._registry_lock = threading.Lock()
+        # 实现见 SessionLockMixin。
+        self._init_session_locks()
         # Shared httpx client, avoids re-doing the TLS handshake on every health/renew call
         self._http_client: Optional[Any] = None
         # Direct-execd reachability is a **process-level topology property** (not
@@ -397,16 +394,6 @@ class OpenSandboxProvider(
                 self._http_client = None
 
     # ───── connection / session management ────────────────────────────────
-
-    async def _get_session_lock(self, session_id: str) -> asyncio.Lock:
-        """取本 session 在**当前事件循环**里的锁（见 __init__ 处的长注释）。"""
-        key = (id(asyncio.get_running_loop()), session_id)
-        with self._registry_lock:
-            lock = self._session_locks.get(key)
-            if lock is None:
-                lock = asyncio.Lock()
-                self._session_locks[key] = lock
-            return lock
 
     def _session_expiry_s(self) -> int:
         """Bound hard expiry after the local snapshot backlog and renewal skew."""

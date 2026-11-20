@@ -352,13 +352,13 @@ export function ChannelBotsPanel({ agentId, agentName }: ChannelBotsPanelProps =
       <Modal
         open={qr.open} title={t('微信扫码绑定')} footer={null}
         onCancel={qr.close}
-        destroyOnClose maskClosable={false}
+        destroyOnHidden mask={{ closable: false }}
       >
         <div style={{ textAlign: 'center', padding: '12px 0' }}>
           {qr.phase === 'loading' ? <Spin /> : (
             qr.phase === 'waiting' || qr.phase === 'scanned'
               ? <img src={`data:image/png;base64,${qr.image}`} alt="qrcode" style={{ width: 200, height: 200 }} />
-              : <Alert type={qr.phase === 'error' ? 'error' : 'warning'} message={qr.tip} />
+              : <Alert type={qr.phase === 'error' ? 'error' : 'warning'} title={qr.tip} />
           )}
           {(qr.phase === 'loading' || qr.phase === 'waiting' || qr.phase === 'scanned') && (
             <div className="jx-conn-desc" style={{ marginTop: 12 }}>{qr.tip}</div>

@@ -1,5 +1,6 @@
 import { Collapse, Space, Table, Tag, Typography } from 'antd';
 import { t } from '../../i18n';
+import { fillNodes } from '../common/fillNodes';
 import type { ApiComponents, JsonValue, SchemaDefinition } from './apiDocModel';
 import { resolveRef, typeLabel } from './apiDocSchemaHelpers';
 const { Text } = Typography;
@@ -22,7 +23,9 @@ export function SchemaTree({ schema, components, depth = 0, visited }: SchemaTre
   if (typeof schema === 'object' && !schema.$ref && Object.keys(schema).length === 0) {
     return (
       <Text type="secondary">
-        任意类型（schema 未限定，通常意味着后端返回标准响应包络 <Text code>{'{ code, message, data, trace_id, timestamp }'}</Text>）
+        {fillNodes(t('任意类型（schema 未限定，通常意味着后端返回标准响应包络 {envelope}）'), {
+          envelope: <Text code>{'{ code, message, data, trace_id, timestamp }'}</Text>,
+        })}
       </Text>
     );
   }
@@ -40,7 +43,7 @@ export function SchemaTree({ schema, components, depth = 0, visited }: SchemaTre
 
   if (Array.isArray(schema.allOf)) {
     return (
-      <Space direction="vertical" style={{ width: '100%' }}>
+      <Space orientation="vertical" style={{ width: '100%' }}>
         {schema.allOf.map((s: SchemaDefinition, i: number) => (
           <SchemaTree key={i} schema={s} components={components} depth={depth} visited={v} />
         ))}

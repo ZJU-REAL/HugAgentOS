@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import logging
 from typing import Sequence, Any, Mapping, Optional
-from core.sandbox.permissions.dispatch_models import PermissionRuntime, PermissionIntent, ToolPermissionSpec, DOMAIN_DENY, DOMAIN_MYSPACE, DOMAIN_LOCAL_PATH, DOMAIN_LOCAL_COMMAND, READ, WRITE, EXECUTE, _canonical_path
+from core.sandbox.permissions.dispatch_models import PermissionRuntime, PermissionIntent, ToolPermissionSpec, DOMAIN_MYSPACE, DOMAIN_LOCAL_PATH, DOMAIN_LOCAL_COMMAND, READ, WRITE, EXECUTE, _canonical_path
 
 logger = logging.getLogger(__name__)
 
@@ -49,20 +49,6 @@ class ToolPermissionRegistry:
 
 def allow_tool() -> ToolPermissionSpec:
     return ToolPermissionSpec("allow", lambda _args, _runtime: ())
-
-
-def deny_tool(reason: str) -> ToolPermissionSpec:
-    def resolve(_args: Mapping[str, Any], _runtime: PermissionRuntime):
-        return (
-            PermissionIntent(
-                domain=DOMAIN_DENY,
-                action="deny",
-                target="",
-                summary=reason,
-            ),
-        )
-
-    return ToolPermissionSpec(f"deny:{reason}", resolve)
 
 
 def _is_myspace_target(logical: str, physical: str, user_id: Optional[str]) -> bool:

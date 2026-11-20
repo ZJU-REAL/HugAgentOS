@@ -17,6 +17,7 @@ import { callPluginDataSource } from '../../api';
 import { createResourceChannel } from './resourceChannel';
 import type { ResourceBinding } from './resource';
 import { copyToClipboard } from '../../utils/clipboard';
+import { saveBlob } from '../../utils/download';
 
 export const BRIDGE_API_VERSION = 2;
 
@@ -170,13 +171,7 @@ export function attachBridge(iframe: HTMLIFrameElement, hooks: BridgeHooks): (()
           // module never gets access to the host's file APIs directly.
           const name = String(params.name || 'plugin-file');
           const content = String(params.content || '');
-          const blob = new Blob([content], { type: String(params.mime || 'text/plain') });
-          const url = URL.createObjectURL(blob);
-          const anchor = document.createElement('a');
-          anchor.href = url;
-          anchor.download = name;
-          anchor.click();
-          URL.revokeObjectURL(url);
+          saveBlob(new Blob([content], { type: String(params.mime || 'text/plain') }), name);
           reply(message.id, true, {});
           return;
         }

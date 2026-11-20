@@ -170,7 +170,6 @@ def test_real_admission_schedules_title_before_answer_completion(tmp_path, monke
         _route_database,
         _user,
     )
-    pass
 
     engine, factory = _route_database(tmp_path, "admission-title.db")
     monkeypatch.setattr(chat_titles.db_engine, "SessionLocal", factory)
@@ -195,10 +194,17 @@ def test_real_admission_schedules_title_before_answer_completion(tmp_path, monke
             row = db.get(ChatSession, "chat-1")
             assert row.extra_data["title_generation"]["status"] == "pending"
         release.set()
-        await asyncio.sleep(0)
-        await asyncio.sleep(0)
-        with factory() as db:
-            assert db.get(ChatSession, "chat-1").title == "首问标题"
+        # The title is written by run_db on a worker thread; wait for it.
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 2
+        title = None
+        while loop.time() < deadline:
+            with factory() as db:
+                title = db.get(ChatSession, "chat-1").title
+            if title == "首问标题":
+                break
+            await asyncio.sleep(0.01)
+        assert title == "首问标题"
     try:
         asyncio.run(scenario())
     finally:

@@ -1,6 +1,4 @@
 """Application lifecycle operations."""
-import os
-import sys
 
 from core.config.settings import settings
 from core.infra.logging import get_logger
@@ -85,18 +83,21 @@ async def _shutdown_persona_distill_worker():
 async def _startup_warmup_memory():
     """Prewarm the mem0 / Milvus connections in the background so the first request avoids cold-connection handshake latency.
 
-    Fire-and-forget: does not block startup; failure does not affect service start.
+    Fire-and-forget: does not block startup; the blocking connection setup runs in a worker
+    thread so it does not block requests either. Failure does not affect service start.
     """
     if not settings.memory.enabled:
         return
     import asyncio as _asyncio
+
+    from core.infra.background import spawn
 
     async def _warmup() -> None:
         try:
             from core.memory.service import get_memory as _get_memory  # type: ignore[attr-defined]
 
             # _get_memory is thread-safe lazy loading; the first call establishes the Milvus + Neo4j connections
-            instance = _get_memory()
+            instance = await _asyncio.to_thread(_get_memory)
             if instance is not None:
                 logger.info("[startup] memory (mem0/milvus) connection warmed up")
             else:
@@ -104,8 +105,4 @@ async def _startup_warmup_memory():
         except Exception as exc:
             logger.warning("[startup] memory warmup failed: %s", exc)
 
-    try:
-        _asyncio.create_task(_warmup())
-    except RuntimeError:
-        # no running loop — should not happen in startup event
-        logger.debug("[startup] no event loop for memory warmup")
+    spawn(_warmup(), name="startup.memory_warmup")

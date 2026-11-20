@@ -21,7 +21,7 @@ export function SkillIconPicker({
       return Upload.LIST_IGNORE;
     }
     if (file.size > MAX_UPLOAD_BYTES) {
-      message.error(`图标过大，请控制在 ${MAX_UPLOAD_BYTES / 1024}KB 以内`);
+      message.error(t('图标过大，请控制在 {n}KB 以内', { n: MAX_UPLOAD_BYTES / 1024 }));
       return Upload.LIST_IGNORE;
     }
     const reader = new FileReader();

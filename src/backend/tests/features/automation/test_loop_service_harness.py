@@ -6,22 +6,15 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from core.db.engine import Base
 from features.automation.loops import LoopService
+from tests.db_support import memory_engine
 
 
 @pytest.fixture()
 def db():
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
+    engine = memory_engine()
     session = sessionmaker(bind=engine)()
     yield session
     session.close()

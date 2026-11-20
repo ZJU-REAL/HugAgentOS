@@ -29,6 +29,7 @@ from tests.integrations.channels.test_channel_desktop_http import cloud  # noqa:
 from tests.integrations.channels.test_channel_desktop_relay_api import api  # noqa: F401
 from tests.integrations.channels.test_channel_desktop_relay_api import IN_CLOUD
 from tests.integrations.channels.test_channel_desktop_worker import runtime  # noqa: F401
+from tests.db_support import share_factory
 
 # Restore the actual methods overridden by the older API fixture.
 LARK_METHODS = {
@@ -92,10 +93,7 @@ async def test_binding_ingress_local_run_reply_file_and_complete(
     client, cloud_sessions, _ = api
     local_sessions = db_engine.SessionLocal
     # One process plays both sides: cloud requests get the cloud database.
-    monkeypatch.setattr(
-        "core.db.engine.SessionLocal",
-        lambda: (cloud_sessions if IN_CLOUD.get() else local_sessions)(),
-    )
+    share_factory(monkeypatch, lambda: (cloud_sessions if IN_CLOUD.get() else local_sessions)())
     identity = bridge_identity.get_identity_state()
     with runtime() as db:
         db.get(UserShadow, "local-owner").user_center_id = "center"

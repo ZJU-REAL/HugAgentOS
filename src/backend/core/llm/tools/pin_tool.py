@@ -1,7 +1,6 @@
 """pin_to_workspace tool — pins agent-generated files as MySpace deliverables.
 
-Extracted from the oversized ``core/llm/tool.py``. Heavy deps imported lazily
-inside the function; ``core.llm.tool`` re-exports ``register_pin_to_workspace``.
+Heavy deps are imported lazily inside the function.
 """
 from core.llm.factory.tools.definitions import function_tool
 
@@ -35,7 +34,7 @@ def register_pin_to_workspace(
 
     ``scope`` (project scope): the closure captures this agent run's ProjectScope and passes it
     to the internal eager ``_persist_artifacts``. It **must** be passed explicitly — this used to
-    rely on a ContextVar, but the second _persist_artifacts in chats.py's finalization runs after
+    rely on a ContextVar, but the run worker's final _persist_artifacts runs after
     the workflow's finally reset, by which point the contextvar is long empty → team-project AI
     output leaked into the personal MySpace root. Now the scope travels with the call chain, no
     timing window.

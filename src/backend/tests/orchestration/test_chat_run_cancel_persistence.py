@@ -16,21 +16,15 @@ import core.runs.settings as settings
 import core.runs.tasks as tasks
 import fakeredis.aioredis
 import pytest
-from core.db.engine import Base
 from core.db.models import ChatMessage, ChatRun, ChatSession
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from tests.db_support import file_engine, session_factory, share_factory
 
 
 @pytest.fixture()
 def cancel_env(tmp_path, monkeypatch):
-    engine = create_engine(
-        f"sqlite:///{tmp_path / 'executor-cancel.sqlite'}",
-        connect_args={"check_same_thread": False},
-    )
-    Base.metadata.create_all(engine)
-    sessions = sessionmaker(bind=engine, expire_on_commit=False)
-    monkeypatch.setattr(db_engine, "SessionLocal", sessions)
+    engine = file_engine(tmp_path / 'executor-cancel.sqlite')
+    sessions = session_factory(engine)
+    share_factory(monkeypatch, sessions)
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     monkeypatch.setattr('core.runs.events.store.get_redis', lambda **_: redis)
     tasks.process_state().active_runs.clear()

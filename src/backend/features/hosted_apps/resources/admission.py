@@ -126,34 +126,3 @@ async def renew(user_id, key, instance_id, resource_id):
     else:
         await arm(resource_id)
     return await run_in_session(_public, user_id, resource_id)
-
-
-def _application_rows(db, user_id, application_key, instance_id, install_id):
-    query = db.query(store.PluginResource).filter(
-        store.PluginResource.user_id == user_id,
-        store.PluginResource.application_key.is_not(None),
-        store.PluginResource.status != "closed",
-    )
-    for name, value in (
-        ("application_key", application_key),
-        ("instance_id", instance_id),
-        ("install_id", install_id),
-    ):
-        if value is not None:
-            query = query.filter(getattr(store.PluginResource, name) == value)
-    rows = query.all()
-    db.expunge_all()
-    return rows
-
-
-async def close_application_resources(
-    user_id, *, application_key=None, instance_id=None, install_id=None
-):
-    rows = await run_in_session(_application_rows, user_id, application_key, instance_id, install_id)
-    failures = []
-    for row in rows:
-        try:
-            await service.close(row)
-        except Exception:
-            failures.append(row.resource_id)
-    return {"closed": not failures, "retry_resource_ids": failures}

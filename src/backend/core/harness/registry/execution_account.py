@@ -10,7 +10,6 @@ class ExecutionAccount(Protocol):
 
 
 def register_execution_account(provider: ExecutionAccount | None) -> None:
-    pass
     registration_state().provider = provider
 
 def current_account_profile() -> str | None:

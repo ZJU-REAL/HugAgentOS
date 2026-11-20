@@ -8,10 +8,10 @@ import { ChannelBotsPanel } from '../settings/ChannelBotsPanel';
 import { AgentApiModal } from './AgentApiModal';
 import { AgentIcon } from './AgentIcon';
 import { formatDateTime } from '../../utils/date';
-import { mdToHtml } from '../../utils/markdown';
 import { staggerStyle } from '../../utils/motionTokens';
 import { DRILL_IN_DETAIL } from '../../utils/motionVariants';
 import { t } from '../../i18n';
+import { MarkdownHtml } from '../common/MarkdownHtml';
 
 interface AgentDetailItem {
   label: string;
@@ -238,9 +238,9 @@ export function AgentDetailView({
                               <span className="jx-agentDetail-emptyText">{item.emptyText || t('未填写')}</span>
                             )
                           ) : item.markdown && typeof item.value === 'string' && item.value !== t('未填写') ? (
-                            <div
+                            <MarkdownHtml
                               className="jx-md jx-agentDetail-markdown"
-                              dangerouslySetInnerHTML={{ __html: mdToHtml(item.value) }}
+                              markdown={item.value}
                             />
                           ) : (
                             <span className={item.value === t('未填写') || item.value === t('未记录') ? 'jx-agentDetail-emptyText' : ''}>
@@ -353,7 +353,7 @@ export function AgentDetailView({
               width={520}
               open={botDrawerOpen}
               onClose={() => setBotDrawerOpen(false)}
-              destroyOnClose
+              destroyOnHidden
             >
               <ChannelBotsPanel agentId={selectedAgent.agent_id} agentName={selectedAgent.name} />
             </Drawer>

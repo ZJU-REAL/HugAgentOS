@@ -73,37 +73,25 @@
 
 | code | HTTP | 异常类 | 含义 | 典型触发场景 | 附加字段 |
 |---|---|---|---|---|---|
-| 30001 | 401 | `AuthenticationError` | 需要认证 | 未带会话 Cookie / Bearer；`get_current_user` 的 401 `detail` 里会附 `login_url` 引导跳转登录 | `login_url?` |
-| 30002 | 401 | `InvalidTokenError` | Token / API-Key 无效或过期 | Bearer 校验失败；携带 `sk-jx-` 前缀但无效的 API-Key | — |
-| 30003 | 401 | `TokenExpiredError` | Token 已过期 | 会话/票据过期 | `expired_at`、`hint` |
+| 30001 | 401 | —（`core/auth/backend.py` 直接构造信封） | 需要认证 | 未带会话 Cookie / Bearer；`get_current_user` 的 401 `detail` 里会附 `login_url` 引导跳转登录 | `login_url?` |
+| 30002 | 401 | —（`core/auth/backend.py` 直接构造信封） | Token / API-Key 无效或过期 | Bearer 校验失败；携带 `sk-jx-` 前缀但无效的 API-Key | — |
+| 30003 | 401 | —（`core/auth/backend.py` 直接构造信封） | Token 已过期 | 会话/票据过期 | `expired_at`、`hint` |
 | 31001 | 403 | `AccessDeniedError` | 无权访问 | 访问他人资源、角色不满足 | `reason?` |
-| 31002 | 403 | `InsufficientPermissionsError` | 权限不足 | 缺少某项具体权限（如 Lab、API-Key 开通权限） | `required_permission` |
-| 31003 | 403 | `ResourceOwnershipError` | 仅资源所有者可操作 | 删除/修改非本人的会话、文件、分享 | `resource_type`、`resource_id`、`reason` |
 
 ### 4xxxx — 资源状态
 
 | code | HTTP | 异常类 | 含义 | 典型触发场景 | 附加字段 |
 |---|---|---|---|---|---|
 | 40001 | 404 | `ResourceNotFoundError` | 资源不存在 | chat_id / kb_id / artifact_id 查无此项或已删除 | `resource_type`、`resource_id`、`hint` |
-| 40002 | 404 | `EndpointNotFoundError` | API 端点不存在 | 请求了未注册的路径 | `path` |
 | 40201 | **402** | `FeatureNotLicensed` | 当前 license 未授权该能力位 | CE/license 过期部署访问 EE 路由（teams、audit、admin 管理台等），见下文 | `feature` |
 | 40202 | **402** | `SeatLimitExceeded` | 席位不足 / license 失效无法新增用户 | 注册/邀请用户超过 license 席位数 | 视场景 |
-| 41001 | 409 | `ResourceAlreadyExistsError` | 资源已存在 | 重名创建（团队、技能 ID 等） | `resource_type`、`identifier` |
-| 41002 | 409 | `ConcurrentModificationError` | 并发修改冲突 | 乐观锁版本号不匹配 | `expected_version`、`actual_version`、`hint` |
-| 42001 | 429 | `RateLimitExceededError` | 请求频率超限 | 触发限流中间件 | `limit`、`retry_after`、`reset_at` |
 
 ### 5xxxx — 服务端与上游
 
 | code | HTTP | 异常类 | 含义 | 典型触发场景 | 附加字段 |
 |---|---|---|---|---|---|
-| 50001 | 500 | `InternalServerError` | 服务器内部错误 | 未归类的运行时异常 | `error_type?`、`hint` |
-| 50002 | 500 | `DatabaseError` | 数据库错误 | DB 连接/事务失败 | `error_type`、`hint` |
+| 50001 | 500 | —（`error_response(code=50001)`） | 服务器内部错误 | 未归类的运行时异常 | `error_type?`、`hint` |
 | 51001 | 500 | `StorageError` | 对象存储操作失败 | local/S3/OSS 读写失败（`message` 形如 `Storage upload failed`） | `error`、`hint` |
-| 52001 | 502 | `UserCenterError` | 用户中心错误 | `AUTH_MODE=remote` 下用户中心调用失败 | `error` |
-| 52101 | 502 | `ModelAPIError` | 模型服务错误 | LLM 端点返回错误 | `model`、`provider`、`error`、`hint` |
-| 52103 | 400 | `ModelAPIRateLimitedError` | 模型配额超限 | 模型侧限流/配额耗尽（注意：实装的 HTTP 状态码是 400 而非 429） | `model`、`hint` |
-| 53001 | 504 | `RequestTimeoutError` | 请求超时 | 依赖服务响应超时 | `service`、`timeout` |
-| 53003 | 504 | `ModelAPITimeoutError` | 模型响应超时 | LLM 长时间无响应 | `model`、`timeout`、`hint` |
 | 54001 | 503 | `ServiceUnavailableError` | 服务不可用 | 依赖未就绪、功能未配置（如内部接口未配 token） | — |
 
 ## License 未授权（HTTP 402）

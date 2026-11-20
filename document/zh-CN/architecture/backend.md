@@ -156,7 +156,6 @@ src/backend/
 | `chat_run_executor.py` | 把 AI 工作流从 HTTP 连接解耦为后台 Run：启动、SSE 跟随、按偏移续播、崩溃恢复 |
 | `workflow.py` | 单轮流式编排主体：记忆注入 → 建 agent → 流式消费 → 引用提取 → meta 收尾 |
 | `streaming.py` | AgentScope 2.0 流式包装 `StreamingAgent`，产出标准化事件块 |
-| `strategy.py` | 路由策略：`ROUTER_STRATEGY=main_only`（默认）/ `llm_router`（占位，回落 main） |
 | `citations.py` | 工具结果 → `[ref:tool_name-N]` 引用项提取 |
 | `memory_integration.py` | SSE 主链路外的非阻塞记忆读写整合 |
 | `followups.py` | 独立追问问题生成器 |
@@ -194,7 +193,7 @@ CE 路由位于 `api/routes/v1/`；已物理拆分的商业路由位于 `edition
 
 ## extensions/mcp_servers/ 与 sidecar
 
-`extensions/mcp_servers/` 下的服务器：`internet_search_mcp`、`web_fetch_mcp`、`automation_task_mcp`、`skill_manager_mcp`、`retrieve_dataset_content_mcp`，以及依赖内网数据源的 `query_database_mcp`、`ai_chain_information_mcp`（商业版 EE）。公共设施：`_launcher.py`（按注册表的安装位置和端口启动服务进程）、`_serve.py`、`_common.py`、`_retrieve_cleaning.py`。Word / Excel 等文档导出统一由沙箱中的 Agent 技能负责。
+`extensions/mcp_servers/` 下的服务器：`internet_search_mcp`、`web_fetch_mcp`、`automation_task_mcp`、`skill_manager_mcp`、`retrieve_dataset_content_mcp`，以及依赖内网数据源的 `ai_chain_information_mcp` 和为每个数据源提供一个连接器的 `database_mcp`（均为商业版 EE）。公共设施：`_launcher.py`（按注册表的安装位置和端口启动服务进程）、`_serve.py`、`_common.py`、`_retrieve_cleaning.py`。Word / Excel 等文档导出统一由沙箱中的 Agent 技能负责。
 
 `core/sandbox/runner/server.py` 是技能脚本执行 sidecar：独立容器、受限子进程（resource 限额）、无数据库 / Redis / API-Key 访问权。
 

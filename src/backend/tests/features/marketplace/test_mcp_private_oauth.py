@@ -21,17 +21,7 @@ from tests.features.marketplace.mcp_marketplace_support import (  # noqa: F401 -
     _tools,
     db,
 )
-
-
-class MemoryState:
-    def __init__(self):
-        self.values = {}
-
-    async def get(self, key):
-        return self.values.get(key)
-
-    async def put(self, key, value, **kwargs):
-        self.values[key] = value
+from tests.features.marketplace.mcp_marketplace_support import MemoryState
 
 
 def _target(**overrides):

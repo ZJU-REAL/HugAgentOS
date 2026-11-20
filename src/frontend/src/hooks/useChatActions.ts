@@ -1,5 +1,5 @@
 import { syncConversationTitle } from './chatTitle';
-import { useRef } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { message } from 'antd';
 import { t } from '../i18n';
 import { authFetch } from '../api';
@@ -12,21 +12,22 @@ import { usePageConfigStore } from '../stores/pageConfigStore';
 import { useProjectStore } from '../stores/projectStore';
 import type { ChatItem, ChatMessage } from '../types';
 import { confirmDeleteChat } from '../utils/conversationDeletion';
-import { ensureFullMessages } from './useChatInit';
+import { ensureFullMessages, reloadChatHistory } from './useChatInit';
 
 export function useChatActions(effectiveApiUrl: string) {
-  const {
-    store, updateStore,
-    setToolResultPanel,
-    backendSessionIds,
-    addLoadedMsgId,
-    clearShareSelection,
-  } = useChatStore();
-  const storeRef = useRef(store);
-  storeRef.current = store;
+  // Actions only: reading chat data through getState() keeps the root App from
+  // re-rendering on every streaming commit or rename keystroke.
+  const { updateStore, setToolResultPanel, addLoadedMsgId, clearShareSelection } = useChatStore(useShallow((s) => ({
+    updateStore: s.updateStore,
+    setToolResultPanel: s.setToolResultPanel,
+    addLoadedMsgId: s.addLoadedMsgId,
+    clearShareSelection: s.clearShareSelection,
+  })));
+  const chats = () => useChatStore.getState().store.chats;
 
-  const { setPanel } = useCatalogStore();
-  const { setEditingChatId, setEditingTitle, editingTitle } = useUIStore();
+  const setPanel = useCatalogStore((s) => s.setPanel);
+  const setEditingChatId = useUIStore((s) => s.setEditingChatId);
+  const setEditingTitle = useUIStore((s) => s.setEditingTitle);
 
   function setPanelSafe(p: import('../types').PanelKey, sub?: string) {
     setPanel(p, sub);
@@ -118,13 +119,13 @@ export function useChatActions(effectiveApiUrl: string) {
   }
 
   function toggleChatPinned(id: string) {
-    const item = storeRef.current.chats[id];
+    const item = chats()[id];
     if (!item) return;
     patchChat(id, { pinned: !item.pinned });
   }
 
   function toggleChatFavorite(id: string) {
-    const item = storeRef.current.chats[id];
+    const item = chats()[id];
     if (!item) return;
     patchChat(id, { favorite: !item.favorite });
   }
@@ -135,8 +136,8 @@ export function useChatActions(effectiveApiUrl: string) {
   }
 
   function commitRenameChat(id: string) {
-    const nextTitle = editingTitle.trim();
-    const original = storeRef.current.chats[id]?.title || '';
+    const nextTitle = useUIStore.getState().editingTitle.trim();
+    const original = chats()[id]?.title || '';
     // 输入为空/纯空格 → 保留原名称（问题7：过去落成字面量「新对话」）
     if (!nextTitle || nextTitle === original) {
       setEditingChatId(null);
@@ -180,16 +181,22 @@ export function useChatActions(effectiveApiUrl: string) {
   }
 
   async function exportChatRecord(chatId: string) {
-    const target = storeRef.current.chats[chatId];
+    const target = chats()[chatId];
     if (!target) return;
 
     // 导出要的是**整段**对话。常规浏览只铺了最近一屏（见 useChatInit 的
     // MESSAGE_PAGE_SIZE），所以先把更早的部分补齐，别把半截历史导成 PDF。
+    // 侧边栏可以导出任意会话：没加载过（或被内存淘汰、只剩尾巴）的先拉首页，
+    // 否则没有分页游标，下面会把那截尾巴当成全部。
+    const before = useChatStore.getState();
+    if (!before.loadedMsgIds.has(chatId) && before.backendSessionIds.has(chatId)) {
+      await reloadChatHistory(chatId);
+    }
     if (useChatStore.getState().messagePaging[chatId]?.hasOlder) {
       await ensureFullMessages(chatId);
     }
-    let messages = storeRef.current.chats[chatId]?.messages || [];
-    const needsBackendLoad = messages.length === 0 && !!effectiveApiUrl && backendSessionIds.has(chatId);
+    let messages = chats()[chatId]?.messages || [];
+    const needsBackendLoad = messages.length === 0 && !!effectiveApiUrl && useChatStore.getState().backendSessionIds.has(chatId);
     if (needsBackendLoad) {
       try {
         messages = await loadChatMessagesForExport(chatId);
@@ -214,7 +221,7 @@ export function useChatActions(effectiveApiUrl: string) {
   }
 
   async function createChatShare(chatId: string, selectedUids: string[], expiryOption: '3d' | '15d' | '3m' | 'permanent') {
-    const target = storeRef.current.chats[chatId];
+    const target = chats()[chatId];
     if (!target) throw new Error(t('当前会话不存在'));
 
     const selectedSet = new Set(selectedUids);
@@ -267,7 +274,7 @@ export function useChatActions(effectiveApiUrl: string) {
   }
 
   async function generateClassification(chatId: string) {
-    const chat = storeRef.current.chats[chatId];
+    const chat = chats()[chatId];
     if (!chat || !effectiveApiUrl) return;
     const userMessages = chat.messages.filter(m => m.role === 'user');
     const assistantMessages = chat.messages.filter(m => m.role === 'assistant');
@@ -292,7 +299,6 @@ export function useChatActions(effectiveApiUrl: string) {
   }
 
   return {
-    storeRef,
     setPanelSafe,
     newChat,
     deleteChat,

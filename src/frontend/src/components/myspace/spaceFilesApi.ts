@@ -1,4 +1,5 @@
-import { apiRequest, authFetch, getApiUrl, LOCAL_TARGET_HEADER } from '../../api';
+import { apiRequest, authFetch, getApiUrl, LOCAL_TARGET_HEADER, unwrapData } from '../../api';
+import { saveBlob } from '../../utils/download';
 
 export interface SpaceRoot {
   space_id: string;
@@ -23,7 +24,7 @@ export interface SpacePage {
 const base = '/v1/myspace';
 export const spaceQuery = (space: string, path: string) => new URLSearchParams({ space, path });
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  return (await apiRequest<{ data: T }>(base + path, options, 'cloud')).data;
+  return unwrapData<T>(await apiRequest<unknown>(base + path, options, 'cloud'));
 }
 export async function listSpaceRoots(signal?: AbortSignal) {
   return request<{ items: SpaceRoot[]; revision: string }>('/mounts', { signal });
@@ -42,12 +43,7 @@ export async function uploadSpaceFile(space: string, path: string, file: File) {
 export async function downloadSpaceFile(space: string, entry: SpaceEntry) {
   const response = await authFetch(getApiUrl() + base + '/content?' + spaceQuery(space, entry.path), { headers: { [LOCAL_TARGET_HEADER]: 'cloud' } });
   if (!response.ok) throw new Error('HTTP ' + response.status);
-  const url = URL.createObjectURL(await response.blob());
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = entry.name;
-  anchor.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  saveBlob(await response.blob(), entry.name);
 }
 export async function createSpaceDirectory(space: string, path: string) {
   return request('/directories', { method: 'POST', body: JSON.stringify({ space, path }) });

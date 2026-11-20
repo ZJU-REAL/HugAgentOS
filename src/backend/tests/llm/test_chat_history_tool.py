@@ -9,11 +9,10 @@ from __future__ import annotations
 import json
 
 import pytest
-from core.db.engine import Base
 from core.db.models import ChatCompactionState, ChatMessage, ChatSession, Project
 from core.llm.tools.chat_history_tool import register_chat_history_tools
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from tests.db_support import file_engine, share_factory
 
 
 class FakeToolkit:
@@ -36,10 +35,7 @@ def _payload(response):
 
 @pytest.fixture()
 def wired(tmp_path, monkeypatch):
-    engine = create_engine(
-        f"sqlite:///{tmp_path / 'tool.db'}", connect_args={"check_same_thread": False}
-    )
-    Base.metadata.create_all(engine)
+    engine = file_engine(tmp_path / 'tool.db')
     Session = sessionmaker(bind=engine)
     with Session() as db:
         db.add_all(
@@ -87,7 +83,7 @@ def wired(tmp_path, monkeypatch):
 
     import core.db.engine as engine_module
 
-    monkeypatch.setattr(engine_module, "SessionLocal", Session)
+    share_factory(monkeypatch, Session)
 
     toolkit = FakeToolkit()
     register_chat_history_tools(toolkit, user_id="u1", chat_id="now", project_id="p1")

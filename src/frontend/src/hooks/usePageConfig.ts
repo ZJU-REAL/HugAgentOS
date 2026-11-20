@@ -25,7 +25,8 @@ export function usePageConfig<T = string>(path: string, fallback?: T): T {
     if (value && typeof value === 'object' && p in (value as Record<string, unknown>)) {
       value = (value as Record<string, unknown>)[p];
     } else {
-      return fallback as T;
+      value = undefined;
+      break;
     }
   }
   const resolved = (value as T) ?? (fallback as T);
@@ -54,13 +55,6 @@ export function usePanelHeader(
  */
 export function usePageConfigAll(): PageConfig {
   return usePageConfigStore((s) => s.config);
-}
-
-/**
- * Get app config such as external sub-app URLs (enterprise profile, enterprise research...).
- */
-export function useAppConfig() {
-  return usePageConfigStore((s) => s.appConfig);
 }
 
 /**

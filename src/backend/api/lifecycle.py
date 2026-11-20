@@ -2,13 +2,10 @@
 from api.startup.commands import startup_commands, shutdown_commands
 import os
 from contextlib import asynccontextmanager
-from typing import Callable
 from fastapi import FastAPI
 from core.infra.logging import get_logger
 logger = get_logger(__name__)
 from api.startup.workers import (
-    _env_flag,
-    _startup_preload_enabled,
     _shutdown_automation_scheduler,
     _shutdown_idle_session_reaper,
     _startup_idle_session_reaper,
@@ -50,8 +47,6 @@ from api.startup.runtime import (
     _startup_device_link,
     _shutdown_device_link,
     _startup_reconcile_datasource_catalog,
-    _startup_recover_datasource_sidecars,
-    _shutdown_datasource_sidecar_recovery,
     _startup_desktop_observability,
     _shutdown_desktop_observability,
     _startup_channel_desktop,
@@ -118,6 +113,13 @@ _SINGLETON = "singleton"
 def _startup_steps():
     """Every startup step, with what stops it and where it belongs.
 
+    Startup is one declarative table. ``gate`` steps must finish before uvicorn
+    opens the port (the health check promises a usable database and execution
+    plane); everything else runs afterwards, in the same relative order, without
+    holding the port. ``roles`` limits a step to the processes that own that
+    responsibility: the hybrid-desktop local backend is only a local execution
+    plane and never runs cloud-side workers.
+
     ``stop`` is the handler that shuts the step down, or ``None`` for the
     one-shot steps that leave nothing running. Keeping it in the row rather
     than in a separate list is what stops the two from drifting: a singleton
@@ -168,13 +170,6 @@ def _startup_steps():
         (
             _startup_mcp_market_monitor,
             _shutdown_mcp_market_monitor,
-            False,
-            _SERVICE_ONLY,
-            _SINGLETON,
-        ),
-        (
-            _startup_recover_datasource_sidecars,
-            _shutdown_datasource_sidecar_recovery,
             False,
             _SERVICE_ONLY,
             _SINGLETON,
@@ -318,7 +313,6 @@ async def lifespan(app: FastAPI):
     await _shutdown_kb_index_worker()
     await _shutdown_channel_desktop()
     await _shutdown_channel_manager()
-    await _shutdown_datasource_sidecar_recovery()
     await _shutdown_mcp_market_monitor()
     await _shutdown_local_sidecars()
     await _shutdown_sandbox_provider()

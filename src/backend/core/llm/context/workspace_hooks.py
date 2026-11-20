@@ -3,7 +3,7 @@ import json
 from collections.abc import Mapping
 from core.harness.events import thaw_value
 from core.harness.hooks import Decision, FailureMode, HookSpec, HookStage
-from core.llm.context.reasoning_hooks import reminder
+from core.harness.context_items import reminder_item
 from core.llm.runtime.hooks_constants import FILE_ID_RE, PIN_HINT_SKIP_TOOLS
 from core.llm.runtime.message_compat import flatten_tool_output
 from core.llm.tools.plan_update import parse_plan_update_args
@@ -20,7 +20,7 @@ def content_blocks(context, kind):
 
 def append_reminder(invocation, text, origin):
     return Decision.modify({"context_items": [*invocation.data.get("context_items", ()),
-                                              reminder(text, origin)]})
+                                              reminder_item(text, origin)]})
 
 
 class WorkspacePinHook:

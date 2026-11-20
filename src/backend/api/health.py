@@ -1,7 +1,6 @@
 """Health-check, readiness, and liveness endpoints."""
 from core.infra.time import utc_now
 
-from datetime import datetime
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse

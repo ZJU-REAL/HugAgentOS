@@ -2,8 +2,10 @@ import { createEditionAccessError } from '../editionAccessError';
 import { createApiResponseError, readErrorMessage } from './apiError';
 import { t } from '../i18n';
 import { invalidateWorkbenchDirectory } from '../workbench/invalidation';
+import { API_BASE } from './apiBase';
+import { saveBlob } from './download';
 
-export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || '/api';
+export { API_BASE };
 
 // Admin platform
 export const ADMIN_STORAGE_KEY = 'jx_admin_token';
@@ -12,7 +14,7 @@ export const ADMIN_AUTH_EXPIRED_EVENT = 'jx-admin-auth-expired';
 export const CONFIG_STORAGE_KEY = 'jx_config_token';
 export const CONFIG_AUTH_EXPIRED_EVENT = 'jx-config-auth-expired';
 
-// backward compatibility
+/** @deprecated Use ADMIN_STORAGE_KEY; kept only until components/admin/LoginView.tsx switches over. */
 export const STORAGE_KEY = ADMIN_STORAGE_KEY;
 
 export function move<T>(arr: T[], from: number, to: number): T[] {
@@ -44,15 +46,20 @@ export const ADMIN_TABLE_PAGINATION = {
   showTotal: (total: number) => t('共 {total} 条', { total }),
 };
 
-/** Error message extraction goes uniformly through utils/apiError.ts (shared with api.ts, single source of copy). */
-function createAuthFetch(storageKey: string, expiredEvent: string) {
-  // When token is an empty string, send no Authorization header and rely on session cookie auth instead (users granted admin permissions get direct access without a token).
-  return async (token: string, path: string, init?: RequestInit) => {
+/**
+ * The console request core shared by Admin and Config: API base, session cookie, optional Bearer token,
+ * JSON content type (except for FormData bodies), and on 401/403 drop the stored token and announce expiry.
+ * Error message extraction goes uniformly through utils/apiError.ts (shared with api.ts, single source of copy).
+ * When token is an empty string, no Authorization header is sent and the session cookie authenticates instead
+ * (users granted admin permissions get direct access without a token).
+ */
+function createAuthRequest(storageKey: string, expiredEvent: string) {
+  return async (token: string, path: string, init?: RequestInit, fallbackMessage?: string): Promise<Response> => {
     const res = await fetch(`${API_BASE}${path}`, {
       ...init,
       credentials: 'include',
       headers: {
-        'Content-Type': 'application/json',
+        ...(init?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...((init?.headers as Record<string, string>) || {}),
       },
@@ -65,9 +72,17 @@ function createAuthFetch(storageKey: string, expiredEvent: string) {
       }
       const editionError = createEditionAccessError(res.status, err, readErrorMessage);
       if (editionError) throw editionError;
-      throw createApiResponseError(res.status, err, `HTTP ${res.status}`);
+      throw createApiResponseError(res.status, err, fallbackMessage || `HTTP ${res.status}`);
     }
-    const body = await res.json();
+    return res;
+  };
+}
+
+/** JSON request for a console: resolves to the response envelope. */
+function createAuthFetch(storageKey: string, expiredEvent: string) {
+  const request = createAuthRequest(storageKey, expiredEvent);
+  return async (token: string, path: string, init?: RequestInit) => {
+    const body = await (await request(token, path, init)).json();
     if (init?.method && !['GET', 'HEAD'].includes(init.method.toUpperCase())
       && (path.startsWith('/v1/workbench/') || path === '/v1/content/docs/app_config'))
       invalidateWorkbenchDirectory();
@@ -75,8 +90,19 @@ function createAuthFetch(storageKey: string, expiredEvent: string) {
   };
 }
 
+/** File download for a console: fetches the response as a blob and saves it under `filename`. */
+function createAuthDownload(storageKey: string, expiredEvent: string) {
+  const request = createAuthRequest(storageKey, expiredEvent);
+  return async (token: string, path: string, filename: string, init?: RequestInit, fallbackMessage?: string) => {
+    saveBlob(await (await request(token, path, init, fallbackMessage)).blob(), filename);
+  };
+}
+
+const configRequest = createAuthRequest(CONFIG_STORAGE_KEY, CONFIG_AUTH_EXPIRED_EVENT);
 export const adminFetch = createAuthFetch(ADMIN_STORAGE_KEY, ADMIN_AUTH_EXPIRED_EVENT);
 export const configFetch = createAuthFetch(CONFIG_STORAGE_KEY, CONFIG_AUTH_EXPIRED_EVENT);
+export const adminDownload = createAuthDownload(ADMIN_STORAGE_KEY, ADMIN_AUTH_EXPIRED_EVENT);
+export const configDownload = createAuthDownload(CONFIG_STORAGE_KEY, CONFIG_AUTH_EXPIRED_EVENT);
 
 export const fetchContent = (token: string) => adminFetch(token, '/v1/content/docs');
 
@@ -125,22 +151,7 @@ export async function uploadPageAsset(
 ): Promise<{ url: string; filename: string; size: number; asset: string }> {
   const fd = new FormData();
   fd.append('file', file);
-  const res = await fetch(`${API_BASE}/v1/content/page_config/assets/upload?asset=${asset}`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: fd,
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    if (res.status === 401 || res.status === 403) {
-      localStorage.removeItem(CONFIG_STORAGE_KEY);
-      window.dispatchEvent(new CustomEvent(CONFIG_AUTH_EXPIRED_EVENT));
-    }
-    const editionError = createEditionAccessError(res.status, err, readErrorMessage);
-    if (editionError) throw editionError;
-    throw createApiResponseError(res.status, err, `HTTP ${res.status}`);
-  }
+  const res = await configRequest(token, `/v1/content/page_config/assets/upload?asset=${asset}`, { method: 'POST', body: fd });
   const body = await res.json();
   return body.data;
 }

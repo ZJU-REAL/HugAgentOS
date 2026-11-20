@@ -35,12 +35,6 @@ ENABLED = (os.getenv("MEMORY_TTL_SWEEP_ENABLED", "true") or "").lower() not in (
     "off",
 )
 
-_instance: Optional["MemoryTtlScheduler"] = None
-
-
-def get_scheduler() -> Optional["MemoryTtlScheduler"]:
-    return _instance
-
 
 class MemoryTtlScheduler:
     def __init__(self) -> None:
@@ -51,8 +45,6 @@ class MemoryTtlScheduler:
         if self._running or not ENABLED:
             logger.info("[memory-ttl-cron] disabled")
             return
-        global _instance
-        _instance = self
         self._running = True
         self._task = asyncio.create_task(self._loop())
         logger.info("[memory-ttl-cron] started (%s %s)", CRON_EXPRESSION, CRON_TIMEZONE)

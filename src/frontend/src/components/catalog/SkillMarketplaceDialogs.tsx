@@ -34,7 +34,9 @@ export function SkillMarketplaceDialogs({ marketplace, fetchCatalog }: {
         </Typography.Paragraph>
         {applySkillId && subBySkill.get(applySkillId)?.status === 'rejected' && (
           <Typography.Paragraph type="danger" style={{ fontSize: 12 }}>
-            上次申请被驳回{subBySkill.get(applySkillId)?.review_note ? `：${subBySkill.get(applySkillId)?.review_note}` : ''}，建议调整后重新提交。
+            {subBySkill.get(applySkillId)?.review_note
+              ? t('上次申请被驳回：{reason}，建议调整后重新提交。', { reason: subBySkill.get(applySkillId)?.review_note ?? '' })
+              : t('上次申请被驳回，建议调整后重新提交。')}
           </Typography.Paragraph>
         )}
         <Form form={applyForm} layout="vertical">

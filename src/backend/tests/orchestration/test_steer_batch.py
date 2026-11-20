@@ -27,7 +27,7 @@ from core.db.engine import Base
 from core.db.models import ChatMessage, ChatRun, ChatSession, ChatSteerQueueItem
 from core.runs.journal import RunJournal
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from tests.db_support import session_factory, share_factory
 
 
 class Clock:
@@ -48,7 +48,7 @@ def sessions(tmp_path, monkeypatch):
         connect_args={"check_same_thread": False, "timeout": 10},
     )
     Base.metadata.create_all(engine)
-    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    factory = session_factory(engine)
     with factory() as db:
         db.add(models.UserShadow(user_id="user-1", username="test"))
         db.flush()
@@ -164,7 +164,6 @@ async def _no_link(*_args, **_kwargs):
 async def test_put_pending_steer_keeps_earlier_steers_without_replace_latest(sessions, monkeypatch):
     _accept_run(sessions)
     monkeypatch.setattr(chat_steer_service, "link_request", _no_link)
-    monkeypatch.setattr(chat_steer_service, "_notify", _no_link)
 
     for index in range(3):
         await chat_steer_service.put_pending_steer("r1", {
@@ -181,7 +180,6 @@ async def test_put_pending_steer_keeps_earlier_steers_without_replace_latest(ses
 async def test_put_pending_steer_default_still_supersedes(sessions, monkeypatch):
     _accept_run(sessions)
     monkeypatch.setattr(chat_steer_service, "link_request", _no_link)
-    monkeypatch.setattr(chat_steer_service, "_notify", _no_link)
 
     for index in range(3):
         await chat_steer_service.put_pending_steer("r1", {
@@ -354,9 +352,8 @@ async def test_personal_profile_run_takes_three_steers_at_one_boundary(sessions,
     from core.chat.runtime import admission
     from core.chat.sequencer import ChatSequencer
 
-    monkeypatch.setattr(db_engine, "SessionLocal", sessions)
+    share_factory(monkeypatch, sessions)
     monkeypatch.setattr(chat_steer_service, "link_request", _no_link)
-    monkeypatch.setattr(chat_steer_service, "_notify", _no_link)
 
     async def no_event_write(*_args, **_kwargs):
         return None

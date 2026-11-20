@@ -46,7 +46,7 @@ export function SidebarLayoutSetting() {
     </div>
     <Modal open={confirmOpen} title={isDesktop ? t('重启客户端并应用排布？') : t('刷新页面并应用排布？')}
       okText={isDesktop ? t('应用并重启') : t('应用并刷新')} cancelText={t('取消')}
-      confirmLoading={applying} closable={!applying} maskClosable={!applying}
+      confirmLoading={applying} closable={!applying} mask={{ closable: !applying }}
       onCancel={() => { if (!applying) setConfirmOpen(false); }}
       onOk={async () => {
         if (!userId) return;

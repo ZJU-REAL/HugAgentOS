@@ -591,37 +591,11 @@
 .jx-toolCallItem--panel{
   cursor:pointer;
 }
-.jx-toolCallItem--panel .jx-toolCallHeader{
-  background:color-mix(in srgb, var(--color-bg-gray) 60%, transparent);
-}
-.jx-toolCallItem--panel.active .jx-toolCallHeader{
-  background:color-mix(in srgb, var(--color-primary) 7%, transparent);
-  border-color:color-mix(in srgb, var(--color-primary) 22%, transparent);
-}
 .jx-toolCallItem--panel.active{
   border-color:color-mix(in srgb, var(--color-primary) 22%, transparent);
 }
-.jx-panelOpenIcon{
-  color:color-mix(in srgb, var(--color-text) 36%, transparent);
-  font-size:12px !important;
-  transition:color .15s;
-}
-.jx-panelOpenIcon.active{
-  color:var(--color-primary);
-}
-.jx-toolCallItem--panel:hover .jx-panelOpenIcon{
-  color:var(--color-primary);
-}
-
 
 /* Tool Calls Section */
-.jx-toolCallsSection{
-  background:linear-gradient(180deg, color-mix(in srgb, var(--color-primary-light) 92%, transparent) 0%, color-mix(in srgb, var(--color-bg-container) 96%, transparent) 100%);
-  border:1px solid color-mix(in srgb, var(--color-primary) 18%, transparent);
-  border-radius:14px;
-  padding:10px;
-  box-shadow:0 10px 24px rgba(18,109,255,.08);
-}
 .jx-sectionHeader{
   display:flex;
   align-items:center;
@@ -642,80 +616,6 @@
   display:flex;
   flex-direction:column;
   gap:8px;
-}
-.jx-toolCallItem{
-  background:var(--color-bg-container);
-  border:1px solid color-mix(in srgb, var(--color-primary) 14%, transparent);
-  border-radius:12px;
-  box-shadow:0 6px 18px rgba(17,24,39,.04);
-  overflow:clip;
-}
-.jx-toolCallHeader{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding:10px 12px;
-  cursor:pointer;
-  transition:background 0.2s ease, border-color 0.2s ease;
-  user-select:none;
-}
-.jx-toolCallHeader:hover{
-  background:color-mix(in srgb, var(--color-primary) 8%, transparent);
-}
-.jx-toolCallHeader:focus-visible{
-  outline:2px solid color-mix(in srgb, var(--color-primary) 35%, transparent);
-  outline-offset:-2px;
-}
-.jx-toolCallTitle{
-  display:flex;
-  align-items:center;
-  gap:8px;
-  font-weight:700;
-  font-size:13px;
-  color:color-mix(in srgb, var(--color-text) 88%, transparent);
-}
-.jx-toolCallStatusIcon{
-  font-size:14px;
-}
-.jx-toolCallStatusIcon.running{
-  color:var(--color-primary);
-}
-.jx-toolCallStatusIcon.success{
-  color:var(--color-success);
-}
-.jx-toolCallStatusIcon.error{
-  color:var(--color-error);
-}
-.jx-toolCallName{
-  font-weight:700;
-  max-width:320px;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
-}
-.jx-toolCallStatusTag{
-  margin-left:4px;
-  padding:1px 8px;
-  border-radius:999px;
-  font-size:11px;
-  font-weight:800;
-  line-height:1.7;
-  border:1px solid transparent;
-}
-.jx-toolCallStatusTag.running{
-  color:var(--color-primary);
-  background:color-mix(in srgb, var(--color-primary) 16%, transparent);
-  border-color:color-mix(in srgb, var(--color-primary) 32%, transparent);
-}
-.jx-toolCallStatusTag.success{
-  color:var(--jx-tool-ok-text);
-  background:rgba(34,197,94,.16);
-  border-color:rgba(34,197,94,.32);
-}
-.jx-toolCallStatusTag.error{
-  color:var(--jx-tool-err-text);
-  background:rgba(239,68,68,.14);
-  border-color:rgba(239,68,68,.26);
 }
 .jx-expandIcon{
   font-size:10px;
@@ -851,55 +751,7 @@
   }
 }
 
-.jx-toolCallBody{
-  padding:10px 12px 12px 12px;
-  border-top:1px solid color-mix(in srgb, var(--color-primary) 14%, transparent);
-  -webkit-user-select:text;
-  user-select:text;
-}
-.jx-toolSection{
-  margin-top:10px;
-}
-.jx-toolSectionLabel{
-  font-weight:700;
-  font-size:12px;
-  color:color-mix(in srgb, var(--color-primary) 92%, transparent);
-  margin-bottom:6px;
-}
-.jx-toolCode{
-  background:var(--color-bg-gray);
-  border:1px solid color-mix(in srgb, var(--color-text) 10%, transparent);
-  border-radius:8px;
-  padding:10px;
-  font-size:12px;
-  line-height:1.5;
-  overflow-x:auto;
-  overflow-y:auto;
-  max-height:400px;
-  margin:0;
-  font-family:var(--font-family-mono);
-  color:color-mix(in srgb, var(--color-text) 92%, transparent);
-}
-.jx-toolCode::-webkit-scrollbar{width:8px; height:8px}
-.jx-toolCode::-webkit-scrollbar-track{background:var(--color-bg-gray); border-radius:4px}
-.jx-toolCode::-webkit-scrollbar-thumb{background:var(--scrollbar-thumb-drag); border-radius:4px}
-.jx-toolCode::-webkit-scrollbar-thumb:hover{background:var(--scrollbar-thumb-drag)}
-
-
 /* ── 工具结果结构化渲染（Tool Result Renderers）────────────────── */
-
-/* 摘要行 — 显示在 header 折叠状态下 */
-.jx-toolCallSummary{
-  font-size:11px;
-  color:color-mix(in srgb, var(--color-text) 42%, transparent);
-  margin-left:6px;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-  max-width:200px;
-  flex-shrink:1;
-  font-weight:400;
-}
 
 /* 通用空态 */
 .jx-tr-empty{
@@ -1175,8 +1027,6 @@
   white-space:nowrap;
 }
 
-
-
 /* Thinking Section — 旧版兼容样式（历史消息） */
 .jx-thinkingSection{
   background:transparent;
@@ -1193,12 +1043,6 @@
   flex-direction:column;
   gap:6px;
 }
-.jx-thinkingItem{
-  background:transparent;
-  border:none;
-  border-radius:0;
-  overflow:visible;
-}
 .jx-thinkingHeader{
   display:flex;
   align-items:center;
@@ -1211,21 +1055,6 @@
 }
 .jx-thinkingHeader:hover{
   color:color-mix(in srgb, var(--color-text) 92%, transparent);
-}
-.jx-thinkingTitle{
-  font-weight:600;
-  font-size:13px;
-  color:color-mix(in srgb, var(--color-text-secondary) 90%, transparent);
-}
-.jx-thinkingBody{
-  padding:4px 0 0;
-  border-top:none;
-  font-size:13px;
-  line-height:1.7;
-  color:color-mix(in srgb, var(--color-text-secondary) 90%, transparent);
-  white-space:pre-wrap;
-  margin-top:0;
-  font-style:normal;
 }
 
 /* ── 新版思考块（DeepSeek 风格，内联展示） ── */
@@ -1313,7 +1142,6 @@
   word-break:break-word;
   padding:6px 0;
 }
-
 
 /* ══════════════════════════════════════════════════════════════════════
    Code Execution Self-Contained Card (.jx-ce-*)
@@ -1810,89 +1638,6 @@
   color:var(--color-text-placeholder);
   margin-left:auto;
   font-variant-numeric:tabular-nums;
-}
-
-/* ── MySpace tool card list styles ──────────────────────────────────────── */
-.jx-ms-list{
-  padding:4px 12px 8px;
-  display:flex;
-  flex-direction:column;
-  gap:2px;
-}
-.jx-ms-listMeta{
-  font-size:11px;
-  color:var(--color-text-placeholder);
-  padding:2px 0 4px;
-}
-.jx-ms-listItem{
-  display:flex;
-  align-items:baseline;
-  gap:7px;
-  padding:5px 6px;
-  border-radius:6px;
-  transition:background .12s;
-}
-.jx-ms-listItem:hover{
-  background:color-mix(in srgb, var(--color-primary) 4%, transparent);
-}
-.jx-ms-fileIcon{
-  font-size:13px;
-  flex-shrink:0;
-  display:flex;
-  align-items:center;
-}
-.jx-ms-fileName{
-  font-size:12.5px;
-  color:var(--color-text-secondary);
-  font-weight:500;
-  flex:1;
-  min-width:0;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-}
-.jx-ms-fileMeta{
-  font-size:11px;
-  color:var(--color-text-placeholder);
-  flex-shrink:0;
-  white-space:nowrap;
-}
-.jx-ms-preview{
-  flex:1;
-  max-width:180px;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-}
-.jx-ms-imgPreview{
-  padding:8px 12px 10px;
-  text-align:center;
-}
-/* message thread */
-.jx-ms-msgItem{
-  display:flex;
-  align-items:baseline;
-  gap:8px;
-  padding:4px 6px;
-  border-radius:6px;
-}
-.jx-ms-msgItem--user{ background:color-mix(in srgb, var(--color-primary) 4%, transparent); }
-.jx-ms-msgRole{
-  font-size:11px;
-  font-weight:600;
-  color:var(--color-primary);
-  flex-shrink:0;
-  min-width:24px;
-}
-.jx-ms-msgItem--assistant .jx-ms-msgRole{
-  color:var(--color-success);
-}
-.jx-ms-msgContent{
-  font-size:12px;
-  color:var(--color-text-secondary);
-  line-height:1.5;
-  flex:1;
-  min-width:0;
 }
 
 /* §13 我的空间写操作确认浮条 —— 悬浮在输入框上方（借鉴 Claude 桌面版） */

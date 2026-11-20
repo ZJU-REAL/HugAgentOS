@@ -52,10 +52,10 @@ from core.sandbox.oslayer import (
     SandboxUnenforceableError,
     build_filesystem_policy,
     build_launch,
-    current_platform,
     get_platform_backend,
     unrestricted_policy,
 )
+from core.sandbox.oslayer import unavailable_reason as confinement_unavailable_reason
 from core.sandbox.oslayer.paths import normalize_logical
 
 # Basenames that stay read-only inside every writable root. These are the files
@@ -207,15 +207,6 @@ def backend_name(platform: Optional[str] = None) -> str:
     """Human-facing name of the platform's confinement mechanism."""
     backend = get_platform_backend(platform)
     return backend.name if backend is not None else ""
-
-
-def confinement_unavailable_reason(platform: Optional[str] = None) -> str:
-    """Why no confinement is possible on this host, or ``""`` when it is."""
-    target = platform or current_platform()
-    backend = get_platform_backend(target)
-    if backend is None:
-        return f"当前平台 {target} 没有可用的沙箱后端"
-    return backend.unavailable_reason()
 
 
 def confinement_available(platform: Optional[str] = None) -> bool:

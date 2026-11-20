@@ -20,10 +20,6 @@ def test_approx_token_count_is_ceil_bytes_over_4():
     assert C.approx_token_count("智能助手") == 3
 
 
-def test_approx_bytes_for_tokens():
-    assert C.approx_bytes_for_tokens(10) == 40
-
-
 # ── split_history_for_compaction ─────────────────────────────────────────────
 
 
@@ -146,25 +142,6 @@ def test_build_empty_summary_fallback():
     history = C.build_compacted_history("", [])
     assert history == [history[0]]
     assert history[0]["content"] == "(no summary available)"
-
-
-# ── middle truncation (truncate.rs) ──────────────────────────────────────────────────
-
-
-def test_truncate_middle_keeps_head_and_tail():
-    s = "H" * 100 + "M" * 100 + "T" * 100  # 300 bytes
-    out, orig = C.truncate_middle_with_token_budget(s, 20)  # 20 token = 80 bytes
-    assert out.startswith("H")
-    assert out.endswith("T")
-    assert "tokens truncated" in out
-    assert orig == C.approx_token_count(s)
-
-
-def test_truncate_no_op_when_within_budget():
-    s = "short"
-    out, orig = C.truncate_middle_with_token_budget(s, 10_000)
-    assert out == s
-    assert orig is None
 
 
 # ── prompts verbatim ───────────────────────────────────────────────────────────

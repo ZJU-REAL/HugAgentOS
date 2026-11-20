@@ -15,7 +15,7 @@ const SVG = {
   strokeLinejoin: 'round' as const,
 };
 
-export interface PresetIcon {
+interface PresetIcon {
   key: string;
   label: string;
   color: string;

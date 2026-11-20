@@ -284,10 +284,6 @@ def _validate_user_id(user_id: str) -> None:
         raise HTTPException(400, f"不安全的 user_id: {user_id!r}")
 
 
-class StageResponse(BaseModel):
-    staged: List[Dict[str, str]]  # [{"name": ..., "path": ...}]
-
-
 @app.get("/health")
 async def health():
     return {"status": "ok"}
@@ -341,6 +337,11 @@ def _validate_workspace_path(
     return p
 
 
+def _write_bytes(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+
+
 @app.post("/put_file")
 async def put_file(req: PutFileRequest):
     """Write base64 bytes directly to the given sandbox path for later execute calls to reference.
@@ -350,12 +351,11 @@ async def put_file(req: PutFileRequest):
     sandbox_put_artifact ("stage first, then call bash").
     """
     p = _validate_workspace_path(req.path, req.session_id, req.user_id)
-    p.parent.mkdir(parents=True, exist_ok=True)
     try:
         content = base64.b64decode(req.content_b64)
     except Exception:
         raise HTTPException(400, "base64 内容无效")
-    p.write_bytes(content)
+    await asyncio.to_thread(_write_bytes, p, content)
     return {"ok": True, "size": len(content)}
 
 
@@ -373,9 +373,10 @@ async def get_file(req: GetFileRequest):
     p = _validate_workspace_path(req.path, req.session_id, req.user_id, read_only=True)
     if not p.is_file():
         raise HTTPException(404, f"文件不存在: {req.path}")
-    data = p.read_bytes()
-    if len(data) > MAX_FETCH_FILE_SIZE:
-        raise HTTPException(413, f"文件过大: {len(data)} > {MAX_FETCH_FILE_SIZE}")
+    size = p.stat().st_size
+    if size > MAX_FETCH_FILE_SIZE:
+        raise HTTPException(413, f"文件过大: {size} > {MAX_FETCH_FILE_SIZE}")
+    data = await asyncio.to_thread(p.read_bytes)
     return GetFileResponse(
         content_b64=base64.b64encode(data).decode("ascii"),
         size=len(data),
@@ -444,7 +445,7 @@ async def close_session(req: SessionRequest):
     workspace = _session_workspace(req.session_id)
     existed = workspace.exists()
     if existed:
-        shutil.rmtree(workspace, ignore_errors=True)
+        await asyncio.to_thread(shutil.rmtree, workspace, ignore_errors=True)
     return {"closed": existed}
 
 

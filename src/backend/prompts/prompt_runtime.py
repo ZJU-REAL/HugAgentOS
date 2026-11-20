@@ -8,12 +8,13 @@ from __future__ import annotations
 from core.llm import prompt_storage as prompt_storage_module
 from core.llm import prompt_versions as prompt_versions_module
 
+from collections import OrderedDict
 from datetime import datetime
 import os
 from pathlib import Path
 from threading import Lock
 from time import monotonic
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from core.harness.execution_manifest import PromptManifestBuilder, stable_hash
 from prompts.prompt_config import PromptConfig
@@ -26,11 +27,28 @@ from prompts.provider import (
 # ── System prompt TTL cache ──────────────────────────────────────────────
 _PROMPT_CACHE_TTL = 300.0  # seconds
 _PROMPT_NOW_SENTINEL = "__PROMPT_NOW_PLACEHOLDER__"
+_PROMPT_CACHE_MAX_ENTRIES = 256
+# Identify the conversation, not the prompt: whatever of them a prompt shows is
+# rendered into ``desktop_environment`` first, so they never join the cache key.
+_SESSION_ONLY_CTX_KEYS = ("chat_id", "sandbox_session_id")
 _prompt_cache_lock = Lock()
-# key -> (expires_at, prompt_template_without_now, ordered section templates)
-# Section templates stay in this process-local cache only; the persisted
-# execution manifest receives hashes/references, never this plaintext.
-_prompt_cache: Dict[tuple, Tuple[float, str, Tuple[Dict[str, Any], ...]]] = {}
+# key -> (expires_at, prompt_template_without_now, ordered section templates),
+# least recently used first. Section templates stay in this process-local cache
+# only; the persisted execution manifest receives hashes/references, never this
+# plaintext.
+_prompt_cache: "OrderedDict[tuple, Tuple[float, str, Tuple[Dict[str, Any], ...]]]" = OrderedDict()
+
+
+def _prompt_cache_store(key: tuple, entry: Tuple[float, str, Tuple[Dict[str, Any], ...]]) -> None:
+    """Insert ``entry``, dropping expired entries and then the least recently used."""
+    with _prompt_cache_lock:
+        now = monotonic()
+        for stale in [k for k, (expires_at, _, _) in _prompt_cache.items() if expires_at <= now]:
+            del _prompt_cache[stale]
+        _prompt_cache[key] = entry
+        _prompt_cache.move_to_end(key)
+        while len(_prompt_cache) > _PROMPT_CACHE_MAX_ENTRIES:
+            _prompt_cache.popitem(last=False)
 
 
 _db_version_cache_lock = Lock()
@@ -172,8 +190,6 @@ def invalidate_prompt_cache() -> None:
 
     # Also drop prompt_version_service cached payload
     try:
-        from core.llm import prompt_versions as pvs
-
         prompt_storage_module.invalidate_cache()
     except Exception:
         pass
@@ -236,8 +252,6 @@ def build_subagent_system_prompt(
     # Prefer active version's parts when available (map by part_id suffix)
     _active_parts: Dict[str, str] = {}
     try:
-        from core.llm import prompt_versions as pvs
-
         _av = prompt_versions_module.get_active_version("system")
         if _av:
             for p in _av.get("parts") or []:
@@ -382,8 +396,6 @@ def ensure_project_mode_part_seeded() -> None:
 
     log = logging.getLogger(__name__)
     try:
-        from core.llm import prompt_versions as pvs
-
         # First make sure the active version exists (first cold start seeds from filesystem md)
         try:
             prompt_versions_module.seed_from_filesystem()
@@ -424,36 +436,3 @@ def ensure_project_mode_part_seeded() -> None:
 
 
 from prompts.system_builder import build_system_prompt  # noqa: E402
-
-
-def select_tools(
-    config: PromptConfig,
-    ctx: Dict[str, Any] | None,
-    all_tools: Iterable[Any],
-) -> List[Any]:
-    """Select tools according to allowlist/routing config.
-
-    Note: tool objects are expected to have a stable `.name` attribute.
-    """
-
-    allowed = set(config.tools.allowed or [])
-    if not allowed:
-        return list(all_tools)
-
-    selected: List[Any] = []
-    for tool in all_tools:
-        name = getattr(tool, "name", None)
-        # Support AgentScope JSON schemas (dict with function.name)
-        if not name and isinstance(tool, dict):
-            func_info = tool.get("function", {})
-            name = func_info.get("name") if isinstance(func_info, dict) else None
-        if not name:
-            continue
-        if name in allowed:
-            selected.append(tool)
-
-    # If allowlist accidentally filters everything, fail open.
-    if not selected and not config.tools.routing.strict_allowlist:
-        return list(all_tools)
-
-    return selected

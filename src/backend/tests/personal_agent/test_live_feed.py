@@ -7,22 +7,22 @@ import uuid
 
 import pytest
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import core.db.engine as engine_module
 from core.db.models import Base, ChatMessage, ChatSession
 from personal_agent.conversation import live
 from personal_agent.models import PersonalAgent, PersonalDevice, PersonalWorkItem
+from tests.db_support import session_factory, share_factory
 
 
 @pytest.fixture
 def factory(monkeypatch):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
-    made = sessionmaker(bind=engine, expire_on_commit=False)
+    made = session_factory(engine)
     # The publisher looks owners up with its own sessions.
-    monkeypatch.setattr(engine_module, "SessionLocal", made)
+    share_factory(monkeypatch, made)
     import personal_agent.computer.devices as devices
     monkeypatch.setattr(devices, "SessionLocal", made)
     monkeypatch.setattr(live, "redis_configured", lambda: False)

@@ -13,7 +13,7 @@ from core.db.models import ChatMessage, ChatRun, ChatSession, ChatSteerQueueItem
 from core.runs.journal import RunJournal
 from core.chat.steer_queue import SteerClaimLost, SteerQueue, SteerQueueConflict
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from tests.db_support import session_factory
 
 
 class Clock:
@@ -34,7 +34,7 @@ def queue_env(tmp_path):
         connect_args={"check_same_thread": False, "timeout": 10},
     )
     Base.metadata.create_all(engine)
-    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+    sessions = session_factory(engine)
     clock = Clock()
     with sessions() as db:
         db.add(ChatSession(chat_id="chat-1", user_id="user-1", title="test"))

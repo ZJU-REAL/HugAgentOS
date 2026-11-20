@@ -5,10 +5,21 @@ from datetime import datetime, timezone
 from core.db.engine import Base
 from core.db.edition import MarketplaceListingEditionFields
 from sqlalchemy import JSON, Boolean, CheckConstraint, Column, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, text
-from sqlalchemy.dialects.postgresql import INET, JSONB
-from sqlalchemy.orm import mapped_column, relationship
+from sqlalchemy.dialects.postgresql import JSONB
 from core.db.edition import UserAgentEditionFields, user_agent_edition_table_args
-from sqlalchemy import JSON, BigInteger, Boolean, CheckConstraint, Column, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    Column,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 JSONType = JSON().with_variant(JSONB(), "postgresql")
 
 class McpMarketItem(Base):

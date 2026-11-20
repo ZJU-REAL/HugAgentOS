@@ -169,8 +169,10 @@ class IdentityService:
                 reconcile(config, available)
             if beat is not None:
                 from personal_agent.scheduling.heartbeat import validate
+                from personal_agent.channels.channel_bridge import connected_ids
+                channels = connected_ids(self.db, self.user_id) if beat.get("channel_id") else ()
                 # Merged under the row lock: the scheduler writes the state fields of the same object.
-                config["heartbeat"] = validate(beat, config)
+                config["heartbeat"] = validate(beat, config, channels=channels)
         # The proactive list (HEARTBEAT.md) is written once, when the scheduler first seeds the agent
         # looked at by the scheduler (heartbeat._before_lock), never on a settings save: an emptied list is
         # how the user stops the checks. update_timed keeps next_due_at with the times that changed.

@@ -9,6 +9,7 @@ import prompts.prompt_config as prompt_config
 from core.harness.registry.run_capabilities import has_run_capabilities
 from core.llm.factory.request import AgentRequest
 from core.llm.factory.selection import capabilities as factory_capabilities
+from core.db.threads import run_db
 
 
 async def subagent_bindings(request: AgentRequest, *, _api_scope, _elapsed, _log):
@@ -78,7 +79,7 @@ async def subagent_bindings(request: AgentRequest, *, _api_scope, _elapsed, _log
                         exc,
                     )
                     _subagent_progressive = None
-            p_skills, p_mcp = factory_capabilities._expand_plugin_bindings(
+            p_skills, p_mcp = await run_db(factory_capabilities._expand_plugin_bindings,
                 plugin_ids, user_id=request.current_user_id
             )
             if _subagent_progressive is not None:

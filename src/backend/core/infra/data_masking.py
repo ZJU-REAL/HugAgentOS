@@ -10,12 +10,16 @@ from typing import Any, Dict, List, Optional, Union
 
 def mask_phone(phone: str) -> str:
     """
-    Mask phone number, keeping first 3 and last 4 digits.
+    Mask a phone number using its digits only (separators and ``+`` are dropped).
+
+    10+ digits keep the first 3 and last 4; 7-9 digits keep the first 2 and
+    last 3; fewer than 7 digits are returned unchanged.
 
     Examples:
         13812345678 -> 138****5678
-        +86 138 1234 5678 -> +86 138****5678
-        1234567 -> 1234567 (too short, no masking)
+        +86 138 1234 5678 -> 861****5678
+        1234567 -> 12***567
+        123456 -> 123456 (too short, no masking)
 
     Args:
         phone: Phone number string

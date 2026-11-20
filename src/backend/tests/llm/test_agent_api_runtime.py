@@ -4,6 +4,7 @@ import hashlib
 import pytest
 
 from core.llm.api_runtime.agent import apply_api_scope, parse_api_scope
+from tests.db_support import share_factory
 
 
 def scope(**updates):
@@ -175,7 +176,7 @@ def artifact_db(tmp_path, monkeypatch):
         tables=[model.__table__ for model in (Artifact, ChatSession, UserShadow, UserFolder)],
     )
     factory = sessionmaker(bind=engine)
-    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
+    share_factory(monkeypatch, factory)
     with factory() as db:
         db.add(UserShadow(user_id="owner", username="Owner"))
         db.add(

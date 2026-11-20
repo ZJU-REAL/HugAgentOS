@@ -1,4 +1,4 @@
-"""skills responsibilities."""
+"""Local skill resolution for the desktop capability store: view generation counter, per-user resolution and skill-info merging."""
 from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
@@ -17,7 +17,6 @@ def view_generation() -> int:
 
 
 def bump_view_generation() -> int:
-    pass  # State is owned by its responsibility module.
     with skills_state.resolution_lock:
         skills_state.view_generation += 1
         return skills_state.view_generation
@@ -154,8 +153,3 @@ def merge_skill_infos(groups: Dict[str, List[Any]], *, backend_hash) -> Dict[str
 def loader_resolution() -> Optional[Resolution]:
     with skills_state.resolution_lock:
         return skills_state.last_resolution.get("__loader__")
-
-
-def conflicted_names() -> Set[str]:
-    res = loader_resolution()
-    return set(res.conflicts) if res else set()

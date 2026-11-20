@@ -64,7 +64,6 @@ HugAgentOS 后端是一个 FastAPI 应用，所有业务接口挂在 `/v1/*` 前
 | **ADMIN_TOKEN** | `Authorization: Bearer <ADMIN_TOKEN>` | `/admin` 管理台后端（`/v1/admin/skills`、`/v1/admin/kb` 等）及内容块写接口 | `require_admin`（环境变量 `ADMIN_TOKEN`） |
 | **CONFIG_TOKEN** | `Authorization: Bearer <CONFIG_TOKEN>` | `/config` 系统配置台后端（`/v1/config/*`、`/v1/models`、`/v1/service-configs`、部分 `/v1/admin/*` 观测接口） | `require_config`（环境变量 `CONFIG_TOKEN`） |
 | **ADMIN 或 CONFIG 任一** | 同上 | 提示词快照导入/导出（`/v1/content/prompts/export|import`） | `require_admin_or_config` |
-| **super_admin 会话** | 会话 Cookie（用户 `extra_data.role == "super_admin"`），合法 ADMIN_TOKEN 可兜底 | 个别跨用户管理操作 | `require_super_admin` |
 | **BACKEND_INTERNAL_TOKEN** | `Authorization: Bearer <token>` | 站点、浏览器与安全工具的内部服务调用；未配置时拒绝请求 | `features/sites/api/internal_site_auth.py`、`internal_security.py` |
 
 鉴权优先级（`get_current_user`）：**Cookie 会话 → API-Key Bearer（`sk-jx-` 前缀）→ mock/remote Bearer**。携带了形似 API-Key 的 Bearer 但校验失败时直接 401，绝不静默降级为匿名。

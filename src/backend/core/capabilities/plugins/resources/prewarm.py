@@ -88,12 +88,10 @@ async def closing(chat_id):
                 process_state().closing.pop(chat_id)
 
 def resume():
-    pass
     with process_state().guard:
         process_state().shutdown = False
 
 async def stop(chat_id=None):
-    pass
     if str(chat_id or "").startswith("eval_"):
         return True
     if chat_id is None:

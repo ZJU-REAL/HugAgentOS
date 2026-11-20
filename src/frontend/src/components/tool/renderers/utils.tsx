@@ -1,6 +1,7 @@
 import React from 'react';
 import type { ToolCall } from '../../../types';
 import { unwrapMcpResult } from '../../../utils/mcpResult';
+import { t } from '../../../i18n';
 
 export { unwrapMcpResult };
 
@@ -11,7 +12,7 @@ export const PREVIEW_LEN = 90;
 export function citeTag(item: unknown): React.ReactNode {
   const cid = (item && typeof item === 'object') ? String((item as any).cite_id || '') : '';
   if (!/^e\d+$/.test(cid)) return null;
-  return <span className="jx-tr-citeTag" title={`引用锚点 ${cid}`}>{cid}</span>;
+  return <span className="jx-tr-citeTag" title={t('引用锚点 {id}', { id: cid })}>{cid}</span>;
 }
 export const preview = (s: string) => s.length > PREVIEW_LEN ? s.slice(0, PREVIEW_LEN) + '…' : s;
 

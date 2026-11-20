@@ -18,7 +18,6 @@ class ExecutionIdentity(Protocol):
 
 
 def register_execution_identity(provider: ExecutionIdentity | None) -> None:
-    pass
     registration_state().provider = provider
 
 

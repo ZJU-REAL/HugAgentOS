@@ -13,6 +13,7 @@ from core.capabilities.plugins import runtime as plugin_loader
 from core.capabilities.manifest_protocol import skill_content_hash
 from core.llm.factory.tools.definitions import ToolAssembly
 from core.llm.tools import plugin_activation
+from tests.db_support import share_factory
 
 
 def test_desktop_directory_defers_skill_until_load_plugin(index_db, caps_root, monkeypatch):
@@ -152,7 +153,7 @@ def test_pending_cloud_plugin_is_discovered_from_manifest(index_db, caps_root, m
 
     with index_db() as db:
         Base.metadata.create_all(db.get_bind())
-    monkeypatch.setattr("core.db.engine.SessionLocal", index_db)
+    share_factory(monkeypatch, index_db)
     st = state("cloud-owner")
     monkeypatch.setattr(bridge_identity, 'get_state', lambda: st)
     monkeypatch.setattr(skill_account, 'current_local_user_id', lambda: "owner")

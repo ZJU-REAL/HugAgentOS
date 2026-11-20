@@ -113,7 +113,7 @@ export function ProjectSidebarGroup({ pg, actions, dragScopeRef }: { pg: Sidebar
               }}
               trigger={['click']}
               placement="bottomRight"
-              overlayClassName="jx-chatItemMenu"
+              classNames={{ root: "jx-chatItemMenu" }}
             >
               <button
                 type="button"

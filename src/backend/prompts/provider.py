@@ -22,7 +22,6 @@ For system prompt, use prompt_id="system", role="system".
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Protocol
@@ -56,13 +55,6 @@ def _read_file_cached(p: Path) -> str:
 
 class PromptProvider(Protocol):
     def get_prompt(self, prompt_id: str, role: str, vars: Dict[str, Any] | None = None) -> str: ...
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    v = os.getenv(name)
-    if v is None:
-        return default
-    return v.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 class _LooseFormatDict(dict):

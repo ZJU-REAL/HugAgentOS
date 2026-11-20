@@ -13,7 +13,7 @@ This module provides:
     * DATA_SCHEMAS    — (METHOD, PATH) → JSON Schema mapping for the data field.
 
 Integration point:
-    The _custom_openapi() hook in api/app.py reads this module; for endpoints matched in
+    _build_custom_openapi() in api/openapi.py imports this module; for endpoints matched in
     DATA_SCHEMAS, it replaces the response schema from `$ref ApiResponseEnvelope` to
     `allOf: [ApiResponseEnvelope, {properties: {data: <specific>}}]`,
     keeping the envelope structure while typing the business data.
@@ -25,6 +25,34 @@ Maintenance conventions:
 """
 
 from typing import Any, Dict, Tuple
+
+# Boolean permission flags serialized by GET /v1/me (and /v1/auth/session/check).
+# Mirrors core.auth.capabilities.BOOL_CAPABILITY_DEFAULTS; kept literal so this module
+# stays import-light (a test asserts the two stay in sync).
+_CAPABILITY_FLAGS: Tuple[str, ...] = (
+    "lab_enabled",
+    "sites_enabled",
+    "can_use_api_key",
+    "can_add_skill",
+    "can_install_market_skill",
+    "can_add_mcp",
+    "can_install_market_mcp",
+    "can_import_plugin",
+    "can_install_market_plugin",
+    "can_add_agent",
+    "can_install_market_agent",
+    "can_create_private_kb",
+    "can_create_public_kb",
+    "can_create_channel_bot",
+    "can_switch_model",
+    "can_use_voice",
+    "can_run_autonomous_loop",
+    "can_manage_chat_modes",
+    "can_use_personal_agent",
+    "can_system_config",
+    "can_content_manage",
+    "can_security_view",
+)
 
 # ---------------------------------------------------------------------------
 # 1. Component schema: reusable entity shapes
@@ -280,6 +308,16 @@ DATA_COMPONENTS: Dict[str, Dict[str, Any]] = {
             "department": {"type": "string"},
             "auth_source": {"type": "string", "enum": ["local", "external"]},
             "created_at": {"type": "string", "format": "date-time"},
+            "must_change_password": {"type": "boolean"},
+            "onboarding_required": {"type": "boolean"},
+            "teams": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+            "allowed_apps": {
+                "type": "array",
+                "items": {"type": "string"},
+                "nullable": True,
+                "description": "null = 全部已启用应用可见；数组 = 仅列出的应用可见",
+            },
+            **{flag: {"type": "boolean"} for flag in _CAPABILITY_FLAGS},
         },
     },
     "UserPreferencesResponse": {

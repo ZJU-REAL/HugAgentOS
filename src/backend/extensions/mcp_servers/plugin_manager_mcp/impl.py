@@ -4,39 +4,11 @@ from __future__ import annotations
 from features.marketplace import plugin_market
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional
+
+from extensions.mcp_servers._manager_common import invalidate_user_cache, no_user, require_cap
 
 logger = logging.getLogger(__name__)
-
-def _no_user() -> Dict[str, Any]:
-    return {"ok": False, "message": "❌ 无法确定用户身份（缺 X-Current-User-Id 头），拒绝操作。"}
-
-def _invalidate_user_cache(user_id: Optional[str]) -> None:
-    """清掉该用户的 30s 能力解析缓存（仅本进程；跨进程失效靠前端重拉 /v1/catalog）。
-
-    见 agent_manager_mcp/impl.py 同名函数的说明——两个 MCP 面对的是同一个跨进程缓存问题。
-    """
-    try:
-        from core.capabilities.catalog.resolver import invalidate_capability_cache
-
-        invalidate_capability_cache(str(user_id) if user_id else None)
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("plugin_manager: invalidate_capability_cache failed (%s)", exc)
-
-def _require_cap(db, user_id: str, cap: str) -> Optional[Dict[str, Any]]:
-    """能力位校验。缺权限返回错误 dict，否则 None。"""
-    try:
-        from core.auth.capabilities import resolve_user_capabilities
-
-        if not resolve_user_capabilities(db, user_id).get(cap):
-            return {
-                "ok": False,
-                "message": f"❌ 管理员未开放该能力（{cap}），无法执行。请联系管理员在权限设置里开启。",
-            }
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("plugin_manager: capability check failed (%s)", exc)
-        return {"ok": False, "message": f"❌ 权限校验失败：{exc}"}
-    return None
 
 def _is_installed(db, slug: str, user_id: str) -> bool:
     """该 slug 是否已装（本人私有安装或管理员全局安装）。
@@ -62,9 +34,8 @@ def _is_installed(db, slug: str, user_id: str) -> bool:
 
 def search_plugin_market(*, user_id: str, query: str = "", category: str = "") -> Dict[str, Any]:
     if not user_id:
-        return _no_user()
+        return no_user()
     from core.db.engine import SessionLocal
-    from core.capabilities.plugins import management as plugin_service
 
     q = (query or "").strip().lower()
     cat = (category or "").strip()
@@ -105,7 +76,7 @@ def search_plugin_market(*, user_id: str, query: str = "", category: str = "") -
 
 def get_plugin_info(*, user_id: str, slug: str) -> Dict[str, Any]:
     if not user_id:
-        return _no_user()
+        return no_user()
     slug = (slug or "").strip()
     if not slug:
         return {"ok": False, "message": "❌ 请提供插件 slug。"}
@@ -169,7 +140,7 @@ def install_plugin(
     *, user_id: str, slug: str, secrets: Optional[Dict[str, str]] = None
 ) -> Dict[str, Any]:
     if not user_id:
-        return _no_user()
+        return no_user()
     slug = (slug or "").strip()
     if not slug:
         return {"ok": False, "message": "❌ 请提供要安装的插件 slug。"}
@@ -177,7 +148,7 @@ def install_plugin(
     from core.capabilities.plugins import management as plugin_service
 
     with SessionLocal() as db:
-        cap_err = _require_cap(db, user_id, "can_install_market_plugin")
+        cap_err = require_cap(db, user_id, "can_install_market_plugin", source="plugin_manager")
         if cap_err:
             return cap_err
         # 可见范围守卫：与用户端安装接口一致；不要包 try——守卫出错就该报错，不能对不可见条目失败开放。
@@ -195,7 +166,7 @@ def install_plugin(
             )
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "message": f"❌ 安装失败：{exc}"}
-    _invalidate_user_cache(user_id)
+    invalidate_user_cache(user_id, source="plugin_manager")
     report = (res or {}).get("import_report") or {}
     return {
         "ok": True,

@@ -4,7 +4,7 @@ import { t } from '../../i18n';
 
 /** 侧边栏二级导航项：目前只有「能力中心」用到，点了进该面板的对应类别页。
  *  只有一个消费者，所以 key 直接收窄到 AbilityTabKey——不为单一用例造一套通用的子导航协议。 */
-export interface LayoutSubItemMeta {
+interface LayoutSubItemMeta {
   key: AbilityTabKey;
   label: string;
 }

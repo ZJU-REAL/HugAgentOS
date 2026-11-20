@@ -9,6 +9,7 @@
   },
   "files": [
     "dist",
+    "!dist/tui/dev",
     "README.md"
   ],
   "engines": {

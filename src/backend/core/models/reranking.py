@@ -1,23 +1,17 @@
 """Call the configured reranking service."""
 from __future__ import annotations
-import os
-import requests
+
+from core.models.service_endpoint import endpoint_headers, http_session, resolve_service_config
+
 
 def resolve_reranker_config() -> tuple[str, str, str]:
     """Resolve reranker config from DB, with env fallback."""
-    try:
-        from core.models.config import ModelConfigService
-
-        cfg = ModelConfigService.get_instance().resolve("reranker")
-        if cfg:
-            return cfg.base_url.rstrip("/"), cfg.model_name, cfg.api_key
-    except Exception as fallback_error:
-        from core.infra.failures import record_best_effort_failure
-        record_best_effort_failure('core.models.reranking:resolve_reranker_config', fallback_error)
-    return (
-        os.getenv("RERANKER_URL", "").rstrip("/"),
-        os.getenv("RERANKER_MODEL", ""),
-        os.getenv("RERANKER_API_KEY", ""),
+    return resolve_service_config(
+        "reranker",
+        "RERANKER_URL",
+        "RERANKER_MODEL",
+        "RERANKER_API_KEY",
+        failure_site="core.models.reranking:resolve_reranker_config",
     )
 
 
@@ -44,8 +38,7 @@ def rerank(
         raise RuntimeError("Reranker is not configured")
 
     url = f"{reranker_url}/rerank"
-    from core.harness.registry.model_credentials import prepare_request_headers
-    headers = prepare_request_headers(reranker_key, reranker_url)
+    headers = endpoint_headers(reranker_key, reranker_url)
     payload: dict = {
         "model": reranker_model,
         "query": query,
@@ -54,7 +47,7 @@ def rerank(
     if top_n is not None:
         payload["top_n"] = top_n
 
-    resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+    resp = http_session().post(url, headers=headers, json=payload, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
 

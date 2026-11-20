@@ -163,12 +163,3 @@ async def test_delegated_gate_denies_in_a_worker_thread(monkeypatch, threads):
         await deps.require_system_settings(_request(), _user())
     assert error.value.status_code == 403
     _off_loop(threads)
-
-
-async def test_super_admin_gate_runs_in_a_worker_thread(monkeypatch, threads):
-    monkeypatch.setenv("ADMIN_TOKEN", "")
-    monkeypatch.setattr(deps, "AuditLogRepository", _Audit(threads.seen))
-    with pytest.raises(HTTPException) as error:
-        await deps.require_super_admin(_request())
-    assert error.value.status_code == 401
-    _off_loop(threads)

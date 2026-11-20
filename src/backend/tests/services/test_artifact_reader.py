@@ -9,6 +9,7 @@ from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
+from tests.db_support import share_factory
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -72,7 +73,7 @@ def test_fetch_parsed_text_cache_hit(monkeypatch):
     sess = _FakeSession(row)
 
     import core.db.engine as engine_mod
-    monkeypatch.setattr(engine_mod, "SessionLocal", lambda: sess)
+    share_factory(monkeypatch, lambda: sess)
 
     result = ar.fetch_parsed_text("ua_test123")
     assert result == "cached content"
@@ -86,7 +87,7 @@ def test_fetch_parsed_text_miss_triggers_parse_and_cache(monkeypatch):
     sess = _FakeSession(row)
 
     import core.db.engine as engine_mod
-    monkeypatch.setattr(engine_mod, "SessionLocal", lambda: sess)
+    share_factory(monkeypatch, lambda: sess)
 
     # Mock storage + parser
     fake_storage = SimpleNamespace(
@@ -112,7 +113,7 @@ def test_fetch_parsed_text_permission_denied(monkeypatch):
     sess = _FakeSession(row)
 
     import core.db.engine as engine_mod
-    monkeypatch.setattr(engine_mod, "SessionLocal", lambda: sess)
+    share_factory(monkeypatch, lambda: sess)
 
     result = ar.fetch_parsed_text("ua_test123", user_id="attacker_b")
     assert result == ""
@@ -125,7 +126,7 @@ def test_fetch_parsed_text_permission_ok(monkeypatch):
     sess = _FakeSession(row)
 
     import core.db.engine as engine_mod
-    monkeypatch.setattr(engine_mod, "SessionLocal", lambda: sess)
+    share_factory(monkeypatch, lambda: sess)
 
     result = ar.fetch_parsed_text("ua_test123", user_id="owner_a")
     assert result == "ok content"
@@ -138,7 +139,7 @@ def test_fetch_parsed_text_deleted_artifact(monkeypatch):
     sess = _FakeSession(row)
 
     import core.db.engine as engine_mod
-    monkeypatch.setattr(engine_mod, "SessionLocal", lambda: sess)
+    share_factory(monkeypatch, lambda: sess)
 
     result = ar.fetch_parsed_text("ua_test123")
     assert result == ""
@@ -149,7 +150,7 @@ def test_fetch_parsed_text_missing_artifact(monkeypatch):
 
     sess = _FakeSession(None)
     import core.db.engine as engine_mod
-    monkeypatch.setattr(engine_mod, "SessionLocal", lambda: sess)
+    share_factory(monkeypatch, lambda: sess)
 
     result = ar.fetch_parsed_text("ua_nonexistent")
     assert result == ""
@@ -163,7 +164,7 @@ def test_fetch_parsed_text_parse_error_records(monkeypatch):
     sess = _FakeSession(row)
 
     import core.db.engine as engine_mod
-    monkeypatch.setattr(engine_mod, "SessionLocal", lambda: sess)
+    share_factory(monkeypatch, lambda: sess)
 
     def _raise(_key):
         raise StorageError("download", "disk err")
@@ -198,7 +199,7 @@ def test_load_artifact_meta_returns_shape(monkeypatch):
     )
     sess = _FakeSession(row)
     import core.db.engine as engine_mod
-    monkeypatch.setattr(engine_mod, "SessionLocal", lambda: sess)
+    share_factory(monkeypatch, lambda: sess)
 
     meta = ar.load_artifact_meta("ua_test123")
     assert meta is not None
@@ -215,7 +216,7 @@ def test_load_artifact_meta_permission_denied(monkeypatch):
     row = _make_artifact_row(user_id="owner_a")
     sess = _FakeSession(row)
     import core.db.engine as engine_mod
-    monkeypatch.setattr(engine_mod, "SessionLocal", lambda: sess)
+    share_factory(monkeypatch, lambda: sess)
     assert ar.load_artifact_meta("ua_test123", user_id="attacker_b") is None
 
 
@@ -224,7 +225,7 @@ def test_load_artifact_meta_deleted(monkeypatch):
     row = _make_artifact_row(deleted_at=datetime.utcnow())
     sess = _FakeSession(row)
     import core.db.engine as engine_mod
-    monkeypatch.setattr(engine_mod, "SessionLocal", lambda: sess)
+    share_factory(monkeypatch, lambda: sess)
     assert ar.load_artifact_meta("ua_test123") is None
 
 

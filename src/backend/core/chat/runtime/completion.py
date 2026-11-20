@@ -28,8 +28,8 @@ async def complete_turn(turn, chunk):
     internal_budget = chunk.get("_compaction_budget_inputs")
     if isinstance(internal_budget, dict):
         turn.compaction_budget_inputs = dict(internal_budget)
-    # Strict workspace gate: pinned list is the sole source of
-    # user-visible artifacts. See chats.py:_stream_sse_response.
+    # Strict workspace gate: the pinned list is the sole source of
+    # user-visible artifacts (see core/llm/runtime/workspace.py).
     _ws_pinned = _workspace_mod.get_pinned()
     _ws_files = _workspace_mod.get_pinned_file_ids()
     usage_payload = chunk.get("usage") or None

@@ -8,12 +8,10 @@ from core.capabilities.catalog.runtime import get_runtime_catalog
 from core.config.settings import settings
 from core.db.threads import run_in_session
 from features.knowledge.repository import KBRepository
-from core.infra.exceptions import BadRequestError
 from core.infra.responses import success_response
 from features.knowledge.edition import get_collections_async, is_enabled
 from core.capabilities.catalog.overrides import CatalogService
-from fastapi import APIRouter, Depends, Path
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/v1/catalog", tags=["Catalog"])
@@ -40,7 +38,10 @@ def _kb_capabilities(space) -> Dict[str, bool]:
         return {"vector": True, "keyword": True, "wiki": False, "graph": False}
 
 
-from features.marketplace.api.catalog_ownership import _load_owned_capability_items, _plugin_component_ids, _is_owned_capability
+from features.marketplace.api.catalog_ownership import (
+    _load_owned_capability_items,
+    _plugin_component_ids,
+)
 
 
 def _get_catalog_items_sync(

@@ -15,6 +15,7 @@ import { useFlashKey } from '../../hooks/useFlash';
 import { useResizableColumns } from '../common/ResizableColumns';
 import { t } from '../../i18n';
 import { PromptPreviewModal, type PromptPreview } from './PromptPreviewModal';
+import { saveBlob } from '../../utils/download';
 
 // kind 不再是写死的枚举：管理员可以在这里新开 tab（后端 custom_kinds），
 // 「模式选择」页随后就能绑定它。内置那批仍有固定标签与文件系统兜底。
@@ -212,9 +213,7 @@ export function PromptVersionsEditor({
     }
   };
 
-  const handleClone = async (row: VersionSummary) => {
-    const newId = prompt(t('克隆自 {id}，请输入新版本 id', { id: row.id }), `${row.id}_copy`);
-    if (!newId) return;
+  const cloneVersion = async (row: VersionSummary, newId: string) => {
     try {
       await fetchFn(token, '/v1/admin/prompts/versions', {
         method: 'POST',
@@ -230,7 +229,34 @@ export function PromptVersionsEditor({
       reload();
     } catch (e) {
       message.error(t('克隆失败：{msg}', { msg: (e as Error).message }));
+      throw e;
     }
+  };
+
+  const handleClone = (row: VersionSummary) => {
+    let newId = `${row.id}_copy`;
+    Modal.confirm({
+      title: t('克隆自 {id}，请输入新版本 id', { id: row.id }),
+      icon: null,
+      content: (
+        <Input
+          autoFocus
+          defaultValue={newId}
+          aria-label={t('新版本 id')}
+          onChange={(e) => { newId = e.target.value; }}
+        />
+      ),
+      okText: t('克隆'),
+      cancelText: t('取消'),
+      onOk: async () => {
+        const id = newId.trim();
+        if (!id) {
+          message.warning(t('请输入新版本 id'));
+          return Promise.reject(new Error('empty id'));
+        }
+        await cloneVersion(row, id);
+      },
+    });
   };
 
   // ── Create new version ─────────────────────────────────────────
@@ -285,12 +311,7 @@ export function PromptVersionsEditor({
     try {
       const res = await fetchFn(token, '/v1/admin/prompts/snapshot');
       const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `prompt-snapshot-${formatDateKey(new Date())}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      saveBlob(blob, `prompt-snapshot-${formatDateKey(new Date())}.json`);
       message.success(t('提示词快照已导出（版本池 + 提示词广场）'));
     } catch (e) {
       message.error(t('导出失败：{msg}', { msg: (e as Error).message }));
@@ -383,7 +404,8 @@ export function PromptVersionsEditor({
   };
 
   // ── Columns ────────────────────────────────────────────────────
-  const columns = useMemo(() => [
+  // Rebuilt each render: the row actions close over the latest handlers, so a memo would only go stale.
+  const columns = [
     {
       title: t('版本 ID'),
       dataIndex: 'id',
@@ -446,7 +468,7 @@ export function PromptVersionsEditor({
         </Space>
       ),
     },
-  ], [active, token, fetchFn, previewLoading, kinds]);
+  ];
 
   const { columns: resizableColumns, components: resizableComponents, tableProps } =
     useResizableColumns(columns, { storageKey: 'admin-prompt-versions' });
@@ -643,7 +665,7 @@ export function PromptVersionsEditor({
         title={t('新建提示词分类')}
         onCancel={() => setKindModalOpen(false)}
         onOk={createKind}
-        destroyOnClose
+        destroyOnHidden
       >
         <p style={{ color: 'var(--color-text-tertiary)', fontSize: 13 }}>
           {t('新建后会自动带一个可直接编辑的空版本。「模式选择」里的模式可以绑定这个分类，把它作为该模式的专属提示词。')}

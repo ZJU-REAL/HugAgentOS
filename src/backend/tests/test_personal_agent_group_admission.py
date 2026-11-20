@@ -199,7 +199,7 @@ def own_bots(monkeypatch):
     class Service:
         def __init__(self, db): pass
         def list_bots(self, uid, main_only=False):
-            return [SimpleNamespace(channel_id="bot")] if uid == "owner" else []
+            return [SimpleNamespace(channel_id="bot", channel_type="lark", owner_user_id="owner", agent_id=None, enabled=True)] if uid == "owner" else []
     monkeypatch.setattr("integrations.channels.service.ChannelService", Service)
     monkeypatch.setattr("integrations.channels.service.bot_to_dict",
                         lambda conn: {"channel_id": conn.channel_id, "channel_type": "lark"})

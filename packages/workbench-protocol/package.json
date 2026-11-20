@@ -16,6 +16,14 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./message-bounds": {
+      "types": "./dist/message-bounds.d.ts",
+      "import": "./dist/message-bounds.js"
+    },
+    "./plugin-ui": {
+      "types": "./dist/legacy.d.ts",
+      "import": "./dist/legacy.js"
+    },
     "./legacy": {
       "types": "./dist/legacy.d.ts",
       "import": "./dist/legacy.js"

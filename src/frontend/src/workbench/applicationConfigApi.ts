@@ -1,5 +1,4 @@
-import { API_BASE } from '../utils/adminApi';
-import { createApiResponseError } from '../utils/apiError';
+import { configFetch } from '../utils/adminApi';
 
 export type ConfigField = {
   key: string; label: string; description?: string; secret: boolean;
@@ -13,12 +12,7 @@ export type ConfigurableApplication = {
 const endpoint = '/v1/workbench/admin/applications';
 /** This seam accepts only the Config console's credential and stays on its current server. */
 export async function applicationConfigRequest<T>(token: string, path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(API_BASE + endpoint + path, {
-    ...init, credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw createApiResponseError(response.status, body, 'HTTP ' + response.status);
+  const body = await configFetch(token, endpoint + path, init);
   return body.data as T;
 }
 export async function configurableApplications(token: string, signal: AbortSignal) {

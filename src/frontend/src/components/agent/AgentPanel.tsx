@@ -34,6 +34,7 @@ import { AgentDetailView } from './AgentDetailView';
 import { AgentIcon } from './AgentIcon';
 import { AgentMarketplaceModal } from './AgentMarketplaceModal';
 import { AgentDetailSkeleton,AgentListSkeleton } from './AgentPanelSkeletons';
+import { saveBlob } from '../../utils/download';
 
 // User-side market transport: directly reuse api.ts's stable function references; a module-level constant suffices (no need for a per-render memo).
 /** 每页卡片数——与技能页 / MCP 页 / 插件页保持一致。 */
@@ -60,8 +61,8 @@ export function AgentPanel() {
   const canAddAgent = authUser?.can_add_agent === true;
   const canInstallMarketAgent = authUser?.can_install_market_agent === true;
   const { title: agentsTitle, subtitle: agentsSubtitle } = usePanelHeader('agents', {
-    title: ABILITY_TAB_TITLE.agents,
-    subtitle: '选择与启用智能体，并查看其职责边界与路由提示',
+    title: t(ABILITY_TAB_TITLE.agents),
+    subtitle: t('选择与启用智能体，并查看其职责边界与路由提示'),
   });
 
   const [search, setSearch] = useState('');
@@ -179,12 +180,7 @@ export function AgentPanel() {
   async function handleExportAgent(agent: UserAgentItem) {
     try {
       const blob = await exportAgent(agent.agent_id);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${agent.name}.md`;
-      a.click();
-      URL.revokeObjectURL(url);
+      saveBlob(blob, `${agent.name}.md`);
       message.success(t('智能体已导出：{name}.md', { name: agent.name }));
     } catch (err: unknown) {
       message.error(t('导出失败：{msg}', { msg: (err as Error).message }));
@@ -458,7 +454,7 @@ export function AgentPanel() {
                 title={
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                     {sub.name}
-                    <Tag bordered={false}>{sub.category}</Tag>
+                    <Tag variant="filled">{sub.category}</Tag>
                     {sub.status === 'pending' && <Tag color="processing">{t('审核中')}</Tag>}
                     {sub.status === 'approved' && <Tag color="success">{t('已上架')}</Tag>}
                     {sub.status === 'rejected' && <Tag color="error">{t('已驳回')}</Tag>}

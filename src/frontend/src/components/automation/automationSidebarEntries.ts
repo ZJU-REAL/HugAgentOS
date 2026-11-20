@@ -1,7 +1,7 @@
 import type { ChatItem } from '../../types';
 import { isAutomationHistoryChat } from '../../utils/history';
 
-export interface AutomationSidebarEntry {
+interface AutomationSidebarEntry {
   item: ChatItem;
   targetChatId: string;
   chatIds: string[];

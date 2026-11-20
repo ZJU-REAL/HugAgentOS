@@ -5,7 +5,7 @@ const SESSION_OPERATIONS: Record<string, string> = { 'chat.create': '新建会�
 const COMPUTER_ACTIONS: Record<string, string> = { click: '点击', double_click: '双击', right_click: '右键点击', move: '移动鼠标', type: '输入文字', set_value: '填写', key: '按键', hotkey: '按组合键', scroll: '滚动', open_browser: '打开网页', menu: '选择菜单' };
 const SCROLL_WAYS: Record<string, string> = { up: '向上滚动', down: '向下滚动', left: '向左滚动', right: '向右滚动' };
 /** Typed text a step shows; the backend's detail body carries all of it. */
-export const STEP_TEXT_CHARS = 80;
+const STEP_TEXT_CHARS = 80;
 
 function clip(value: unknown, limit = STEP_TEXT_CHARS): string {
   const text = String(value).split(/\s+/).filter(Boolean).join(' ');
@@ -13,14 +13,14 @@ function clip(value: unknown, limit = STEP_TEXT_CHARS): string {
 }
 
 /** The steps of a computer action: a computer.steps action lists them, an old computer.action is one step. */
-export function computerSteps(value: Record<string, unknown>): Record<string, unknown>[] {
+function computerSteps(value: Record<string, unknown>): Record<string, unknown>[] {
   if (value.kind === 'computer.steps') return Array.isArray(value.steps) ? value.steps.filter((step): step is Record<string, unknown> => !!step && typeof step === 'object') : [];
   const action = value.action;
   return action && typeof action === 'object' ? [action as Record<string, unknown>] : [];
 }
 
 /** One step in words: what it does, on which element or point, with which key, text, address or menu. */
-export function describeStep(step: Record<string, unknown>, targets?: Record<string, unknown>): string {
+function describeStep(step: Record<string, unknown>, targets?: Record<string, unknown>): string {
   const kind = String(step.type || '');
   let label = t(COMPUTER_ACTIONS[kind] || '电脑操作');
   if (kind === 'scroll') {

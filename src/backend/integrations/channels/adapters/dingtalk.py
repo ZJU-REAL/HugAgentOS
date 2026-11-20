@@ -50,19 +50,16 @@ from integrations.channels.adapters.dingtalk_delivery import DingTalkDelivery
 import asyncio
 import json
 import logging
-import os
 import re
-import shutil
-import tempfile
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
 
 import httpx
 
-from datetime import datetime, timezone
+from datetime import datetime
 
-from integrations.channels.markdown import derive_title, downgrade_for_dingtalk
-from integrations.channels.protocol import ChannelCaps, ChannelResourceError, HistoryItem, InboundMsg, SendResult, chunk_text
+from integrations.channels.markdown import downgrade_for_dingtalk
+from integrations.channels.protocol import ChannelCaps, InboundMsg
 from core.infra.crypto import decrypt_secret
 
 logger = logging.getLogger(__name__)

@@ -13,7 +13,7 @@ import core.runs.settings as settings
 import core.chat.service as services_ChatService_module
 from core.infra.logging import get_logger
 from core.runs.journal import RecoveryDecision
-from core.db.threads import run_in_session
+from core.db.threads import run_db, run_in_session
 
 logger = get_logger(__name__)
 
@@ -23,13 +23,14 @@ async def _commit_recovered_chat_snapshot(decision: RecoveryDecision) -> Optiona
     content = snapshot.get("assistant_content")
     message_id = str(snapshot.get("message_id") or decision.message_id)
     if not isinstance(content, str) or not message_id:
-        paused = ownership.journal().needs_attention(
+        paused = await run_db(
+            ownership.journal().needs_attention,
             decision.run_id,
             reason="model-completed snapshot is incomplete",
         )
         return False if paused else None
     owner = ownership.new_worker_owner(decision.run_id)
-    recovered_run = runtime.get_run(decision.run_id)
+    recovered_run = await run_db(runtime.get_run, decision.run_id)
     journal = ownership.journal()
     from core.runs.api_recovery import validate_recovery_context
     from sqlalchemy.exc import SQLAlchemyError
@@ -57,11 +58,14 @@ async def _commit_recovered_chat_snapshot(decision: RecoveryDecision) -> Optiona
                 )
             await run_in_session(_check_worker_context)
     except (ValueError, SQLAlchemyError):
-        paused = journal.needs_attention(
-            decision.run_id, reason="agent API recovery scope is unavailable or inconsistent"
+        paused = await run_db(
+            journal.needs_attention,
+            decision.run_id,
+            reason="agent API recovery scope is unavailable or inconsistent",
         )
         return False if paused else None
-    if not journal.claim(
+    if not await run_db(
+        journal.claim,
         decision.run_id,
         owner=owner,
         lease_seconds=settings.RUN_LEASE_SECONDS,
@@ -148,7 +152,8 @@ async def _commit_recovered_chat_snapshot(decision: RecoveryDecision) -> Optiona
             if prepared is not None:
                 queued_handoff.update(prepared)
 
-        completed = journal.complete(
+        completed = await run_db(
+            journal.complete,
             decision.run_id,
             owner=owner,
             status="completed",
@@ -186,7 +191,8 @@ async def _commit_recovered_chat_snapshot(decision: RecoveryDecision) -> Optiona
             error=str(exc),
             exc_info=True,
         )
-        paused = journal.needs_attention(
+        paused = await run_db(
+            journal.needs_attention,
             decision.run_id,
             reason=str(exc)[:1000],
             owner=owner,
@@ -197,7 +203,7 @@ async def _commit_recovered_chat_snapshot(decision: RecoveryDecision) -> Optiona
 async def _write_recovered_terminal_marker(run_id: str, *, chat_id: str) -> None:
     event = {"type": settings.TERMINAL_TYPE, "chat_id": chat_id, "_recovered": True}
     try:
-        offset = ownership.journal().allocate_event_offset(run_id, terminal=True)
+        offset = await run_db(ownership.journal().allocate_event_offset, run_id, terminal=True)
         await writer.xadd_event(run_id, offset, event)
         await writer.expire_stream(run_id)
     except Exception as exc:  # Redis is only a projection

@@ -4,22 +4,20 @@ from pathlib import Path
 import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import inspect
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from core.db.engine import Base
 from core.db.audio_model_upgrade import reconcile_audio_model_type
 from core.models.repository import create_provider, assign_role, get_provider, import_all, export_all
 from core.models.providers.registry import validate_payload
 from core.models.config import ModelConfigService
 from core.models import config as model_config
+from tests.db_support import memory_engine, share_factory
 
 
 @pytest.fixture
 def model_db():
-    engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
-    Base.metadata.create_all(engine)
+    engine = memory_engine()
     with sessionmaker(bind=engine)() as db:
         yield db
     engine.dispose()
@@ -87,7 +85,7 @@ def test_audio_management_can_save_blank_endpoint_and_enforces_role_type(model_d
     from fastapi import HTTPException
     from api.routes.v1 import models
     monkeypatch.setattr(models, "_invalidate_model_caches", lambda: None)
-    monkeypatch.setattr("core.db.engine.SessionLocal", sessionmaker(bind=model_db.get_bind()))
+    share_factory(monkeypatch, sessionmaker(bind=model_db.get_bind()))
     created = asyncio.run(models.create_provider_endpoint(
         models.ProviderCreateRequest(display_name="待配置音频", provider_type="audio", provider="audio_compatible", base_url="", api_key="", model_name="pending-asr"), None))
     data = created["data"]

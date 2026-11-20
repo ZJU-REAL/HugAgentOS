@@ -93,13 +93,15 @@ async def wait_run(run_id: str) -> ChatRun:
 
 
 def get_run(run_id: str) -> Optional[ChatRun]:
-    """Read a single run (used by the route layer for authorization)."""
+    """Read one run row (blocking; async callers go through ``run_db``)."""
     with engine.SessionLocal() as db:
         return db.query(models.ChatRun).filter(models.ChatRun.run_id == run_id).first()
 
 
 def is_run_cancelled(run_id: str) -> bool:
-    """Polled by plan_mode every ~15s heartbeat; see ``cancel_run`` for why.
+    """Polled by cooperative workers: the chat worker every ``_CANCEL_VISIBILITY_SEC``
+    while streaming, plan mode on its ~15s heartbeat, loops between steps; see
+    ``cancel_run`` for why. Blocking — async callers go through ``run_db``.
 
     Any terminal state stops the worker (not just ``cancelled``): a run reaped
     to ``failed`` by the stale reaper must also make the cooperative worker stop
@@ -258,11 +260,6 @@ def has_local_runs() -> bool:
     与前端信号队列都活在进程里，只有执行这个 run 的进程弹得出来。
     """
     return bool(tasks.process_state().active_runs)
-
-
-def is_local_run(run_id: str) -> bool:
-    """这个 run 是不是由本进程在执行。"""
-    return run_id in tasks.process_state().active_runs
 
 
 def list_active_runs_for_user(

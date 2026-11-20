@@ -6,7 +6,6 @@ from typing import Protocol
 
 
 def register_request_header_resolver(resolver: Callable | None) -> None:
-    pass
     registration_state().resolver = resolver
 
 
@@ -25,7 +24,6 @@ class ModelCredentialProvider(Protocol):
 
 
 def register_model_credential_provider(provider):
-    pass
     registration_state().provider = provider
 
 

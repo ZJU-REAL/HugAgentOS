@@ -4,8 +4,8 @@
 所有写操作强制 ``owner_type="user"`` + 按 ``user_id`` 归属，绝不落成 admin/team 智能体——
 与 skill-manager 强制 ``make_private=True`` 是同一条原则：自助入口只能产出仅自己可见的资产。
 
-子智能体建好后**下一轮对话即可用**：``orchestration/workflow.py`` 每轮启动时用
-``UserAgentService.list_for_user`` 解析可见子智能体交给 ``register_subagent_tool``，
+子智能体建好后**下一轮对话即可用**：每轮构建智能体时（``core/llm/factory/``）重新解析可见子智能体
+交给 ``register_subagent_tool``，
 无需重启也无需额外注册。
 """
 
@@ -17,6 +17,8 @@ from features.marketplace import agent_submissions
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from extensions.mcp_servers._manager_common import invalidate_user_cache, no_user, require_cap
+
 logger = logging.getLogger(__name__)
 
 # 平台内置角色（探索员/执行员/审查员）不是 UserAgent 行，前缀固定；"我的智能体"要滤掉它们。
@@ -27,40 +29,6 @@ _MAX_PROMPT_BYTES = 200 * 1024
 
 # 绑定类字段一次最多绑多少项，防止模型把整库 id 一股脑塞进来。
 _MAX_BINDINGS = 100
-
-# ── 通用 ────────────────────────────────────────────────────────────────
-def _no_user() -> Dict[str, Any]:
-    return {"ok": False, "message": "❌ 无法确定用户身份（缺 X-Current-User-Id 头），拒绝操作。"}
-
-def _invalidate_user_cache(user_id: Optional[str]) -> None:
-    """清掉该用户的 30s 能力解析缓存。
-
-    注意：本 MCP 跑在独立的 ``mcp`` 容器进程，能力缓存是**进程内**的——这里只清得掉本进程的，
-    清不到 backend 进程（智能体真正读缓存的地方）。对智能体侧的**有效**失效由前端在变更后
-    重新拉 ``GET /v1/catalog``（跑在 backend 进程）顺带完成，见 hooks/chatStream.ts 的
-    CATALOG_MUTATING_TOOLS 白名单。本调用作为进程内一致性的兜底保留，无害。
-    """
-    try:
-        from core.capabilities.catalog.resolver import invalidate_capability_cache
-
-        invalidate_capability_cache(str(user_id) if user_id else None)
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("agent_manager: invalidate_capability_cache failed (%s)", exc)
-
-def _require_cap(db, user_id: str, cap: str) -> Optional[Dict[str, Any]]:
-    """能力位校验。缺权限返回错误 dict，否则 None。"""
-    try:
-        from core.auth.capabilities import resolve_user_capabilities
-
-        if not resolve_user_capabilities(db, user_id).get(cap):
-            return {
-                "ok": False,
-                "message": f"❌ 管理员未开放该能力（{cap}），无法执行。请联系管理员在权限设置里开启。",
-            }
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("agent_manager: capability check failed (%s)", exc)
-        return {"ok": False, "message": f"❌ 权限校验失败：{exc}"}
-    return None
 
 def _svc(db):
     from core.capabilities.agents.edition import UserAgentService
@@ -181,7 +149,7 @@ def _need_clarify(cands: List[Dict[str, Any]]) -> Dict[str, Any]:
 # ── ① 搜索子智能体市场（只读）──────────────────────────────────────────
 def search_agent_market(*, user_id: str, query: str = "", category: str = "") -> Dict[str, Any]:
     if not user_id:
-        return _no_user()
+        return no_user()
     from core.db.engine import SessionLocal
 
 
@@ -228,7 +196,7 @@ def search_agent_market(*, user_id: str, query: str = "", category: str = "") ->
 # ── ② 从市场安装（私有，写）────────────────────────────────────────────
 def install_market_agent(*, user_id: str, slug: str) -> Dict[str, Any]:
     if not user_id:
-        return _no_user()
+        return no_user()
     slug = (slug or "").strip()
     if not slug:
         return {"ok": False, "message": "❌ 请提供要安装的子智能体 slug。"}
@@ -236,7 +204,7 @@ def install_market_agent(*, user_id: str, slug: str) -> Dict[str, Any]:
 
 
     with SessionLocal() as db:
-        cap_err = _require_cap(db, user_id, "can_install_market_agent")
+        cap_err = require_cap(db, user_id, "can_install_market_agent", source="agent_manager")
         if cap_err:
             return cap_err
         # 可见范围守卫：对该用户不可见的 scoped 条目按不存在处理（与用户端安装接口一致）。
@@ -252,7 +220,7 @@ def install_market_agent(*, user_id: str, slug: str) -> Dict[str, Any]:
             )
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "message": f"❌ 安装失败：{exc}"}
-    _invalidate_user_cache(user_id)
+    invalidate_user_cache(user_id, source="agent_manager")
     agent_id = (res or {}).get("agent_id")
     # install_report.dropped = 你账下没有的能力，装完绑不上——必须如实回报，别让用户以为全绑上了。
     report = (res or {}).get("install_report") or {}
@@ -277,7 +245,7 @@ def install_market_agent(*, user_id: str, slug: str) -> Dict[str, Any]:
 # ── ③ 列出可绑能力（只读，创建/修改前必调）──────────────────────────────
 def list_bindable_capabilities(*, user_id: str) -> Dict[str, Any]:
     if not user_id:
-        return _no_user()
+        return no_user()
     from core.db.engine import SessionLocal
 
     with SessionLocal() as db:
@@ -332,7 +300,7 @@ def create_agent(
     welcome_message: str = "",
 ) -> Dict[str, Any]:
     if not user_id:
-        return _no_user()
+        return no_user()
     name = (name or "").strip()
     if not name:
         return {"ok": False, "message": "❌ 请提供子智能体的名字（name）。"}
@@ -376,7 +344,7 @@ def create_agent(
     from core.db.engine import SessionLocal
 
     with SessionLocal() as db:
-        cap_err = _require_cap(db, user_id, "can_add_agent")
+        cap_err = require_cap(db, user_id, "can_add_agent", source="agent_manager")
         if cap_err:
             return cap_err
         try:
@@ -389,7 +357,7 @@ def create_agent(
             )
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "message": _friendly_error("创建", exc)}
-    _invalidate_user_cache(user_id)
+    invalidate_user_cache(user_id, source="agent_manager")
     return {
         "ok": True,
         "agent": _slim(created),
@@ -412,7 +380,7 @@ def _friendly_error(action: str, exc: Exception) -> str:
 # ── ⑤ 列出我的子智能体（只读）──────────────────────────────────────────
 def list_my_agents(*, user_id: str) -> Dict[str, Any]:
     if not user_id:
-        return _no_user()
+        return no_user()
     from core.db.engine import SessionLocal
 
     with SessionLocal() as db:
@@ -443,7 +411,7 @@ def edit_agent(
 ) -> Dict[str, Any]:
     """修改一个本人的子智能体：只更新传入的字段，未传的保持原样。agent_id 不可改。"""
     if not user_id:
-        return _no_user()
+        return no_user()
     agent_ref = (agent_ref or "").strip()
     if not agent_ref:
         return {"ok": False, "message": "❌ 请提供要修改的子智能体 agent_id 或名字。"}
@@ -520,7 +488,7 @@ def edit_agent(
             )
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "message": _friendly_error("修改", exc)}
-    _invalidate_user_cache(user_id)
+    invalidate_user_cache(user_id, source="agent_manager")
     return {
         "ok": True,
         "agent": _slim(updated),
@@ -534,7 +502,7 @@ def edit_agent(
 # ── ⑦ 删除（写）────────────────────────────────────────────────────────
 def delete_agent(*, user_id: str, agent_ref: str) -> Dict[str, Any]:
     if not user_id:
-        return _no_user()
+        return no_user()
     agent_ref = (agent_ref or "").strip()
     if not agent_ref:
         return {"ok": False, "message": "❌ 请提供要删除的子智能体 agent_id 或名字。"}
@@ -560,7 +528,7 @@ def delete_agent(*, user_id: str, agent_ref: str) -> Dict[str, Any]:
             _svc(db).delete(agent_id=deleted_id, user_id=user_id, owner_type="user")
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "message": _friendly_error("删除", exc)}
-    _invalidate_user_cache(user_id)
+    invalidate_user_cache(user_id, source="agent_manager")
     return {
         "ok": True,
         "agent_id": deleted_id,
@@ -572,7 +540,7 @@ def submit_agent_to_market(
     *, user_id: str, agent_id: str, category: str = "", summary: str = "", note: str = ""
 ) -> Dict[str, Any]:
     if not user_id:
-        return _no_user()
+        return no_user()
     agent_id = (agent_id or "").strip()
     if not agent_id:
         return {"ok": False, "message": "❌ 请提供要上架的 agent_id（取自 list_my_agents）。"}
@@ -580,7 +548,7 @@ def submit_agent_to_market(
 
 
     with SessionLocal() as db:
-        cap_err = _require_cap(db, user_id, "can_add_agent")
+        cap_err = require_cap(db, user_id, "can_add_agent", source="agent_manager")
         if cap_err:
             return cap_err
         hit, cands = _resolve_agent(db, user_id, agent_id)
