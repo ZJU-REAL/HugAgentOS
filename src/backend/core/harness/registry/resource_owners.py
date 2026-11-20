@@ -26,7 +26,6 @@ class ResourceOwner:
 
 
 def register_resource_owner(owner: ResourceOwner) -> None:
-    pass
     registration_state().owner = owner
 
 

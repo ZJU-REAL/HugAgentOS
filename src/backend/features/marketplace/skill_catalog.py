@@ -1,4 +1,4 @@
-"""skill catalog responsibilities."""
+"""Skill marketplace catalog: listing, categories, detail and installed-state annotation."""
 from __future__ import annotations
 from core.capabilities.skills import installation as package_installation
 from typing import Any, Dict, List, Optional
@@ -51,20 +51,25 @@ def set_marketplace_skill_enabled(
     return ml.set_listing_enabled(db, ml.KIND_SKILL, slug, enabled, updated_by=updated_by)
 
 
+def categories_from_items(items: List[Dict[str, Any]]) -> List[str]:
+    """Categories of an already-fetched market list: the 8 fixed categories first (stable order), legacy leftover categories appended after."""
+    seen: List[str] = list(skills_state.MARKETPLACE_CATEGORIES)
+    for it in items:
+        if it["category"] not in seen:
+            seen.append(it["category"])
+    return seen
+
+
 def list_categories(
     db: Optional[Session] = None,
     *,
     include_disabled: bool = False,
     viewer_user_id: Optional[str] = None,
 ) -> List[str]:
-    """Marketplace category list: the 8 fixed categories first (stable order), legacy leftover categories appended after."""
-    seen: List[str] = list(skills_state.MARKETPLACE_CATEGORIES)
-    for it in list_marketplace_skills(
-        db, include_disabled=include_disabled, viewer_user_id=viewer_user_id
-    ):
-        if it["category"] not in seen:
-            seen.append(it["category"])
-    return seen
+    """Marketplace category list; list endpoints that already hold the items use ``categories_from_items``."""
+    return categories_from_items(
+        list_marketplace_skills(db, include_disabled=include_disabled, viewer_user_id=viewer_user_id)
+    )
 
 
 def get_marketplace_skill(slug: str, db: Optional[Session] = None) -> Dict[str, Any]:

@@ -1,5 +1,7 @@
 # Animation Pitfalls：HTML 动画踩过的坑与规则
 
+> **HugAgentOS 版本说明**：本版本只做 HTML 动画，视频与音频管线没有随技能分发。文中提到的 `scripts/render-video*.js`、`verify-video.sh`、`add-music.sh`、`mix-voiceover.sh`、`sfx-cues.sh`，以及 `hyperframes-backend.md`、`video-export.md`、`audio-design-rules.md` 等文档在本版本不可用，相关步骤一律跳过（见 `references/modules/motion.md` 开头的说明）。
+
 做动画时最常踩的 bug 和如何避免。每条规则都来自真实失败案例。
 
 写动画之前读完这篇，能省一轮迭代。

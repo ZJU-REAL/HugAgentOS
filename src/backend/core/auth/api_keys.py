@@ -16,6 +16,7 @@ from typing import List, Optional, Tuple
 from sqlalchemy.orm import Session
 
 from core.db.models import LocalUser, UserApiKey, UserShadow
+from core.infra.time import utc_now as _now
 
 API_KEY_PREFIX = "sk-jx-"
 
@@ -25,10 +26,6 @@ _LAST_USED_THROTTLE_S = 60.0
 
 def _hash_key(raw: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 class ApiKeyService:

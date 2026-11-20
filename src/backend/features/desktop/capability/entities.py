@@ -8,7 +8,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.db.engine import SessionLocal
-from features.desktop.capability.configs import _EFFECTIVE_TTL_S, _effective_lock
+from features.desktop.capability.configs import _EFFECTIVE_TTL_S, _effective_lock, _ttl_put
 from features.desktop.capability.credentials import CapabilityContentRejected
 
 # ── 智能体 / 插件清单与定义包（云端侧） ──────────────────────────────────
@@ -275,7 +275,7 @@ def build_user_agent_manifest(user_id: str, *, use_cache: bool = True) -> Dict[s
     ]
     manifest = build_entity_manifest("agent", entries)
     with _effective_lock:
-        _entity_manifest_cache[("agent", uid)] = (now, copy.deepcopy(manifest))
+        _ttl_put(_entity_manifest_cache, ("agent", uid), (now, copy.deepcopy(manifest)), now)
     return manifest
 
 
@@ -316,7 +316,7 @@ def build_user_plugin_manifest(user_id: str, *, use_cache: bool = True) -> Dict[
     ]
     manifest = build_entity_manifest("plugin", entries)
     with _effective_lock:
-        _entity_manifest_cache[("plugin", uid)] = (now, copy.deepcopy(manifest))
+        _ttl_put(_entity_manifest_cache, ("plugin", uid), (now, copy.deepcopy(manifest)), now)
     return manifest
 
 

@@ -187,13 +187,6 @@ def is_known(provider_id: Optional[str]) -> bool:
     return bool(provider_id) and provider_id in PROVIDER_SPECS
 
 
-def list_specs(provider_type: Optional[str] = None) -> list[ProviderSpec]:
-    specs = list(PROVIDER_SPECS.values())
-    if provider_type:
-        specs = [s for s in specs if provider_type in s.supports_types]
-    return specs
-
-
 def split_provider_extra(spec: ProviderSpec, extra_config: dict) -> dict:
     """Pick out this provider's vendor credential fields (spec.fields) from extra_config."""
     keys = set(spec.extra_field_keys)

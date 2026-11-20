@@ -12,8 +12,6 @@ export type ProjectKind = 'personal' | 'local' | EditionProjectKind;
 
 export type ProjectPermission = 'admin' | 'edit' | 'view' | 'none';
 
-export type ProjectFileSource = 'upload' | 'reference';
-
 export interface ProjectItem extends EditionProjectFields {
   project_id: string;
   name: string;

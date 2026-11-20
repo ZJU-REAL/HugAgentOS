@@ -36,7 +36,6 @@ from sqlalchemy.orm import object_session
 @pytest.fixture()
 def boundary(monkeypatch):
     from api.app import app
-    pass
 
     assert settings.auth.mode == "session"
     assert session._use_memory_store()

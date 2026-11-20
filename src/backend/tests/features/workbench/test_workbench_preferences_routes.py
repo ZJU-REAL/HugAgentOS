@@ -3,25 +3,9 @@
 import pytest
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-from tests.db_support import share_factory, share_session
+from tests.db_support import share_factory
 
 BASE = "/v1/workbench/me/navigation-preferences"
-
-
-@pytest.fixture()
-def client(db_session, monkeypatch):
-    from features.workbench.api.workbench import router
-
-    app = FastAPI()
-    app.include_router(router)
-    app.dependency_overrides[get_db] = lambda: db_session
-    share_session(monkeypatch, db_session)
-    app.dependency_overrides[get_current_user] = lambda: UserContext(
-        user_id="alice", user_center_id="alice", username="Alice"
-    )
-    return TestClient(app)
 
 
 def test_navigation_is_independent_durable_conditional_and_keeps_unavailable_references(client):

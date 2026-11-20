@@ -15,7 +15,6 @@ from sqlalchemy import (
     MetaData,
     String,
     Table,
-    UniqueConstraint,
     create_engine,
     inspect,
     select,

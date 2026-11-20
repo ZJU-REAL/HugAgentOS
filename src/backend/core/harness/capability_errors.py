@@ -60,11 +60,6 @@ class IntegrityFailed(CapabilityError):
     recovery_action = "quarantine_and_retry"
 
 
-class InstallConflict(CapabilityError):
-    code = "install_conflict"
-    recovery_action = "inspect_path"
-
-
 class CloudUnavailable(CapabilityError):
     code = "cloud_unavailable"
     retryable = True

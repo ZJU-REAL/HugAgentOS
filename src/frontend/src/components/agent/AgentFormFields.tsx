@@ -108,7 +108,7 @@ export function AgentFormFields({ availableResources }: AgentFormFieldsProps) {
     value: s.id,
   }));
   const pluginOptions = (availableResources?.plugins || []).map((p) => ({
-    label: `${p.name}（${p.skill_count} 技能 · ${p.mcp_count} 工具）`,
+    label: t('{name}（{skills} 技能 · {tools} 工具）', { name: p.name, skills: p.skill_count, tools: p.mcp_count }),
     value: p.id,
   }));
 

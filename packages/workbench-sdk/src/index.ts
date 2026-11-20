@@ -20,7 +20,7 @@ export interface Connection extends CapabilityMethods {
  onUpdate(listener: (info: HostInfo) => void): () => void;
  dispose(): void;
 }
-import {validateMessage} from './messageBounds';
+import {validateMessage} from '@hugagent/workbench-protocol/message-bounds';
 
 export function connect(options: {timeoutMs?: number; requiredCapabilities?: string[]} = {}): Promise<Connection> {
  return new Promise((resolve,reject) => {

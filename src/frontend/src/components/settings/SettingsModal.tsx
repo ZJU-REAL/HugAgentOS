@@ -35,7 +35,7 @@ import { SystemModelPanel } from './SystemModelPanel';
 import { SystemServicePanel } from './SystemServicePanel';
 import { MyLogsPanel } from './MyLogsPanel';
 import { PasswordManagementPanel } from './PasswordManagementPanel';
-import { ChatModesPanel } from './ChatModesPanel';
+import { MyChatModesPanel } from './MyChatModesPanel';
 import { MemoryManagerModal } from '../memory/MemoryManagerModal';
 import { t } from '../../i18n';
 import { PageSettingsPanel } from './PageSettingsPanel';
@@ -772,7 +772,7 @@ export default function SettingsPage() {
         )}
 
         {/* ── My logs (CE: the user's own call logs and usage) ──────────────── */}
-        {chatModesAllowed && activeSection === 'chatmodes' && <ChatModesPanel />}
+        {chatModesAllowed && activeSection === 'chatmodes' && <MyChatModesPanel />}
 
         {isCE && activeSection === 'mylogs' && (
           <section id="section-mylogs" className="jx-settings-section">
@@ -804,7 +804,7 @@ export default function SettingsPage() {
         cancelText={t('取消')}
         okButtonProps={{ danger: true }}
         confirmLoading={loggingOut}
-        maskClosable={!loggingOut}
+        mask={{ closable: !loggingOut }}
         closable={!loggingOut}
         onCancel={() => setLogoutConfirmOpen(false)}
         onOk={() => void doLogout()}
@@ -878,7 +878,7 @@ export default function SettingsPage() {
         cancelText={t('取消')}
         confirmLoading={savingAvatar}
         cancelButtonProps={{ disabled: savingAvatar }}
-        maskClosable={!savingAvatar}
+        mask={{ closable: !savingAvatar }}
         destroyOnHidden
         width={520}
       >

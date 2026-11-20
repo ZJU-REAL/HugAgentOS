@@ -142,7 +142,6 @@ class MemoryOutboxWorker:
         self.worker_id = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
 
     async def start(self) -> None:
-        pass
         if self._task is None or self._task.done():
             self._stop.clear()
             self._wake.clear()
@@ -151,7 +150,6 @@ class MemoryOutboxWorker:
             self._task = asyncio.create_task(self._loop(), name="memory-outbox-worker")
 
     async def stop(self) -> None:
-        pass
         self._stop.set()
         self._wake.set()
         if process_state().active_worker is self:

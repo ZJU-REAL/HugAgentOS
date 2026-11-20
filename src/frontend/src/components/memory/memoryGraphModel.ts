@@ -8,7 +8,7 @@ import { roleOf, type MemoryEntityRole } from './memoryGraphTheme';
  * scripts/test-memory-graph.ts。
  */
 
-export interface MemoryEntityStat {
+interface MemoryEntityStat {
   name: string;
   role: MemoryEntityRole;
   /** 相异邻居数：决定节点大小，也决定图上画不画「还有邻居没显示」的虚线环。

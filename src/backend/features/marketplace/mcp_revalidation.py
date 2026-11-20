@@ -42,6 +42,11 @@ def _settle(db: Session, item, version, status: str, reason: Optional[str]) -> D
 def _plan(db: Session, slug: str) -> Dict[str, Any]:
     """Decide what has to be checked remotely; settles the cases that need no network."""
     item, version = _listing(db, slug)
+    from features.marketplace import managed_items
+
+    if managed_items.managed_by(version):
+        # The owning feature keeps the item in step with its own record.
+        return {"kind": "done", "result": {"slug": slug, "status": item.status, "managed": True}}
     if str((version.listing_notice or {}).get("discovery_mode") or "") == "per_install":
         # Curated templates have no shared provider credential, so their live
         # tools are intentionally discovered with each installer's credential.

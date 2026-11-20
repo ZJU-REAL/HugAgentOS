@@ -2,22 +2,16 @@
 
 import time
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-from core.db.engine import Base
 from core.db.models import UserShadow
 from personal_agent.computer.devices import pair
 from personal_agent.sessions.session_queue import submit, poll, acknowledge, consent, view
+from tests.db_support import memory_engine, session_factory, share_factory
 
 
 @pytest.fixture
 def db():
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
-    with sessionmaker(bind=engine, expire_on_commit=False)() as session:
+    engine = memory_engine()
+    with session_factory(engine)() as session:
         session.add_all(
             [UserShadow(user_id=u, user_center_id=u, username=u) for u in ("owner", "other")]
         )
@@ -121,11 +115,9 @@ async def test_task_grants_are_bound_to_run_owner_and_running_lease(db, monkeypa
     monkeypatch.setattr(session_auth, "get_ephemeral_state", lambda: store)
     from core.db import engine as db_engine
 
-    monkeypatch.setattr(
-        db_engine, "SessionLocal", sessionmaker(bind=db.bind, expire_on_commit=False)
-    )
-    monkeypatch.setattr(tools, "SessionLocal", sessionmaker(bind=db.bind, expire_on_commit=False))
-    monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessionmaker(bind=db.bind, expire_on_commit=False))
+    share_factory(monkeypatch, session_factory(db.bind))
+    monkeypatch.setattr(tools, "SessionLocal", session_factory(db.bind))
+    monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", session_factory(db.bind))
     task = AgentContext(db, "owner").tasks.submit("Read sessions", "grant")["id"]
     row = db.get(PersonalWorkItem, task)
     row.status = "running"
@@ -377,7 +369,7 @@ def test_a_command_no_device_took_is_withdrawn_as_not_executed(db):
 def test_a_run_on_the_users_computer_is_asked_about_until_it_ends(db, monkeypatch):
     from personal_agent.sessions import session_watch
     from personal_agent.models import PersonalDevice, PersonalSessionOperation
-    monkeypatch.setattr(session_watch, "SessionLocal", sessionmaker(bind=db.get_bind(), expire_on_commit=False))
+    monkeypatch.setattr(session_watch, "SessionLocal", session_factory(db.get_bind()))
 
     device = pair(db, "owner", "Laptop", "macos", ["hugagent.sessions"])
     consent(db, device["id"], device["token"], True)

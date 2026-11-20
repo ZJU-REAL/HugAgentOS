@@ -1,4 +1,4 @@
-"""Plugin market responsibilities."""
+"""Plugin marketplace: market metadata overrides, plugin listing and the listing switch."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from core.db.models import ContentBlock, InstalledPlugin
 from features.marketplace.models import PluginMarketPackage, PluginMarketSkillExclusion
-from core.infra.exceptions import BadRequestError, ResourceNotFoundError
+from core.infra.exceptions import ResourceNotFoundError
 from core.capabilities.plugins.management import packages as plugin_packages
 from core.capabilities.plugins.packaging import definitions as plugin_definitions
 from core.capabilities.plugins.packaging import sources as plugin_sources

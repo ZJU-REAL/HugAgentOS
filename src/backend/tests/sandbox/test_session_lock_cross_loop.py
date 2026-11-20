@@ -143,11 +143,14 @@ def test_providers_use_thread_lock_for_registry(module_name):
     import importlib
     import inspect
 
+    from core.sandbox.providers import session_locks
+
     mod = importlib.import_module(module_name)
-    src = inspect.getsource(mod)
-    assert "self._registry_lock = threading.Lock()" in src, module_name
-    assert "self._registry_lock = asyncio.Lock()" not in src, module_name
-    # Session locking may be implemented by a focused lifecycle mixin.
     provider = getattr(mod, "CubeSandboxProvider", None) or mod.OpenSandboxProvider
+    # Both providers share the registry lock through SessionLockMixin.
+    assert issubclass(provider, session_locks.SessionLockMixin), module_name
+    mixin_src = inspect.getsource(session_locks.SessionLockMixin)
+    assert "self._registry_lock = threading.Lock()" in mixin_src
+    assert "self._registry_lock = asyncio.Lock()" not in inspect.getsource(mod), module_name
     lock_source = inspect.getsource(provider._get_session_lock)
     assert "id(asyncio.get_running_loop())" in lock_source, module_name

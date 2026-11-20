@@ -14,7 +14,7 @@ from features.automation.runs import AutomationRunRepository, owned_run_guard
 from core.runs.journal import RunJournal
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.orm import sessionmaker
+from tests.db_support import session_factory
 
 POSTGRES_URL = os.getenv("AUTOMATION_TEST_POSTGRES_URL", "")
 pytestmark = pytest.mark.skipif(not POSTGRES_URL, reason="local PostgreSQL opt-in required")
@@ -31,7 +31,7 @@ def pg():
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     try:
         Base.metadata.create_all(engine)
-        sessions = sessionmaker(bind=engine, expire_on_commit=False)
+        sessions = session_factory(engine)
         with sessions() as db:
             db.add(UserShadow(user_id="user", username="user"))
             db.commit()

@@ -1,6 +1,5 @@
 """Ownership and interrupted-run checks shared by pending interactions."""
 
-from datetime import datetime
 
 import core.chat.service as chat_services_ChatService_module
 from sqlalchemy.orm import Session
@@ -16,11 +15,13 @@ def _detect_chat_run_interrupted(db: Session, chat_id: str) -> bool:
     Returns False on any exception (stays compatible with the legacy stale path).
     """
     try:
-        from datetime import timedelta, timezone
+        from datetime import timedelta
+
+        from core.infra.time import utc_now
 
         from core.db.models import ChatRun
 
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
+        cutoff = utc_now() - timedelta(minutes=30)
         recent = (
             db.query(ChatRun.error_message)
             .filter(ChatRun.chat_id == chat_id)

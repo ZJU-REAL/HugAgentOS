@@ -11,29 +11,16 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import asyncio
+from typing import Any, Dict, List
 
 from mcp.server.mcpserver import Context, MCPServer
 
+from extensions.mcp_servers._context import current_user
 from extensions.mcp_servers.agent_manager_mcp import impl
 
 mcp = MCPServer("hugagent-agent-manager")
 
-_HDR_USER = "x-current-user-id"
-
-
-def _hdr(ctx: Optional[Context], name: str) -> Optional[str]:
-    if ctx is None:
-        return None
-    try:
-        v = ctx.request_context.request.headers.get(name)
-        return v or None
-    except Exception:
-        return None
-
-
-def _user(ctx: Optional[Context]) -> str:
-    return _hdr(ctx, _HDR_USER) or ""
 
 
 @mcp.tool()
@@ -49,7 +36,7 @@ async def search_agent_market(
     - category：按分类过滤（可选）。
     找到目标后用 install_market_agent(slug) 安装。
     """
-    return impl.search_agent_market(user_id=_user(ctx), query=query, category=category)
+    return await asyncio.to_thread(impl.search_agent_market, user_id=current_user(ctx), query=query, category=category)
 
 
 @mcp.tool()
@@ -65,7 +52,7 @@ async def install_market_agent(
     告诉用户**，别让用户以为能力全绑上了。
     【铁律】未成功拿到 ✅ 前不要声称已安装。需要管理员开启"自助添加智能体"权限。
     """
-    return impl.install_market_agent(user_id=_user(ctx), slug=slug)
+    return await asyncio.to_thread(impl.install_market_agent, user_id=current_user(ctx), slug=slug)
 
 
 @mcp.tool()
@@ -76,7 +63,7 @@ async def list_bindable_capabilities(ctx: Context | None = None) -> Dict[str, An
     编错了不会报错，只会静默绑不上，用户拿到一个"看起来建好了但没能力"的智能体。
     返回四组：skills（技能）/ mcp_servers（工具）/ plugins（插件，整体绑）/ kb_spaces（知识库）。
     """
-    return impl.list_bindable_capabilities(user_id=_user(ctx))
+    return await asyncio.to_thread(impl.list_bindable_capabilities, user_id=current_user(ctx))
 
 
 @mcp.tool()
@@ -105,8 +92,9 @@ async def create_agent(
     建出来的智能体仅自己可见可用，下一轮对话即可指派任务。
     【铁律】未成功拿到 ✅ 前不要声称已创建。需要管理员开启"自助添加智能体"权限。
     """
-    return impl.create_agent(
-        user_id=_user(ctx),
+    return await asyncio.to_thread(
+        impl.create_agent,
+        user_id=current_user(ctx),
         name=name,
         description=description,
         system_prompt=system_prompt,
@@ -127,7 +115,7 @@ async def list_my_agents(ctx: Context | None = None) -> Dict[str, Any]:
     拿到 agent_id 后可用 edit_agent 修改、delete_agent 删除、submit_agent_to_market 申请上架。
     只列你自己建的和装的；平台自带的探索员/执行员/审查员以及管理员下发的智能体不在此列。
     """
-    return impl.list_my_agents(user_id=_user(ctx))
+    return await asyncio.to_thread(impl.list_my_agents, user_id=current_user(ctx))
 
 
 @mcp.tool()
@@ -158,8 +146,9 @@ async def edit_agent(
     必须先让用户指明具体哪一个，禁止猜着改。只能改本人的子智能体。
     【铁律】未成功拿到 ✅ 前不要声称已修改。需要"自助添加智能体"权限。
     """
-    return impl.edit_agent(
-        user_id=_user(ctx),
+    return await asyncio.to_thread(
+        impl.edit_agent,
+        user_id=current_user(ctx),
         agent_ref=agent_ref,
         name=name,
         description=description,
@@ -186,7 +175,7 @@ async def delete_agent(
     只能删自己创建/安装的，平台内置角色和管理员下发的智能体删不了。
     如果用户只是暂时不想用，优先建议 edit_agent(is_enabled=false) 停用而不是删除。
     """
-    return impl.delete_agent(user_id=_user(ctx), agent_ref=agent_ref)
+    return await asyncio.to_thread(impl.delete_agent, user_id=current_user(ctx), agent_ref=agent_ref)
 
 
 @mcp.tool()
@@ -207,8 +196,9 @@ async def submit_agent_to_market(
     【说明】这是"申请"，不是直接上架；要跟用户说清楚还得等管理员审核通过。
     需要"自助添加智能体"权限。
     """
-    return impl.submit_agent_to_market(
-        user_id=_user(ctx),
+    return await asyncio.to_thread(
+        impl.submit_agent_to_market,
+        user_id=current_user(ctx),
         agent_id=agent_id,
         category=category,
         summary=summary,

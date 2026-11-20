@@ -156,7 +156,6 @@ The runner depends only on process and path primitives that do not load backend 
 | `chat_run_executor.py` | Decouples the AI workflow from the HTTP connection into background Runs: start, SSE following, offset-based resume, crash recovery |
 | `workflow.py` | The per-turn streaming orchestration body: memory injection → agent build → stream consumption → citation extraction → meta wrap-up |
 | `streaming.py` | AgentScope 2.0 streaming wrapper `StreamingAgent`, yielding normalized event chunks |
-| `strategy.py` | Routing strategy: `ROUTER_STRATEGY=main_only` (default) / `llm_router` (placeholder, falls back to main) |
 | `citations.py` | Tool results → `[ref:tool_name-N]` citation extraction |
 | `memory_integration.py` | Non-blocking memory I/O integration off the SSE hot path |
 | `followups.py` | Standalone follow-up question generator |
@@ -194,7 +193,7 @@ CE routes live under `api/routes/v1/`; physically split commercial routes live u
 
 ## extensions/mcp_servers/ and sidecars
 
-`extensions/mcp_servers/` hosts the servers: `internet_search_mcp`, `web_fetch_mcp`, `automation_task_mcp`, `skill_manager_mcp`, `retrieve_dataset_content_mcp`, plus the intranet-dependent `query_database_mcp` and `ai_chain_information_mcp` (Enterprise Edition, EE). Shared plumbing: `_launcher.py` (starts process servers using registry placement and ports), `_serve.py`, `_common.py`, `_retrieve_cleaning.py`. Word, Excel, and other document exports are handled by Agent skills inside the sandbox.
+`extensions/mcp_servers/` hosts the servers: `internet_search_mcp`, `web_fetch_mcp`, `automation_task_mcp`, `skill_manager_mcp`, `retrieve_dataset_content_mcp`, plus the intranet-dependent `ai_chain_information_mcp` and `database_mcp`, which serves one connector per data source (both Enterprise Edition, EE). Shared plumbing: `_launcher.py` (starts process servers using registry placement and ports), `_serve.py`, `_common.py`, `_retrieve_cleaning.py`. Word, Excel, and other document exports are handled by Agent skills inside the sandbox.
 
 `core/sandbox/runner/server.py` is the skill-script execution sidecar: its own container, resource-limited subprocesses, and no database / Redis / API-key access.
 

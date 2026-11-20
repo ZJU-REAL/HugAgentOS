@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 from core.llm.context import compaction as C
 from core.models.context_window import resolve_model_context_window, usable_context_window
+from core.db.threads import run_db
 
 logger = logging.getLogger(__name__)
 
@@ -92,10 +93,6 @@ def _looks_like_context_error(status_code: int, body: str) -> bool:
     return any(m in lowered for m in _CTX_ERROR_MARKERS)
 
 
-def _estimate_flat_tokens(messages: List[Dict[str, str]]) -> int:
-    return sum(C.approx_token_count(m.get("content") or "") for m in messages)
-
-
 async def _summarize(history: List[Dict[str, Any]], *, timeout: int) -> Optional[str]:
     """Send history + SUMMARIZATION_PROMPT to the model; return the summary body (None on failure, never raises).
 
@@ -118,7 +115,7 @@ async def _summarize(history: List[Dict[str, Any]], *, timeout: int) -> Optional
     provider = endpoint.provider
 
     messages = _flatten_for_summary(history)
-    base_prompt = _load_base_system_prompt()
+    base_prompt = await run_db(_load_base_system_prompt)
     if base_prompt:
         # Qwen-family models require system to be only at index 0; the flattened history contains no system rows
         messages.insert(0, {"role": "system", "content": base_prompt})
@@ -134,10 +131,16 @@ async def _summarize(history: List[Dict[str, Any]], *, timeout: int) -> Optional
         window = None
     if window and window > 0:
         budget = usable_context_window(window)
-        dropped = 0
-        while len(messages) - droppable_start > 2 and _estimate_flat_tokens(messages) > budget:
-            messages.pop(droppable_start)
-            dropped += 1
+        # Count each message once and subtract as the oldest ones go; re-summing
+        # the whole history after every drop is quadratic on long chats.
+        message_tokens = [C.approx_token_count(m.get("content") or "") for m in messages]
+        total = sum(message_tokens)
+        cut = droppable_start
+        while len(messages) - cut > 2 and total > budget:
+            total -= message_tokens[cut]
+            cut += 1
+        del messages[droppable_start:cut]
+        dropped = cut - droppable_start
         if dropped:
             logger.info(
                 "[compaction] summarizer input pre-trimmed: dropped %d oldest (budget=%d)",

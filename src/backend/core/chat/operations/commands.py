@@ -1,6 +1,7 @@
 """Shared commands operations; callers supply authenticated identity."""
 
 import core.runs.runtime as runtime
+from core.db.threads import run_db
 from core.infra.responses import success_response
 from core.chat.steer import put_pending_steer
 from core.chat.steer_queue import SteerQueueConflict
@@ -20,7 +21,7 @@ async def cancel_chat_run(run_id, user=None):
 
 async def steer_chat_run(run_id, body, user=None):
     """Queue one instruction for the live ReAct loop's next safe boundary."""
-    run = runtime.get_run(run_id)
+    run = await run_db(runtime.get_run, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
     if run.user_id != user.user_id:

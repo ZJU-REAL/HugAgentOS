@@ -9,7 +9,6 @@ from agentscope.skill import Skill, SkillLoaderBase
 from core.llm.context.compaction import build_compacted_history
 from core.llm.context.adapter import AgentScopeContextAdapter
 from core.llm.context.rendering import next_request_sequence, render_context_item
-from core.models.constants import PROVIDER_CONTEXT_META_KEY
 from core.llm.context.ir_constants import KIND_USER_INPUT, POLICY_NEVER
 from core.llm.context.items import make_text_context_item
 from core.harness.execution_manifest import PromptManifestBuilder, stable_hash
@@ -56,69 +55,6 @@ class CaptureModel:
 
     async def count_tokens(self, messages, tools=None):  # noqa: ANN001, ANN201
         return 1
-
-
-class ProviderRetryCaptureModel(CaptureModel):
-    def set_context_rewrite_listener(self, listener) -> None:  # noqa: ANN001
-        self.rewrite_listener = listener
-
-    async def __call__(self, messages, tools=None, **kwargs):  # noqa: ANN001, ANN201
-        retry = [
-            {"role": "system", "content": "rules"},
-            {
-                "role": "system",
-                "content": "PROJECT-MATERIAL-MARKER",
-                PROVIDER_CONTEXT_META_KEY: {
-                    "kind": "project_material",
-                    "origin": "workspace:project-1",
-                    "trust": "workspace",
-                    "priority": 900,
-                },
-            },
-            {
-                "role": "user",
-                "content": "remembered fact",
-                PROVIDER_CONTEXT_META_KEY: {
-                    "kind": "memory",
-                    "origin": "memory:frozen",
-                    "trust": "memory",
-                    "priority": 700,
-                },
-            },
-            {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
-                    {
-                        "id": call_id,
-                        "type": "function",
-                        "function": {"name": "read", "arguments": "{}"},
-                    }
-                    for call_id in ("parallel-1", "parallel-2")
-                ],
-            },
-            {"role": "tool", "tool_call_id": "parallel-1", "content": "first"},
-            {"role": "tool", "tool_call_id": "parallel-2", "content": "second"},
-            {"role": "user", "content": "hello"},
-            {
-                "role": "user",
-                "name": "system-reminder",
-                "content": [{"type": "text", "text": "media unavailable"}],
-                PROVIDER_CONTEXT_META_KEY: {
-                    "kind": "reminder",
-                    "origin": "harness:multimodal_fallback",
-                    "trust": "system",
-                    "priority": 800,
-                },
-            },
-        ]
-        wire = await self.rewrite_listener(retry)
-        self.calls.append({"messages": messages, "tools": tools, "wire": wire, "kwargs": kwargs})
-        return ChatResponse(
-            content=[TextBlock(type="text", text="done")],
-            is_last=True,
-            usage=ChatUsage(input_tokens=1, output_tokens=1, time=0.01),
-        )
 
 
 @pytest.mark.asyncio
@@ -231,65 +167,6 @@ async def test_public_reply_assembles_context_and_binds_request_manifest():
         model.calls[0]["messages"][-1].metadata["harness_context_items"][0]["content_hash"]
         == context_manifest["included"][-1]["content_hash"]
     )
-
-
-@pytest.mark.asyncio
-async def test_public_provider_retry_rebinds_manifest_to_exact_second_wire_request():
-    model = ProviderRetryCaptureModel()
-    builder = PromptManifestBuilder(context={"workspace_id": "ws-1"})
-    builder.add_prompt_section(
-        "system/base",
-        "rules",
-        origin="prompt:test",
-        trust="platform",
-        priority=1_000,
-        cache_class="stable",
-    )
-    builder.add_prompt_section(
-        "runtime/project",
-        "PROJECT-MATERIAL-MARKER",
-        origin="workspace:project-1",
-        trust="workspace",
-        priority=900,
-        cache_class="workspace",
-        reference="project:project-1",
-        sensitive=True,
-    )
-    agent = ManifestBoundAgent(
-        name="provider-retry-test",
-        system_prompt="rules",
-        model=model,
-        toolkit=OntologyFilteredToolkit(),
-    )
-    agent.bind_execution_surface(builder.build(final_prompt="rules"))
-
-    await agent.reply(UserMsg(name="user", content="hello"))
-
-    wire = model.calls[0]["wire"]
-    assert all(PROVIDER_CONTEXT_META_KEY not in message for message in wire)
-    assert str(wire).count("PROJECT-MATERIAL-MARKER") == 1
-    manifest = agent.request_context_manifest
-    retry_entries = [
-        entry for entry in manifest["included"] if entry["item_id"].startswith("provider-retry:")
-    ]
-    assert len({entry["message_group"] for entry in retry_entries}) == len(wire)
-    reminder = next(entry for entry in retry_entries if entry["kind"] == "reminder")
-    project = next(entry for entry in retry_entries if entry["kind"] == "project_material")
-    memory = next(entry for entry in retry_entries if entry["kind"] == "memory")
-    assert reminder["origin"] == "harness:multimodal_fallback"
-    assert reminder["trust"] == "system"
-    assert project["origin"] == "workspace:project-1"
-    assert project["trust"] == "workspace"
-    assert memory["origin"] == "memory:frozen"
-    assert memory["trust"] == "memory"
-    tool_entries = [
-        entry for entry in retry_entries if entry["kind"] in {"tool_call", "tool_result"}
-    ]
-    assert [entry["kind"] for entry in tool_entries].count("tool_call") == 2
-    assert [entry["kind"] for entry in tool_entries].count("tool_result") == 2
-    assert {entry["pair_id"] for entry in tool_entries} == {"provider-tool-batch:3"}
-    assert reminder["content_hash"] == stable_hash(wire[-1])
-    assert agent.execution_manifest.context_manifest_hash == stable_hash(manifest)
 
 
 @pytest.mark.asyncio

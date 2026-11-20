@@ -9,10 +9,14 @@ import { SearchOutlined, FireOutlined, CheckOutlined, LeftOutlined, DeleteOutlin
 import { t } from '../../i18n';
 import { useIsMobileViewport } from '../../hooks/useIsMobileViewport';
 import type { MarketplaceAgent, MarketplaceAgentDetail, AgentMarketplaceFetchers, MarketVisibilityValue } from '../../types';
-import { mdToHtml } from '../../utils/markdown';
 import { SPRING, staggerStyle } from '../../utils/motionTokens';
 import { getOntologyBuildFailure, type OntologyBuildFailure } from '../../utils/apiError';
 import { OntologyBuildValidationModal, VisibilityScopeModal, ContinuousLoadSentinel } from '../common';
+import { MarkdownHtml } from '../common/MarkdownHtml';
+
+/** Category sentinel for "all"; never shown as-is. */
+const ALL_CATEGORIES = '__all__';
+
 // Sub-agent marketplace modal: browse preset/community sub-agents, view their prompts and capability bindings, and install (clone) them.
 // The transport (user / admin) is injected via fetchers, reusing the skill marketplace's jx-mk-* styles.
 const MARKET_PAGE_SIZE = 12;
@@ -57,7 +61,7 @@ export function AgentMarketplaceModal({
   const [items, setItems] = useState<MarketplaceAgent[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [query, setQuery] = useState('');
-  const [category, setCategory] = useState<string>('全部');
+  const [category, setCategory] = useState<string>(ALL_CATEGORIES);
   const [page, setPage] = useState(1);
   const [installingSlug, setInstallingSlug] = useState<string | null>(null);
   const [detail, setDetail] = useState<MarketplaceAgentDetail | null>(null);
@@ -78,7 +82,7 @@ export function AgentMarketplaceModal({
   useEffect(() => {
     if (open) {
       setQuery('');
-      setCategory('全部');
+      setCategory(ALL_CATEGORIES);
       setPage(1);
       setDetail(null);
       void load();
@@ -235,7 +239,7 @@ export function AgentMarketplaceModal({
   const q = query.trim().toLowerCase();
   const filtered = useMemo(() => {
     return items.filter((it) => {
-      if (category !== '全部' && it.category !== category) return false;
+      if (category !== ALL_CATEGORIES && it.category !== category) return false;
       if (!q) return true;
       return `${it.name} ${it.summary} ${(it.tags || []).join(' ')} ${it.author}`.toLowerCase().includes(q);
     });
@@ -254,7 +258,7 @@ export function AgentMarketplaceModal({
     items: filtered.map((item) => ({ slug: item.slug, name: item.name, deletable: !!fetchers.remove && !!item.deletable })),
     onDeleted: async () => { setDetail(null); await load(); },
   });
-  const cats = useMemo(() => ['全部', ...categories], [categories]);
+  const cats = useMemo(() => [ALL_CATEGORIES, ...categories], [categories]);
   return (
     <>
     <Modal
@@ -280,11 +284,11 @@ export function AgentMarketplaceModal({
             <div className="jx-mk-detailHeadInfo">
               <div className="jx-mk-detailName">
                 {detail.name}
-                {detail.featured && <Tag color="orange" bordered={false} className="jx-mk-badge"><FireOutlined /> {t('精选')}</Tag>}
+                {detail.featured && <Tag color="orange" variant="filled" className="jx-mk-badge"><FireOutlined /> {t('精选')}</Tag>}
               </div>
               <div className="jx-mk-cardMeta">
-                <Tag bordered={false} className="jx-mk-catTag">{detail.category}</Tag>
-                {detail.source === 'community' && <Tag color="purple" bordered={false} className="jx-mk-badge">{t('社区共享 · {author}', { author: detail.author })}</Tag>}
+                <Tag variant="filled" className="jx-mk-catTag">{detail.category}</Tag>
+                {detail.source === 'community' && <Tag color="purple" variant="filled" className="jx-mk-badge">{t('社区共享 · {author}', { author: detail.author })}</Tag>}
                 <span className="jx-mk-ver">v{detail.version}</span>
               </div>
             </div>
@@ -301,7 +305,7 @@ export function AgentMarketplaceModal({
           {detail.summary && <p className="jx-mk-detailSummary">{detail.summary}</p>}
           {detail.tags?.length > 0 && (
             <div className="jx-mk-tags" style={{ marginBottom: 12 }}>
-              {detail.tags.map((tag, i) => <Tag key={i} bordered={false} className="jx-mk-tag">{tag}</Tag>)}
+              {detail.tags.map((tag, i) => <Tag key={i} variant="filled" className="jx-mk-tag">{tag}</Tag>)}
             </div>
           )}
           <div className="jx-mk-detailBodyTitle">{t('携带能力')}</div>
@@ -315,12 +319,12 @@ export function AgentMarketplaceModal({
             <>
               <div className="jx-mk-detailBodyTitle">{t('推荐问题')}</div>
               <div className="jx-mk-tags" style={{ marginBottom: 12 }}>
-                {detail.suggested_questions.map((qq, i) => <Tag key={i} bordered={false} className="jx-mk-tag">{qq}</Tag>)}
+                {detail.suggested_questions.map((qq, i) => <Tag key={i} variant="filled" className="jx-mk-tag">{qq}</Tag>)}
               </div>
             </>
           )}
           <div className="jx-mk-detailBodyTitle">{t('角色设定（系统提示词）')}</div>
-          <div className="jx-mk-detailBody jx-md" dangerouslySetInnerHTML={{ __html: mdToHtml(detail.system_prompt || '暂无内容') }} />
+          <MarkdownHtml className="jx-mk-detailBody jx-md" markdown={detail.system_prompt || t('暂无内容')} />
         </div>
       ) : (
         <>
@@ -344,7 +348,7 @@ export function AgentMarketplaceModal({
                   {category === c && (
                     <motion.span layoutId="agentMkCatChip" className="jx-mk-catChipBg" initial={false} transition={SPRING.ink} aria-hidden="true" />
                   )}
-                  <span className="jx-mk-catChipLabel">{c}</span>
+                  <span className="jx-mk-catChipLabel">{c === ALL_CATEGORIES ? t('全部') : c}</span>
                 </button>
               ))}
             </div>
@@ -360,13 +364,13 @@ export function AgentMarketplaceModal({
                     <div className="jx-mk-cardHead">
                       <div className="jx-mk-cardNameRow">
                         <span className="jx-mk-cardName" title={agent.name}>{agent.name}</span>
-                        {agent.featured && <Tag color="orange" bordered={false} className="jx-mk-badge"><FireOutlined /> {t('精选')}</Tag>}
+                        {agent.featured && <Tag color="orange" variant="filled" className="jx-mk-badge"><FireOutlined /> {t('精选')}</Tag>}
                       </div>
                       <div className="jx-mk-cardMeta">
-                        <Tag bordered={false} className="jx-mk-catTag">{agent.category}</Tag>
-                        {agent.market_enabled === false && <Tag color="default" bordered={false}>{t('已下架')}</Tag>}
-                        {fetchers.visibility && agent.visibility === 'scoped' && <Tag color="gold" bordered={false}>{t('指定可见')}</Tag>}
-                        {agent.source === 'community' && <Tag color="purple" bordered={false} className="jx-mk-badge">{t('社区')}</Tag>}
+                        <Tag variant="filled" className="jx-mk-catTag">{agent.category}</Tag>
+                        {agent.market_enabled === false && <Tag color="default" variant="filled">{t('已下架')}</Tag>}
+                        {fetchers.visibility && agent.visibility === 'scoped' && <Tag color="gold" variant="filled">{t('指定可见')}</Tag>}
+                        {agent.source === 'community' && <Tag color="purple" variant="filled" className="jx-mk-badge">{t('社区')}</Tag>}
                       </div>
                     </div>
                   </div>

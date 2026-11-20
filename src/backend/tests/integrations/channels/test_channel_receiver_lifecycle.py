@@ -13,6 +13,7 @@ from core.infra.ephemeral import LocalEphemeralState
 from httpx import _client
 from sqlalchemy import create_engine
 from tests.integrations.channels.test_channel_desktop_relay_api import api, headers  # noqa: F401
+from tests.db_support import share_factory
 
 
 async def eventually(check, seconds=2):
@@ -36,7 +37,7 @@ async def test_binding_on_non_owner_is_received_and_claimed_on_desktop(api, monk
         db.commit()
     state = LocalEphemeralState()
     monkeypatch.setattr("core.infra.ephemeral.get_ephemeral_state", lambda: state)
-    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
+    share_factory(monkeypatch, factory)
     monkeypatch.setattr('integrations.channels.inbound.SessionLocal', factory)
     monkeypatch.setattr('integrations.channels.manager._RECONCILE_SECONDS', 0.02, raising=False)
     follower = ChannelManager()

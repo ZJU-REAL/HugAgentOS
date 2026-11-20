@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import logging
 import os
 from datetime import datetime
@@ -24,7 +23,6 @@ from agentscope.message import (
 )
 from agentscope.model import ChatResponse, OpenAIChatModel
 from agentscope.tool._types import ToolChoice
-from core.models.constants import PROVIDER_CONTEXT_META_KEY
 from core.models.admission import check_request_admission
 from core.models.providers._image_tokens import ImageTokenCountingMixin
 from core.models.providers.stream_retry import _stream_with_bounded_retry
@@ -292,31 +290,6 @@ class OpenAICompatChatModel(ToolCallIdentityMixin, ImageTokenCountingMixin, Open
         # The SSE layer uses this to distinguish structured reasoning_content from
         # legacy models that embed reasoning in content as <think>...</think>.
         self.structured_reasoning = structured_reasoning
-        self._context_rewrite_listener = None
-
-    def set_context_rewrite_listener(self, listener) -> None:  # noqa: ANN001
-        """Observe and optionally canonicalize a provider-level retry request."""
-        self._context_rewrite_listener = listener
-
-    async def _publish_context_rewrite(
-        self,
-        messages: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        listener = self._context_rewrite_listener
-        if listener is not None:
-            rendered = listener(messages)
-            if inspect.isawaitable(rendered):
-                rendered = await rendered
-            if rendered is not None:
-                messages = list(rendered)
-        # Harness metadata is never a provider API field, including when this
-        # model is invoked outside ManifestBoundAgent.
-        cleaned = []
-        for message in messages:
-            row = dict(message)
-            row.pop(PROVIDER_CONTEXT_META_KEY, None)
-            cleaned.append(row)
-        return cleaned
 
     def _build_client(self):
         import openai

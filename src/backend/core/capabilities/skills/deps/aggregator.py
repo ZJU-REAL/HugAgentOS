@@ -126,15 +126,6 @@ def _collect(
     return {name: ver for name, (ver, _src) in out.items()}
 
 
-def aggregate_names(db: Session) -> Dict[str, List[str]]:
-    """Aggregate the dependency **package names** (without versions) of all enabled skills, for "sandbox installed" detection."""
-    ignored = get_ignored_deps(db)
-    return {
-        kind: sorted(_collect(db, kind, ignored=ignored).keys(), key=str.lower)
-        for kind in _DEP_KINDS
-    }
-
-
 def _render_pip(merged: Dict[str, Optional[str]]) -> str:
     """Render `requirements-skills.txt` body from a merged {name: version} map."""
     lines = [_PIP_HEADER]

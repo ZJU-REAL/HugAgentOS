@@ -7,6 +7,7 @@ from typing import List
 from core.llm.factory.models import RequiredCapabilities
 from core.llm.factory.request import AgentRequest
 from core.llm.factory.selection import capabilities as factory_capabilities
+from core.db.threads import run_db
 
 
 async def mode_bindings(request: AgentRequest, *, required: RequiredCapabilities):
@@ -43,7 +44,7 @@ async def mode_bindings(request: AgentRequest, *, required: RequiredCapabilities
         # MCPs. A plugin is the installable/removable unit — some capabilities
         # (e.g. a crawler, a ticket system) ship only as a plugin and have no
         # loose MCP row to pick, so without this they were unreachable in turbo.
-        turbo_plugin_skill_ids, turbo_plugin_mcp_ids = factory_capabilities._expand_plugin_bindings(
+        turbo_plugin_skill_ids, turbo_plugin_mcp_ids = await run_db(factory_capabilities._expand_plugin_bindings,
             list(_mode_plugin_ids), user_id=request.current_user_id
         )
         # Skills in turbo = admin-configured set (turbo.skill_ids + those bundled

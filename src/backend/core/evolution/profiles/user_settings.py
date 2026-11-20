@@ -14,8 +14,7 @@ def is_contribution_enabled(metadata: Optional[Dict[str, Any]]) -> bool:
     stored value governs both distilling *for* the user and learning *from*
     them. Off by default: consent is collected by the first-run wizard, and a
     user who never enabled evolution contributes nothing. "On" only ever means
-    *within the tenant*: cross-tenant sharing is a separate, independently-
-    gated decision (see ``federation``).
+    *within the tenant*: nothing here enables cross-tenant sharing.
     """
     from core.evolution.profiles.prefs import PREFS_KEY, normalise
 

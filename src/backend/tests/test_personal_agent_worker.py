@@ -40,7 +40,6 @@ def make_world(sessions, monkeypatch):  # noqa: F811
     async def quiet(*args, **kwargs):
         return None
     monkeypatch.setattr("core.chat.steer.link_request", quiet)
-    monkeypatch.setattr("core.chat.steer._notify", quiet)
     # The run is admitted and launched for real; only the asyncio worker that would stream it is left out.
     monkeypatch.setattr(runtime, "register_run_task", lambda run_id, coro, name: coro.close())
     started = []

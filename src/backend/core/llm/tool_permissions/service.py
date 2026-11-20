@@ -7,6 +7,7 @@ from typing import Any, Sequence, Optional
 from core.sandbox.permissions.approval import DESTRUCTIVE_OPS, _preset_answers
 from core.sandbox.permissions.tool_specs import ToolPermissionRegistry, _one_shot_write_root
 from core.sandbox.permissions.dispatch_models import DOMAIN_APPROVAL, DOMAIN_DENY, DOMAIN_LOCAL_COMMAND, DOMAIN_LOCAL_PATH, DOMAIN_MYSPACE, FAIL_CLOSED_MODE, FALLBACK_ALLOW, LocalCommandAuthorization, PermissionIntent, PermissionOutcome, PermissionRuntime, PermissionTicket, READ, UNCONFINED_APPROVAL_MODES, _call_args, _json_hash
+from core.db.threads import run_db
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ class ToolPermissionService:
 
             scope = self.runtime.project_scope
             scope_error = (
-                current_scope_error(scope, self.runtime.user_id)
+                await run_db(current_scope_error, scope, self.runtime.user_id)
                 if scope is not None and scope.is_local
                 else None
             )

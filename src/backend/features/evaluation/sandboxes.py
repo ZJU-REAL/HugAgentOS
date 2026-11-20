@@ -206,16 +206,20 @@ async def destroy(lease_id, owner):
         except (Exception, asyncio.CancelledError):
             # DB/cancel failures cannot prevent destroying an owned instance.
             pass
-        async with asyncio.timeout(65):
-            try:
-                async with _connection(lease_id, owner, allow_expired=True, allow_closed=True) as sandbox:
-                    await sandbox.kill()
-                    await opensandbox_admission().release(str(sandbox.id))
-            except SandboxApiException as exc:
-                if exc.status_code != 404:
-                    raise
-            await bindings.mark_destroyed(binding.session_id, owner)
-            await get_evaluation_provider().close_session(binding.session_id)
+        try:
+            async with asyncio.timeout(65):
+                try:
+                    async with _connection(lease_id, owner, allow_expired=True, allow_closed=True) as sandbox:
+                        await sandbox.kill()
+                        await opensandbox_admission().release(str(sandbox.id))
+                except SandboxApiException as exc:
+                    if exc.status_code != 404:
+                        raise
+                await bindings.mark_destroyed(binding.session_id, owner)
+                await get_evaluation_provider().close_session(binding.session_id)
+        finally:
+            # A failed or timed-out kill must not leave this process's cached clients behind.
+            await get_evaluation_provider().forget_connections(binding.sandbox_id)
 
     task = asyncio.create_task(cleanup())
     try:

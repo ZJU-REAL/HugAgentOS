@@ -15,6 +15,7 @@ import pytest
 from core.models.vision.render import render_evidence, render_many, render_unavailable
 from core.models.vision.schema import VISION_JSON_SCHEMA, VisionEvidence, parse_evidence
 from core.models.vision.service import sniff_mime
+from tests.llm.vision_test_support import _FakeCfg
 
 # 一张 1x1 的合法 PNG
 PNG_1X1 = base64.b64decode(
@@ -141,19 +142,6 @@ def test_sniff_mime_accepts_real_png_and_rejects_others():
 
 
 # ── 编排：缓存 / 重试 / 降级 ─────────────────────────────────────────────────
-
-
-class _FakeCfg:
-    base_url = "http://fake/v1"
-    api_key = "k"
-    model_name = "fake-vl"
-    temperature = 0.6
-    max_tokens = 4096
-    context_length = 0
-    timeout = 30
-    provider = "openai_compatible"
-    provider_extra: dict = {}
-    extra: dict = {}
 
 
 def _bridge_with(monkeypatch, responses: list[str]):

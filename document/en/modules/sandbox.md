@@ -11,7 +11,7 @@ All providers follow one boundary rule: **`session_id` (`chat_id` in a conversat
 
 ## The provider protocol (core/sandbox/protocol.py)
 
-Every provider implements the same `SandboxProvider` Protocol, with an internal completion API wrapping the managed process protocol; script-runner transports process operations over the sidecar HTTP interface:
+Every provider implements the `SandboxProvider` execution Protocol and declares `runs_on_host` explicitly (True means the process runs directly on the user's host, so commands must carry `ProcessRequest.sandbox_launch`). The provider that `SANDBOX_PROVIDER` selects also implements the read-only `SandboxAdmin` view; the two together are `OrdinarySandboxProvider`, while providers handed out by a session route only need the execution part. An internal completion API wraps the managed process protocol; script-runner transports process operations over the sidecar HTTP interface:
 
 | Method | Responsibility |
 |---|---|
@@ -151,7 +151,7 @@ With `OPENSANDBOX_MYSPACE_BIND_MOUNT_ENABLED=true` (the default), User-session s
 
 ## Read-only skills mount
 
-Skill files are exposed inside the sandbox at `/workspace/skills/<id>` through read-only bind mounts (`_make_skills_volumes`). What is bound there is **that user's own skill view**, `$HOST_STORAGE_PATH/sandbox_skills_u/<user_id>`: their private skills plus relative symlinks to the shared ones, with the shared skill dir `$HOST_STORAGE_PATH/sandbox_skills` mounted alongside at `/workspace/skills_shared` so those symlinks resolve (built-ins synced in at startup, DB skills materialized on demand — see the [skill system](agent-skills.md)). Every skill therefore keeps the same in-sandbox path, while another user's private skills (and their `secrets.json`) are simply not mounted. Sandboxes without a user id only ever mount the shared dir. Read-only guarantees skills cannot be tampered with from inside the sandbox; the directory bind is live, so newly imported skills are visible immediately. Without `HOST_STORAGE_PATH` it falls back to mounting only the built-in source tree, with a warning.
+Skill files are exposed inside the sandbox at `/workspace/skills/<id>` through read-only bind mounts (`_make_skills_volumes`). What is bound there is **that user's own skill view**, `$HOST_STORAGE_PATH/sandbox_skills_u/<user_id>`: their private skills plus relative symlinks to the shared ones, with the shared skill dir `$HOST_STORAGE_PATH/sandbox_skills` mounted alongside at the hidden `/workspace/.skills_shared` so those symlinks resolve (the model only ever needs `/workspace/skills`) (built-ins synced in at startup, DB skills materialized on demand — see the [skill system](agent-skills.md)). Every skill therefore keeps the same in-sandbox path, while another user's private skills (and their `secrets.json`) are simply not mounted. Sandboxes without a user id only ever mount the shared dir. Read-only guarantees skills cannot be tampered with from inside the sandbox; the directory bind is live, so newly imported skills are visible immediately. Without `HOST_STORAGE_PATH` it falls back to mounting only the built-in source tree, with a warning.
 
 ## Offloading oversized tool results
 

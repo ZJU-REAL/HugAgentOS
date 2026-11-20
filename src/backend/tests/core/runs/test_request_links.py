@@ -7,24 +7,19 @@ import asyncio
 import core.harness.request_links as request_links
 import core.runs.runtime as runtime
 import pytest
-from core.db.engine import Base
 from core.harness.ledger import DurableEventStore
 from core.infra.logging import add_user_context, run_id_var, trace_id_var
 from core.llm.runtime import interaction_store
 from core.runs.journal import RunJournal
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from tests.db_support import file_engine, session_factory
 
 RUN = "run-links"
 
 
 @pytest.fixture()
 def sessions(tmp_path, monkeypatch):
-    engine = create_engine(
-        f"sqlite:///{tmp_path / 'request-links.sqlite'}", connect_args={"check_same_thread": False}
-    )
-    Base.metadata.create_all(engine)
-    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    engine = file_engine(tmp_path / 'request-links.sqlite')
+    factory = session_factory(engine)
     RunJournal(factory).accept(
         run_id=RUN, message_id="msg-links", chat_id="chat-links", user_id="user-links",
         request_payload={"kind": "chat"}, recovery_snapshot={"kind": "chat", "worker_args": {}},

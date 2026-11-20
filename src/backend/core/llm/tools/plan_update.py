@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 from agentscope.tool import Toolkit
 
-# AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolChunk).
+# AgentScope 2.0: tool functions must return ToolChunk.
 from agentscope.tool._response import ToolChunk
 from agentscope.message import TextBlock
 

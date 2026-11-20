@@ -1,1 +1,0 @@
-export { SitesPanel } from './SitesPanel';

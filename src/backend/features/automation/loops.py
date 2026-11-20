@@ -5,7 +5,7 @@ See internal design docs (§2.2 components, §3 data model).
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from core.infra.time import utc_now
 from typing import Any, Dict, List, Optional
 
 from core.db.models import AgentLoop, LoopIteration
@@ -15,8 +15,6 @@ from sqlalchemy.orm import Session
 logger = get_logger(__name__)
 
 
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 class LoopService:
@@ -87,7 +85,7 @@ class LoopService:
         meta = dict(loop.extra_data or {})
         meta["start_params"] = {k: v for k, v in params.items() if v not in (None, "")}
         loop.extra_data = meta
-        loop.updated_at = _now()
+        loop.updated_at = utc_now()
         self.db.commit()
 
     def get_start_params(self, loop_id: str) -> Dict[str, Any]:
@@ -105,7 +103,7 @@ class LoopService:
         queue.append(message.strip()[:2000])
         meta["steering"] = queue[-10:]  # 只保留最近 10 条，防队列无限膨胀
         loop.extra_data = meta
-        loop.updated_at = _now()
+        loop.updated_at = utc_now()
         self.db.commit()
         return True
 
@@ -133,7 +131,7 @@ class LoopService:
         loop.status = "interrupted"
         if reason:
             loop.result_summary = reason[:2000]
-        loop.updated_at = _now()
+        loop.updated_at = utc_now()
         self.db.commit()
 
     def mark_running(
@@ -149,7 +147,7 @@ class LoopService:
         loop.status = "running"
         if workspace_session:
             loop.workspace_session = workspace_session
-        loop.updated_at = _now()
+        loop.updated_at = utc_now()
         if commit:
             self.db.commit()
         else:
@@ -175,7 +173,7 @@ class LoopService:
             loop.iteration_count = int(ledger.get("iteration", loop.iteration_count) or 0)
         except (TypeError, ValueError):
             pass
-        loop.updated_at = _now()
+        loop.updated_at = utc_now()
         if commit:
             self.db.commit()
         else:
@@ -206,7 +204,7 @@ class LoopService:
         loop.tokens_spent = int(result.tokens_spent)
         loop.final_score = result.final_score
         loop.result_summary = (result.reason or "")[:2000]
-        loop.updated_at = _now()
+        loop.updated_at = utc_now()
 
         # Overwrite-rewrite the audit trail (idempotent)
         self.db.query(LoopIteration).filter(LoopIteration.loop_id == loop_id).delete()

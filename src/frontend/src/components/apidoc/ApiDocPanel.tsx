@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { Button, Empty, Input, Select, Space, Spin, Tag, Tooltip, Typography } from 'antd';
 import { FileSearchOutlined, LockOutlined, ReloadOutlined } from '@ant-design/icons';
 import { EASE } from '../../utils/motionTokens';
-import { t } from '../../i18n';
+import { t, tCtx } from '../../i18n';
 import { METHOD_OPTIONS, normalizeOpenApi, type OpenApiSchema, type HttpMethod, type GroupBucket } from './apiDocModel';
 import { ApiDocDetail } from './ApiDocDetail';
 import { MethodTag } from './MethodTag';
@@ -50,7 +50,7 @@ export function ApiDocPanel({ onReloadRef }: ApiDocPanelProps = {}) {
           lastErr = `${url}: ${e instanceof Error ? e.message : String(e)}`;
         }
       }
-      if (!data) throw new Error(lastErr || '无法获取 openapi.json');
+      if (!data) throw new Error(lastErr || t('无法获取 openapi.json'));
       setSpec(data);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -127,7 +127,7 @@ export function ApiDocPanel({ onReloadRef }: ApiDocPanelProps = {}) {
   if (loading && !spec) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 400 }}>
-        <Spin tip={t('加载接口文档…')} size="large" />
+        <Spin description={t('加载接口文档…')} size="large" />
       </div>
     );
   }
@@ -137,7 +137,7 @@ export function ApiDocPanel({ onReloadRef }: ApiDocPanelProps = {}) {
       <div style={{ padding: 48, textAlign: 'center' }}>
         <Empty
           description={
-            <Space direction="vertical">
+            <Space orientation="vertical">
               <Text type="danger">{t('无法加载接口文档')}</Text>
               <Text type="secondary">{error}</Text>
               <Text type="secondary" style={{ fontSize: 12 }}>
@@ -212,7 +212,7 @@ export function ApiDocPanel({ onReloadRef }: ApiDocPanelProps = {}) {
               onClick={() => setActiveGroup(g.name)}
               className={`jx-apidoc-navItem jx-apidoc-groupItem${activeGroup === g.name ? ' active' : ''}`}
             >
-              <span>{g.name}</span>
+              <span>{tCtx('apiGroup', g.name)}</span>
               <Tag color={activeGroup === g.name ? 'blue' : 'default'} style={{ margin: 0 }}>
                 {g.endpoints.length}
               </Tag>

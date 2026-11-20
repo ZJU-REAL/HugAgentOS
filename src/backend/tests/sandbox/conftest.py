@@ -3,6 +3,7 @@
 import pytest
 from core.infra.ephemeral import LocalEphemeralState
 import core.sandbox.sessions.registry as session_registry
+from tests.db_support import share_factory
 
 
 @pytest.fixture(autouse=True)
@@ -37,5 +38,5 @@ def provider_database(db_session, monkeypatch):
     from sqlalchemy.orm import sessionmaker
 
     sessions = sessionmaker(bind=db_session.get_bind())
-    monkeypatch.setattr("core.db.engine.SessionLocal", sessions)
+    share_factory(monkeypatch, sessions)
     return sessions

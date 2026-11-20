@@ -1,12 +1,15 @@
-"""Lark process responsibilities."""
+"""Per-user lark-cli subprocess environment and runner."""
 from __future__ import annotations
-import asyncio
+
+import logging
 import os
 from typing import Dict, List, Optional, Tuple
-from core.infra.proc import no_window_kwargs
-import logging
-logger = logging.getLogger(__name__)
+
+from integrations.cli_process import run_cli
 from integrations.lark import state as lark_state
+
+logger = logging.getLogger(__name__)
+
 
 def lark_env(user_id: str) -> Dict[str, str]:
     """Environment for running lark-cli subprocesses on the backend: per-user isolated ``HOME`` (the root of credential isolation).
@@ -34,26 +37,7 @@ async def run_lark(
     user_id: str, args: List[str], timeout: int = 40, stdin_data: Optional[str] = None,
 ) -> Tuple[str, str, int]:
     """Run one lark-cli subcommand on the backend as this user; returns (stdout, stderr, exit_code)."""
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            lark_state.LARK_BIN, *args,
-            stdin=asyncio.subprocess.PIPE if stdin_data is not None else None,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=lark_env(user_id),
-            **no_window_kwargs(),
-        )
-    except FileNotFoundError:
-        return "", "lark-cli binary not found on backend", 127
-    try:
-        out, err = await asyncio.wait_for(
-            proc.communicate(input=stdin_data.encode("utf-8") if stdin_data is not None else None),
-            timeout=timeout,
-        )
-        return out.decode("utf-8", "replace"), err.decode("utf-8", "replace"), proc.returncode or 0
-    except asyncio.TimeoutError:
-        try:
-            proc.kill()
-        except ProcessLookupError:
-            pass
-        return "", f"lark-cli {' '.join(args[:2])} timeout", 124
+    return await run_cli(
+        lark_state.LARK_BIN, args, env=lark_env(user_id), timeout=timeout,
+        stdin_data=stdin_data, label="lark-cli",
+    )

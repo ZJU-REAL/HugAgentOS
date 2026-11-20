@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from core.db import engine as db_engine
 from core.db.models import ChatMessage, ChatSession
+from core.db.threads import run_db
 from core.models.completions.summarizer import get_summarizer
 
 logger = logging.getLogger(__name__)
@@ -89,7 +90,7 @@ async def _generate(chat_id: str, user_id: str, run_id: str, question: str) -> N
         # Do not expose the user's prompt, model output or provider credentials.
         logger.warning("chat_title_generation_failed: %s", type(exc).__name__)
     finally:
-        _finish(chat_id, user_id, run_id, title)
+        await run_db(_finish, chat_id, user_id, run_id, title)
 
 
 def schedule_first_title(chat_id: str, user_id: str, run_id: str) -> asyncio.Task | None:

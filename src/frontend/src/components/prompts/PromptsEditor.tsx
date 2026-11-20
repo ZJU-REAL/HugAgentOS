@@ -17,6 +17,7 @@ import { useResizableColumns } from '../common/ResizableColumns';
 import { t, tCtx } from '../../i18n';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import { LOCAL_TARGET_HEADER, type RequestTarget } from '../../api';
+import { saveBlob } from '../../utils/download';
 
 interface PromptPart {
   part_id: string;
@@ -63,7 +64,7 @@ function PromptEditorContent({ token, fetchFn = adminFetch }: { token: string; f
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [fetchFn, token]);
 
   useEffect(() => {
     if (topTab === 'parts') reload();
@@ -232,12 +233,7 @@ function PromptEditorContent({ token, fetchFn = adminFetch }: { token: string; f
     try {
       const res = await fetchFn(token, '/v1/admin/prompts/export');
       const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `prompts-${formatDateKey(new Date())}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      saveBlob(blob, `prompts-${formatDateKey(new Date())}.json`);
       message.success(t('提示词配置已导出'));
     } catch (e) {
       message.error(t('导出失败：{msg}', { msg: (e as Error).message }));
@@ -539,7 +535,7 @@ function PromptEditorContent({ token, fetchFn = adminFetch }: { token: string; f
             <Input.TextArea
               rows={10}
               style={{ fontFamily: 'monospace', fontSize: 13 }}
-              placeholder="# 模块标题&#10;&#10;内容..."
+              placeholder={t('# 模块标题\n\n内容...')}
             />
           </Form.Item>
         </Form>

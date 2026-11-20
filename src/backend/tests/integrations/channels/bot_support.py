@@ -68,13 +68,14 @@ from core.infra.exceptions import AccessDeniedError, BadRequestError
 
 from integrations.channels import service as channel_service
 from integrations.channels.service import _clean_scope, bot_to_dict
+from tests.db_support import share_factory
 
 
 def _share_sessions(monkeypatch, db):
     """Steps that run through run_in_session open their sessions on the test's database."""
     from sqlalchemy.orm import sessionmaker
 
-    monkeypatch.setattr("core.db.engine.SessionLocal", sessionmaker(bind=db.get_bind()))
+    share_factory(monkeypatch, sessionmaker(bind=db.get_bind()))
 
 
 def _mk_user(db, uid="u1", meta=None):

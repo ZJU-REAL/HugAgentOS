@@ -5,7 +5,7 @@ GlobTool / GrepTool but operate on the sandbox filesystem (via
 ``SandboxProvider.get_file`` / ``put_file`` / ``execute``) instead of the host.
 
 All 5 tools are registered together inside the ``code_capability_enabled()``
-block in ``agent_factory.py``. Like pi-mono's coding agent, Edit/Write do not
+block in ``core/llm/factory/tools/native.py``. Like pi-mono's coding agent, Edit/Write do not
 require a prior Read; Edit/Write on the same file are serialized.
 """
 

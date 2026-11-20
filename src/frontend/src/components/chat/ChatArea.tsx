@@ -334,7 +334,7 @@ export function ChatArea({
         okText={t('生成链接')}
         cancelText={t('取消')}
         confirmLoading={creatingShare}
-        destroyOnClose
+        destroyOnHidden
       >
         <div style={{ display: 'grid', gap: 12 }}>
           <span>{t('请选择分享链接的有效时间')}</span>

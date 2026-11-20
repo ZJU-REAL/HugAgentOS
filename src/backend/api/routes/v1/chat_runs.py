@@ -6,6 +6,7 @@ from core.infra.logging import get_logger
 from core.infra.responses import success_response
 from core.chat.steer import list_run_steers, remove_pending_steer
 from core.chat.operations.schemas import SteerChatRunRequest
+from core.db.threads import run_db
 from fastapi import APIRouter, Depends, HTTPException
 
 logger = get_logger(__name__)
@@ -41,12 +42,12 @@ async def list_chat_run_steers(
     run_id: str,
     user: UserContext = Depends(get_current_user),
 ):
-    run = runtime.get_run(run_id)
+    run = await run_db(runtime.get_run, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
     if run.user_id != user.user_id:
         raise HTTPException(status_code=403, detail="无权操作该 run")
-    return success_response(data={"run_id": run_id, "items": list_run_steers(run_id)})
+    return success_response(data={"run_id": run_id, "items": await run_db(list_run_steers, run_id)})
 
 
 @router.delete("/{run_id}/steer/{steer_id}", summary="撤回尚未生效的追加指令")
@@ -55,7 +56,7 @@ async def withdraw_chat_run_steer(
     steer_id: str,
     user: UserContext = Depends(get_current_user),
 ):
-    run = runtime.get_run(run_id)
+    run = await run_db(runtime.get_run, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
     if run.user_id != user.user_id:
@@ -66,7 +67,7 @@ async def withdraw_chat_run_steer(
 
 @router.get("/{run_id}", summary="获取后台运行状态")
 async def get_chat_run(run_id: str, user: UserContext = Depends(get_current_user)):
-    run = runtime.get_run(run_id)
+    run = await run_db(runtime.get_run, run_id)
     if run is None or run.user_id != user.user_id:
         raise HTTPException(404, "Run not found")
     return success_response(

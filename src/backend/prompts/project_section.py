@@ -80,7 +80,6 @@ def _get_project_mode_template() -> str:
             return content
     # 2) parts of the active system version (edited in the admin UI)
     try:
-        from core.llm import prompt_versions as pvs
         active = prompt_versions_module.get_active_version("system")
         if active:
             for p in active.get("parts") or []:

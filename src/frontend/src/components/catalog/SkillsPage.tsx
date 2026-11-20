@@ -40,8 +40,8 @@ export function SkillsPage() {
     toggleItem,
   } = useCatalogStore();
   const { title: skillsTitle, subtitle: skillsSubtitle } = usePanelHeader('skills', {
-    title: ABILITY_TAB_TITLE.skills,
-    subtitle: '启用/停用技能，并查看详细介绍、输入输出与示例',
+    title: t(ABILITY_TAB_TITLE.skills),
+    subtitle: t('启用/停用技能，并查看详细介绍、输入输出与示例'),
   });
 
   const fetchCatalog = useCatalogStore((s) => s.fetchCatalog);
@@ -232,7 +232,7 @@ export function SkillsPage() {
 
       {/* Section 1: Skills — card grid (the container key controls stagger replay: replay on entering the panel/paging, no replay on toggle optimistic updates) */}
       {dual && discoveryErrors.map((error) => <Alert key={error.folder} type="warning" showIcon
-        message={error.folder} style={{ marginBottom: 12 }}
+        title={error.folder} style={{ marginBottom: 12 }}
         description={t(error.code === 'name_conflict' ? '技能标识已存在，未覆盖原技能' : '技能文件夹无效或尚未复制完成')} />)}
       <div
         className="jx-sk-grid jx-anim-stagger"
@@ -258,11 +258,11 @@ export function SkillsPage() {
                   const sub = subBySkill.get(item.id);
                   if (!sub) return null;
                   // key=status: remounts on status flip, plays the statusIn settle animation once
-                  if (sub.status === 'pending') return <Tag key="pending" className="jx-anim-statusIn" color="gold" bordered={false}>{t('上架审核中')}</Tag>;
-                  if (sub.status === 'approved') return <Tag key="approved" className="jx-anim-statusIn" color="green" bordered={false}>{t('已上架市场')}</Tag>;
+                  if (sub.status === 'pending') return <Tag key="pending" className="jx-anim-statusIn" color="gold" variant="filled">{t('上架审核中')}</Tag>;
+                  if (sub.status === 'approved') return <Tag key="approved" className="jx-anim-statusIn" color="green" variant="filled">{t('已上架市场')}</Tag>;
                   return (
-                    <Tooltip key="rejected" title={sub.review_note ? `驳回理由：${sub.review_note}` : '申请被驳回，可调整后重新申请'}>
-                      <Tag className="jx-anim-statusIn" color="red" bordered={false}>{t('上架被驳回')}</Tag>
+                    <Tooltip key="rejected" title={sub.review_note ? t('驳回理由：{r}', { r: sub.review_note }) : t('申请被驳回，可调整后重新申请')}>
+                      <Tag className="jx-anim-statusIn" color="red" variant="filled">{t('上架被驳回')}</Tag>
                     </Tooltip>
                   );
                 })()}

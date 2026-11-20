@@ -11,17 +11,7 @@ from mcp.shared.auth import OAuthMetadata
 from core.capabilities.mcp import oauth, management
 from features.marketplace.api.mcp_marketplace import oauth_callback
 from tests.db_support import share_session
-
-
-class MemoryState:
-    def __init__(self):
-        self.values = {}
-
-    async def get(self, key):
-        return self.values.get(key)
-
-    async def put(self, key, value, **kwargs):
-        self.values[key] = value
+from tests.features.marketplace.mcp_marketplace_support import MemoryState
 
 
 @pytest.mark.asyncio

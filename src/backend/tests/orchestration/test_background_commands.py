@@ -108,7 +108,6 @@ async def http_provider(tmp_path, monkeypatch):
     await client.aclose()
 
 async def test_real_process_background_concurrency_and_cancel(command_db, http_provider, monkeypatch, tmp_path):
-    import core.sandbox.commands.runtime as module
     from core.llm.tools.sandbox_tool import register_bash
     runtime = CommandRuntime()
     monkeypatch.setattr(commands_runtime, "runtime", runtime)
@@ -219,11 +218,7 @@ async def test_busy_react_delivery_and_final_output_race(command_db):
 
 async def test_idle_completion_uses_real_run_admission_and_executor(command_db, monkeypatch):
     from core.chat.sequencer import ChatSequencer
-    pass
     import core.sandbox.commands.notifications as notifications
-    from core.chat import service as chat_service
-    from core.sandbox.commands import delivery
-    from core.chat.operations import session_context
     monkeypatch.setattr(db_engine, "SessionLocal", command_db)
     with command_db() as db:
         accepted = ChatSequencer(db).accept_main_run(chat_id="c", user_id="u",
@@ -266,7 +261,6 @@ def test_bounded_output_reports_omitted_characters(command_db):
     assert store.read(row["task_id"], "u", "c")["output_omitted_chars"] == 0
 
 async def test_recovery_preserves_terminal_result_and_cursor(command_db, monkeypatch):
-    import core.sandbox.commands.runtime as module
     row = store.create(request(), "c", None)
     store.attach(row["task_id"], "dead", {"status":"running","session_id":"old"},
                  {"provider":"opensandbox","cursor":7})
@@ -315,7 +309,6 @@ async def test_failed_model_request_keeps_durable_notice(command_db):
     run_id = source_run(command_db)
     from core.sandbox.commands.completion_hook import command_completion_hooks
     from tests.orchestration.hook_support import make_adapter
-    from core.sandbox.commands import delivery
     row = store.create(request(), "c", None)
     store.attach(row["task_id"], "owner", {"status":"running","session_id":"p"}, None)
     store.collect(row["task_id"], "owner", {"status":"exited","exit_code":0})

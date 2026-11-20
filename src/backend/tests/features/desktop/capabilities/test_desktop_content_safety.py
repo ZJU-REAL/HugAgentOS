@@ -309,9 +309,9 @@ def test_numeric_limit_fields_named_like_tokens_are_not_secrets():
     values = credentials._secrets_from_config(
         {
             "env": {
-                "QUERY_DATABASE_MAX_OUTPUT_TOKENS": "45000",
+                "REPORT_MAX_OUTPUT_TOKENS": "45000",
                 "MAX_TOKENS": "8192",
-                "QUERY_DATABASE_RETRY_TIMES": "1",
+                "REPORT_RETRY_TIMES": "1",
                 "UPSTREAM_API_KEY": CANARY,
             }
         }

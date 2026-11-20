@@ -184,7 +184,7 @@ export function ComposerAttachmentMenu({ state, editor, options, fileInputRef }:
       <Dropdown
         trigger={['click']}
         placement="topRight"
-        overlayClassName={`jx-attachMenu${isMobile ? ' jx-attachMenu--mobile' : ''}`}
+        classNames={{ root: `jx-attachMenu${isMobile ? ' jx-attachMenu--mobile' : ''}` }}
         open={attachOpen}
         onOpenChange={(open, info) => {
           if (!open && info?.source === 'menu' && keepOpenRef.current) {

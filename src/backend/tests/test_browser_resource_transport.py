@@ -8,6 +8,7 @@ import pytest
 
 from core.capabilities.plugins.resources import service
 from core.capabilities.plugins.resources.transport import RuntimeTransport
+from tests.db_support import share_factory
 
 
 async def test_commands_reuse_one_tcp_connection_and_keep_runtime_authentication():
@@ -136,7 +137,7 @@ async def test_websocket_revocation_stops_commands_and_closes_transport(monkeypa
 
     from core.db import engine as db_engine
 
-    monkeypatch.setattr(db_engine, "SessionLocal", lambda: nullcontext(SimpleNamespace()))
+    share_factory(monkeypatch, lambda: nullcontext(SimpleNamespace()))
     monkeypatch.setattr(stream, "RuntimeTransport", TrackedTransport)
     monkeypatch.setattr(stream.store, "consume", lambda *args, **kwargs: ("fixture-user", {}))
     monkeypatch.setattr(stream.store, "descriptor", lambda row: target)

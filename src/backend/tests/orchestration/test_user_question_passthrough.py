@@ -31,7 +31,6 @@ async def test_user_question_events_reach_the_stream(monkeypatch):
     from core.chat.compaction import service as compaction_service
     from core.capabilities.agents import edition as user_agent_service
     from core.auth import users as user_service
-    pass
 
     class DummySession:
         def __enter__(self):

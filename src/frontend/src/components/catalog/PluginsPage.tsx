@@ -40,8 +40,8 @@ export function PluginsPage() {
   // CE 无用户/管理员体系，全局安装的默认插件不标「管理员」
   const isCE = useEditionStore((s) => s.edition === 'ce');
   const { title, subtitle } = usePanelHeader('plugins', {
-    title: ABILITY_TAB_TITLE.plugins,
-    subtitle: '插件把成套的技能与连接器打包成一个整体，安装后即可整组启用。',
+    title: t(ABILITY_TAB_TITLE.plugins),
+    subtitle: t('插件把成套的技能与连接器打包成一个整体，安装后即可整组启用。'),
   });
 
   const [loading, setLoading] = useState(false);
@@ -359,7 +359,7 @@ export function PluginsPage() {
       {/* Display metadata edit modal (my imported/private plugins) */}
       <Modal open={!!metaTarget} title={t('编辑展示信息：{name}', { name: metaTarget?.name || '' })}
         onCancel={() => setMetaTarget(null)} onOk={() => void submitMeta()} confirmLoading={metaBusy}
-        okText={t('保存')} width={440} destroyOnClose>
+        okText={t('保存')} width={440} destroyOnHidden>
         <Form form={metaForm} layout="vertical">
           <Form.Item name="icon" label={t('图标')}>
             <PluginIconPicker />
@@ -405,7 +405,7 @@ export function PluginsPage() {
       {/* Credentials modal */}
       <Modal open={!!secretPlugin} title={t('配置凭据：{name}', { name: secretPlugin?.name || '' })}
         onCancel={() => setSecretPlugin(null)} onOk={() => void submitSecretInstall()}
-        confirmLoading={!!busySlug} okText={t('安装')} destroyOnClose>
+        confirmLoading={!!busySlug} okText={t('安装')} destroyOnHidden>
         <Form form={secretForm} layout="vertical">
           {(secretPlugin?.secrets || []).map((f) => (
             <Form.Item key={f.key} name={f.key} label={f.label || f.key}

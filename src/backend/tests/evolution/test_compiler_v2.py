@@ -31,7 +31,7 @@ from core.db.models.evolution import (
 from core.evolution.evidence import evidence_contract as EC
 from core.evolution.generators import graph_scan as GS
 from core.evolution.evidence import lineage as LN
-from core.evolution.assessment.applicability import assess_replay_coverage, load_manifest, manifest_permits
+from core.evolution.assessment.applicability import load_manifest, manifest_permits
 from core.evolution.evidence.evidence_resolver import resolve_capability_pack
 from core.evolution.generators.skill_candidate_engine import STATUS_CREATED, STATUS_REJECTED, SkillCandidateSpec, create_skill_candidate
 
@@ -61,8 +61,8 @@ def db(monkeypatch):
 
     monkeypatch.setattr(engine_mod, "SessionLocal", factory)
     monkeypatch.setattr(A, "SessionLocal", factory)
-    from core.evolution.cycle import episode_views, candidate_records, evaluation, skill_release, profile_release
-    for owner in (episode_views, candidate_records, evaluation, skill_release, profile_release):
+    from core.evolution.cycle import episode_views, candidate_records, skill_release, profile_release
+    for owner in (episode_views, candidate_records, skill_release, profile_release):
         monkeypatch.setattr(owner, "SessionLocal", factory)
     monkeypatch.setattr(weights_mod.process_state(), 'cache', {})
     session = factory()
@@ -447,43 +447,6 @@ def test_a_graph_conflicted_candidate_may_still_enter_shadow(db, monkeypatch):
     result = activation_module.materialise_skill_candidate(candidate_id, approver="admin")
     assert result["stage"] == "shadow"
     assert result["exposed_to"] == "nobody (shadow)"
-
-
-# ── Replay 覆盖 ──────────────────────────────────────────────────────────────
-
-
-def _coverage_pack():
-    views = [
-        _view("ok1", relations=[_REL]),
-        _view("ok2"),
-        _view("bad1", verdict="failed"),
-    ]
-    return resolve_capability_pack(views=views, scope={"level": "workspace"})
-
-
-def test_replay_set_without_failure_cases_is_not_covered():
-    pack = _coverage_pack()
-    assessment = assess_replay_coverage(pack, ["ok1", "ok2"])
-    assert assessment["covered"] is False
-    assert "failure_recovery_episode" in assessment["missing"]
-    assert "negative_example_episode" in assessment["missing"]
-
-
-def test_replay_set_covering_both_graph_classes_passes():
-    pack = _coverage_pack()
-    assessment = assess_replay_coverage(pack, ["ok1", "ok2", "bad1"])
-    assert assessment["covered"] is True, assessment
-
-
-def test_replay_set_missing_the_no_graph_class_is_not_covered():
-    views = [
-        _view("ok1", relations=[_REL]),
-        _view("ok2"),  # 唯一「不带图谱依赖」的场景
-        _view("bad1", verdict="failed", relations=[_REL]),
-    ]
-    pack = resolve_capability_pack(views=views, scope={"level": "workspace"})
-    assessment = assess_replay_coverage(pack, ["ok1", "bad1"])
-    assert "no_graph_dependency_episode" in assessment["missing"]
 
 
 # ── 运行时适用性 ─────────────────────────────────────────────────────────────

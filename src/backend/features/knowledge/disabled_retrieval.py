@@ -14,10 +14,6 @@ class DatasetRetrievalUnavailableError(RuntimeError):
     pass
 
 
-def retrieve_dataset_content(*args, **kwargs) -> list:
-    return []
-
-
 async def retrieve_dataset_content_async(*args, **kwargs) -> list:
     return []
 
@@ -34,6 +30,5 @@ __all__ = [
     "RETRIEVE_REQUEST_TIMEOUT_SECONDS",
     "RETRIEVE_TOTAL_TIMEOUT_SECONDS",
     "list_external_datasets",
-    "retrieve_dataset_content",
     "retrieve_dataset_content_async",
 ]

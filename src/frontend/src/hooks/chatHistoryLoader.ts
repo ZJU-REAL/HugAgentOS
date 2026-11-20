@@ -2,13 +2,15 @@ import { authFetch, chatTargetHeaders } from '../api';
 import { useAuthStore, useChatStore } from '../stores';
 import { markResolvedPlanPreviews, scanPlanSnapshots } from '../utils/planHistory';
 import { mergeHistoryPage } from '../utils/historyMerge';
+import { MESSAGE_PAGE_SIZE } from '../utils/chatMemoryEviction';
 import { applyContextStateResponse, captureContextState } from '../utils/contextStateResponse';
 import { shouldRestorePlanModeFromHistory } from '../utils/chatMode';
 import { parseHistoryMessage } from './chatHistoryMessage';
 import { applyCompactionProgress } from './compactionProgressStore';
 import { parseCompactionProgress } from '../utils/compactionProgress';
 import { refreshContextAfterCompaction } from './chatStream/runtime';
-const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
+import { API_BASE } from '../utils/apiBase';
+const effectiveApiUrl = API_BASE;
 
 // Chats with a message fetch currently in flight. Separate from
 // `loadedMsgIds` on purpose: the store mark means "successfully loaded"
@@ -22,11 +24,8 @@ export const inflightMsgLoads = new Set<string>();
 // leave the chat stuck on the skeleton until the user switched away and back;
 // now we self-retry a few times with backoff (bumpSessionLoadEpoch re-fires
 // the lazy-load effect), then give up until the next manual visit.
-/** 打开会话先渲染多少条历史；往上滚续拉也按这个粒度。
- *
- *  过去是把每一页都拉完再一次性渲染整段历史——跑过大文件的长对话，光这一步就能
- *  把浏览器压垮。这里只铺第一屏，剩下的交给滚动续拉。 */
-export const MESSAGE_PAGE_SIZE = 30;
+// 页大小与内存淘汰共用一个常量：淘汰留下的尾巴正好被首页整页覆盖。
+export { MESSAGE_PAGE_SIZE } from '../utils/chatMemoryEviction';
 
 export const msgLoadRetryCounts = new Map<string, number>();
 export const MSG_LOAD_MAX_RETRIES = 3;

@@ -152,7 +152,7 @@ def list_available_resources(self, owner_user_id: Optional[str] = None) -> Dict[
         )
         seen_mcp_ids.add(server.server_id)
 
-    # Some umbrella/built-in MCP entries are catalog-defined and do not
+    # Some built-in MCP entries are catalog-defined and do not
     # necessarily have a same-named AdminMcpServer row.  Include every
     # administrator-enabled catalog item so the selector is complete.
     try:

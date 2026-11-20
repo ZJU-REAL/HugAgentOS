@@ -17,7 +17,6 @@ from core.db.models import ChatSession, InstalledPlugin, UserShadow
 from core.llm.factory.tools.definitions import ToolAssembly
 from core.capabilities.plugins import runtime as plugin_loader
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 USER = "ppl_user"
 CHAT = "ppl_chat_1"
@@ -29,8 +28,8 @@ def ppl_env(tmp_path, monkeypatch):
     url = f"sqlite:///{tmp_path}/ppl.db"
     engine = create_engine(url)
     dbe.Base.metadata.create_all(engine)
-    TestSession = sessionmaker(bind=engine, expire_on_commit=False)
-    monkeypatch.setattr(dbe, "SessionLocal", TestSession)
+    TestSession = session_factory(engine)
+    share_factory(monkeypatch, TestSession)
 
     with TestSession() as db:
         db.add(UserShadow(user_id=USER, username=USER))
@@ -436,3 +435,4 @@ def test_components_shared_with_an_eager_plugin_are_not_withheld(ppl_env):
     assert res.deferred_mcp_ids == set()
 
 from core.llm.tools import plugin_activation
+from tests.db_support import session_factory, share_factory

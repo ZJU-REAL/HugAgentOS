@@ -37,6 +37,8 @@ import { OAUTH_CANCELLED, runMcpOAuthPopup, type McpOAuthAttempt } from './mcpOA
 import { normalizeMcpIconUrl } from '../../utils/iconLibrary';
 
 const PAGE_SIZE = 10;
+/** 分类筛选「全部」的哨兵值：不参与显示，渲染时用 t('全部')。 */
+const ALL_CATEGORIES = '__all__';
 const OAUTH_STAGE_HINTS: Record<string, string> = {
   starting: '正在等待授权页准备就绪…',
   waiting_for_user: '请在新标签页完成登录授权…',
@@ -68,7 +70,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
   const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState('');
-  const [category, setCategory] = useState('全部');
+  const [category, setCategory] = useState(ALL_CATEGORIES);
   const [page, setPage] = useState(1);
   const [detail, setDetail] = useState<McpMarketItem | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -102,7 +104,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
   useEffect(() => {
     if (!open) return;
     setQuery('');
-    setCategory('全部');
+    setCategory(ALL_CATEGORIES);
     setPage(1);
     setDetail(null);
     void reload();
@@ -122,7 +124,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     return items.filter((item) => {
-      if (category !== '全部' && item.category !== category) return false;
+      if (category !== ALL_CATEGORIES && item.category !== category) return false;
       if (!keyword) return true;
       return `${item.display_name} ${item.description} ${item.tags.join(' ')} ${item.publisher_name}`
         .toLowerCase()
@@ -270,7 +272,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
               <div className="jx-mcp-marketDetailInfo">
                 <Typography.Title level={4}>{detail.display_name}</Typography.Title>
                 <div>
-                  <Tag>{detail.category}</Tag>
+                  <Tag>{t(detail.category)}</Tag>
                   <Tag color={detail.source === 'admin' ? 'blue' : 'purple'}>
                     {detail.source === 'admin' ? t('平台精选') : t('社区共享')}
                   </Tag>
@@ -319,7 +321,10 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
               <Select
                 value={category}
                 onChange={setCategory}
-                options={['全部', ...categories].map((value) => ({ value, label: value }))}
+                options={[
+                  { value: ALL_CATEGORIES, label: t('全部') },
+                  ...categories.map((value) => ({ value, label: t(value) })),
+                ]}
               />
             </div>
             {loading ? (
@@ -387,7 +392,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
             style={{ marginBottom: 16 }}
             type="info"
             showIcon
-            message={installTarget.listing_notice.install_notice}
+            title={installTarget.listing_notice.install_notice}
           />
         )}
         {installing && OAUTH_STAGE_HINTS[oauthStage] && (

@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
 import sqlalchemy as sa
+
+logger = logging.getLogger(__name__)
 
 revision = "site05retire"
 TABLES = ("site_kv", "site_submissions")
@@ -56,7 +59,7 @@ def retire_connection(connection, directory: Path, *, strict=True):
                 verified = True
                 break
         if not verified and not strict:
-            print("Legacy site data retained: SQL migration verification is pending")
+            logger.warning("Legacy site data retained: SQL migration verification is pending")
             return None
         if not verified:
             raise RuntimeError(
@@ -81,6 +84,8 @@ def retire_connection(connection, directory: Path, *, strict=True):
     for name in existing:
         sa.Table(name, sa.MetaData(), autoload_with=connection).drop(connection)
     # No row values, credentials or private fields enter logs.
-    print(f"Retired site storage archived: {archive}; rows={sum(map(len, payload.values()))}")
+    logger.info(
+        "Retired site storage archived: %s; rows=%d", archive, sum(map(len, payload.values()))
+    )
 
     return archive

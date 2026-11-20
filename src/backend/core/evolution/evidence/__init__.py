@@ -1,1 +1,1 @@
-"""Evidence for evolution: traces, replay cassettes, credit assignment and lineage."""
+"""Evidence for evolution: traces, credit assignment and lineage."""

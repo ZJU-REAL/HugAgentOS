@@ -5,6 +5,7 @@ import asyncio
 import pytest
 from core.agent_runtime.integrations.compaction_stream import stream_with_compaction
 from core.chat.compaction.progress import finish_progress, progress_scope, start_progress
+from tests.db_support import share_factory
 
 
 @pytest.mark.asyncio
@@ -270,7 +271,7 @@ def test_post_turn_progress_is_durable_on_message(db_session, monkeypatch):
     )
     db_session.add(ChatRun(run_id="run", chat_id="durable", user_id="u", message_id="message"))
     db_session.commit()
-    monkeypatch.setattr("core.db.engine.SessionLocal", lambda: nullcontext(db_session))
+    share_factory(monkeypatch, lambda: nullcontext(db_session))
     event = {
         "type": "compaction_progress",
         "id": "p",

@@ -1,4 +1,4 @@
-"""Lark configuration responsibilities."""
+"""Shared Lark app configuration: read/seed the app config and run the app-init (config init) flow."""
 from __future__ import annotations
 import asyncio
 import json
@@ -131,7 +131,6 @@ async def app_init_flow() -> None:
     ``open.feishu.cn/page/cli`` configuration URL → echoes it back for the
     admin to scan → blocks while the admin completes it in the browser →
     the app base lands in the shared HOME. Manages its own exceptions."""
-    pass  # Shared task state is owned by the state module.
     try:
         proc = await asyncio.create_subprocess_exec(
             lark_state.LARK_BIN, "config", "init", "--new", "--lang", "zh",

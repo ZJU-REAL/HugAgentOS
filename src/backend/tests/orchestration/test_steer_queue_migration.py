@@ -2,25 +2,10 @@
 
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 from sqlalchemy import create_engine, inspect, text
-
-
-def _alembic(repo_root: Path, database_url: str, *args: str) -> None:
-    env = dict(os.environ)
-    env["DATABASE_URL"] = database_url
-    subprocess.run(
-        [sys.executable, "-m", "alembic", *args],
-        cwd=repo_root,
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+from tests.db_support import run_alembic
 
 
 def test_sqlite_steer_queue_upgrade_downgrade_and_reupgrade(tmp_path):
@@ -57,7 +42,7 @@ def test_sqlite_steer_queue_upgrade_downgrade_and_reupgrade(tmp_path):
 
     # The fixture seeds only the tables the harness chain touches; revisions after
     # harness69mem alter unrelated tables, so the target is the harness head.
-    _alembic(repo_root, database_url, "upgrade", "harness69mem")
+    run_alembic(repo_root, database_url, "upgrade", "harness69mem")
     inspector = inspect(engine)
     assert "chat_steer_queue" in inspector.get_table_names()
     assert {
@@ -75,11 +60,11 @@ def test_sqlite_steer_queue_upgrade_downgrade_and_reupgrade(tmp_path):
         "applied_operation_seq",
     }.issubset({column["name"] for column in inspector.get_columns("chat_steer_queue")})
 
-    _alembic(repo_root, database_url, "downgrade", "tooleff01")
+    run_alembic(repo_root, database_url, "downgrade", "tooleff01")
     assert "chat_steer_queue" not in inspect(engine).get_table_names()
 
     # The fixture seeds only the tables the harness chain touches; revisions after
     # harness69mem alter unrelated tables, so the target is the harness head.
-    _alembic(repo_root, database_url, "upgrade", "harness69mem")
+    run_alembic(repo_root, database_url, "upgrade", "harness69mem")
     assert "chat_steer_queue" in inspect(engine).get_table_names()
     engine.dispose()

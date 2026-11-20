@@ -1,5 +1,7 @@
 # Service Blueprint
 
+> **HugAgentOS 版本说明**：上游的 `verify-*.py` / `test-verify-*.py` / `lint-*.py` / `build-*-examples.py` 等维护脚本没有随技能导入，文中要求运行它们的步骤在本版本不可用；安装版只提供 `{baseDir}/scripts/self_check.py`、`export_*.py` 与 `*_extract.py`，需要自检时改用 `self_check.py` 并按文中的检查项人工核对。
+
 **Best for:** showing how a service actually runs across a few stages — what the customer does, what they can see, and what stays hidden. The **line of visibility** is the load-bearing element: customer and frontstage actions sit above it, backstage and support sit below it, on one shared stage grid. Use it when the reader needs to see that a failure is a billing job, a queue, or a fraud check even though the customer row still looks like a simple retry.
 
 **Not this type:**

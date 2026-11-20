@@ -3,11 +3,11 @@ from core.files.storage.factory import process_state as state_core_files_storage
 
 import pytest
 from core.auth.backend import get_current_user
-from core.db.engine import Base, get_db
+from core.db.engine import get_db
 from core.db.models import UserShadow
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from tests.features.hosted_apps.test_application_hosting import create, data, hosted, table
+from tests.db_support import file_engine, share_factory
 
 
 @pytest.fixture
@@ -22,12 +22,9 @@ def projects(hosted, tmp_path, monkeypatch):
     client.app.include_router(chats_router, prefix="/v1/chats")
     client.app.include_router(internal_router)
     monkeypatch.setattr('features.sites.api.internal_site_auth._check_internal_token', lambda _: None)
-    engine = create_engine(
-        f"sqlite:///{tmp_path / 'projects.db'}", connect_args={"check_same_thread": False}
-    )
-    Base.metadata.create_all(engine)
+    engine = file_engine(tmp_path / 'projects.db')
     factory = sessionmaker(engine)
-    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
+    share_factory(monkeypatch, factory)
     with factory() as db:
         db.add(UserShadow(user_id="owner", username="owner", email="owner@example.com"))
         db.commit()

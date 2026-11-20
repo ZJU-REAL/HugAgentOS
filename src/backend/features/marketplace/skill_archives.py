@@ -1,14 +1,10 @@
-"""skill archives responsibilities."""
+"""Build skill zip archives from stored content or a skill directory."""
 from __future__ import annotations
 import io
-import os
 import zipfile
 from pathlib import Path
-from typing import Any, Dict, List
-from core.capabilities.skills.binary_files import BINARY_EXTENSIONS, JUNK_BASENAMES, MAX_SINGLE_FILE, MAX_TOTAL, decode_binary, encode_binary, is_binary_value
-from core.capabilities.skills.deps.detector import detect_dependencies
-from core.capabilities.skills.registry import SkillSpecError, load_skill_metadata_from_str, split_frontmatter
-from fastapi import HTTPException
+from typing import Dict
+from core.capabilities.skills.binary_files import JUNK_BASENAMES, decode_binary, is_binary_value
 from features.marketplace import skills_state
 
 

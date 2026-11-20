@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta
 
 import pytest
+from tests.db_support import share_factory
 
 
 @pytest.fixture
@@ -16,7 +17,7 @@ def cloud(tmp_path, monkeypatch):
     engine = create_engine(f"sqlite:///{tmp_path / 'cloud.db'}")
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine)
-    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
+    share_factory(monkeypatch, factory)
 
     base = datetime(2026, 9, 1, 12, 0, 0)
     with factory() as db:

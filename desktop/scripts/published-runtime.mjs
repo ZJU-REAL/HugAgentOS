@@ -1,7 +1,8 @@
-import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
+
+import { hashFile } from "./process-utils.mjs";
 
 // A runtime is built once per dependency fingerprint. Later releases reuse the
 // published bytes so the full installer, the slim update package and the file
@@ -13,10 +14,6 @@ export function publishedRuntimeNames(target, fingerprint) {
   }
   const stem = `runtime-${target}-${fingerprint}`;
   return { archive: `${stem}.tar.gz`, manifest: `${stem}.json` };
-}
-
-function hashFile(path) {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
 // Returns the HTTP status; the body is written to `output` only on 200.

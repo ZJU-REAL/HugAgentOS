@@ -86,78 +86,7 @@
   margin-top: 2px;
 }
 
-.jx-sk-iconBtn {
-  appearance: none;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  font-size: 16px;
-  color: var(--color-text-secondary);
-  padding: 6px;
-  border-radius: 6px;
-  transition: color .15s, background .15s;
-}
-
-.jx-sk-iconBtn:hover {
-  color: var(--color-text);
-  background: color-mix(in srgb, var(--color-text) 4%, transparent);
-}
-
-.jx-sk-searchInput {
-  width: 200px;
-  border-radius: 6px;
-  font-size: 14px;
-}
-
-.jx-sk-uploadBtn.ant-btn {
-  border-radius: 6px;
-  font-size: 13px;
-  border-color: var(--color-border);
-  color: var(--color-primary);
-}
-
-.jx-sk-uploadBtn.ant-btn:hover {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-}
-
 /* ── List section ───────────────────────────────────────────────── */
-
-.jx-sk-list {
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  background: var(--color-bg-container);
-  overflow: hidden;
-  margin-bottom: 20px;
-}
-
-.jx-sk-item {
-  padding: 20px 28px;
-  cursor: pointer;
-  transition: background .12s;
-}
-
-.jx-sk-item:not(:last-child) {
-  border-bottom: 1px solid var(--color-border);
-}
-
-.jx-sk-item:hover {
-  background: var(--color-bg-layout);
-}
-
-.jx-sk-itemNameRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.jx-sk-itemName {
-  font-size: 16px;
-  font-weight: 500;
-  color: var(--color-text);
-  line-height: 1.4;
-}
 
 .jx-sk-tag.ant-tag {
   margin: 0;
@@ -167,16 +96,6 @@
   line-height: 22px;
   font-weight: 500;
   transition: var(--motion-transition-hover);
-}
-
-.jx-sk-itemDesc {
-  font-size: 14px;
-  color: var(--color-text-placeholder);
-  line-height: 1.72;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 
 /* ── Card grid (块展示，风格对齐 MCP 工具库) ───────────────────── */
@@ -216,21 +135,6 @@
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.jx-sk-iconWrap {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  border: 1px solid var(--color-border);
-  background: var(--color-fill-hover);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--color-text-secondary);
 }
 
 .jx-sk-cardNameGroup {

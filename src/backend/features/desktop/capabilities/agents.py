@@ -15,7 +15,7 @@ import logging
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional
 
 from features.desktop.capabilities import registry, store
 from core.capabilities.identity_rules import KIND_AGENT, LOCAL_PROFILE

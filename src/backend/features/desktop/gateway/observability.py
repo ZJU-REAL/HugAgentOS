@@ -10,7 +10,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from core.db.engine import SessionLocal
-from features.desktop.models import utcnow
+from features.desktop.models import utc_now_iso
 from features.desktop.observability.projection import ingest
 from fastapi.routing import APIRoute
 
@@ -131,7 +131,7 @@ class ObservedGatewayRoute(APIRoute):
                 "call_id": oid,
                 "execution_location": "cloud",
                 "capability_origin": "cloud",
-                "created_at": utcnow(),
+                "created_at": utc_now_iso(),
                 "usage_known": False,
             }
 

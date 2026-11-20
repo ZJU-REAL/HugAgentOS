@@ -5,7 +5,6 @@
    - Scope Tree / Breadcrumb / Move Tree
    ══════════════════════════════════════════ */
 
-
 /* ─── 文档/图片 筛选 Tab（更小号，同下划线风格） ───────────── */
 
 .jx-mySpace-filterTabs {
@@ -46,7 +45,6 @@
   color: var(--color-text);
   font-weight: 500;
 }
-
 
 /* ─── 团队 workspace：左右分栏（无背景） ──────────────────── */
 
@@ -244,45 +242,6 @@
   border: 1px solid rgba(251, 191, 36, 0.22);
 }
 
-/* 引导式空态 */
-.jx-team-workspace-hint {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 24px;
-  text-align: center;
-  gap: 12px;
-  color: var(--color-text-tertiary);
-}
-
-.jx-team-workspace-hint-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 72px;
-  height: 72px;
-  border-radius: 16px;
-  background: rgba(15, 23, 42, 0.04);
-  color: var(--color-text-placeholder);
-  margin-bottom: 4px;
-}
-
-.jx-team-workspace-hint-title {
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--color-text);
-}
-
-.jx-team-workspace-hint-desc {
-  font-size: 13px;
-  line-height: 1.7;
-  max-width: 320px;
-  color: var(--color-text-tertiary);
-}
-
-
 /* ─── 左侧 TeamScopeTree（无背景） ───────────────────────── */
 
 .jx-team-scopeTree {
@@ -421,7 +380,6 @@
   color: var(--color-text);
 }
 
-
 /* ─── 面包屑 ──────────────────────────────────────────────── */
 
 .jx-team-breadcrumb .ant-breadcrumb {
@@ -441,7 +399,6 @@
   color: color-mix(in srgb, var(--color-text) 25%, transparent);
 }
 
-
 /* ─── 新建/重命名 Modal 输入框 ────────────────────────────── */
 
 .jx-team-folder-input {
@@ -460,7 +417,6 @@
   border-color: var(--color-primary);
   box-shadow: 0 0 0 3px rgba(18, 109, 255, 0.15);
 }
-
 
 /* ─── 移动到团队 Modal 内的树 ────────────────────────────── */
 
@@ -487,7 +443,6 @@
   font-weight: 500;
 }
 
-
 .jx-team-workspace-main .jx-mySpace-docTable-col--time {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -505,8 +460,6 @@
   object-fit: contain;
   vertical-align: middle;
 }
-
-
 
 @container teamfiles (max-width: 720px) {
   .jx-mySpace-docTable-header, .jx-mySpace-docRow {
@@ -540,7 +493,6 @@
   width: 16px;
   height: 16px;
 }
-
 
 /* ─── 团队目录树 SpaceDirectoryTree ──────────────────────── */
 /* 不显示展开箭头：点击整行即选中并展开 / 收起，用打开 / 关闭的文件夹图标表示状态 */

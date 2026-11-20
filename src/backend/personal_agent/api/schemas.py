@@ -111,10 +111,6 @@ class StreamTicket(BaseModel):
     token: str | None = Field(default=None, min_length=20, max_length=100)
 
 
-class ChannelRoute(BaseModel):
-    enabled: bool
-
-
 class ChannelAccount(BaseModel):
     """One account to list: a recent private sender's key, or an ID the owner typed."""
     key: str | None = Field(None, max_length=300)

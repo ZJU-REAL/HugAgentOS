@@ -39,8 +39,6 @@ def build_ref_id(*, layer: str, user_id: str, workspace_id: str, content_hash: s
     return "mref_" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
 
 
-
-
 def record_retrieved_refs(
     result: MemoryRetrievalResult,
     *,
@@ -159,27 +157,6 @@ def resolve_ref(
             return db.query(MemoryRefShadow).filter(MemoryRefShadow.ref_id == ref_id).first()
     except Exception as exc:
         logger.debug("[memory-ref] resolve failed: %s", exc)
-        return None
-
-
-def resolve_by_external_id(external_id: str) -> Optional[MemoryRefShadow]:
-    """Look up by the store's own id.
-
-    Only useful while the id is still current — this is the lookup that breaks
-    when the store renumbers, which is precisely why ``resolve_ref`` exists.
-    """
-    if not external_id:
-        return None
-    try:
-        with SessionLocal() as db:
-            return (
-                db.query(MemoryRefShadow)
-                .filter(MemoryRefShadow.external_id == external_id)
-                .order_by(MemoryRefShadow.last_seen_at.desc())
-                .first()
-            )
-    except Exception as exc:
-        logger.debug("[memory-ref] resolve by external id failed: %s", exc)
         return None
 
 

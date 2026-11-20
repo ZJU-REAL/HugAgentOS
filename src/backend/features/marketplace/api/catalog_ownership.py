@@ -89,6 +89,8 @@ def _load_owned_capability_items(db, user_id: str) -> tuple:
                     or row.server_id in marketplace_server_ids,
                     # The system copy of the same marketplace MCP is used instead.
                     "superseded_by_system": is_superseded(row, system_ids),
+                    # Feature that owns the row (e.g. "datasources"); clients key tool UI off it.
+                    "managed_by": extra_config.get("managed_by"),
                 }
             )
     except Exception as exc:

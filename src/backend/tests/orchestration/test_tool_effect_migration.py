@@ -2,25 +2,10 @@
 
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 from sqlalchemy import create_engine, inspect, text
-
-
-def _alembic(repo_root: Path, database_url: str, *args: str) -> None:
-    env = dict(os.environ)
-    env["DATABASE_URL"] = database_url
-    subprocess.run(
-        [sys.executable, "-m", "alembic", *args],
-        cwd=repo_root,
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+from tests.db_support import run_alembic
 
 
 def test_sqlite_tool_effect_upgrade_downgrade_and_reupgrade(tmp_path):
@@ -67,7 +52,7 @@ def test_sqlite_tool_effect_upgrade_downgrade_and_reupgrade(tmp_path):
 
     # The fixture seeds only the tables the harness chain touches; revisions after
     # harness69mem alter unrelated tables, so the target is the harness head.
-    _alembic(repo_root, database_url, "upgrade", "harness69mem")
+    run_alembic(repo_root, database_url, "upgrade", "harness69mem")
     inspector = inspect(engine)
     assert {
         "tool_effect_ledger",
@@ -85,7 +70,7 @@ def test_sqlite_tool_effect_upgrade_downgrade_and_reupgrade(tmp_path):
     assert "run_owner" in {column["name"] for column in inspector.get_columns("tool_effect_leases")}
     assert "effect_id" in {column["name"] for column in inspector.get_columns("tool_call_logs")}
 
-    _alembic(repo_root, database_url, "downgrade", "runjrnl01")
+    run_alembic(repo_root, database_url, "downgrade", "runjrnl01")
     inspector = inspect(engine)
     assert "tool_effect_ledger" not in inspector.get_table_names()
     assert "tool_effect_leases" not in inspector.get_table_names()
@@ -94,7 +79,7 @@ def test_sqlite_tool_effect_upgrade_downgrade_and_reupgrade(tmp_path):
 
     # The fixture seeds only the tables the harness chain touches; revisions after
     # harness69mem alter unrelated tables, so the target is the harness head.
-    _alembic(repo_root, database_url, "upgrade", "harness69mem")
+    run_alembic(repo_root, database_url, "upgrade", "harness69mem")
     inspector = inspect(engine)
     assert "tool_effect_ledger" in inspector.get_table_names()
     assert "tool_effect_receipts" in inspector.get_table_names()

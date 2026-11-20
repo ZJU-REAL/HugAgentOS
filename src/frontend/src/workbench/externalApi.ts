@@ -1,7 +1,6 @@
 import type { EmbeddingPolicy } from './externalEmbed';
 import type { ApplicationDeclaration } from '@hugagent/workbench-protocol';
-import { validateApplication } from '@hugagent/workbench-protocol';
-import {workbenchRequest as apiRequest,WorkbenchSourceError} from './sourceRequest';
+import {WorkbenchSourceError} from './sourceRequest';
 import {sourceLabel} from './sourceIdentity';
 import { configFetch } from '../utils/adminApi';
 import { getLang, t } from '../i18n';
@@ -18,14 +17,6 @@ export const externalAdminPath = '/v1/workbench/admin/external-applications';
 export function applicationText(value: ApplicationDeclaration['title'] | undefined): string {
   if (typeof value === 'string') return value;
   return value?.[getLang()] || value?.en || value?.['zh-CN'] || Object.values(value || {})[0] || '';
-}
-export async function externalDirectory(signal: AbortSignal) {
-  const response = await apiRequest<{ data: { items: ExternalApplication[] } }>(
-    '/v1/workbench/applications', { signal });
-  if (!Array.isArray(response.data?.items)) throw new Error('应用目录格式无效');
-  return response.data.items.filter(item =>
-    validateApplication(item.declaration).length === 0 &&
-    item.declaration.target.kind === 'external' && ['browser', 'embedded'].includes(item.declaration.target.mode));
 }
 export async function saveExternal(token: string, item: ExternalApplication | null, declaration: ApplicationDeclaration, enabled: boolean, embedding?: EmbeddingPolicy) {
   const response = await configFetch(token, item ? externalAdminPath + '/' + encodeURIComponent(item.applicationKey) : externalAdminPath, {

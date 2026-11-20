@@ -63,7 +63,13 @@ async def _run_autonomous_loop_workflow(
 
     owner = journal_owner or ownership.new_worker_owner(run_id)
     journal = ownership.journal()
-    if not journal.claim(run_id, owner=owner, lease_seconds=settings.RUN_LEASE_SECONDS, pending_only=True):
+    if not await run_db(
+        journal.claim,
+        run_id,
+        owner=owner,
+        lease_seconds=settings.RUN_LEASE_SECONDS,
+        pending_only=True,
+    ):
         logger.info("autonomous_loop_claim_skipped", run_id=run_id, owner=owner)
         return
     current = asyncio.current_task()
@@ -96,7 +102,7 @@ async def _run_autonomous_loop_workflow(
         # visible from the DB, rather than waiting for a single write at the
         # terminal state (see the fix for symptoms 2/3).
         if et in ("requirement_passed", "iteration_evaluated"):
-            _flush_loop_message()
+            await run_db(_flush_loop_message)
 
     def _loop_message_effect(status: str):
         if not conversational:
@@ -310,7 +316,8 @@ async def _run_autonomous_loop_workflow(
                 commit=False,
             )
 
-        journal.append_operation(
+        await run_db(
+            journal.append_operation,
             run_id,
             owner=owner,
             operation_type="loop_started_committed",
@@ -351,7 +358,7 @@ async def _run_autonomous_loop_workflow(
                 # Carried explicitly so the loop resolves *this* tenant's
                 # orchestration profile. Omitting it is how one tenant's published
                 # retry counts and budget multiplier became everyone's.
-                tenant_id=tenant_of(user_id),
+                tenant_id=await run_db(tenant_of, user_id),
             )
         finally:
             CURRENT_RUN_BINDING.reset(binding_token)
@@ -400,7 +407,8 @@ async def _run_autonomous_loop_workflow(
             if result.status in ("completed", "budget_exhausted", "awaiting_human")
             else ("cancelled" if result.status == "cancelled" else "failed")
         )
-        completed = journal.complete(
+        completed = await run_db(
+            journal.complete,
             run_id,
             owner=owner,
             status=run_status,
@@ -425,11 +433,12 @@ async def _run_autonomous_loop_workflow(
         # reopened chat would only contain the user's objective.
         if lease_lost.is_set():
             logger.warning("autonomous_loop_worker_fenced", run_id=run_id, owner=owner)
-            if ownership.cancelled_by_user(run_id):
-                _persist_loop_partial()
+            if await run_db(ownership.cancelled_by_user, run_id):
+                await run_db(_persist_loop_partial)
         else:
             partial_effect = _loop_message_effect("cancelled")
-            cancelled = journal.complete(
+            cancelled = await run_db(
+                journal.complete,
                 run_id,
                 owner=owner,
                 status="cancelled",
@@ -460,7 +469,8 @@ async def _run_autonomous_loop_workflow(
     except Exception as exc:  # noqa: BLE001
         nested_unknown = errors_module.find_tool_outcome_unknown(exc)
         if nested_unknown is not None:
-            if journal.needs_attention(
+            if await run_db(
+                journal.needs_attention,
                 run_id,
                 owner=owner,
                 reason=f"tool outcome pending policy recovery: {nested_unknown}",
@@ -476,7 +486,8 @@ async def _run_autonomous_loop_workflow(
             return
         logger.exception("autonomous_loop_run_failed", run_id=run_id)
         partial_effect = _loop_message_effect("failed")
-        failed = journal.complete(
+        failed = await run_db(
+            journal.complete,
             run_id,
             owner=owner,
             status="failed",

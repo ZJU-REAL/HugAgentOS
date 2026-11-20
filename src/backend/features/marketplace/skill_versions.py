@@ -15,7 +15,6 @@ from fastapi import HTTPException
 import features.marketplace.skill_catalog as market_owner_skill_catalog
 from features.marketplace.skill_installation import build_user_intro as _build_user_intro
 import features.marketplace.skill_installation as market_owner_skill_installation
-from features.marketplace.skills_state import DEFAULT_SKILL_MARKET
 from features.marketplace.skills_state import MANIFEST_NAME
 import features.marketplace.skills_state as market_owner_skills_state
 from sqlalchemy.orm.attributes import flag_modified

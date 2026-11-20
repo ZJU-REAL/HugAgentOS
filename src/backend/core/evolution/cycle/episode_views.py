@@ -1,9 +1,11 @@
 """Flatten episodes and their trace events into the views the engines read."""
 from __future__ import annotations
-from typing import Any, Dict, List
+from datetime import timedelta
+from typing import Any, Dict, List, Optional
 from core.db.engine import SessionLocal
 from core.db.models.evolution import EvolutionEpisode, EvolutionTraceEvent
 from core.evolution.profiles.user_settings_constants import PRIVACY_PRIVATE
+from core.infra.time import utc_now
 import logging
 logger = logging.getLogger(__name__)
 
@@ -134,12 +136,15 @@ def view_for(episode, events) -> Dict[str, Any]:
     }
 
 
-def load_episode_views(*, limit: int = 500, since_days: int = 30) -> List[Dict[str, Any]]:
+def load_episode_views(*, limit: int = 500, since_days: Optional[int] = None) -> List[Dict[str, Any]]:
     """Flatten Episodes plus their trace events into the shape pattern mining wants.
 
     Backfilled Episodes are included on purpose: they cannot be replayed, but
     they are perfectly good for discovering what recurs — which is exactly why
     the backfill was worth doing.
+
+    ``since_days`` keeps only Episodes created within that many days; ``None``
+    (the evolution cycle's default) applies no time window.
     """
     views: List[Dict[str, Any]] = []
     try:
@@ -149,10 +154,11 @@ def load_episode_views(*, limit: int = 500, since_days: int = 30) -> List[Dict[s
             # that user's own card and history) but never feed cross-user
             # pattern mining. Filtering here rather than at each call site is
             # what makes the promise checkable.
+            query = db.query(EvolutionEpisode).filter(EvolutionEpisode.privacy_class != PRIVACY_PRIVATE)
+            if since_days is not None:
+                query = query.filter(EvolutionEpisode.created_at >= utc_now() - timedelta(days=since_days))
             episodes = (
-                db.query(EvolutionEpisode)
-                .filter(EvolutionEpisode.privacy_class != PRIVACY_PRIVATE)
-                .order_by(EvolutionEpisode.created_at.desc())
+                query.order_by(EvolutionEpisode.created_at.desc())
                 .limit(limit)
                 .all()
             )

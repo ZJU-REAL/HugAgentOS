@@ -214,7 +214,7 @@ export function ChatSidebarItem({ item, groupItems, scopeKey, dragScopeRef, acti
             { type: 'divider' as const },
             { key: 'delete', label: t('删除'), icon: <DeleteOutlined />, danger: true, onClick: ({ domEvent }) => { domEvent.stopPropagation(); onDeleteChat(item.id); } },
           ],
-        }} trigger={['click']} placement="bottomRight" overlayClassName="jx-chatItemMenu">
+        }} trigger={['click']} placement="bottomRight" classNames={{ root: "jx-chatItemMenu" }}>
           <button aria-label={t('更多操作')} className="jx-historyMoreBtn" onClick={(e) => e.stopPropagation()}><EllipsisOutlined /></button>
         </Dropdown>
       </div>

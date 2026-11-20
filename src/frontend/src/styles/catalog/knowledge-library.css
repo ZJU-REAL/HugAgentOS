@@ -29,91 +29,6 @@
   padding:20px 0 24px;
 }
 
-.jx-kbHero{
-  background:var(--color-bg-container);
-  border:1px solid var(--color-border);
-  border-radius:18px;
-  padding:28px 30px;
-  box-shadow:0 10px 26px color-mix(in srgb, var(--color-primary) 3.5%, transparent);
-}
-
-.jx-kbHeroTitle{
-  margin:0;
-  font-size:22px;
-  line-height:1.25;
-  font-weight:700;
-  color:var(--color-text);
-}
-
-.jx-kbHeroDesc{
-  margin:10px 0 0;
-  font-size:14px;
-  line-height:1.65;
-  color:var(--color-text-secondary);
-}
-
-.jx-kbTabsWrap{
-  border-bottom:1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
-  margin-bottom:4px;
-}
-
-.jx-kbTabs{
-  display:flex;
-  align-items:flex-end;
-  gap:18px;
-  position:relative;
-}
-
-.jx-kbTab{
-  appearance:none;
-  border:none;
-  background:transparent;
-  padding:2px 2px 14px;
-  display:inline-flex;
-  align-items:center;
-  gap:8px;
-  position:relative;
-  font-size:15px;
-  line-height:1.2;
-  font-weight:500;
-  color:var(--color-text);
-  cursor:pointer;
-}
-
-.jx-kbTab::after{
-  display:none;
-}
-
-.jx-kbTabIndicator{
-  position:absolute;
-  left:0;
-  bottom:-1px;
-  height:3px;
-  border-radius:999px 999px 0 0;
-  background:var(--color-primary);
-  opacity:0;
-  pointer-events:none;
-  transition:transform .32s cubic-bezier(.22,1,.36,1), width .32s cubic-bezier(.22,1,.36,1), opacity .18s ease;
-}
-
-.jx-kbTabIndicator.is-ready{
-  opacity:1;
-}
-
-.jx-kbTabCount{
-  min-width:22px;
-  height:22px;
-  padding:0 6px;
-  border-radius:3px;
-  background:var(--color-primary-bg);
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  font-size:11px;
-  font-weight:500;
-  color:var(--color-primary);
-}
-
 .jx-kbToolbar{
   display:flex;
   align-items:center;
@@ -288,12 +203,6 @@
   color:var(--color-primary);
 }
 
-.jx-kbPill-green{
-  background:var(--color-tint-green-bg);
-  border-color:color-mix(in srgb, var(--color-tint-green) 30%, transparent);
-  color:var(--color-tint-green);
-}
-
 .jx-kbPill-orange{
   background:var(--color-tint-amber-bg);
   border-color:color-mix(in srgb, var(--color-tint-amber) 30%, transparent);
@@ -333,7 +242,6 @@
   margin-left:auto;
 }
 
-.jx-kbLibraryLoading,
 .jx-kbDocLoading{
   display:flex;
   align-items:center;

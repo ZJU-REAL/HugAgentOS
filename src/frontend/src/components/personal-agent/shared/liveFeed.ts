@@ -8,7 +8,7 @@ import { parseSSE } from '../../../utils/sse';
  * operation's receipt changed, `device:<id>` / `device:<id>:<chat>` when a linked computer's chat list or one of its
  * chats changed. Tasks, computers and settings change without a topic of their own.
  */
-export type PersonalSignal = { type: 'ready' } | { type: 'changed'; topics: string[] } | { type: 'down' };
+type PersonalSignal = { type: 'ready' } | { type: 'changed'; topics: string[] } | { type: 'down' };
 type Listener = (signal: PersonalSignal) => void;
 
 const listeners = new Set<Listener>();

@@ -1,6 +1,7 @@
 import type { PanelKey } from '../types';
 import { t } from '../i18n';
 import { EDITION_TOOL_NAME_OVERRIDES } from '../toolEdition';
+import { API_BASE } from './apiBase';
 
 export type CatalogKind = Exclude<PanelKey, 'chat' | 'docs' | 'app_center' | 'share_records' | 'settings'>;
 
@@ -8,13 +9,15 @@ export type CatalogKind = Exclude<PanelKey, 'chat' | 'docs' | 'app_center' | 'sh
  *  A plugin tool's icon comes from its ``tool_meta`` contribution; see
  *  ``resolveToolIcon`` in ``utils/toolMeta.ts``. */
 export const TOOL_ICONS: Record<string, string> = {
-  query_database: '/icons/database.png',
   retrieve_dataset_content: '/icons/knowledge.png',
   retrieve_local_kb: '/icons/knowledge.png',
   list_datasets: '/icons/knowledge.png',
   internet_search: '/icons/internet.png',
   web_fetch: '/icons/internet-mcp.svg',
 };
+
+/** Icon for data source MCP tools (`<prefix>__execute_sql` …), matched by suffix in ``resolveToolIcon``. */
+export const DATABASE_TOOL_ICON = '/icons/database.png';
 
 /**
  * AgentScope 2.0 used to name MCP tools as `mcp__<server>__<tool>` (the backend now restores the bare
@@ -75,8 +78,7 @@ export const ROOT_FOLDER_SENTINEL = '__root__';
 
 
 /** API base URL (e.g. '/api') */
-export const getApiBase = (): string =>
-  (import.meta.env.VITE_API_BASE_URL as string || '/api').replace(/\/+$/, '');
+export const getApiBase = (): string => API_BASE;
 
 /** Build a direct download URL for an artifact file. */
 export const buildFileUrl = (fileId: string): string =>

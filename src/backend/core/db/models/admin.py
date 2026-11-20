@@ -212,3 +212,7 @@ class InstalledPlugin(Base):
         Index("idx_installed_plugins_owner", "owner_user_id"),
         Index("idx_installed_plugins_slug", "slug"),
     )
+
+
+# Writes to admin_mcp_servers / admin_skills bump the cross-worker capability revision.
+import core.db.capability_revision  # noqa: E402,F401

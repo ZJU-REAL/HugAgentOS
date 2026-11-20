@@ -75,10 +75,9 @@ def test_revoked_user_stops_background_work(sessions, empty_registry, monkeypatc
         service.tasks.submit("Prepare file", "request-one")
         schedules.create(db, "owner", "Call", "Call Bob", run_at="2099-01-01T09:00")
         agent = service.identity.agent()
-        agent.config = {**agent.config, "channel_ids": ["ch1"]}
         db.commit()
         grant(db, "owner", False)
-    conn = SimpleNamespace(channel_id="ch1", channel_type="lark", owner_user_id="owner")
+    conn = SimpleNamespace(channel_id="ch1", channel_type="lark", owner_user_id="owner", agent_id=None)
     assert module.Executor().claim() is None
     with sessions() as db:
         assert schedules.fire_due(db, now=4102444800 + 86400) == 0

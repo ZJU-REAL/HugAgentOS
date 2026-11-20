@@ -1,7 +1,5 @@
 export const VOICE_DICT: Record<string, string> = {
   '语音模型': 'Speech model',
-  '开放后，用户可使用麦克风录音并转成文字。默认关闭。': 'Allow microphone recording and speech to text. Disabled by default.',
-  '授予麦克风录音与语音转文字权限。默认关闭。': 'Grant microphone recording and speech to text. Disabled by default.',
   '未开通语音输入权限，请联系管理员': 'Voice input is not enabled for your account. Contact an administrator.',
 
   '语音转文字': 'Speech to text',

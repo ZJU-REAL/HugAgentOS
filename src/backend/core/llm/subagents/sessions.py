@@ -48,14 +48,23 @@ def _fit_payload(record: Dict[str, Any]) -> Optional[str]:
     what keeps a resumed run anchored to what it was asked to do.
     """
     messages: List[Dict[str, Any]] = list(record.get("messages") or [])
-    while True:
-        payload = json.dumps(record, ensure_ascii=False)
-        if len(payload.encode("utf-8")) <= _MAX_PAYLOAD_BYTES:
-            return payload
-        if len(messages) <= 2:
-            return None
-        messages.pop(1)
-        record["messages"] = messages
+    payload = json.dumps(record, ensure_ascii=False)
+    size = len(payload.encode("utf-8"))
+    if size <= _MAX_PAYLOAD_BYTES:
+        return payload
+    if len(messages) <= 2:
+        return None
+    # Work out how many turns to drop from per-message sizes instead of
+    # re-serializing the whole record after every drop (quadratic on long
+    # child transcripts). In a JSON list each later element costs its own
+    # bytes plus the ", " separator, so a drop subtracts exactly that.
+    dropped = 0
+    while size > _MAX_PAYLOAD_BYTES and len(messages) - dropped > 2:
+        size -= len(json.dumps(messages[1 + dropped], ensure_ascii=False).encode("utf-8")) + 2
+        dropped += 1
+    del messages[1:1 + dropped]
+    record["messages"] = messages
+    return json.dumps(record, ensure_ascii=False) if size <= _MAX_PAYLOAD_BYTES else None
 
 
 async def save(

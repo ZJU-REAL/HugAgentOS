@@ -1567,10 +1567,15 @@ async def _handle_login_submit(
 
     remember_flag = _parse_remember(remember)
 
+    # argon2 verification and the audit write are blocking: keep them off the event loop.
+    from core.db.threads import run_db
+
     # 1) Local accounts
-    local_info = _try_local_login(username, password)
+    local_info = await run_db(_try_local_login, username, password)
     if local_info is not None:
-        _audit_local_login(request, username, success=True, user_id=local_info.get("user_id"))
+        await run_db(
+            _audit_local_login, request, username, success=True, user_id=local_info.get("user_id")
+        )
         local_info["remember"] = remember_flag
         ticket = await _generate_ticket(local_info)
         target = _build_redirect_target(request, redirect, ticket)
@@ -1588,7 +1593,7 @@ async def _handle_login_submit(
             target = _build_redirect_target(request, redirect, ticket)
             return RedirectResponse(url=target, status_code=303)
 
-    _audit_local_login(request, username, success=False)
+    await run_db(_audit_local_login, request, username, success=False)
     return RedirectResponse(
         url=f"{page_path}?redirect={_encode_query(redirect)}&error={_encode_query('用户名或密码错误，请重试')}",
         status_code=303,

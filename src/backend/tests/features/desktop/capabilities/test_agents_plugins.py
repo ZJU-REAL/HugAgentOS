@@ -16,15 +16,14 @@ from features.desktop.capabilities import plugins as caps_plugins
 from features.desktop.capabilities import registry, store
 from core.capabilities.identity_rules import KIND_AGENT, KIND_PLUGIN, KIND_SKILL
 from core.capabilities.reference import profile_id
-from core.db.engine import Base
 from core.db.models import InstalledPlugin, UserAgent, UserShadow
 from features.desktop.capability import service as cloud
 from features.desktop.capability import entities as entities
 from features.desktop.bridge import client as bridge
 from features.desktop.bridge import bundles as bundles
 from core.capabilities.manifest_protocol import CapabilityManifestError, build_entity_manifest, entity_content_hash, validate_entity_manifest
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from tests.db_support import file_engine
 
 
 def _token(uid: str) -> str:
@@ -70,10 +69,7 @@ def test_entity_manifest_roundtrip_and_strictness():
 def cloud_db(tmp_path, monkeypatch):
     import core.db.models  # noqa: F401
 
-    engine = create_engine(
-        f"sqlite:///{tmp_path / 'cloud.db'}", connect_args={"check_same_thread": False}
-    )
-    Base.metadata.create_all(engine)
+    engine = file_engine(tmp_path / 'cloud.db')
     factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     monkeypatch.setattr(entities, "SessionLocal", factory)
     monkeypatch.setattr(

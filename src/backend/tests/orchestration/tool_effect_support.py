@@ -17,7 +17,6 @@ from agentscope.model import ChatResponse, ChatUsage
 from agentscope.permission import PermissionContext, PermissionMode
 from agentscope.tool import FunctionTool, Toolkit
 from agentscope.tool._response import ToolChunk, ToolResponse
-from core.db.engine import Base
 from core.db.models import ChatRun, ChatSession, ToolCallLog, ToolEffectLease, ToolEffectLedger, ToolEffectReceipt
 from features.automation.models import ScheduledTask
 from core.llm.runtime.state import AgentRuntimeState
@@ -30,9 +29,11 @@ from core.runs.tool_effects.gateway import ToolEffectGateway
 from core.runs.tool_effects.journal import ToolEffectJournal
 from core.runs.tool_effects.types import ToolIntent
 from core.runs.tool_effects.recovery import recover_incomplete_tool_effects
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import QueuePool
+from core.db.engine import Base  # noqa: F401 (re-exported to the tool-effect tests)
+from sqlalchemy import create_engine  # noqa: F401 (re-exported to tests)
+from sqlalchemy.orm import sessionmaker  # noqa: F401 (re-exported to tests)
+from tests.db_support import file_engine, session_factory
 
 
 class MutableClock:
@@ -48,12 +49,8 @@ class MutableClock:
 
 @pytest.fixture()
 def effect_env(tmp_path):
-    engine = create_engine(
-        f"sqlite:///{tmp_path / 'tool-effects.sqlite'}",
-        connect_args={"check_same_thread": False},
-    )
-    Base.metadata.create_all(engine)
-    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+    engine = file_engine(tmp_path / 'tool-effects.sqlite')
+    sessions = session_factory(engine)
 
     def make_run(
         run_id: str,

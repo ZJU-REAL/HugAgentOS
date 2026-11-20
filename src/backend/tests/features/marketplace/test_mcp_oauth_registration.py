@@ -12,17 +12,7 @@ from features.marketplace import mcp_administration, mcp_curated, mcp_listing
 from features.marketplace.core_catalog import MarketplaceCatalogProvider
 from features.marketplace.models import McpMarketOAuthClient
 from tests.features.marketplace.mcp_marketplace_support import db  # noqa: F401 - fixture
-
-
-class MemoryState:
-    def __init__(self):
-        self.values = {}
-
-    async def get(self, key):
-        return self.values.get(key)
-
-    async def put(self, key, value, **kwargs):
-        self.values[key] = value
+from tests.features.marketplace.mcp_marketplace_support import MemoryState
 
 
 def _public_base(monkeypatch, base: str) -> None:

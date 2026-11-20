@@ -166,10 +166,6 @@ Token usage is accumulated into the end-of-stream `meta.usage` (`core/llm/runtim
 
 Community Edition users can see their own token usage; organization-level billing aggregation, pricing management, and cost export belong to EE, with quota enforcement on the EE roadmap.
 
-## Routing strategy (ROUTER_STRATEGY)
-
-`core/agent_runtime/strategy.py`: `ROUTER_STRATEGY=main_only` (default) always routes to the main agent; `llm_router` is a reserved placeholder that currently also falls back to `MainOnlyStrategy` (safe by default). Actual multi-agent dispatch happens via `@mentions` + the `call_subagent` tool — see [Chat & Agent Orchestration](chat.md).
-
 ## Source map
 
 | Topic | Path |
@@ -182,7 +178,6 @@ Community Edition users can see their own token usage; organization-level billin
 | MCP env injection | `src/backend/core/models/config.py::get_mcp_env_overlay`, `core/config/runtime_env.py` |
 | Personal API keys | `src/backend/api/routes/v1/api_keys.py`, `core/auth/api_keys.py`, `core/auth/backend.py` |
 | Usage logs / billing | `src/backend/api/routes/v1/admin_usage_logs.py`, `api/routes/v1/admin_billing.py` |
-| Routing strategy | `src/backend/core/agent_runtime/strategy.py` |
 | Fail-fast on missing main model | `src/backend/api/routes/v1/chats/__init__.py::_ensure_main_model_configured` |
 
 ### Child cancellation and parameter overrides

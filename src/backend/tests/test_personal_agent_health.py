@@ -10,11 +10,12 @@ from personal_agent.background import BackgroundServices
 from personal_agent.health import HealthEntry, PersonalRuntimeHealth, board
 from personal_agent.telemetry import PersonalAssignmentTelemetry
 from tests.test_personal_agent_monitor import sessions  # noqa: F401
+from tests.db_support import share_factory
 
 
 @pytest.fixture
 def db_factory(sessions, monkeypatch):
-    monkeypatch.setattr("core.db.engine.SessionLocal", sessions)
+    share_factory(monkeypatch, sessions)
     monkeypatch.setattr(health, "MIN_BEAT_SEC", 0.01)
     return sessions
 

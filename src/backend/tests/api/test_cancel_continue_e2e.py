@@ -19,16 +19,15 @@ import pytest
 from api.routes.v1 import agent_responses, chat_runs, chats
 from core.auth.backend import UserContext, get_current_user
 from core.db import engine as db_engine
-from core.db.engine import Base, get_db
+from core.db.engine import get_db
 from core.db.models import ChatRun, ChatSession
 from core.models.chat_models import ReasoningEchoChatFormatter
 from core.llm.runtime.message_compat import session_to_msgs
 from core.llm.runtime.model_steps import record_assistant_step
 from core.chat.operations import invocation
 from fastapi import FastAPI
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 from tests.api.test_chat_stream_sequencer import _patch_common_chat_route
+from tests.db_support import file_engine, session_factory, share_factory
 
 PRIVATE = "PRIVATE_REASONING_MUST_NOT_BECOME_AN_ANSWER"
 PARTIAL = "已检查服务器，正在整理结果。"
@@ -37,17 +36,13 @@ RESULT = "22/tcp open"
 
 @pytest.fixture
 def environment(tmp_path, monkeypatch):
-    engine = create_engine(
-        f"sqlite:///{tmp_path / 'cancel-continue.sqlite'}",
-        connect_args={"check_same_thread": False},
-    )
-    Base.metadata.create_all(engine)
-    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+    engine = file_engine(tmp_path / 'cancel-continue.sqlite')
+    sessions = session_factory(engine)
     with sessions() as db:
         db.add(ChatSession(chat_id="chat-1", user_id="user-1", title="test"))
         db.commit()
-    monkeypatch.setattr(db_engine, "SessionLocal", sessions)
-    monkeypatch.setattr(core_db_engine, "SessionLocal", sessions)
+    share_factory(monkeypatch, sessions)
+    share_factory(monkeypatch, sessions)
     monkeypatch.setattr("core.chat.plan_progress.SessionLocal", sessions)
     monkeypatch.setattr('core.chat.steer.SessionLocal', sessions)
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)

@@ -62,7 +62,7 @@ export function ReasoningEffortFields({ providerId, detect }: {
       <Form.Item extra={t('探测可能产生少量模型用量；只回填表单，不自动保存。')}>
         <Button loading={probing} onClick={() => void runProbe()}>{t('自动探测思考档位')}</Button>
       </Form.Item>
-      {hint && <Alert type="info" showIcon message={hint} style={{ marginBottom: 12 }} />}
+      {hint && <Alert type="info" showIcon title={hint} style={{ marginBottom: 12 }} />}
       <Form.Item name="reasoning_effort_keys" label={t('支持的思考档位')}
         rules={[{ required: true, type: 'array', min: 1, message: t('请至少选择一个思考档位') }]}>
         <Select mode="multiple" options={REASONING_KEYS.map((key) => ({ value: key, label: t(effortLabels[key]) }))}

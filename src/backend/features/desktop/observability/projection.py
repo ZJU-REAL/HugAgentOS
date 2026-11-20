@@ -7,9 +7,10 @@ import json
 import math
 import re
 
-from features.desktop.models import DesktopRecord, DesktopSyncDevice, utcnow
+from features.desktop.models import DesktopRecord, DesktopSyncDevice, utc_now_iso
 from features.desktop.observability.fields import counterpart_identity, desktop_counterpart, gateway_counterpart
 from sqlalchemy import func, or_, select
+from core.db.paging import apply_page
 
 KINDS = {"session", "message", "run", "tool", "skill", "agent", "usage", "model"}
 MAX_BATCH_BYTES = 2 * 1024 * 1024
@@ -115,15 +116,23 @@ def public_payload(kind, payload):
     fields = set(FIELDS[kind].split()) | EXTRA_FIELDS
     truncated = []
     result = scrub({k: v for k, v in payload.items() if k in fields}, truncated=truncated)
-    while len(json.dumps(result, ensure_ascii=False).encode()) > MAX_EVENT_BYTES - 4096:
-        candidates = [
-            k
-            for k in result
-            if k not in {"chat_id", "run_id", "message_id", "call_id", "truncated"}
+    size = len(json.dumps(result, ensure_ascii=False).encode())
+    if size > MAX_EVENT_BYTES - 4096:
+        # Serialize each field once and track the total by per-field deltas.
+        encoded = {k: json.dumps(v, ensure_ascii=False) for k, v in result.items()}
+        shrinkable = [
+            k for k in result if k not in {"chat_id", "run_id", "message_id", "call_id", "truncated"}
         ]
-        largest = max(candidates, key=lambda k: len(json.dumps(result[k], ensure_ascii=False)))
-        result[largest] = str(result[largest])[:8192] + "\n[truncated]"
-        truncated.append(True)
+        while size > MAX_EVENT_BYTES - 4096 and shrinkable:
+            largest = max(shrinkable, key=lambda k: len(encoded[k]))
+            # A field is cut at most once: cutting it again would not shrink
+            # it, and choosing it again would loop forever.
+            shrinkable.remove(largest)
+            before = len(encoded[largest].encode())
+            result[largest] = str(result[largest])[:8192] + "\n[truncated]"
+            encoded[largest] = json.dumps(result[largest], ensure_ascii=False)
+            size += len(encoded[largest].encode()) - before
+            truncated.append(True)
     if truncated:
         result["truncated"] = True
     return result
@@ -185,7 +194,7 @@ def ingest(db, user_id, device_id, batch, *, observation="desktop"):
             run_id=str(payload.get("run_id") or "")[:128],
             observation=observation,
             payload=payload,
-            received_at=utcnow(),
+            received_at=utc_now_iso(),
         )
         stmt = insert_for(db, DesktopRecord).values(**values)
         db.execute(
@@ -200,7 +209,7 @@ def ingest(db, user_id, device_id, batch, *, observation="desktop"):
             id=key(user_id, device_id),
             user_id=user_id,
             device_id=device_id,
-            last_seen=utcnow(),
+            last_seen=utc_now_iso(),
             pending=max(0, min(int(batch.get("pending", 0)), 10**9)),
             capture_errors=max(0, min(int(batch.get("capture_errors", 0)), 10**9)),
             reconciling=bool(batch.get("reconciling", False)),
@@ -253,7 +262,7 @@ def list_records(
         if kind == "message" and chat_id
         else (DesktopRecord.received_at.desc(), DesktopRecord.id)
     )
-    rows = db.scalars(q.order_by(*ordering).offset((page - 1) * page_size).limit(page_size)).all()
+    rows = db.scalars(apply_page(q.order_by(*ordering), page=page, page_size=page_size)).all()
     return serialize_records(db, rows), total
 
 

@@ -5,13 +5,11 @@ export const HOOKS_DICT: Record<string, string> = {
   '文件过大，无法添加：{name}': 'The file is too large to attach: {name}',
   '文件上传失败，请重试': 'File upload failed. Please try again.',
   // useStreaming — file upload warnings
-  '文件"{name}"上传失败，发送后将无法下载': 'File "{name}" upload failed; download will be unavailable after sending',
   '文件上传失败，请移除后重试：{names}': 'File upload failed. Remove and retry: {names}',
   // useStreaming — zombie run toast
   '上次会话因服务端重启未完成，请重新发起': 'The previous session was interrupted by a server restart. Please send again.',
   // useStreaming — API config missing
   '请先在设置中配置 API 地址。': 'Please configure the API address in Settings first.',
-  // useStreaming — tool name fallbacks (note: '工具调用' also in tool.ts, '附件' also in adminSkills.ts)
   // useStreaming — agent display name
   '调用智能体：{name}': 'Calling Agent: {name}',
   // useStreaming — file confirm timeout

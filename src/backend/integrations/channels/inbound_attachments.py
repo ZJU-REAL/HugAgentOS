@@ -62,21 +62,29 @@ def load_generated_files(artifacts: List[Dict[str, Any]]):
         return []
     from core.files.storage import get_storage
 
-    files = []
+    ids = [art.get("file_id") for art in artifacts if art.get("file_id")]
+    if not ids:
+        return []
+    # Read the rows in one query and close the session before any storage download.
     with SessionLocal() as db:
-        storage = get_storage()
-        for art in artifacts:
-            fid = art.get("file_id")
-            if not fid:
-                continue
-            row = db.query(Artifact).filter(Artifact.artifact_id == fid).first()
-            if row is None or not row.storage_key:
-                continue
-            try:
-                content = storage.download_bytes(row.storage_key)
-            except Exception:  # noqa: BLE001
-                logger.warning("[channels] 产物下载失败 %s", fid, exc_info=True)
-                continue
-            files.append((content, row.filename or art.get("name") or fid,
-                          row.mime_type or "application/octet-stream"))
+        rows = {
+            row.artifact_id: (row.storage_key, row.filename, row.mime_type)
+            for row in db.query(Artifact).filter(Artifact.artifact_id.in_(ids))
+        }
+    storage = get_storage()
+    files = []
+    for art in artifacts:
+        fid = art.get("file_id")
+        if not fid or fid not in rows:
+            continue
+        storage_key, filename, mime_type = rows[fid]
+        if not storage_key:
+            continue
+        try:
+            content = storage.download_bytes(storage_key)
+        except Exception:  # noqa: BLE001
+            logger.warning("[channels] 产物下载失败 %s", fid, exc_info=True)
+            continue
+        files.append((content, filename or art.get("name") or fid,
+                      mime_type or "application/octet-stream"))
     return files

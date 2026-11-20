@@ -36,10 +36,9 @@ def _tool_call_event():
 
 @pytest.fixture(autouse=True)
 def reset_pin_state(monkeypatch):
-    """Reset pin_hint ContextVar + stub workspace.pin/get_pinned/mark_active +
-    stub core.files.artifacts.store.get_artifact. Returns the collected list of pin calls."""
-    from core.llm.runtime.turn_state import reset_pin_hint_state
-    reset_pin_hint_state()
+    """Stub workspace.pin/get_pinned/mark_active + core.files.artifacts.store.get_artifact.
+
+    Returns the collected list of pin calls."""
     import core.llm.runtime.workspace as ws
     monkeypatch.setattr(ws, "get_pinned_file_ids", lambda: [])
     pinned_calls: list[dict] = []

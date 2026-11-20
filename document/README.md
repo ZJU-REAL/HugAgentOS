@@ -27,13 +27,12 @@ document/
 │   ├── editions/            # 社区版 vs 商业版、License 机制、CE 构建管线
 │   └── development/         # 后端 / 前端开发、界面定制、工作台（Workbench）协议与 SDK
 └── internal/                # ⚠️ 内部文档（仅主仓，不随社区版分发）
-    ├── agents/              # 开发工作流约定（development-flow / issue-tracker /
-    │                        #   triage-labels / domain），被 .agents/skills 与 CLAUDE.md 引用
-    ├── harness/             # Harness 引擎迁移与交付验证手册
+    ├── adr/                 # 架构决策记录
     ├── development-guide/   # 二次开发、插件 / 技能开发、商业版部署
-    ├── evaluation/          # 内部评测方案与调研
+    ├── workbench/           # 工作台规格、实现设计、回归矩阵
+    ├── core-restructure/    # 目录重构基线数据（scripts/refactor/ 读取）
     ├── 操作手册/            # 品牌操作手册（docx，含客户信息）
-    └── *.md / *.html        # 内部方案、设计稿、排查与验证报告（按主题平铺）
+    └── automation-lease-stuck-runbook.md  # 定时任务锁卡死排查手册
 ```
 
 ## 开源边界 / Open-source boundary

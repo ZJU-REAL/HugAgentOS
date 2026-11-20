@@ -9,7 +9,7 @@
 
 ## 本地适配
 
-- 只导入上游 `skills/diagram-design/` 技能目录；仓库根目录的插件清单、文档站、维护脚本和 `verify-*.py` 校验脚本未导入。
+- 只导入上游 `skills/diagram-design/` 技能目录；仓库根目录的插件清单、文档站、维护脚本和 `verify-*.py` 校验脚本未导入。仍要求运行这些脚本的 `references/*.md` 开头加了版本说明，指向随包的 `scripts/self_check.py`。
 - `references/style-guide.md` 的 `Font source` 默认值从 `web` 改为 `system`：国内网络和内网访问不到 Google Fonts。
 - `references/style-guide.md` 在简体中文一段补充了包含沙箱已装字体（文泉驿正黑、方正黑体、方正小标宋）的字体栈，保证沙箱里导出 PNG 时中文有字形。
 - `SKILL.md` 在开头加了 HugAgentOS 运行说明（`{baseDir}` 路径、只读安装目录、首次设置门的处理、中文与交付约定），脚本调用改为 `{baseDir}/scripts/`，并在 description 末尾补充中文触发词。

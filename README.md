@@ -139,7 +139,7 @@ when the work is done.
 | ⏰ **Schedules and heartbeats** | "Remind me to check email at 8 every morning" creates a schedule; heartbeats check `HEARTBEAT.md` at an interval and only speak up when something needs you |
 | 📱 **Reachable on your channels** | Bind Feishu, DingTalk, WeChat or WeCom bots; each contact or group gets its own session and results go back where the request came from |
 | ✅ **Execution you control** | Email, computer input and session writes need approval; every email is approved individually, other actions can be allowed for the rest of a task; a rejection makes it find another way |
-| 🧠 **Persona and memory as files** | `SOUL.md`, `USER.md`, `MEMORY.md` and daily logs live in the workspace and can be viewed and edited in My Space; Dreaming periodically consolidates logs into long-term memory |
+| 🧠 **Persona and memory as files** | `SOUL.md`, `USER.md`, a memory wiki under `memory/` and the platform's daily `journal/` live in the workspace and can be viewed and edited in My Space; Dreaming reads each day's conversations nightly and organizes the wiki |
 | 💻 **Connect your own computer** | In the desktop client's local + cloud mode, connect a Mac, Windows or Linux machine in one click and grant screen control or local session management; the device only polls outbound and opens no inbound ports |
 
 Personal Agent is off by default in the Community Edition. In a HugAgent Cloud
@@ -189,9 +189,10 @@ quietly learn the wrong things.
   outbox so crash replays never add duplicates, and a sanitizer filters credentials.
 - **Approved one by one, reversible**: evolution proposals for memory and skills appear
   as cards and only take effect after you confirm them; you can switch it off at any time.
-- **Dreaming for Personal Agent**: a daily job consolidates logs into `MEMORY.md` /
-  `USER.md`, with `DREAMS.md` recording sources, deduplication and conflicts; only what
-  you explicitly asked it to remember is promoted automatically.
+- **Dreaming for Personal Agent**: a nightly job reads the day's conversations, checks and
+  organizes the memory wiki under `memory/` (snapshotted first, restorable), and records
+  observations, updates, merges and conflicts in `DREAMS.md`; it never edits `USER.md` or
+  `MEMORY.md` and only suggests lines for you to add there.
 
 ## 🧰 More harness capabilities
 

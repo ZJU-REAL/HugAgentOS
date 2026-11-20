@@ -14,7 +14,7 @@ import type { ChatMessage } from '../../types';
 import { isForkedHistory } from '../../utils/forkHistory';
 import { completeMessageEntrance, hasMessageEntrance } from '../../utils/messageIdentity';
 import { t } from '../../i18n';
-const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
+import { API_BASE } from '../../utils/apiBase';
 interface MessageBubbleProps {
   m: ChatMessage;
   messageIndex: number;
@@ -80,7 +80,7 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
               <FileAttachmentCard
                 key={idx}
                 name={att.name}
-                downloadHref={(att.download_url || att.file_id) ? `${effectiveApiUrl}${att.download_url || `/files/${att.file_id}`}` : undefined}
+                downloadHref={(att.download_url || att.file_id) ? `${API_BASE}${att.download_url || `/files/${att.file_id}`}` : undefined}
                 artifact={att.file_id ? {
                   file_id: att.file_id,
                   origin: att.origin,

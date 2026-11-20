@@ -10,7 +10,7 @@ await build({
   stdin: { contents: `
 import { createRoot } from 'react-dom/client';
 import { ConfigProvider } from 'antd';
-import { ChannelEntry } from './src/components/personal-agent/ChannelEntry';
+import { ChannelEntry } from './src/components/personal-agent/channels/ChannelEntry';
 import './src/styles/variables.css';
 import './src/components/personal-agent/personal-agent.css';
 createRoot(document.getElementById('root')).render(<ConfigProvider theme={{token:{motion:false}}}><ChannelEntry agentName="Hugo" /></ConfigProvider>);
@@ -22,8 +22,9 @@ const browser = await chromium.launch({ headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 1000, height: 1000 } });
   page.setDefaultTimeout(8000);
-  const bots = [], routed = new Set(), errors = [];
-  let qrAttempt = 0, testFailure = false, routeFailure = false, creates = 0;
+  // A bot created elsewhere (the settings' bot list): Hugo answers it too, with no extra step.
+  const bots = [{ channel_id: 'lark', channel_type: 'lark', display_name: 'Lark bot', enabled: true, status: 'connected' }], errors = [];
+  let qrAttempt = 0, testFailure = false, creates = 0;
   page.on('pageerror', error => errors.push(error.message));
   const origin = 'http://personal-channel.test';
   await page.route(origin + '/**', async route => {
@@ -49,13 +50,9 @@ try {
     else if (path.endsWith('/test')) {
       if (testFailure) return route.fulfill({ status: 400, json: { code: 20001, message: '凭据已过期', data: {} } });
       data = { ok: true };
-    } else if (path.endsWith('/channels')) data = bots.map(bot => ({ ...bot, personal_agent: routed.has(bot.channel_id) }));
-    else if (path.includes('/personal-agent/channels/')) {
-      if (routeFailure) { routeFailure = false; return route.fulfill({ status: 503, json: { code: 20001, message: 'Service unavailable' } }); }
-      const id = path.split('/').at(-1);
-      if (request.postDataJSON().enabled) routed.add(id); else routed.delete(id);
-      data = bots.map(bot => ({ ...bot, personal_agent: routed.has(bot.channel_id) }));
-    } else if (path.endsWith('/bind/start')) { qrAttempt++; data = { bind_id: 'qr-' + qrAttempt, qrcode_img: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aAkoAAAAASUVORK5CYII=' }; }
+    } else if (path.endsWith('/channels')) data = bots;
+    else if (path.includes('/personal-agent/channels/') && request.method() === 'PUT') throw new Error('routing step was removed');
+    else if (path.endsWith('/bind/start')) { qrAttempt++; data = { bind_id: 'qr-' + qrAttempt, qrcode_img: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aAkoAAAAASUVORK5CYII=' }; }
     else if (path.endsWith('/status')) {
       if (qrAttempt === 1) data = { status: 'expired' };
       else {
@@ -70,18 +67,17 @@ try {
   const dialog = page.getByRole('dialog');
   assert.equal(await dialog.getByText('管理全部机器人').count(), 0);
   assert.equal(await dialog.getByText(/开启后，这个机器人/).count(), 0);
+  const lark = dialog.locator('[data-channel="lark"]');
+  await lark.getByText('绑定成功', { exact: true }).waitFor();
+  assert.equal(await lark.getByRole('button', { name: /处理/ }).count(), 0, 'a bound bot needs no handover step');
   const ding = dialog.locator('[data-channel="dingtalk"]');
   await ding.getByRole('button', { name: '绑定机器人' }).click();
   await ding.getByLabel('App ID / CorpID').fill('app');
   await ding.getByLabel('App Secret / Secret').fill('secret-fixture');
   assert.equal(await dialog.getByText('我的机器人', { exact: true }).count(), 0);
-  routeFailure = true;
   await ding.getByRole('button', { name: /绑\s*定/, exact: true }).click();
-  await ding.getByRole('alert').waitFor();
-  await ding.getByRole('button', { name: /重\s*试/, exact: true }).first().click();
   await ding.getByText('绑定成功', { exact: true }).waitFor();
-  assert.equal(creates, 1, 'routing retry reuses created bot');
-  assert(routed.has('ding'));
+  assert.equal(creates, 1);
   assert.equal(await ding.locator('input').count(), 0, 'success collapses form');
 
   testFailure = true;
@@ -100,12 +96,20 @@ try {
   await page.screenshot({ path: resolve(output, 'expired.png') });
   await wx.getByRole('button', { name: /重\s*试/, exact: true }).click();
   await wx.getByText('绑定成功', { exact: true }).waitFor();
-  assert(routed.has('wx'));
   bots.find(bot => bot.channel_id === 'wx').status = 'error';
   bots.find(bot => bot.channel_id === 'wx').last_error = '微信登录已失效';
+  // Nothing polls: reopening the dialog re-checks each bot.
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('button', { name: '接入频道' }).click();
   await wx.getByText('微信登录已失效').waitFor();
   assert.equal(await wx.getByText('绑定成功').count(), 0);
+  // A failed binding shows only the error and the rebind / retry buttons.
+  assert.equal(await wx.getByText('最近私聊过机器人的账号').count(), 0, 'failed binding hides the allow list');
+  assert.equal(await wx.getByRole('alert').count(), 1, 'one error per failure');
+  await wx.getByRole('button', { name: '重新绑定' }).waitFor();
+  await wx.getByRole('button', { name: /重\s*试/, exact: true }).waitFor();
+  assert.equal(await dialog.getByText(/交给 .* 处理/).count(), 0);
   await page.screenshot({ path: resolve(output, 'connection-error.png') });
   assert.deepEqual(errors, []);
-  console.log('PASS: inline credential/QR binding, automatic Hugo routing, routing retry without duplicate creation, expired QR retry, live connection errors and removed footer');
+  console.log('PASS: inline credential/QR binding, every bound bot answered by Hugo, expired QR retry, live connection errors and removed footer');
 } finally { await browser.close(); }

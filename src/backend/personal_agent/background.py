@@ -38,7 +38,7 @@ class BackgroundServices:
         self.entries = []
 
     def start(self):
-        from personal_agent.conversation.turn_worker import loop as turn_loop
+        from personal_agent.conversation.router.scheduler import loop as turn_loop
         from personal_agent.workspace.file_memory import drain
         from personal_agent.computer.devices import announce_departures
 
@@ -196,10 +196,19 @@ class BackgroundServices:
                 select(PersonalAgent.id, PersonalAgent.sandbox_session_id, PersonalAgent.user_id)
             ).all()
             return bindings
+        from personal_agent.computer.sandbox import (
+            ProvisionInProgress, cached_computer_ids, forget_unbound_computers, get_personal_sandbox_provider,
+        )
+
+        # Snapshot before reading bindings: a computer bound after the read is not in it.
+        cached = cached_computer_ids()
         bindings = await run_in_session(_computer_bindings)
+        try:
+            await forget_unbound_computers((box for _, box, _ in bindings), cached)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Personal computer cache sweep failed: %s: %s", type(exc).__name__, exc)
         if not bindings:
             return
-        from personal_agent.computer.sandbox import ProvisionInProgress, get_personal_sandbox_provider
 
         for ident, box, uid in bindings:
             try:

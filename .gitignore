@@ -136,11 +136,6 @@ ossfs2.conf
 # claude file
 CLAUDE.md
 AGENTS.md
-# Shared sanitized instructions are versioned; private overrides/runbooks stay local.
-!/AGENTS.md
-!/ce/overlay/AGENTS.md
-/AGENTS.override.md
-/.agent-local/
 
 # images
 img/
@@ -163,10 +158,6 @@ evaluation/results/
 evaluation/data/*
 !evaluation/data/README.md
 !evaluation/data/ageval/
-
-# DBHub / ES MCP 实际连接配置（含密码/密钥，由后端面板渲染；仅 .example + .gitkeep 入库）
-docker/dbhub/dbhub.toml
-docker/dbhub/es.env
 
 license-keys/
 deploy_kit/*

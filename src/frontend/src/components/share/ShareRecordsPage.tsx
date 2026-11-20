@@ -53,7 +53,7 @@ function SiteShareSection() {
           </div>
         );
       })}
-      <div className="jx-shareSitesHint">{t('站点的可见性与删除在「实验室 → 站点」中管理')}</div>
+      <div className="jx-shareSitesHint">{t('站点的可见性与删除在「站点」页中管理')}</div>
     </div>
   );
 }
@@ -382,7 +382,7 @@ export default function ShareRecordsPage({ embedded = false, hideEmbeddedDesc = 
                     <Popover
                       trigger="click"
                       placement="bottomLeft"
-                      overlayClassName="jx-shareRecordIdPopover"
+                      classNames={{ root: "jx-shareRecordIdPopover" }}
                       content={<span className="jx-shareRecordIdValue">{record.share_id}</span>}
                     >
                       <button type="button" className="jx-shareRecordMetaBtn">

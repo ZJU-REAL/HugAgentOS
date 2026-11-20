@@ -1,6 +1,6 @@
 import { t } from '../../i18n';
 import type { KbTabKey, MySpaceTab } from '../../types';
-export interface NarrowTab {
+interface NarrowTab {
   key: string;
   label: string;
   /** 'search' 不是页面，点了唤起搜索弹窗 */

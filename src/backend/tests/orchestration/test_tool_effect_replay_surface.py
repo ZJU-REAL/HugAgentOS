@@ -2,6 +2,7 @@
 from types import SimpleNamespace
 
 import pytest
+from tests.db_support import share_factory
 
 
 @pytest.mark.asyncio
@@ -40,7 +41,7 @@ async def test_replay_uses_enabled_surface_not_turn_invocations(monkeypatch):
         made.append(kw)
         raise Built
 
-    monkeypatch.setattr("core.db.engine.SessionLocal", Db)
+    share_factory(monkeypatch, Db)
     monkeypatch.setattr("core.harness.registry.run_capabilities.has_run_capabilities", lambda: False)
     monkeypatch.setattr("core.llm.factory.create_agent_executor", create)
     intent = SimpleNamespace(

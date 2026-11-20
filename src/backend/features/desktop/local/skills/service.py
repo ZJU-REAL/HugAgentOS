@@ -1,6 +1,5 @@
 """Device-owned skill lifecycle over the capability index and immutable versions."""
 from features.desktop.capabilities import skills
-from pathlib import Path
 from sqlalchemy import update as sql_update
 from features.desktop.capabilities import registry, store, skills
 from core.capabilities.identity_rules import LOCAL_PROFILE

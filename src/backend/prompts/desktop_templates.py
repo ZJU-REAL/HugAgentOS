@@ -8,7 +8,6 @@ _override = ContextVar("desktop_prompt_version", default=None)
 
 
 def desktop_parts():
-    from core.llm import prompt_versions as pvs
     version = _override.get()
     return version.get("parts", []) if version is not None else prompt_rendering_module.effective_parts("desktop")
 

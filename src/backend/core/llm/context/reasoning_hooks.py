@@ -1,11 +1,8 @@
 """Reasoning policies consume plain snapshots and emit bounded context additions."""
+from core.harness.context_items import reminder_item
 from core.harness.hooks import Decision, FailureMode, HookSpec, HookStage
 
 
-def reminder(text, origin):
-    return dict(content=f"<system-reminder>\n{text}\n</system-reminder>",
-                kind="reminder", origin=origin, trust="system",
-                priority=850, token_budget=4000)
 
 
 class IterationBudgetHook:
@@ -39,7 +36,7 @@ class IterationBudgetHook:
                         "请停止新的探索，不要再重试已反复失败的操作，立即整合已获得的信息进行"
                         "收尾；若任务无法在剩余轮次内全部完成，优先输出已有成果与进展说明。")
             patch["context_items"] = [*invocation.data.get("context_items", ()),
-                                      reminder(text, "harness:iteration_budget")]
+                                      reminder_item(text, "harness:iteration_budget")]
         return Decision.modify(patch) if patch else Decision()
 
 

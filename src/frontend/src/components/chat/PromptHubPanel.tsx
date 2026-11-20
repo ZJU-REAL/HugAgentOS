@@ -3,37 +3,26 @@ import { CloseOutlined, SearchOutlined } from '@ant-design/icons';
 import { Input } from 'antd';
 import { useUIStore } from '../../stores';
 import { useComposerDraft } from '../../stores/composerStore';
+import { usePageConfigStore } from '../../stores/pageConfigStore';
 import { useDelayedFlag } from '../../hooks';
 import { t } from '../../i18n';
-
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || '/api';
-
-interface PromptItem {
-  title: string;
-  content: string;
-  sort_order?: number;
-}
 
 export function PromptHubPanel({ draftKey }: { draftKey: string }) {
   const { promptHubOpen, setPromptHubOpen } = useUIStore();
   const { setInput } = useComposerDraft(draftKey);
-  const [items, setItems] = useState<PromptItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  // The prompt library comes with /content/docs, which the page-config store already caches (sorted).
+  const items = usePageConfigStore((s) => s.promptHub);
+  const loaded = usePageConfigStore((s) => s.loaded);
+  const fetching = usePageConfigStore((s) => s.fetching);
+  const loading = !loaded && fetching;
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<number | null>(null);
 
+  // Opened before the docs arrived (or after that request failed): ask once more.
   useEffect(() => {
     if (!promptHubOpen) return;
-    setLoading(true);
-    fetch(`${API_BASE}/v1/content/docs`)
-      .then((r) => r.json())
-      .then((res) => {
-        const list: PromptItem[] = res?.data?.prompt_hub || [];
-        list.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-        setItems(list);
-      })
-      .catch(() => setItems([]))
-      .finally(() => setLoading(false));
+    const store = usePageConfigStore.getState();
+    if (!store.loaded && !store.fetching) void store.fetchConfig();
   }, [promptHubOpen]);
 
   const showSkeleton = useDelayedFlag(loading);

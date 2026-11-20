@@ -205,14 +205,11 @@
   /* ── Motion: stagger 编排基数 ── */
   --motion-stagger-step:60ms;
 
-  /* ── Legacy aliases (backward compat, will phase out) ── */
-  --bg:#FFFFFF;
-  --text:#262626;
+  /* ── Legacy aliases (will phase out) ──
+     Only the three without an exact semantic token remain (used by mcp.css, chat/message-*.css);
+     move those rules onto --color-text-secondary / --color-border / --shadow-* and delete these. */
   --muted:rgba(38,38,38,.66);
   --border:rgba(227,230,234,1);
-  --primary:#126DFF;
-  --primary2:#3C87FF;
-  --accent:#0862F3;
   --shadow1:0 10px 30px rgba(18,109,255,0.10);
 }
 
@@ -346,14 +343,9 @@
     0 2px 8px rgba(0,0,0,.45),
     0 20px 48px rgba(0,0,0,.55);
 
-  /* Legacy aliases：引用同块语义令牌，调色板改动自动跟随 */
-  --bg:var(--color-bg-container);
-  --text:var(--color-text);
+  /* Legacy aliases（见浅色块说明） */
   --muted:rgba(232,236,244,.62);
   --border:var(--color-border);
-  --primary:var(--color-primary);
-  --primary2:var(--color-primary-hover);
-  --accent:var(--color-primary-active);
   --shadow1:0 10px 30px rgba(0,0,0,.35);
 }
 

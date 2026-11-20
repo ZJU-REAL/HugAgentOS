@@ -179,13 +179,3 @@ def skill_version(content, version):
     front = content[4:end]
     front = re.sub(r"^version:.*(?:\n|$)", "", front, flags=re.M)
     return "---\n" + front.rstrip() + "\nversion: " + version + content[end:]
-
-
-def diff_files(before, after):
-    return {
-        "added": sorted(after.keys() - before.keys()),
-        "modified": sorted(
-            name for name in before.keys() & after.keys() if before[name] != after[name]
-        ),
-        "deleted": sorted(before.keys() - after.keys()),
-    }

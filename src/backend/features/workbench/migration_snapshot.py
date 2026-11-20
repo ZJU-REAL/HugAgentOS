@@ -14,7 +14,7 @@ from core.db.models import (
     InstalledPlugin,
     UserShadow,
 )
-from sqlalchemy import inspect, or_
+from sqlalchemy import or_
 
 RECEIPT = "workbench_migration:v1"
 

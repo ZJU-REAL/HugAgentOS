@@ -7,7 +7,8 @@ from core.db.engine import Base
 from core.db.models import ChatSession, UserShadow
 from core.sandbox.commands import store
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker  # noqa: F401 (re-exported to tests)
+from tests.db_support import session_factory
 
 
 @pytest.fixture
@@ -15,7 +16,7 @@ async def command_tool_state(tmp_path, monkeypatch):
     engine = create_engine("sqlite:///" + str(tmp_path / "tool-commands.db"),
         connect_args={"check_same_thread":False})
     Base.metadata.create_all(engine)
-    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    factory = session_factory(engine)
     with factory() as db:
         for user in ("user-1", "pin-user"):
             db.add(UserShadow(user_id=user, username=user))

@@ -65,7 +65,7 @@ def _delete_old_avatar_storage(meta: dict) -> None:
 def get_current_user_info(
     user: UserContext = Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    """获取当前登录用户的账号与个人资料。"""
+    """获取当前登录用户的账号、个人资料与生效权限（allowed_apps、can_* 权限位等，与 /v1/auth/session/check 一致）。"""
     user_repo = UserRepository(db)
     user_shadow = user_repo.get_by_id(user.user_id)
 
@@ -99,6 +99,12 @@ def get_current_user_info(
     from core.auth.edition import extend_current_account
 
     data = extend_current_account(db, str(user.user_id), data)
+
+    from core.auth.capabilities import account_capability_payload
+
+    # Effective permissions (same fields as /v1/auth/session/check), so API-key
+    # callers without a session cookie can read them too.
+    data.update(account_capability_payload(db, str(user.user_id)))
 
     return success_response(data=data, message="User information retrieved successfully")
 

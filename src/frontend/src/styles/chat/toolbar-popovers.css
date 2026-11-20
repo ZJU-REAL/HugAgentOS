@@ -312,12 +312,6 @@
   color:color-mix(in srgb, var(--color-text) 45%, transparent);
 }
 
-/* legacy compat */
-
-.jx-uploadBtn{ display:none; }
-
-.jx-modeDropBtnArrow{ display:none; }
-
 @media (max-width: 640px){
   .jx-sendIcon{ width:30px; height:30px; }
 }

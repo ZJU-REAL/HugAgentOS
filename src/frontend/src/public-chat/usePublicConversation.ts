@@ -51,7 +51,8 @@ export function usePublicConversation(info: PublicChatInfo) {
       setLoading(false); setError('');
       return;
     }
-    if (hydrated.current.has(targetId) && retry === 0) { st.adoptChatFromUrl(targetId); setLoading(false); setError(''); return; }
+    // A chat evicted from memory (see chatMemoryEviction) drops its loaded mark and must reload.
+    if (hydrated.current.has(targetId) && retry === 0 && st.loadedMsgIds.has(targetId)) { st.adoptChatFromUrl(targetId); setLoading(false); setError(''); return; }
     setLoading(true); setError('');
     void (async () => {
       // Never display cached messages before checking this visitor's access.

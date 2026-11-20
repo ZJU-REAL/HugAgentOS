@@ -6,6 +6,7 @@ from core.db.models import Project, UserShadow
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from tests.db_support import share_session
+from tests.db_support import share_factory
 
 
 def test_environment_endpoint_enforces_project_permissions_and_empty_custom(
@@ -15,7 +16,7 @@ def test_environment_endpoint_enforces_project_permissions_and_empty_custom(
     from core.db import engine
     from sqlalchemy.orm import sessionmaker
 
-    monkeypatch.setattr(engine, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
+    share_factory(monkeypatch, sessionmaker(bind=db_session.get_bind()))
     monkeypatch.setattr(loader_factory_module, 'global_loader', None)
     db_session.add_all(
         [

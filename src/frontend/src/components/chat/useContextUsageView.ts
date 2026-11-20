@@ -8,7 +8,7 @@ import {
   type ContextBreakdown,
 } from '../../utils/contextUsage';
 
-export type ContextLevel = 'ok' | 'warn' | 'high';
+type ContextLevel = 'ok' | 'warn' | 'high';
 
 export function levelOf(ratio: number): ContextLevel {
   if (ratio >= 0.85) return 'high';

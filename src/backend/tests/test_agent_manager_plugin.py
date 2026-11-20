@@ -20,10 +20,10 @@ from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 import core.db.engine as dbe
 from core.db.models import AdminMcpServer, AdminSkill, InstalledPlugin, UserAgent
+from tests.db_support import session_factory, share_factory
 
 OWNER = "am_test_user"
 OTHER = "am_other_user"
@@ -36,9 +36,9 @@ def am_env(tmp_path, monkeypatch):
     url = f"sqlite:///{tmp_path}/am.db"
     engine = create_engine(url)
     dbe.Base.metadata.create_all(engine)
-    TestSession = sessionmaker(bind=engine, expire_on_commit=False)
+    TestSession = session_factory(engine)
     # impl lazily reads the attribute via `from core.db.engine import SessionLocal` → patching here suffices
-    monkeypatch.setattr(dbe, "SessionLocal", TestSession)
+    share_factory(monkeypatch, TestSession)
 
     import core.auth.capabilities as caps
 

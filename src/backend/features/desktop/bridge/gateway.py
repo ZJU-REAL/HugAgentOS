@@ -1,4 +1,4 @@
-"""gateway responsibilities."""
+"""Desktop bridge MCP routing: builds local and cloud-gateway MCP configs and applies the bridge to enabled MCP/skill ids."""
 from __future__ import annotations
 from features.desktop.bridge import client as bridge_client
 from typing import Any, Dict, List, Optional, Set
@@ -18,7 +18,6 @@ def bridge_context() -> Optional[Dict[str, Any]]:
     server 列表按 (账号, 清单 revision, 停用集合) 记忆化；``state`` 每次现取，
     因为它携带轮换中的 token。
     """
-    pass  # State is owned by its responsibility module.
     if not bridge_auth.bridge_enabled():
         return None
     st = bridge_identity.get_state()

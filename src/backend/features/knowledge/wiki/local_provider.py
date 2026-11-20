@@ -1,4 +1,4 @@
-"""local provider responsibilities."""
+"""Local wiki read provider: stats, page listing, folders, index, search, page reading and source chunks."""
 from __future__ import annotations
 import re
 from typing import Any, Dict, List
@@ -11,6 +11,7 @@ from sqlalchemy import func, or_
 from features.knowledge.wiki import local_graph
 from features.knowledge.wiki import local_projection
 from features.knowledge.wiki import local_provider_state
+from core.db.paging import apply_page
 
 def wiki_stats(kb_id: str) -> Dict[str, Any]:
     """规模统计：总页数、分类型页数、链接数、孤儿页数。
@@ -72,10 +73,7 @@ def wiki_list_pages(
 
         total = query.count()
         rows = (
-            query.order_by(KBWikiPage.sort_order, KBWikiPage.title)
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-            .all()
+            apply_page(query.order_by(KBWikiPage.sort_order, KBWikiPage.title), page=page, page_size=page_size).all()
         )
         return {
             "pages": [local_projection.slim_page(row) for row in rows],

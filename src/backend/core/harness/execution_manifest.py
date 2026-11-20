@@ -306,18 +306,6 @@ class PromptManifestBuilder:
         self._prompt_contents.append(text)
         return section
 
-    def add_prompt_section_record(
-        self, record: PromptSectionManifest | Mapping[str, Any]
-    ) -> None:
-        """Replay a cache-safe record without needing the original plaintext."""
-        if not isinstance(record, PromptSectionManifest):
-            record = PromptSectionManifest.from_dict(record)
-        if record.id and record.content_hash:
-            self._prompt_sections.append(record)
-            self._prompt_contents.append("")
-
-    def prompt_section_records(self) -> Tuple[PromptSectionManifest, ...]:
-        return tuple(self._prompt_sections)
 
     def prompt_section_sources(self) -> Tuple[Tuple[PromptSectionManifest, str], ...]:
         """Expose live sources to request assembly without persisting plaintext."""
