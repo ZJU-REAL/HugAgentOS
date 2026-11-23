@@ -41,9 +41,6 @@ class BrandingSettings:
         default_factory=lambda: _env("BRAND_PRODUCT_NAME", "智能体平台").strip()
     )
     org_name: str = field(default_factory=lambda: _env("BRAND_ORG_NAME", "").strip())
-    powered_by_visible: bool = field(
-        default_factory=lambda: _bool(_env("BRAND_POWERED_BY", "true"))
-    )
 
 @dataclass(frozen=True)
 class DeploySettings:

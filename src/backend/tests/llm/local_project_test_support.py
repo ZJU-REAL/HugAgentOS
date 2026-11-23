@@ -16,6 +16,7 @@ from core.llm.factory.tools.definitions import ToolAssembly
 from core.llm.tools.pin_tool import register_pin_to_workspace
 
 from core.projects.edition import ProjectScope
+from tests.db_support import share_factory
 
 
 @pytest.fixture
@@ -30,7 +31,7 @@ def local_project(tmp_path, db_session, monkeypatch):
     from core.files.artifacts import store
 
     monkeypatch.setattr(store, "_STORE_DIR", tmp_path / "artifacts")
-    monkeypatch.setattr("core.db.engine.SessionLocal", sessionmaker(bind=db_session.get_bind()))
+    share_factory(monkeypatch, sessionmaker(bind=db_session.get_bind()))
     root = tmp_path / "project"
     root.mkdir()
     monkeypatch.setenv("HUGAGENT_HOME", str(tmp_path / "home"))

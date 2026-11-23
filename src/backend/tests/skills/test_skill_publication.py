@@ -228,7 +228,7 @@ def test_new_mounts_exclude_deleted_global_private_and_historical_dirs(cloud, mo
     assert all(volume.read_only for volume in volumes)
     by_mount = {v.mount_path: Path(v.host.path) for v in volumes}
     assert {p.name for p in by_mount["/workspace/skills"].iterdir()} == {"shared"}
-    assert {p.name for p in by_mount["/workspace/skills_shared"].iterdir()} == {"shared"}
+    assert {p.name for p in by_mount["/workspace/.skills_shared"].iterdir()} == {"shared"}
     assert (by_mount["/workspace/skills"] / "shared/x.txt").read_text() == "public"
 
 
@@ -403,7 +403,6 @@ async def test_prewarmed_session_delivery_reconciles_before_pool_hit(cloud, monk
     module_class = sessions._OpenSandboxLifecycleMixin
     fake = SimpleNamespace(
         _lookup_snapshot=AsyncMock(return_value=None),
-        _jupyter_user_pool=SimpleNamespace(has_idle=lambda user: True),
         _create_session=AsyncMock(
             return_value=SimpleNamespace(sandbox=SimpleNamespace(id="pooled"))
         ),

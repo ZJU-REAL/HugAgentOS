@@ -158,16 +158,6 @@ class _JupyterUserPool:
         if should_destroy is not None and destroy and (can_destroy is None or can_destroy()):
             await self._safe_destroy(should_destroy)
 
-    def has_idle(self, user_id: str) -> bool:
-        """Plan F Q2: non-blocking probe — does this user have an idle sandbox to take.
-
-        ``_create_session_for`` uses this to decide between the idle-pool warm path and
-        snapshot restore — an idle hit is significantly faster. No lock: an occasional
-        race (seen available but snatched away at acquire) naturally degrades to fresh
-        create, no correctness issue.
-        """
-        q = self._idle.get(user_id)
-        return bool(q)
 
     async def adopt(self, user_id: str, sbx: Any) -> bool:
         """For the backend-restart adopt path: put a live sandbox back into this user's idle.

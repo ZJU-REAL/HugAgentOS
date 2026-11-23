@@ -139,7 +139,7 @@ def test_dingtalk_status_env_does_not_import_ee_sandbox_module(monkeypatch, tmp_
     assert env["DWS_TRUSTED_DOMAINS"] == "*.dingtalk.com"
 
 
-def test_ce_ignores_stale_database_query_builtin(db_session, monkeypatch):
+def test_ce_ignores_stale_query_database_builtin(db_session, monkeypatch):
     from core.capabilities.catalog.runtime import get_runtime_catalog, invalidate_runtime_catalog_cache
     from core.db.models import AdminMcpServer
     from core.capabilities.mcp import service as mcp_service
@@ -176,7 +176,6 @@ def test_ce_ignores_stale_database_query_builtin(db_session, monkeypatch):
     invalidate_runtime_catalog_cache()
     catalog = get_runtime_catalog(db_session)
     catalog_mcp_ids = {item["id"] for item in catalog["mcp"]}
-    assert "database_query" not in catalog_mcp_ids
     assert "query_database" not in catalog_mcp_ids
     assert "custom_remote_mcp" in catalog_mcp_ids
 

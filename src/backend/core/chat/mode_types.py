@@ -6,7 +6,7 @@ from core.db.models.chat_mode import TOOL_SCOPE_ALL, TOOL_SCOPE_RESTRICTED
 
 @dataclass(frozen=True)
 class ChatModeSpec:
-    """运行时装配契约——``agent_factory`` 只认这个，不认数据库行。"""
+    """运行时装配契约——``core.llm.factory`` 只认这个，不认数据库行。"""
 
     slug: str
     name: str

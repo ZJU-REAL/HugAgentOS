@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from core.db import engine, threads
+from tests.db_support import share_factory
 
 
 def test_pool_is_one_connection_per_thread_that_can_use_it(monkeypatch):
@@ -87,7 +88,7 @@ async def test_run_db_and_run_in_session_leave_the_event_loop(monkeypatch):
     database = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
-    monkeypatch.setattr(engine, "SessionLocal", sessionmaker(bind=database))
+    share_factory(monkeypatch, sessionmaker(bind=database))
     loop_thread = threading.get_ident()
     seen = {}
 
@@ -107,7 +108,7 @@ async def test_run_in_session_closes_the_session_when_the_step_fails(monkeypatch
     database = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
-    monkeypatch.setattr(engine, "SessionLocal", sessionmaker(bind=database))
+    share_factory(monkeypatch, sessionmaker(bind=database))
     sessions = []
 
     def fail(db):

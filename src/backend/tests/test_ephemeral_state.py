@@ -17,6 +17,13 @@ import fakeredis.aioredis
 import pytest
 
 from core.infra.ephemeral import LocalEphemeralState, RedisEphemeralState
+from tests.clock_support import FAKEREDIS_CLOCK_MODULE, FakeClock
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    """Both backends judge TTLs by this clock, so a lapse needs no real wait."""
+    return FakeClock().install(monkeypatch, "core.infra.ephemeral", FAKEREDIS_CLOCK_MODULE)
 
 
 @pytest.fixture(params=["local", "redis"])
@@ -52,10 +59,10 @@ async def test_hold_refuses_a_mutex_another_token_owns(state):
 
 
 @pytest.mark.asyncio
-async def test_hold_moves_the_mutex_once_it_lapses(state):
+async def test_hold_moves_the_mutex_once_it_lapses(state, clock):
     """A leader that stops renewing hands its role to the next process."""
     await state.hold("role", "worker-a", ttl=1)
-    await asyncio.sleep(1.05)
+    clock.advance(1.05)
 
     assert await state.hold("role", "worker-b", ttl=60) is True
     assert await state.hold("role", "worker-a", ttl=60) is False
@@ -100,11 +107,11 @@ async def test_claim_is_exclusive_until_dropped(state):
 
 
 @pytest.mark.asyncio
-async def test_entries_expire_and_release_their_mutex(state):
+async def test_entries_expire_and_release_their_mutex(state, clock):
     """A lapsed lock must become claimable again, or a crashed holder wedges it."""
     await state.put("short", "x", ttl=1)
     assert await state.claim("held", ttl=1) is True
-    await asyncio.sleep(1.1)
+    clock.advance(1.1)
     assert await state.get("short") is None
     assert await state.claim("held", ttl=60) is True
 

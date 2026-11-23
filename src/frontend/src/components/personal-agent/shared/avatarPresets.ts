@@ -10,7 +10,7 @@ export const AVATAR_PRESETS = [
   { id: 'leaf', glyph: '🍃', tint: 'green' },
 ] as const;
 
-export type AvatarPreset = (typeof AVATAR_PRESETS)[number];
+type AvatarPreset = (typeof AVATAR_PRESETS)[number];
 
 /** Default name, after HugAgentOS. Users rename it in settings or by asking the agent. */
 export const DEFAULT_AGENT_NAME = 'Hugo';

@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 from core.db.models import Artifact, ChatSession
 from core.db.paging import DEFAULT_PAGE_SIZE, apply_page
 from sqlalchemy import desc, func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 #: Frontend counterpart constant: src/frontend/src/utils/constants.ts:ROOT_FOLDER_SENTINEL.
 ROOT_FOLDER_SENTINEL = "__root__"
@@ -111,6 +111,7 @@ class ArtifactRepository:
         """
         query = (
             self.db.query(Artifact, ChatSession.title.label("chat_title"))
+            .options(defer(Artifact.parsed_text))
             .outerjoin(ChatSession, Artifact.chat_id == ChatSession.chat_id)
             .filter(
                 Artifact.user_id == user_id,

@@ -2,91 +2,11 @@
 from __future__ import annotations
 from core.models.constants import PROVIDER_CONTEXT_META_KEY
 from typing import Any, Iterable, Mapping, Sequence
-from agentscope.message import Msg
 from core.infra.immutable import thaw_json
 from core.harness.execution_manifest import stable_hash
-from core.llm.context.ir_constants import CONTEXT_SEQUENCE_STRIDE, KIND_ASSISTANT, KIND_ATTACHMENT, KIND_SYSTEM_RULE, KIND_TOOL_CALL, KIND_TOOL_RESULT, KIND_USER_INPUT, POLICY_NEVER, VISIBILITY_MODEL
+from core.llm.context.ir_constants import CONTEXT_SEQUENCE_STRIDE, KIND_ASSISTANT, KIND_SYSTEM_RULE, KIND_TOOL_CALL, KIND_TOOL_RESULT, KIND_USER_INPUT, POLICY_NEVER, VISIBILITY_MODEL
 from core.llm.context.items import ContextItem
 from core.llm.context.content import estimate_context_tokens
-
-def annotate_provider_messages(
-    self,
-    source_messages: Sequence[Msg],
-    formatted_messages: Sequence[Mapping[str, Any]],
-    row_counts: Sequence[int],
-) -> list[dict[str, Any]]:
-    """Carry canonical provenance across an SDK formatter boundary.
-
-    AgentScope's OpenAI formatter intentionally drops arbitrary message
-    metadata and may expand one tool-result message into a tool row plus a
-    synthetic media row.  ``row_counts`` is obtained by formatting each
-    source message in isolation after a provider has rejected media.  This
-    lets the retry inherit the original IR provenance without guessing it
-    from compatibility roles or XML-like text.
-    """
-    annotated = [dict(message) for message in formatted_messages]
-    cursor = 0
-    for source, count in zip(source_messages, row_counts):
-        entries = self._metadata_entries(source)
-        source_rows = annotated[cursor : cursor + max(0, int(count))]
-        cursor += max(0, int(count))
-        if not entries:
-            continue
-
-        def pick(kind: str) -> Mapping[str, Any]:
-            match = next((entry for entry in entries if entry.get("kind") == kind), None)
-            if match is not None:
-                return match
-            user = next(
-                (entry for entry in entries if entry.get("kind") == KIND_USER_INPUT),
-                None,
-            )
-            return user or entries[0]
-
-        for row in source_rows:
-            role = str(row.get("role") or "user")
-            name = str(row.get("name") or role)
-            if name == "system-reminder":
-                base = pick(KIND_TOOL_RESULT)
-                metadata = {
-                    "kind": KIND_ATTACHMENT,
-                    "origin": f"{base.get('origin') or 'tool:result'}:media",
-                    "trust": str(base.get("trust") or "tool"),
-                    "priority": int(base.get("priority") or 700),
-                }
-            elif role == "tool":
-                base = pick(KIND_TOOL_RESULT)
-                metadata = {
-                    "kind": KIND_TOOL_RESULT,
-                    "origin": str(base.get("origin") or "tool:result"),
-                    "trust": str(base.get("trust") or "tool"),
-                    "priority": int(base.get("priority") or 700),
-                }
-            elif role == "assistant" and row.get("tool_calls"):
-                base = pick(KIND_TOOL_CALL)
-                metadata = {
-                    "kind": KIND_TOOL_CALL,
-                    "origin": str(base.get("origin") or "agent:tool_call"),
-                    "trust": str(base.get("trust") or "assistant"),
-                    "priority": int(base.get("priority") or 700),
-                }
-            else:
-                base = pick("")
-                metadata = {
-                    key: base[key]
-                    for key in ("kind", "origin", "trust", "priority")
-                    if base.get(key) is not None
-                }
-            row[PROVIDER_CONTEXT_META_KEY] = metadata
-    if cursor != len(annotated):
-        # A formatter shape change must fail visibly rather than silently
-        # assigning later rows the wrong trust boundary.
-        raise ValueError(
-            "provider formatter row mapping mismatch: "
-            f"mapped={cursor} formatted={len(annotated)}"
-        )
-    return annotated
-
 
 def items_from_provider_messages(
     self,

@@ -171,7 +171,12 @@ def test_deleted_documents_are_never_claimed(db):
     db.commit()
 
     assert index_queue.claim_next(db, "w") is None
-    assert index_queue.queue_depth(db) == 0
+    queued = (
+        db.query(KBDocument)
+        .filter(KBDocument.indexing_status == index_queue.STATUS_QUEUED, KBDocument.deleted_at.is_(None))
+        .count()
+    )
+    assert queued == 0
 
 
 def test_pending_document_ids_covers_both_queued_and_running(db):

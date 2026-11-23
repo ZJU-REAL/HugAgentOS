@@ -27,7 +27,6 @@
   line-height: inherit;
 }
 
-
 .jx-mcp-title {
   font-size: 20px;
   font-weight: 500;
@@ -146,7 +145,7 @@
 }
 
 .jx-mcp-marketCard:hover {
-  border-color: var(--primary);
+  border-color: var(--color-primary);
   box-shadow: var(--shadow1);
 }
 
@@ -158,8 +157,8 @@
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--bg, var(--color-bg-layout));
-  color: var(--primary);
+  background: var(--color-bg-container);
+  color: var(--color-primary);
   font-size: 20px;
 }
 
@@ -227,7 +226,7 @@
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--bg, var(--color-bg-layout));
+  background: var(--color-bg-container);
 }
 
 .jx-mcp-marketTool .ant-typography {
@@ -333,11 +332,6 @@
 
 /* ── Detail view ────────────────────────────────────────────────── */
 
-.jx-mcp-detailTop {
-  display: flex;
-  align-items: flex-start;
-}
-
 .jx-mcp-backBtn {
   appearance: none;
   border: none;
@@ -358,49 +352,6 @@
   color: var(--color-text);
 }
 
-.jx-mcp-detailContent {
-  flex: 1;
-  min-width: 0;
-  max-width: 840px;
-}
-
-.jx-mcp-detailHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-}
-
-.jx-mcp-detailHeaderLeft {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  min-width: 0;
-}
-
-.jx-mcp-detailHeaderLeft .jx-mcp-iconWrap {
-  width: 44px;
-  height: 44px;
-  border-radius: 8px;
-  margin-top: 2px;
-}
-
-.jx-mcp-detailHeaderLeft .jx-mcp-iconImg {
-  width: 36px;
-  height: 36px;
-}
-
-.jx-mcp-detailNameGroup {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.jx-mcp-detailNameRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .jx-mcp-detailName {
   font-size: 20px;
   font-weight: 500;
@@ -413,75 +364,15 @@
   font-weight: 400;
 }
 
-.jx-mcp-detailHeaderRight {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-  margin-top: 6px;
-}
-
 .jx-mcp-enableLabel {
   font-size: 14px;
   color: var(--color-text);
-}
-
-.jx-mcp-divider {
-  border: none;
-  border-top: 1px solid var(--color-border);
-  margin: 20px 0;
-}
-
-/* ── Explain card ───────────────────────────────────────────────── */
-
-.jx-mcp-explainCard {
-  background: var(--color-bg-gray);
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  padding: 20px;
-  margin-bottom: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.jx-mcp-explainRow {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.jx-mcp-explainLabel {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--color-text);
-}
-
-.jx-mcp-explainValue {
-  font-size: 14px;
-  color: var(--color-text);
-  font-weight: 400;
-  line-height: 1.5;
 }
 
 /* ── Detail body ────────────────────────────────────────────────── */
 
 .jx-mcp-detailBody {
   line-height: 1.75;
-}
-
-.jx-mcp-bodyTitle {
-  font-size: 16px;
-  font-weight: 500;
-  color: var(--color-text);
-  margin: 0 0 8px;
-}
-
-.jx-mcp-bodyDesc {
-  font-size: 14px;
-  color: var(--color-text-secondary);
-  line-height: 1.75;
-  margin: 0 0 20px;
 }
 
 .jx-mcp-detailMarkdown {
@@ -502,17 +393,6 @@
 .jx-mcp-detailBody .jx-md ol { margin: 8px 0; padding-left: 24px; }
 .jx-mcp-detailBody .jx-md li { line-height: 2; color: var(--color-text-secondary); }
 .jx-mcp-detailBody .jx-md li + li { margin-top: 2px; }
-
-.jx-mcp-toolsList {
-  margin: 8px 0 20px;
-  padding-left: 24px;
-}
-
-.jx-mcp-toolsList li {
-  font-size: 14px;
-  color: var(--color-text-secondary);
-  line-height: 2;
-}
 
 /* ── MCP detail page: sticky header + scrollable body ──────────── */
 

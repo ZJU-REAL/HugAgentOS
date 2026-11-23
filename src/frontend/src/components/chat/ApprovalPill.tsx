@@ -136,7 +136,7 @@ export default function ApprovalPill() {
         disabled={saving}
         trigger={['click']}
         placement="topLeft"
-        overlayClassName="jx-modeMenu jx-approvalMenu"
+        classNames={{ root: "jx-modeMenu jx-approvalMenu" }}
         onOpenChange={setApprovalOpen}
         menu={{ items }}
       >

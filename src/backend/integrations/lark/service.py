@@ -1,4 +1,4 @@
-"""Lark service responsibilities."""
+"""Lark connection service: status, app setup, per-user device login and disconnect."""
 from __future__ import annotations
 from core.infra.time import utc_now
 import asyncio
@@ -155,7 +155,6 @@ class LarkService:
 
     async def start_app_init(self) -> Dict[str, Any]:
         """Initiate ``config init --new``: run in the background and echo the configuration QR code for the admin to scan. If already configured, report back directly."""
-        pass  # Shared task state is owned by the state module.
         if lark_configuration.app_configured():
             return lark_configuration.app_status_dict()
         if lark_state.APP_INIT_TASK is not None and not lark_state.APP_INIT_TASK.done():
@@ -172,16 +171,13 @@ class LarkService:
 
     async def reset_app(self) -> Dict[str, Any]:
         """Clear the shared app base (for re-initialization). Does not touch users' existing login tokens."""
-        pass  # Shared task state is owned by the state module.
         if lark_state.APP_INIT_TASK is not None and not lark_state.APP_INIT_TASK.done():
             lark_state.APP_INIT_TASK.cancel()
             lark_state.APP_INIT_TASK = None
         try:
-            import shutil
-
             from integrations.lark.storage import lark_app_home_dir
 
-            shutil.rmtree(lark_app_home_dir(), ignore_errors=True)
+            await asyncio.to_thread(shutil.rmtree, lark_app_home_dir(), ignore_errors=True)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[lark] reset app home failed: %s", exc)
         lark_state.app_init_state.update({"status": "idle", "verification_url": None,

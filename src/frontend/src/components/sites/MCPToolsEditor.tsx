@@ -20,9 +20,9 @@ export function MCPToolsEditor({ app, busy, onClose, onSave }: {
     return { name: '', description: '', table, fields: app.tables[table]?.columns.filter((column) => isMcpField(column.name)).map((column) => column.name) || [], filters: [] };
   };
   return <Modal open width={680} title={t('定义 MCP 工具')} okText={t('保存')} cancelText={t('取消')}
-    confirmLoading={busy} closable={!busy} maskClosable={!busy} cancelButtonProps={{ disabled: busy }}
+    confirmLoading={busy} closable={!busy} mask={{ closable: !busy }} cancelButtonProps={{ disabled: busy }}
     onCancel={onClose} onOk={() => form.submit()} wrapClassName="jx-sites-manageModal">
-    <Alert type="info" showIcon message={t('MCP 只提供已定义字段的查询；凭据更新后旧凭据立即失效')} />
+    <Alert type="info" showIcon title={t('MCP 只提供已定义字段的查询；凭据更新后旧凭据立即失效')} />
     <Form form={form} name="mcp-tools" layout="vertical" disabled={busy}
       initialValues={{ tools: app.tools.length ? app.tools : [newTool()] }}
       onFinish={(values) => void onSave(values.tools)}>

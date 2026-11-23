@@ -1,7 +1,7 @@
 // Shared motion variants —— aligned with the CSS primitives in styles/motion.css.
 // Use these when you need exit animations / orchestration (stagger); for one-way entrance prefer the CSS primitive classes.
 import type { Variants } from 'motion/react';
-import { DUR, EASE, STAGGER_STEP } from './motionTokens';
+import { DUR, EASE } from './motionTokens';
 
 export const fadeInUp: Variants = {
   hidden: { opacity: 0, y: 8 },
@@ -13,10 +13,6 @@ export const scaleIn: Variants = {
   hidden: { opacity: 0, y: 6, scale: 0.97 },
   visible: { opacity: 1, y: 0, scale: 1, transition: { duration: DUR.fast, ease: EASE.brandOut } },
   exit: { opacity: 0, y: 4, scale: 0.97, transition: { duration: DUR.fast, ease: EASE.exit } },
-};
-
-export const staggerContainer: Variants = {
-  visible: { transition: { staggerChildren: STAGGER_STEP, delayChildren: 0.05 } },
 };
 
 /** List→detail drill-down transition: forward enters from the right / back enters from the left.

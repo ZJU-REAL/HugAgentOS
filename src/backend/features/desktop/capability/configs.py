@@ -18,6 +18,17 @@ _effective_cache: Dict[str, Tuple[float, List[str], List[str], Dict[str, dict]]]
 _effective_lock = threading.Lock()
 
 
+def _ttl_put(cache: dict, key, entry: tuple, now: float) -> None:
+    """Store ``entry`` (whose first item is its timestamp) and drop expired entries.
+
+    Call with ``_effective_lock`` held. Expiry is otherwise only checked on read,
+    so without this sweep entries of users who stop calling would stay forever.
+    """
+    for stale in [k for k, v in cache.items() if (now - v[0]) >= _EFFECTIVE_TTL_S]:
+        del cache[stale]
+    cache[key] = entry
+
+
 def _user_capability_configs(
     user_id: str, *, use_cache: bool = True
 ) -> Tuple[List[str], List[str], Dict[str, dict]]:
@@ -58,5 +69,5 @@ def _user_capability_configs(
     )
 
     with _effective_lock:
-        _effective_cache[uid] = (now, list(available), list(enabled), dict(all_cfgs))
+        _ttl_put(_effective_cache, uid, (now, list(available), list(enabled), dict(all_cfgs)), now)
     return available, enabled, all_cfgs

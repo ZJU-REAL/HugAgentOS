@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import { SPRING, staggerStyle } from '../../utils/motionTokens';
 import { useUIStore } from '../../stores';
+import { t } from '../../i18n';
 import type { UpdateFilter } from '../../stores/uiStore';
 
 export default function DocsPanel() {
@@ -33,7 +34,7 @@ export default function DocsPanel() {
                   aria-hidden="true"
                 />
               )}
-              <span className="jx-updateFilterLabel">{f}</span>
+              <span className="jx-updateFilterLabel">{t(f)}</span>
             </button>
           ))}
         </div>

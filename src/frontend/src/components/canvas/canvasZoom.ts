@@ -3,11 +3,11 @@ import { create } from 'zustand';
 import { useCanvasPane } from './useCanvasPane';
 
 /** 'fit' = scale content to the pane width; a number is an absolute scale (1 = 100%). */
-export type CanvasZoom = 'fit' | number;
+type CanvasZoom = 'fit' | number;
 
-export const CANVAS_ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 3, 4] as const;
-export const CANVAS_ZOOM_MIN = CANVAS_ZOOM_STEPS[0];
-export const CANVAS_ZOOM_MAX = CANVAS_ZOOM_STEPS[CANVAS_ZOOM_STEPS.length - 1];
+const CANVAS_ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 3, 4] as const;
+const CANVAS_ZOOM_MIN = CANVAS_ZOOM_STEPS[0];
+const CANVAS_ZOOM_MAX = CANVAS_ZOOM_STEPS[CANVAS_ZOOM_STEPS.length - 1];
 
 interface CanvasZoomState {
   zoomByTab: Record<string, CanvasZoom>;

@@ -1,5 +1,7 @@
 # Style Guide
 
+> **HugAgentOS 版本说明**：上游的 `verify-*.py` / `test-verify-*.py` / `lint-*.py` / `build-*-examples.py` 等维护脚本没有随技能导入，文中要求运行它们的步骤在本版本不可用；安装版只提供 `{baseDir}/scripts/self_check.py`、`export_*.py` 与 `*_extract.py`，需要自检时改用 `self_check.py` 并按文中的检查项人工核对。
+
 **The single source of truth for colors, typography, and tokens.** Every diagram draws from this — not from hex values inlined in other reference files. If you want to change the visual skin of Diagram Design, change this file.
 
 Default skin is a cool editorial palette — white-smoke paper, jet-black ink, burnt-tangerine accent, blue-slate muted. It's designed to look good out of the box; swap these values (or run [`onboarding.md`](onboarding.md)) and every new diagram inherits the new skin without touching any type-specific logic.

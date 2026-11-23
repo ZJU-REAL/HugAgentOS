@@ -13,6 +13,7 @@ from prompts.prompt_config import PromptConfig, SystemPromptConfig
 from prompts import prompt_runtime
 from prompts import project_section
 from core.harness.execution_manifest import PromptManifestBuilder
+from tests.db_support import share_factory
 
 
 @pytest.fixture(autouse=True)
@@ -23,7 +24,7 @@ def isolated_prompt_database(monkeypatch):
     AdminPromptPart.__table__.create(engine)
     sessions = sessionmaker(bind=engine)
     monkeypatch.setattr(pvs, "SessionLocal", sessions)
-    monkeypatch.setattr(db_engine, "SessionLocal", sessions)
+    share_factory(monkeypatch, sessions)
     prompt_runtime.invalidate_prompt_cache()
     yield
     prompt_runtime.invalidate_prompt_cache()

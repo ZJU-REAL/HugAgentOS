@@ -1,5 +1,5 @@
 import type { ChannelConversation } from '../../api';
-import { t } from '../../i18n';
+import { getLang, t } from '../../i18n';
 import type { AutomationRun,AutomationRunStatus } from '../../types';
 
 /** A distinguishable label for a channel conversation: bot name · group/direct chat · the real Feishu conversation ID.
@@ -26,7 +26,7 @@ export function isRunActive(run: Pick<AutomationRun, 'status'>): boolean {
 // First, second … tenth; above 10 use Arabic numerals
 const CN_DIGITS = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
 export function formatRunOrdinal(n: number): string {
-  return `第${CN_DIGITS[n] || n}次`;
+  return t('第{n}次', { n: getLang() === 'en' ? n : CN_DIGITS[n] || n });
 }
 
 /** One-line result of a run: its summary, its error, or what it is waiting for. */

@@ -99,8 +99,11 @@ async def middleware_stack(
         steering = selected_profile.steering(request)
         for spec in selected_profile.hooks(request):
             adapter.bus.register(spec)
-    for spec in (steering or create_steering_policy()).specs():
+    steering = steering or create_steering_policy()
+    for spec in steering.specs():
         adapter.bus.register(spec)
+    if getattr(steering, "interrupt_tools", False) and hasattr(steering, "wait_for_steer"):
+        adapter.tool_interrupt = steering
     if request.project_environment is not None:
         from core.llm.runtime.project_environment_hook import project_environment_hook
         adapter.bus.register(project_environment_hook(request))

@@ -7,9 +7,9 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
 from core.auth.backend import UserContext, get_current_user
-from core.auth.capabilities import resolve_user_capabilities
+from core.auth.capabilities import require_capability
 from core.db.engine import get_db
-from core.infra.exceptions import AccessDeniedError, BadRequestError
+from core.infra.exceptions import BadRequestError
 from core.infra.responses import error_response, success_response
 from core.capabilities.agents.markdown import agent_filename, agent_to_markdown, parse_agents_upload
 from core.capabilities.agents.edition import UserAgentService
@@ -22,11 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 def _require_can_add_agent(user_id: str, db: Session) -> None:
-    if not resolve_user_capabilities(db, user_id)["can_add_agent"]:
-        raise AccessDeniedError(
-            message="管理员未开放自建子智能体功能",
-            reason="can_add_agent_disabled",
-        )
+    require_capability(db, user_id, "can_add_agent", "管理员未开放自建子智能体功能")
 
 
 class AgentCreateRequest(BaseModel):
@@ -146,7 +142,7 @@ def import_agents(
                 )
             )
         except ValueError as exc:
-            return error_response(code=400, message=f"{item.get('name')}: {exc}")
+            return error_response(code=400, message=f"{item.get('name')}: {exc}", status_code=400)
     logger.info("user_agents_imported: user=%s created=%d", user.user_id, len(agents))
     return success_response(data={"created": len(agents), "agents": agents})
 
@@ -175,9 +171,9 @@ def export_agent(
         try:
             agent = svc.get_by_id(agent_id, user_id=user.user_id)
         except LookupError:
-            return error_response(code=404, message="Agent not found")
+            return error_response(code=404, message="Agent not found", status_code=404)
         except PermissionError:
-            return error_response(code=403, message="Access denied")
+            return error_response(code=403, message="Access denied", status_code=403)
 
     text = agent_to_markdown(agent)
     fname = agent_filename(str(agent.get("name") or "agent"))
@@ -199,9 +195,9 @@ def get_agent(
     try:
         agent = UserAgentService(db).get_by_id(agent_id, user_id=user.user_id)
     except LookupError:
-        return error_response(code=404, message="Agent not found")
+        return error_response(code=404, message="Agent not found", status_code=404)
     except PermissionError:
-        return error_response(code=403, message="Access denied")
+        return error_response(code=403, message="Access denied", status_code=403)
     return success_response(data=agent)
 
 
@@ -220,9 +216,9 @@ def create_agent(
             data=body.model_dump(exclude_none=True),
         )
     except PermissionError as exc:
-        return error_response(code=403, message=str(exc))
+        return error_response(code=403, message=str(exc), status_code=403)
     except ValueError as exc:
-        return error_response(code=400, message=str(exc))
+        return error_response(code=400, message=str(exc), status_code=400)
     return success_response(data=agent)
 
 
@@ -255,9 +251,9 @@ def update_agent(
             data=data,
         )
     except LookupError:
-        return error_response(code=404, message="Agent not found")
+        return error_response(code=404, message="Agent not found", status_code=404)
     except PermissionError:
-        return error_response(code=403, message="Access denied")
+        return error_response(code=403, message="Access denied", status_code=403)
     return success_response(data=agent)
 
 
@@ -270,9 +266,9 @@ def delete_agent(
     try:
         UserAgentService(db).delete(agent_id, user_id=user.user_id, owner_type="user")
     except LookupError:
-        return error_response(code=404, message="Agent not found")
+        return error_response(code=404, message="Agent not found", status_code=404)
     except PermissionError:
-        return error_response(code=403, message="Access denied")
+        return error_response(code=403, message="Access denied", status_code=403)
     return success_response(data={"deleted": True})
 
 

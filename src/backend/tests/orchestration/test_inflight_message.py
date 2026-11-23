@@ -17,24 +17,18 @@ import core.runs.tasks as tasks
 import fakeredis.aioredis
 import pytest
 from core.chat import inflight
-from core.db.engine import Base
 from core.db.models import ChatMessage, ChatRun, ChatSession
 from core.chat.sequencer import ChatSequencer
 from core.chat.compaction.history import normalize_rows
 from core.runs.journal import RunJournal
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from tests.db_support import file_engine, session_factory, share_factory
 
 
 @pytest.fixture()
 def env(tmp_path, monkeypatch):
-    engine = create_engine(
-        f"sqlite:///{tmp_path / 'inflight.sqlite'}",
-        connect_args={"check_same_thread": False},
-    )
-    Base.metadata.create_all(engine)
-    sessions = sessionmaker(bind=engine, expire_on_commit=False)
-    monkeypatch.setattr(db_engine, "SessionLocal", sessions)
+    engine = file_engine(tmp_path / 'inflight.sqlite')
+    sessions = session_factory(engine)
+    share_factory(monkeypatch, sessions)
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     monkeypatch.setattr('core.runs.events.store.get_redis', lambda **_: redis)
     monkeypatch.setattr(followups, "_spawn_followup_task", lambda **_kwargs: None)

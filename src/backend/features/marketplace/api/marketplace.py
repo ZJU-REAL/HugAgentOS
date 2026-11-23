@@ -1,7 +1,6 @@
 """Skill marketplace (user side) -- browse preset/community skills and install them as private skills.
 
 GET    /v1/marketplace/skills              list marketplace skills (preset + community, with "installed or not")
-GET    /v1/marketplace/categories          category list
 GET    /v1/marketplace/skills/{slug}       single marketplace skill detail (with SKILL.md preview, required credentials)
 POST   /v1/marketplace/install             install as a private skill (owner=current user)
 POST   /v1/marketplace/submissions         submit your own private skill to the marketplace (pending admin review)
@@ -24,7 +23,7 @@ import features.marketplace.skill_submissions as market_owner_skill_submissions
 
 
 import logging
-from typing import Dict, Optional
+from typing import Dict
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -61,16 +60,8 @@ def list_skills(
     items = market_owner_skill_catalog.list_marketplace_skills(db, viewer_user_id=str(user.user_id))
     items = market_owner_skill_catalog.annotate_installed(items, db, owner_user_id=str(user.user_id))
     return success_response(
-        data={"items": items, "categories": market_owner_skill_catalog.list_categories(db, viewer_user_id=str(user.user_id))}
+        data={"items": items, "categories": market_owner_skill_catalog.categories_from_items(items)}
     )
-
-
-@router.get("/categories", summary="技能市场分类")
-def list_categories(
-    user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    return success_response(data=market_owner_skill_catalog.list_categories(db, viewer_user_id=str(user.user_id)))
 
 
 @router.get("/skills/{slug}", summary="技能市场详情")

@@ -4,12 +4,12 @@ from core.config.store import system_config_constants
 from types import SimpleNamespace
 
 from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
 from core.db.engine import Base
 from core.db.models import ChatSession, SystemConfig, UserShadow
 from personal_agent.identity.service import IdentityService
+from tests.db_support import session_factory
 
 
 def test_first_identity_allows_catalog_seed_on_another_connection(tmp_path, monkeypatch):
@@ -24,7 +24,7 @@ def test_first_identity_allows_catalog_seed_on_another_connection(tmp_path, monk
         connect_args={"timeout": 0.05},
         poolclass=NullPool,
     )
-    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    factory = session_factory(engine)
     Base.metadata.create_all(engine)
     config = system_config.SystemConfigService()
     monkeypatch.setattr("core.db.system_configuration.SessionLocal", factory)

@@ -20,34 +20,6 @@ from core.capabilities.catalog.common import _item, _read_raw_catalog
 
 _LOGGER = logging.getLogger(__name__)
 
-# "Database tools" unification: the three real DB MCP servers are hidden from the capability
-# center / MCP tool list and represented by a single umbrella capability ``database_query``
-# ("数据库查询"); agent_factory expands the umbrella alias into whichever server is actually
-# enabled based on the data-source type.
-DB_HIDDEN_SERVERS = {"query_database", "db_query", "es_query"}
-DB_UMBRELLA_ID = "database_query"
-DB_UMBRELLA_NAME = "数据库查询"
-# 伞形条目没有对应的 AdminMcpServer 行，图标取不到库里——定义在这里，云端目录与
-# 桌面端投影共用同一个值，两边才不会一边有图标一边没有。
-DB_UMBRELLA_ICON = "/home/mcp/database.svg"
-DB_UMBRELLA_DESC = (
-    "统一的数据库查询能力。在 Config 后台「数据库工具」里配置数据源后，"
-    "按所连数据库类型自动选择：自建智能取数走 query_database，直连 MySQL/PostgreSQL "
-    "等走 db_query，Elasticsearch 走 es_query。"
-)
-
-
-def _database_query_capability_available() -> bool:
-    """Whether this edition ships a runnable database-query implementation."""
-    try:
-        from extensions.mcp_servers._ports import PORTS
-
-        return "query_database" in PORTS
-    except Exception as exc:
-        _LOGGER.warning("Database-query runtime registry unavailable: %s", exc)
-        return False
-
-
 # ── In-memory catalog cache (TTL-based) ────────────────────────────────────
   # key = include_runtime_details
 
@@ -139,19 +111,7 @@ def _default_catalog() -> Dict[str, Any]:
             config={"server": k},
         )
         for k in mcp_servers.keys()
-        if k not in DB_HIDDEN_SERVERS
     ]
-    if _database_query_capability_available():
-        mcp_items.append(
-            _item(
-                item_id=DB_UMBRELLA_ID,
-                kind="mcp_server",
-                name=DB_UMBRELLA_NAME,
-                description=DB_UMBRELLA_DESC,
-                enabled=True,
-                config={"server": DB_UMBRELLA_ID},
-            )
-        )
 
     skill_items: List[Dict[str, Any]] = []
     for metadata in _load_builtin_skill_metadata():

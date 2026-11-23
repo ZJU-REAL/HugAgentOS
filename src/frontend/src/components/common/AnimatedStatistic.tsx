@@ -37,7 +37,7 @@ export function AnimatedStatistic({
       value={value}
       prefix={prefix}
       suffix={suffix}
-      valueStyle={valueStyle}
+      styles={{ content: valueStyle }}
       formatter={() => <motion.span>{display}</motion.span>}
     />
   );

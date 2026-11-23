@@ -38,6 +38,7 @@ def builtin_mcp_configs(location=None) -> Dict[str, dict]:
             "env": {},
         }
         for server in process_servers(location)
+        if server.catalog
     }
 
 

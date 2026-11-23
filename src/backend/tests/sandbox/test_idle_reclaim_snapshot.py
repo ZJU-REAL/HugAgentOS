@@ -41,12 +41,11 @@ def _settings(**overrides):
     return SimpleNamespace(sandbox=SimpleNamespace(**values))
 
 
-def _restore_provider(monkeypatch, *, snapshot_id, idle_hit):
+def _restore_provider(monkeypatch, *, snapshot_id):
     monkeypatch.setattr('core.capabilities.skills.publication.prepare_skill_view', lambda uid: None)
     patch_open_settings(monkeypatch, _settings())
     provider = OpenSandboxProvider.__new__(OpenSandboxProvider)
     provider._lookup_snapshot = AsyncMock(return_value=snapshot_id)
-    provider._jupyter_user_pool = SimpleNamespace(has_idle=lambda uid: idle_hit)
     provider._create_session = AsyncMock(
         return_value=SimpleNamespace(sandbox=SimpleNamespace(id="warm"))
     )
@@ -58,7 +57,7 @@ def _restore_provider(monkeypatch, *, snapshot_id, idle_hit):
 
 def test_snapshot_wins_over_a_warm_idle_container(monkeypatch):
     """The pool container is wiped; serving it would drop the chat's files."""
-    provider = _restore_provider(monkeypatch, snapshot_id="snap-1", idle_hit=True)
+    provider = _restore_provider(monkeypatch, snapshot_id="snap-1")
 
     sess = asyncio.run(provider._create_session_for("chat-1", user_id="user-1"))
 
@@ -68,7 +67,7 @@ def test_snapshot_wins_over_a_warm_idle_container(monkeypatch):
 
 
 def test_warm_idle_container_is_used_when_there_is_nothing_to_restore(monkeypatch):
-    provider = _restore_provider(monkeypatch, snapshot_id=None, idle_hit=True)
+    provider = _restore_provider(monkeypatch, snapshot_id=None)
 
     sess = asyncio.run(provider._create_session_for("chat-1", user_id="user-1"))
 

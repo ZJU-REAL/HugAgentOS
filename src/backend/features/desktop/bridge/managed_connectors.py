@@ -107,14 +107,9 @@ def set_managed_connector_enabled(server_id: str, enabled: bool) -> bool:
     本机是这个开关的唯一记账处：装配走 ``_bridge_context()``，它就按这里的标志
     过滤，云端不参与也不需要回写。返回 False 表示该 server_id 不是本机托管的
     云端连接器，调用方应继续按普通目录项处理。
-
-    「数据库查询」是个伞形条目（见 ``device_catalog._db_umbrella_item``），本身没有
-    对应的 server，开关要落到它收拢的那几个成员上——否则界面上的开关点了没有任何
-    东西真的被打开。
     """
     from features.desktop.capabilities import mcp_json
     from features.desktop.capabilities.paths import capabilities_enabled
-    from core.capabilities.catalog.loader import DB_HIDDEN_SERVERS, DB_UMBRELLA_ID
 
     st = bridge_identity.get_state()
     if not capabilities_enabled() or not bridge_auth.bridge_enabled() or not st:
@@ -122,23 +117,8 @@ def set_managed_connector_enabled(server_id: str, enabled: bool) -> bool:
     profile = account_profile(st)
     if not profile:
         return False
-    sid = str(server_id)
-    if sid == DB_UMBRELLA_ID:
-        members = [
-            str(s["server_id"])
-            for s in managed_connectors()
-            if str(s.get("server_id")) in DB_HIDDEN_SERVERS
-        ]
-        if not members:
-            return False
-        for member in members:
-            try:
-                mcp_json.set_managed_enabled(profile, member, bool(enabled))
-            except mcp_json.McpJsonError:
-                return False
-        return True
     try:
-        mcp_json.set_managed_enabled(profile, sid, bool(enabled))
+        mcp_json.set_managed_enabled(profile, str(server_id), bool(enabled))
     except mcp_json.McpJsonError:
         return False
     return True

@@ -1,5 +1,6 @@
 import { chatDraftKey, useComposerDraft, useComposerStore } from '../../stores/composerStore';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { message } from 'antd';
 import { useChatStore, useUIStore, useCatalogStore, useAuthStore, usePluginStore, usePluginUiStore, useEditionStore } from '../../stores';
 import { useProjectStore } from '../../stores/projectStore';
 import { projectCreationTargets, useDeploymentModeStore } from '../../stores/deploymentModeStore';
@@ -10,6 +11,7 @@ import type { ProjectDetail } from '../../types';
 import { resolveWorkflowModeActive } from '../../utils/chatMode';
 import { canInitializeProject } from '../../utils/projectCommands';
 import type { ComposerOptions } from './composerTypes';
+import { t } from '../../i18n';
 
 export function useComposerState({
   abort,
@@ -99,7 +101,7 @@ export function useComposerState({
     const onFolder = (e: Event) => {
       const path = (e as CustomEvent<string>).detail;
       if (!path) return;
-      const name = path.split(/[/\\]/).filter(Boolean).pop() || '本地项目';
+      const name = path.split(/[/\\]/).filter(Boolean).pop() || t('本地项目');
       createLocalProject({ name, local_path: path })
         .then((proj) => {
           void useProjectStore.getState().fetchProjects();
@@ -107,7 +109,7 @@ export function useComposerState({
           if (chatId) bind(chatId, proj.project_id, proj.name);
         })
         .catch((err) => {
-          alert('新建本地项目失败：' + (err?.message || err));
+          message.error(t('新建本地项目失败：{msg}', { msg: err?.message || String(err) }));
         });
     };
     window.addEventListener('hugagent:local-folder', onFolder as EventListener);

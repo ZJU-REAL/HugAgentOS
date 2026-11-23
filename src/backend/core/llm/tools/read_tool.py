@@ -10,7 +10,7 @@ from agentscope.tool import Toolkit, ToolResponse
 from core.projects.edition import ProjectScope
 from core.models.vision import VisionMode
 
-from ._common import response_metadata, resolve_sandbox_session, resp_image, resp_json
+from ._common import read_local_bytes, response_metadata, resolve_sandbox_session, resp_image, resp_json
 from core.sandbox.workspace.resolution import space_metadata, to_physical_path, validate_project_scope_path, validate_workspace_path
 
 logger = logging.getLogger(__name__)
@@ -148,8 +148,7 @@ def register_read(
                 from core.sandbox.permissions.dispatch_models import PermissionEnforcementError, require_local_path_permission
 
                 require_local_path_permission(physical, "read")
-                with open(physical, "rb") as _f:
-                    _local_read = _f.read()
+                _local_read = await read_local_bytes(physical)
             except PermissionEnforcementError as exc:
                 return resp_json({"error": str(exc), "blocked": True})
             except OSError as exc:

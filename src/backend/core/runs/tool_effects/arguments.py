@@ -37,10 +37,6 @@ def canonical_tool_args(args: Mapping[str, Any]) -> tuple[str, str, Mapping[str,
     return canonical, args_hash, sanitize_value(by_field)
 
 
-def tool_args_hash(args: Mapping[str, Any]) -> str:
-    return canonical_tool_args(args)[1]
-
-
 def stable_idempotency_key(run_id: str, tool_name: str, invocation_id: str) -> str:
     raw = f"{run_id}\x00{tool_name}\x00{invocation_id}".encode("utf-8")
     return "tool:" + hashlib.sha256(raw).hexdigest()

@@ -16,6 +16,7 @@ from core.auth import agent_api as agent_api_service
 from sqlalchemy.orm import sessionmaker
 from tests.api.test_agent_api_scope import _key, _user, db
 from tests.api.test_agent_response_admission import _patch_common_chat_route
+from tests.db_support import share_factory
 
 
 @pytest.mark.asyncio
@@ -29,7 +30,7 @@ async def test_scope_preserves_message_and_never_enumerates_other_agents(
     key, _ = _key(db)
     ChatMessage.__table__.create(db.bind, checkfirst=True)
     _patch_common_chat_route(monkeypatch)
-    monkeypatch.setattr(db_engine, "SessionLocal", sessionmaker(bind=db.bind))
+    share_factory(monkeypatch, sessionmaker(bind=db.bind))
     monkeypatch.setattr(chat_session_context, 'load_session_messages', lambda *_: [])
 
     def forbidden_resolution(*args, **kwargs):

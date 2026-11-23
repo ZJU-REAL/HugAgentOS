@@ -1715,7 +1715,6 @@ version = "1.0.5"
 dependencies = [
  "axum",
  "base64 0.22.1",
- "bytes",
  "flate2",
  "fs2",
  "futures-util",
@@ -1724,7 +1723,6 @@ dependencies = [
  "memmap2",
  "minisign-verify",
  "native-tls",
- "percent-encoding",
  "reqwest 0.12.28",
  "rfd",
  "serde",

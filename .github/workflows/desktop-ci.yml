@@ -41,10 +41,14 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Test native download failures and archive safety
+      # Every Python test under desktop/scripts (native installer, update
+      # archives, runtime smoke probes). The vector probe needs the embedded
+      # Milvus pair pinned in desktop/requirements-desktop.txt.
+      - name: Test desktop build scripts (Python)
         run: |
-          python3 desktop/scripts/test-native-download.py
-          python3 desktop/scripts/test-native-tools.py
+          python3 -m pip install pytest "$(grep -E '^pymilvus==' desktop/requirements-desktop.txt)" \
+            "$(grep -E '^milvus-lite==' desktop/requirements-desktop.txt)"
+          python3 -m pytest -p no:cacheprovider -o addopts="" -o python_files="test*.py" desktop/scripts
 
   platform-tests:
     name: ${{ matrix.name }}

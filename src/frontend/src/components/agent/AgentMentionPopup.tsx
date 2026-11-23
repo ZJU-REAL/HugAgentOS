@@ -16,7 +16,7 @@ import { useAgentStore } from '../../stores/agentStore';
 import type { UserAgentItem } from '../../stores/agentStore';
 import { t } from '../../i18n';
 
-export type MentionActionId = 'files' | 'agents' | 'plan' | 'workflow' | 'loop';
+type MentionActionId = 'files' | 'agents' | 'plan' | 'workflow' | 'loop';
 
 export interface MentionLauncherAction {
   id: MentionActionId;

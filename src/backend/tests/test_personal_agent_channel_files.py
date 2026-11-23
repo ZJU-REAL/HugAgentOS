@@ -8,6 +8,7 @@ from core.db.models import Artifact, ChatMessage
 from personal_agent.channels import channel_bridge
 from personal_agent.context import AgentContext
 from tests.test_personal_agent import personal_agent_on, sessions  # noqa: F401
+from tests.db_support import session_factory
 
 
 @pytest.fixture
@@ -16,12 +17,11 @@ def channel(sessions, monkeypatch):
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
     # Retries are due at once here; test_failed_send_backs_off covers the delay.
     monkeypatch.setattr(channel_bridge, "RETRY_BASE_SEC", 0)
-    conn = SimpleNamespace(channel_id="bot", channel_type="lark", owner_user_id="owner")
+    conn = SimpleNamespace(channel_id="bot", channel_type="lark", owner_user_id="owner", agent_id=None)
     monkeypatch.setattr(channel_bridge, "connection", lambda ident: conn)
     with sessions() as db:
         svc = AgentContext(db, "owner")
         svc.identity.ensure()
-        svc.identity.agent().config = {**svc.identity.agent().config, "channel_ids": ["bot"]}
         task = svc.tasks.submit("Make a report", "report")["id"]
         user = db.get(ChatMessage, svc.conversation.list()[0]["id"])
         msg = InboundMsg(channel_id="bot", channel_type="lark", text="Make a report",
@@ -100,14 +100,11 @@ async def test_failed_text_does_not_send_files_or_mark_success(sessions, channel
     assert channel.sent == []
 
 
-@pytest.mark.parametrize("revocation", ["rerouted", "reassigned", "capability"])
+@pytest.mark.parametrize("revocation", ["moved_to_subagent", "reassigned", "capability"])
 async def test_channel_authority_is_rechecked_at_dispatch(sessions, channel, monkeypatch, revocation):
     queue(sessions, channel.task, "[图表](/api/files/image)")
-    if revocation == "rerouted":
-        with sessions() as db:
-            svc = AgentContext(db, "owner")
-            svc.identity.agent().config = {**svc.identity.agent().config, "channel_ids": []}
-            db.commit()
+    if revocation == "moved_to_subagent":
+        channel.conn.agent_id = "sub"
     elif revocation == "reassigned":
         channel.conn.owner_user_id = "other"
     else:
@@ -200,6 +197,9 @@ async def test_scheduled_output_reaches_private_home_conversation(sessions, chan
         listing = listed_owner("bot", "alice")
         listing["channel_allowed"]["bot"][0]["added_at"] = 1  # listed before the owner's message below
         svc.identity.agent().config = {**svc.identity.agent().config, "heartbeat": {"channel_id": "bot"}, **listing}
+        from integrations.channels.models import ChannelConnection
+        db.add(ChannelConnection(channel_id="bot", owner_user_id="owner", channel_type="lark", app_id="bot",
+                                 display_name="bot", config={}, transport="long_conn", enabled=True))
         # Unprompted messages only go to a conversation a listed account wrote in.
         from sqlalchemy import select
         for home in db.scalars(select(ChatMessage).where(ChatMessage.role == "user")):
@@ -248,7 +248,7 @@ async def test_simultaneous_sqlite_claims_only_send_one_copy(sessions, channel, 
         try: source.driver_connection.backup(target)
         finally: source.close()
     engine = create_engine("sqlite:///" + str(path))
-    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    factory = session_factory(engine)
     monkeypatch.setattr(channel_bridge, "SessionLocal", factory)
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", factory)
     barrier, guard = threading.Barrier(2), threading.Lock()

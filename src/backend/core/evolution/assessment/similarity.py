@@ -186,11 +186,6 @@ def load_entity_aliases() -> Dict[str, str]:
     return aliases
 
 
-def reset_alias_cache() -> None:
-    global _ALIAS_CACHE
-    _ALIAS_CACHE = None
-
-
 def canonicalise(text: str, aliases: Optional[Dict[str, str]] = None) -> str:
     """Rewrite known aliases to their canonical form.
 

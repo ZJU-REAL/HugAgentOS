@@ -8,8 +8,8 @@ explicit; the agent is expected to pin whenever a deliverable file is
 produced.
 
 This module exposes the per-chat-run state that ``pin_to_workspace``
-mutates and ``chat_stream`` / ``chat_run_executor`` / ``automation_scheduler``
-/ ``batch_orchestrator`` read at meta-emission time. ContextVars scope
+mutates and the run workers (chat, plan execution, jobs, sub-agents) read
+at meta-emission time. ContextVars scope
 the state per async-context, so concurrent chats don't collide and a
 nested batch item's state doesn't leak back to its parent (callers can
 use ``scope()`` for nested workflows).
@@ -47,9 +47,8 @@ def _new_state() -> _WorkspaceState:
 def init_state() -> _WorkspaceState:
     """Initialize a fresh workspace state in the current async context.
 
-    Call once at the entry of each chat run (chat_stream, chat_run_executor,
-    automation_scheduler) so subsequent pin_to_workspace calls land in this
-    state.
+    Call once at the entry of each run worker so subsequent pin_to_workspace
+    calls land in this state.
     """
     state = _new_state()
     _workspace_var.set(state)
@@ -82,9 +81,8 @@ def scope() -> Iterator[_WorkspaceState]:
     """Create a fresh workspace state for the body and restore on exit.
 
     Use in nested flows (e.g. each batch item) so the inner state doesn't
-    leak back to the parent context. Top-level entry points
-    (``chat_stream``, ``chat_run_executor``, ``automation_scheduler``)
-    can use ``init_state()`` directly since they own the outermost scope.
+    leak back to the parent context. Top-level run workers can use
+    ``init_state()`` directly since they own the outermost scope.
     """
     state = _new_state()
     token = _workspace_var.set(state)

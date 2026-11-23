@@ -716,7 +716,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
           <Alert
             type="success"
             showIcon
-            message={t('已检测到可用主模型')}
+            title={t('已检测到可用主模型')}
             description={`${currentMainProvider.display_name} · ${currentMainProvider.model_name}`}
           />
         )}
@@ -773,7 +773,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
         <Alert
           type="info"
           showIcon
-          message={t('这一步可以跳过')}
+          title={t('这一步可以跳过')}
           description={t('配置后，智能体可以获取实时网络信息；你也可以稍后在设置中完成。')}
         />
         <label className="jx-firstRun-field">
@@ -821,7 +821,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
         <Alert
           type="info"
           showIcon
-          message={t('PDF 与扫描件需要外部解析服务')}
+          title={t('PDF 与扫描件需要外部解析服务')}
           description={t('Excel、CSV、PPTX 和文本文件可以直接解析，不填写也能正常使用。')}
         />
         <label className="jx-firstRun-field">
@@ -977,7 +977,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
     return (
       <div className="jx-firstRun-root">
         <div className="jx-firstRun-loading">
-          <Alert type="error" showIcon message={t('初始化信息加载失败')} description={loadError} />
+          <Alert type="error" showIcon title={t('初始化信息加载失败')} description={loadError} />
           <Button type="primary" onClick={() => void load()}>{t('重试')}</Button>
         </div>
       </div>
@@ -1065,7 +1065,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
               type="error"
               showIcon
               closable
-              message={t('无法继续')}
+              title={t('无法继续')}
               description={submitError}
               onClose={() => setSubmitError('')}
             />
@@ -1104,7 +1104,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
         cancelText={t('取消')}
         okButtonProps={{ danger: true }}
         confirmLoading={loggingOut}
-        maskClosable={!loggingOut}
+        mask={{ closable: !loggingOut }}
         closable={!loggingOut}
         onCancel={() => setLogoutConfirmOpen(false)}
         onOk={() => void doLogout()}

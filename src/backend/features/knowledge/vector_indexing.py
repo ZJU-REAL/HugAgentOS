@@ -1,48 +1,77 @@
-"""vector indexing responsibilities."""
+"""Milvus row operations for private KB spaces: write, delete, child-chunk lookup, re-embed edited chunks."""
 from __future__ import annotations
-from features.knowledge import kb_vector
-from typing import Any
+
 import logging
-logger = logging.getLogger(__name__)
-from features.knowledge import kb_vector
-from features.knowledge import kb_vector_state
-from features.knowledge import vector_client
+from typing import Any
+
 from core.models import embedding as vector_embedding
-from features.knowledge import vector_fields
+from features.knowledge import kb_vector, kb_vector_state, vector_client, vector_fields
 
-def upsert_rows(rows: list[dict[str, Any]]) -> None:
-    """Upsert a batch of rows into hugagent_kb_private.
+logger = logging.getLogger(__name__)
 
-    Each row must include all schema fields. dense_embedding and sparse_embedding
-    must be pre-computed by the caller (use embed_text / build_sparse_text).
-    """
+WRITE_BATCH = 100
+_lit = vector_fields.milvus_literal
+
+
+def batched(items: list, size: int = WRITE_BATCH):
+    for i in range(0, len(items), size):
+        yield items[i : i + size]
+
+
+def _scoped(expr: str, kb_id: str | None) -> str:
+    """Add the space to a filter: ``kb_id`` is the partition key, so Milvus then
+    touches one partition instead of all of them."""
+    return f"kb_id == {_lit(kb_id)} and {expr}" if kb_id else expr
+
+
+def _delete(filter_expr: str) -> None:
+    client = vector_client.get_client()
+    # No collection means nothing was ever indexed; don't create one just to delete.
+    if not vector_client.existing_collection(client):
+        return
+    client.delete(collection_name=kb_vector_state.COLLECTION_NAME, filter=filter_expr)
+
+
+def _write_rows(rows: list[dict[str, Any]], write) -> None:
     if not rows:
         return
     vector_client.get_or_create_collection()
     client = vector_client.get_client()
-    vector_client.upsert(client, rows)
-    logger.debug("Upserted %d rows into %s", len(rows), kb_vector_state.COLLECTION_NAME)
+    for batch in batched(rows):
+        write(client, batch)
 
 
-def delete_by_document(document_id: str, user_id: str) -> None:
-    """Delete all Milvus rows (chunk + question) for a document."""
-    vector_client.get_or_create_collection()
-    client = vector_client.get_client()
-    expr = f'document_id == "{document_id}" and user_id == "{user_id}"'
-    client.delete(collection_name=kb_vector_state.COLLECTION_NAME, filter=expr)
-    logger.info("Deleted Milvus rows for document_id=%s user_id=%s", document_id, user_id)
+def upsert_rows(rows: list[dict[str, Any]]) -> None:
+    """Upsert rows whose primary keys may already exist (asset rows, edits).
+
+    Each row carries the schema fields plus ``sparse_text`` (see build_sparse_text);
+    ``vector_client.adapt_rows`` turns that into whatever the collection stores.
+    """
+    _write_rows(rows, vector_client.upsert)
 
 
-def delete_by_kb(kb_id: str, user_id: str) -> None:
-    """Delete all Milvus rows for an entire KB space."""
-    vector_client.get_or_create_collection()
-    client = vector_client.get_client()
-    expr = f'kb_id == "{kb_id}" and user_id == "{user_id}"'
-    client.delete(collection_name=kb_vector_state.COLLECTION_NAME, filter=expr)
-    logger.info("Deleted Milvus rows for kb_id=%s user_id=%s", kb_id, user_id)
+def insert_rows(rows: list[dict[str, Any]]) -> None:
+    """Insert rows with fresh primary keys (a document's first write after its old rows were cleared)."""
+    _write_rows(rows, vector_client.insert)
 
 
-def get_children_for_parent(parent_chunk_id: str) -> list[dict]:
+def delete_document_vectors(document_id: str, kb_id: str | None = None) -> None:
+    """Delete every Milvus row (chunk, question, asset) of a document, whoever wrote it.
+
+    ``document_id`` is globally unique, so no owner filter is needed. Shared spaces write
+    their rows under the system owner, so an owner-scoped delete can miss them.
+    """
+    _delete(_scoped(f"document_id == {_lit(document_id)}", kb_id))
+    logger.info("Deleted Milvus rows for document_id=%s", document_id)
+
+
+def delete_space_vectors(kb_id: str) -> None:
+    """Delete every Milvus row of a KB space, whoever wrote it."""
+    _delete(f"kb_id == {_lit(kb_id)}")
+    logger.info("Deleted Milvus rows for kb_id=%s", kb_id)
+
+
+def get_children_for_parent(parent_chunk_id: str, kb_id: str | None = None) -> list[dict]:
     """Return the child-chunk rows of a given parent chunk in Milvus (for the "view chunks" parent→child display).
 
     Child rows have ``chunk_id`` shaped like ``{pid}_{i}`` with ``parent_chunk_id == pid``; in flat mode a parent has only one
@@ -50,14 +79,16 @@ def get_children_for_parent(parent_chunk_id: str) -> list[dict]:
     Returns an empty list when Milvus is unavailable / the query fails, without affecting the parent-chunk list display.
     """
     try:
-        vector_client.get_or_create_collection()
         client = vector_client.get_client()
+        if not vector_client.existing_collection(client):
+            return []
         rows = client.query(
             collection_name=kb_vector_state.COLLECTION_NAME,
             # In flat mode a parent has only one representative row (chunk_id == parent_chunk_id); exclude it right in the query
-            filter=(
-                f'parent_chunk_id == "{parent_chunk_id}" and row_type == "chunk" '
-                f'and chunk_id != "{parent_chunk_id}"'
+            filter=_scoped(
+                f'parent_chunk_id == {_lit(parent_chunk_id)} and row_type == "chunk" '
+                f"and chunk_id != {_lit(parent_chunk_id)}",
+                kb_id,
             ),
             output_fields=["chunk_id", "parent_chunk_id", "chunk_index", "content"],
             limit=4096,
@@ -77,23 +108,22 @@ def get_children_for_parent(parent_chunk_id: str) -> list[dict]:
     return children
 
 
-def delete_by_chunk(parent_chunk_id: str) -> None:
+def delete_by_chunk(parent_chunk_id: str, kb_id: str | None = None) -> None:
     """Delete all Milvus rows (chunk + question) for a single parent chunk."""
-    vector_client.get_or_create_collection()
-    client = vector_client.get_client()
-    expr = f'parent_chunk_id == "{parent_chunk_id}"'
-    client.delete(collection_name=kb_vector_state.COLLECTION_NAME, filter=expr)
+    _delete(_scoped(f"parent_chunk_id == {_lit(parent_chunk_id)}", kb_id))
     logger.info("Deleted Milvus rows for parent_chunk_id=%s", parent_chunk_id)
 
 
 def reindex_chunk_tags(chunk_id: str, content: str, tags: list[str]) -> None:
-    """Re-compute and upsert sparse_embedding for a chunk row after tag changes."""
+    """Re-write a chunk row's sparse text (and so its keyword vector) after tag changes."""
     # Fetch the existing row to preserve all other fields
-    vector_client.get_or_create_collection()
     client = vector_client.get_client()
+    if not vector_client.existing_collection(client):
+        logger.warning("reindex_chunk_tags: no KB collection, chunk_id %s not indexed", chunk_id)
+        return
     rows = client.query(
         collection_name=kb_vector_state.COLLECTION_NAME,
-        filter=f'chunk_id == "{chunk_id}"',
+        filter=f"chunk_id == {_lit(chunk_id)}",
         output_fields=[
             "chunk_id",
             "parent_chunk_id",
@@ -114,7 +144,7 @@ def reindex_chunk_tags(chunk_id: str, content: str, tags: list[str]) -> None:
     sparse_text = kb_vector.build_sparse_text(content, tags)
     row["content"] = vector_fields.truncate_utf8(content)
     row["tags_text"] = vector_fields.truncate_utf8(" ".join(tags), kb_vector_state.TAGS_FIELD_MAX_BYTES)
-    row["sparse_embedding"] = kb_vector.text_to_sparse(sparse_text)
+    row["sparse_text"] = sparse_text
     vector_client.upsert(client, [row])
 
 
@@ -130,19 +160,14 @@ def reindex_chunk_content(
 ) -> None:
     """Re-embed a parent chunk after a manual content edit.
 
-    Removes the parent's existing chunk rows (child or flat) and upserts a single
-    fresh chunk row with recomputed dense + sparse embeddings. Question rows are
-    managed separately by :func:`upsert_question_rows`. Retrieval returns the parent
-    content from PostgreSQL, so this single representative row is sufficient for the
-    edited chunk to be matched and surfaced.
+    The new vector is computed first, so a failing embedding model leaves the old
+    rows searchable instead of deleting them and writing nothing. Then the parent's
+    existing chunk rows (child or flat) are replaced by a single fresh chunk row.
+    Question rows are managed separately by :func:`upsert_question_rows`. Retrieval
+    returns the parent content from PostgreSQL, so this single representative row is
+    sufficient for the edited chunk to be matched and surfaced.
     """
-    vector_client.get_or_create_collection()
-    client = vector_client.get_client()
-    # Drop existing chunk rows for this parent (keep questions; they are re-upserted separately)
-    client.delete(
-        collection_name=kb_vector_state.COLLECTION_NAME,
-        filter=f'parent_chunk_id == "{chunk_id}" and row_type == "chunk"',
-    )
+    dense = vector_embedding.embed_text(content)
     sparse_text = kb_vector.build_sparse_text(content, tags or [])
     row = {
         "chunk_id": chunk_id,
@@ -155,10 +180,48 @@ def reindex_chunk_content(
         "content": vector_fields.truncate_utf8(content),
         "tags_text": vector_fields.truncate_utf8(" ".join(tags or []), kb_vector_state.TAGS_FIELD_MAX_BYTES),
         "chunk_index": chunk_index,
-        "dense_embedding": vector_embedding.embed_text(content),
-        "sparse_embedding": kb_vector.text_to_sparse(sparse_text),
+        "dense_embedding": dense,
+        "sparse_text": sparse_text,
     }
-    vector_client.upsert(client, [row])
+    vector_client.get_or_create_collection()
+    # Drop the parent's other chunk rows (children); the representative row itself is upserted.
+    _delete(_scoped(
+        f'parent_chunk_id == {_lit(chunk_id)} and row_type == "chunk" and chunk_id != {_lit(chunk_id)}',
+        kb_id,
+    ))
+    vector_client.upsert(vector_client.get_client(), [row])
+
+
+def build_question_rows(
+    parent_chunk_id: str,
+    questions: list[str],
+    vectors: list[list[float]],
+    *,
+    user_id: str,
+    kb_id: str,
+    document_id: str,
+    title: str,
+    chunk_index: int,
+) -> list[dict[str, Any]]:
+    """Milvus rows for a parent chunk's generated questions (vectors pre-computed)."""
+    title_field = vector_fields.truncate_utf8(title, kb_vector_state.TITLE_FIELD_MAX_BYTES)
+    return [
+        {
+            "chunk_id": f"q_{parent_chunk_id}_{i}",
+            "parent_chunk_id": parent_chunk_id,
+            "row_type": "question",
+            "user_id": user_id,
+            "kb_id": kb_id,
+            "document_id": document_id,
+            "title": title_field,
+            "content": vector_fields.truncate_utf8(q),
+            "tags_text": "",
+            "chunk_index": chunk_index,
+            "dense_embedding": vec,
+            "sparse_text": q,
+        }
+        for i, (q, vec) in enumerate(zip(questions, vectors))
+    ]
 
 
 def upsert_question_rows(
@@ -170,35 +233,24 @@ def upsert_question_rows(
     title: str,
     chunk_index: int,
 ) -> None:
-    """Delete existing question rows for a chunk and insert fresh ones."""
+    """Replace one chunk's question rows (manual edit of its questions).
+
+    Questions are embedded before the old rows are deleted, so an embedding failure
+    keeps the previous questions searchable.
+    """
+    vecs = vector_embedding.embed_batch(questions) if questions else []
     vector_client.get_or_create_collection()
-    client = vector_client.get_client()
-
-    # Delete old question rows
-    expr = f'parent_chunk_id == "{parent_chunk_id}" and row_type == "question"'
-    client.delete(collection_name=kb_vector_state.COLLECTION_NAME, filter=expr)
-
+    _delete(_scoped(f'parent_chunk_id == {_lit(parent_chunk_id)} and row_type == "question"', kb_id))
     if not questions:
         return
-
-    # Embed all questions in one batch call
-    vecs = vector_embedding.embed_batch(questions)
-    rows = []
-    for i, (q, vec) in enumerate(zip(questions, vecs)):
-        rows.append(
-            {
-                "chunk_id": f"q_{parent_chunk_id}_{i}",
-                "parent_chunk_id": parent_chunk_id,
-                "row_type": "question",
-                "user_id": user_id,
-                "kb_id": kb_id,
-                "document_id": document_id,
-                "title": vector_fields.truncate_utf8(title, kb_vector_state.TITLE_FIELD_MAX_BYTES),
-                "content": vector_fields.truncate_utf8(q),
-                "tags_text": "",
-                "chunk_index": chunk_index,
-                "dense_embedding": vec,
-                "sparse_embedding": kb_vector.text_to_sparse(q),
-            }
-        )
-    vector_client.upsert(client, rows)
+    rows = build_question_rows(
+        parent_chunk_id,
+        questions,
+        vecs,
+        user_id=user_id,
+        kb_id=kb_id,
+        document_id=document_id,
+        title=title,
+        chunk_index=chunk_index,
+    )
+    vector_client.insert(vector_client.get_client(), rows)

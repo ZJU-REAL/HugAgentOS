@@ -3,7 +3,9 @@
 # This profile is intentionally narrower than requirements.txt. The desktop
 # service always uses SQLite, local object storage, and the host script runner,
 # so container-only database, cloud-storage, and remote-sandbox providers do
-# not belong in the end-user Python environment.
+# not belong in the end-user Python environment. Packages shared with
+# requirements.txt keep the same version constraint (or a stricter pin inside
+# it), so the desktop and server run the same behaviour, e.g. for mem0ai.
 #
 # Regenerate all platform Python 3.11 locks after changing this file:
 #   npm --prefix desktop run lock:desktop
@@ -29,9 +31,8 @@ litellm>=1.50.0
 google-genai>=0.3.0
 ollama>=0.3.0
 mcp==2.3.0
-# Keep the SSE dependency within FastAPI 0.115 Starlette constraints.
+# Transitive dependency of mcp, pinned within FastAPI 0.115 Starlette constraints.
 sse-starlette==3.0.3
-tavily-python>=0.5.0
 beautifulsoup4>=4.12.0
 
 # Local persistence and application services. PostgreSQL, S3, and OSS clients
@@ -55,7 +56,7 @@ dingtalk-stream>=0.21.0
 # Persistent memory. Graph memory is disabled in the desktop profile, so the
 # Neo4j driver is omitted. Pin the embedded Milvus client/server pair to avoid
 # installing PyMilvus 3 and immediately downgrading it during bootstrap.
-mem0ai>=0.1.50
+mem0ai==2.2.1
 protobuf<7
 pymilvus==2.5.18
 # 3.2.2 uses atomic replacement for existing manifests on every platform.
@@ -88,5 +89,5 @@ tqdm>=4.66.0
 # Browser automation driver; Chromium is bundled separately by the runtime builder.
 playwright==1.59.0
 
-# Embedded macOS computer-use driver (accessibility tree, background input); see docs/personal-agent-refactor/computer-use-cua-driver-plan.md
+# Embedded macOS computer-use driver (accessibility tree, background input)
 cua-driver==0.46.1; sys_platform == "darwin"

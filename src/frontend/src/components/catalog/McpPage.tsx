@@ -15,7 +15,6 @@ import { ContinuousLoadSentinel } from '../common';
 import { useAuthStore,useCatalogStore } from '../../stores';
 import type { McpMarketSubmission } from '../../types';
 import { sortCapabilitiesByCreation } from '../../utils/capabilityOrder';
-import { mdToHtml } from '../../utils/markdown';
 import { staggerStyle } from '../../utils/motionTokens';
 import { DRILL_IN_BACK,DRILL_IN_DETAIL } from '../../utils/motionVariants';
 import { CardTail } from '../common/CardTail';
@@ -24,6 +23,7 @@ import { DeviceCapabilityBadge } from './DeviceCapabilityBadge';
 import { McpIcon } from './McpIcon';
 import { McpMarketplaceModal } from './McpMarketplaceModal';
 import { AddPrivateMcpModal } from './AddPrivateMcpModal';
+import { MarkdownHtml } from '../common/MarkdownHtml';
 
 // Icons all come from the backend catalog API (admin DB custom value → DEFAULT_MCP_ICONS fallback,
 // see src/backend/api/routes/v1/admin_mcp_servers.py). Here we only show a first-letter placeholder
@@ -40,8 +40,8 @@ export function McpPage() {
     toggleItem,
   } = useCatalogStore();
   const { title: mcpTitle, subtitle: mcpSubtitle } = usePanelHeader('mcp', {
-    title: ABILITY_TAB_TITLE.mcp,
-    subtitle: '管理连接器服务，并查看其作用范围与可靠性影响。',
+    title: t(ABILITY_TAB_TITLE.mcp),
+    subtitle: t('管理连接器服务，并查看其作用范围与可靠性影响。'),
   });
 
   const fetchCatalog = useCatalogStore((s) => s.fetchCatalog);
@@ -214,7 +214,7 @@ export function McpPage() {
           {/* User intro body — single source of truth, managed via admin */}
           <div className="jx-mcp-detailBody">
             {markdownBody ? (
-              <div className="jx-md jx-mcp-detailMarkdown" dangerouslySetInnerHTML={{ __html: mdToHtml(markdownBody) }} />
+              <MarkdownHtml className="jx-md jx-mcp-detailMarkdown" markdown={markdownBody} />
             ) : (
               <Typography.Text type="secondary">{t('暂无介绍')}</Typography.Text>
             )}
@@ -421,7 +421,7 @@ export function McpPage() {
             <Input.TextArea rows={2} maxLength={2000} />
           </Form.Item>
           <Form.Item name="category" label={t('上架分类')} rules={[{ required: true, message: t('请选择上架分类') }]}>
-            <Select options={MCP_MARKET_CATEGORIES.map((value) => ({ value, label: value }))} />
+            <Select options={MCP_MARKET_CATEGORIES.map((value) => ({ value, label: t(value) }))} />
           </Form.Item>
           <Form.Item name="version" label={t('版本号')} rules={[{ required: true, message: t('请输入版本号') }]}>
             <Input placeholder="1.0.0" maxLength={50} />

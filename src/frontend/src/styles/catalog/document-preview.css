@@ -239,19 +239,3 @@
 .jx-chunkQuestion:hover .jx-chunkQuestionDel{
   opacity:1;
 }
-
-/* scrollbar for list */
-
-.jx-manageList::-webkit-scrollbar{width:8px}
-
-.jx-manageList::-webkit-scrollbar-thumb{background:color-mix(in srgb, var(--color-text) 14%, transparent); border-radius:999px}
-
-/* text ellipsis */
-
-.jx-lineClamp2{
-  display:-webkit-box;
-  -webkit-line-clamp:2;
-  -webkit-box-orient:vertical;
-  overflow:hidden;
-  line-height:1.6;
-}

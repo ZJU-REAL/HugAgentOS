@@ -4,7 +4,7 @@ SearchOutlined,
 } from '@ant-design/icons';
 import type { InputRef } from 'antd';
 import { Input,message,Modal,Select,Tooltip } from 'antd';
-import { useMemo,useRef } from 'react';
+import { useMemo,useRef,useState } from 'react';
 import type { SearchResultItem } from '../../api';
 import { getAutomationRuns } from '../../api';
 import { t } from '../../i18n';
@@ -13,7 +13,7 @@ import { usePanel } from '../../routing/usePanel';
 import { useAutomationChatStore,useChatStore,useUIStore } from '../../stores';
 import { useAutomationStore } from '../../stores/automationStore';
 import type { HistoryTimeFilter } from '../../stores/uiStore';
-import type { ChatItem } from '../../types';
+import type { ChatItem, ChatStore } from '../../types';
 import { highlightKeyword } from '../../utils/highlight';
 import {
 buildSearchChatItems,
@@ -85,6 +85,8 @@ function ItemTypeIcon({ item }: { item: ChatItem }) {
   return <span className="jx-searchItemTypeIcon jx-searchItemTypeIcon--dot" aria-hidden="true" />;
 }
 
+const NO_CHATS: ChatStore['chats'] = {};
+
 export function SearchModal({ onNewChat, onSelectChat, onSelectSearchResult }: SearchModalProps) {
   // ── Fine-grained subscriptions, to avoid useUIStore() grabbing the whole object wholesale and re-rendering on every unrelated UI state change ──
   const searchModalOpen = useUIStore((s) => s.searchModalOpen);
@@ -100,7 +102,12 @@ export function SearchModal({ onNewChat, onSelectChat, onSelectSearchResult }: S
 
   // store is a large object, triggered on every streaming token update; narrowing to order + chats references reduces re-renders
   const storeOrder = useChatStore((s) => s.store.order);
-  const storeChats = useChatStore((s) => s.store.chats);
+  // Hidden modal: a stable empty map, so streaming commits don't rebuild the list behind it.
+  // `shown` latches on as soon as the modal opens and keeps the data live until the exit
+  // animation finishes (afterOpenChange(false)), so a quick close never flashes an empty list.
+  const [shown, setShown] = useState(false);
+  if (searchModalOpen && !shown) setShown(true);
+  const storeChats = useChatStore((s) => (shown ? s.store.chats : NO_CHATS));
   const currentChatId = useChatStore((s) => s.currentChatId);
   const panel = usePanel();
   const tasks = useAutomationStore((s) => s.tasks);
@@ -289,11 +296,11 @@ export function SearchModal({ onNewChat, onSelectChat, onSelectSearchResult }: S
       footer={null}
       closable={false}
       width={640}
-      maskClosable
+      mask={{ closable: true }}
       destroyOnHidden
       className="jx-searchModal"
       // Focus only after the enter transition finishes (replacing the original 80ms setTimeout magic number), to avoid focus stealing the transition
-      afterOpenChange={(open) => { if (open) inputRef.current?.focus(); }}
+      afterOpenChange={(open) => { if (open) inputRef.current?.focus(); else setShown(false); }}
       aria-label={t('搜索对话')}
       // Center the Modal slightly above middle (more like a command palette)
       style={{ top: 96 }}
@@ -314,7 +321,7 @@ export function SearchModal({ onNewChat, onSelectChat, onSelectSearchResult }: S
             }
           }}
         />
-        <span className="jx-searchModalKbd" aria-label="快捷键">⌘K</span>
+        <span className="jx-searchModalKbd" aria-label={t('快捷键')}>⌘K</span>
         <button
           type="button"
           className="jx-searchModalClose"
@@ -333,7 +340,7 @@ export function SearchModal({ onNewChat, onSelectChat, onSelectSearchResult }: S
           value={historyTimeFilter}
           onChange={(v) => setHistoryTimeFilter(v as HistoryTimeFilter)}
           options={TIME_OPTIONS}
-          popupClassName="jx-searchModalFilterPopup"
+          classNames={{ popup: { root: "jx-searchModalFilterPopup" } }}
           className="jx-searchModalFilterSelect"
           popupMatchSelectWidth={false}
         />
@@ -345,7 +352,7 @@ export function SearchModal({ onNewChat, onSelectChat, onSelectSearchResult }: S
           value={historyTopicFilter}
           onChange={(v) => setHistoryTopicFilter(v)}
           options={TYPE_OPTIONS}
-          popupClassName="jx-searchModalFilterPopup"
+          classNames={{ popup: { root: "jx-searchModalFilterPopup" } }}
           className="jx-searchModalFilterSelect"
           popupMatchSelectWidth={false}
         />

@@ -28,10 +28,10 @@ from extensions.mcp_servers.registry import SERVERS, process_servers
 from extensions.mcp_servers._ports import PORTS
 from extensions.mcp_servers._launcher import PORTS as launcher_ports
 
-excluded = {"query_database", "ai_chain_information_mcp", "security_ops"}
+excluded = {"database", "ai_chain_information_mcp", "security_ops"}
 assert excluded.isdisjoint(SERVERS)
 assert excluded.isdisjoint(PORTS)
-assert {"query_database_mcp", "ai_chain_information_mcp", "security_ops_mcp"}.isdisjoint(launcher_ports)
+assert {"database_mcp", "ai_chain_information_mcp", "security_ops_mcp"}.isdisjoint(launcher_ports)
 expected = {
     "retrieve_dataset_content": 9100, "internet_search": 9102,
     "web_fetch": 9106, "automation_task": 9108, "skill_manager": 9112,

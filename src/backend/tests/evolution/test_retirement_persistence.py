@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from core.db.engine import Base
 from core.db.models.evolution import EvolutionCandidate, EvolutionCreditDecision
 from core.evolution.cycle import candidate_records, composition_candidates, retirement
+from tests.db_support import share_factory
 
 
 @pytest.mark.parametrize("exposure", [float("inf"), 60.0])
@@ -35,7 +36,7 @@ def test_retirement_candidate_persists_with_strict_json(monkeypatch, exposure, s
     factory = sessionmaker(bind=engine)
     import core.db.engine as engine_module
 
-    monkeypatch.setattr(engine_module, "SessionLocal", factory)
+    share_factory(monkeypatch, factory)
     monkeypatch.setattr(candidate_records, "SessionLocal", factory)
     usage = {"builtin-skill": {**stats, "exposure_days": exposure, "follow_through": 0.9}}
     findings = retirement.find_retirement_candidates(usage)

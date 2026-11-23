@@ -9,15 +9,13 @@ from tests.sandbox.provider_test_support import patch_open_settings
 import json
 
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from core.db.engine import Base
 import core.db.models  # noqa: F401  ensure all models are registered (FK depends on users_shadow)
 from core.db.models import UserShadow, AdminSkill
 from integrations.dingtalk.repository import DingTalkConnectionRepository
 from integrations.dingtalk.parsing import parse_device_login_output, parse_auth_status, parse_get_self
+from tests.db_support import memory_engine, share_factory
 
 # sandbox_tool pulls in agentscope via core.llm.__init__; skip related cases when
 # agentscope is absent locally — they run normally inside the container (the real test environment).
@@ -32,12 +30,9 @@ except ModuleNotFoundError:
 @pytest.fixture
 def db(monkeypatch):
     monkeypatch.delenv("HUGAGENT_CAPS_ROOT", raising=False)
-    eng = create_engine(
-        "sqlite:///:memory:", poolclass=StaticPool, connect_args={"check_same_thread": False}
-    )
-    Base.metadata.create_all(eng)
+    eng = memory_engine()
     sessions = sessionmaker(bind=eng)
-    monkeypatch.setattr("core.db.engine.SessionLocal", sessions)
+    share_factory(monkeypatch, sessions)
     s = sessions()
     s.add(UserShadow(user_id="u1", username="alice"))
     s.commit()

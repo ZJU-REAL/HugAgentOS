@@ -10,6 +10,7 @@ from alembic.operations import Operations
 from core.db.models.plugin_resource import PluginResource, PluginResourceTicket, PluginResourceAssetTicket
 from core.capabilities.plugins.resources import store
 from core.llm.mcp import invocation as proof
+from tests.db_support import share_factory
 
 def test_invocation_proof_rejects_impersonation_expiry_and_wrong_audience(monkeypatch):
     monkeypatch.setenv("BACKEND_INTERNAL_TOKEN", "isolated-test-signing-key")
@@ -88,7 +89,7 @@ async def test_expired_starting_reservation_is_cleaned_without_endpoint(monkeypa
     for model in (PluginResource, PluginResourceTicket, PluginResourceAssetTicket):
         model.__table__.create(engine)
     monkeypatch.setattr(store, "descriptor", lambda row: {})
-    monkeypatch.setattr(db_engine, "SessionLocal", sessionmaker(bind=engine))
+    share_factory(monkeypatch, sessionmaker(bind=engine))
     with Session(engine) as db:
         row = PluginResource(resource_id="starting", user_id="owner", chat_id="chat",
             install_id="install", revision="revision", slug="fixture", module_id="module",

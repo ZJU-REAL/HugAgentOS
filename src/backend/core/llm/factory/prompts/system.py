@@ -13,6 +13,7 @@ from core.llm.runtime.project_environment import validate_project_environment
 from core.ontology.runtime_pack import render_runtime_prompt
 from core.config.store.execution_options import code_capability_enabled
 from prompts.prompt_runtime import build_subagent_system_prompt, build_system_prompt
+from core.db.threads import run_db
 
 
 async def system_prompt(
@@ -46,7 +47,7 @@ async def system_prompt(
         # A profile lists its own plugins; its register_tools may have set a load_plugin holder.
         return _agent_ref, _plan_tool_enabled, toolkit.plugin_runtime, system_prompt
     if request.user_agent is not None:
-        system_prompt = build_subagent_system_prompt(
+        system_prompt = await run_db(build_subagent_system_prompt,
             request.user_agent,
             tool_schemas,
             enabled_mcp_keys,
@@ -156,7 +157,9 @@ async def system_prompt(
             if _mode_prompt_text:
                 _mode_prompt = str(_mode_prompt_text)
             elif _mode_prompt_kind and _mode_prompt_kind != "turbo":
-                _mode_prompt = prompt_rendering.render_kind_segment(_mode_prompt_kind, fs_fallback=False)
+                _mode_prompt = await run_db(
+                    prompt_rendering.render_kind_segment, _mode_prompt_kind, fs_fallback=False
+                )
 
         if request.turbo_mode and not _turbo_code_exec:
             # Turbo swaps in the standalone prompt (DB "turbo" active version →
@@ -167,7 +170,7 @@ async def system_prompt(
             # 提示词时走默认装配，工具段按实际 toolkit 动态生成。）
 
             # 收窄模式没配专属提示词时退回历史的 turbo 正文——极速模式绑的就是它。
-            system_prompt = _mode_prompt or prompt_rendering.render_turbo_system_prompt()
+            system_prompt = _mode_prompt or await run_db(prompt_rendering.render_turbo_system_prompt)
             from core.config.local_mode import local_mode_enabled
 
             if local_mode_enabled():
@@ -225,7 +228,7 @@ async def system_prompt(
             # Project mode: let _build_project_section receive project_name / instructions / files / folder
             if request.project_ctx:
                 _sp_ctx.update(request.project_ctx)
-            system_prompt = build_system_prompt(
+            system_prompt = await run_db(build_system_prompt,
                 cfg, ctx=_sp_ctx, manifest_builder=_manifest_builder
             )
             # Project material must travel as its own canonical ContextItem so
@@ -277,9 +280,7 @@ async def system_prompt(
         # Single source of truth render_kind_segment (same source as the Config console preview).
         if code_capability_enabled() and (not request.turbo_mode or _turbo_code_exec):
             try:
-                from core.llm import prompt_versions as _pvs
-
-                _code_exec_text = prompt_rendering.render_kind_segment("code_exec")
+                _code_exec_text = await run_db(prompt_rendering.render_kind_segment, "code_exec")
             except Exception:
                 _code_exec_text = ""
             if _code_exec_text:
@@ -453,7 +454,7 @@ async def system_prompt(
             # 计划栏的催更中间件挂在同一个正向开关上：工具没注册就绝不该有人催更新。
             _plan_tool_enabled = True
             register_plan_update_tool(toolkit)
-            _pu_section = build_plan_update_prompt_section()
+            _pu_section = await run_db(build_plan_update_prompt_section)
             if _pu_section:
                 system_prompt = system_prompt + "\n\n" + _pu_section
                 _manifest_builder.add_prompt_section(

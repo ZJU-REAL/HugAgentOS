@@ -166,10 +166,6 @@ token 用量在流式收尾的 `meta.usage` 中统计（`core/llm/runtime/stream
 
 社区版用户可查看自己的 token 用量；组织级计费汇总、定价管理与成本导出归商业版，配额管控在商业版规划中。
 
-## 路由策略（ROUTER_STRATEGY）
-
-`core/agent_runtime/strategy.py`：`ROUTER_STRATEGY=main_only`（默认）恒路由到主智能体；`llm_router` 为预留占位，当前实现同样回落 `MainOnlyStrategy`（safe-by-default）。实际的多智能体分流由 `@提及` + `call_subagent` 工具完成，见 [对话与智能体编排](chat.md)。
-
 ## 相关源码
 
 | 主题 | 路径 |
@@ -182,7 +178,6 @@ token 用量在流式收尾的 `meta.usage` 中统计（`core/llm/runtime/stream
 | MCP env 注入 | `src/backend/core/models/config.py::get_mcp_env_overlay`，`core/config/runtime_env.py` |
 | 个人 API-Key | `src/backend/api/routes/v1/api_keys.py`，`core/auth/api_keys.py`，`core/auth/backend.py` |
 | 用量日志 / 计费 | `src/backend/api/routes/v1/admin_usage_logs.py`，`api/routes/v1/admin_billing.py` |
-| 路由策略 | `src/backend/core/agent_runtime/strategy.py` |
 | 主模型缺失快速失败 | `src/backend/api/routes/v1/chats/__init__.py::_ensure_main_model_configured` |
 
 ## 模型专属思考档位

@@ -18,6 +18,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
+from tests.db_support import share_factory
 
 
 @pytest.fixture(autouse=True)
@@ -37,7 +38,7 @@ def resource_db(monkeypatch):
 
     Base.metadata.create_all(engine)
     # Closing a worker opens sessions of its own (core.db.threads.run_in_session).
-    monkeypatch.setattr(db_engine, "SessionLocal", sessionmaker(bind=engine))
+    share_factory(monkeypatch, sessionmaker(bind=engine))
     with Session(engine) as db:
         yield db
     engine.dispose()

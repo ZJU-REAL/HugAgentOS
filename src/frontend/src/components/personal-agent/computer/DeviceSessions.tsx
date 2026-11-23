@@ -71,7 +71,7 @@ export function DeviceSessions({ target, name, onClose }: { target: string; name
     if (selected && (all || signal.topics.includes(target + ':' + selected))) void refresh(selected).catch(failed);
   }), [target, load, refresh]);
   return <Modal open title={name + ' · ' + t('会话管理')} onCancel={onClose} footer={null} width={840}>
-    {error && <Alert type="error" message={error} />}
+    {error && <Alert type="error" title={error} />}
     <Space><Button disabled={busy} onClick={() => void act(async () => { const created = await operation('chat.create', { title: t('新对话') }) as Chat;await load();setChat(created); })}>{t('新建对话')}</Button>
       <Button disabled={busy} onClick={() => void act(() => load(page))}>{t('刷新')}</Button><Button disabled={busy || page === 1} onClick={() => void act(() => load(page - 1))}>{t('上一页')}</Button><Button disabled={busy || !more} onClick={() => void act(() => load(page + 1))}>{t('下一页')}</Button></Space>
     <Spin spinning={busy}><div className="pa-device-session-grid">

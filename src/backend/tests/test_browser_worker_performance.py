@@ -4,6 +4,9 @@ import sys
 import uuid
 from pathlib import Path
 
+import pytest
+
+pytest.importorskip("playwright", reason="browser worker tests need playwright (desktop/requirements-desktop.txt)")
 sys.path.insert(0, str(Path(__file__).parents[1] / "extensions/plugins/marketplace/browser-automation/runtime"))
 from browser_worker.commands import execute
 from browser_worker.protocol import Command

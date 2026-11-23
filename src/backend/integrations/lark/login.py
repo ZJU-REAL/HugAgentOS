@@ -1,14 +1,18 @@
-"""Lark login responsibilities."""
+"""Lark device-flow login: liveness probe, background completion task, connection updates."""
 from __future__ import annotations
-from core.infra.time import utc_now
+
 import asyncio
-from typing import Any, Dict
-from integrations.lark.repository import LarkConnectionRepository
 import logging
-logger = logging.getLogger(__name__)
+from typing import Any, Dict
+
+from core.db.threads import run_db
+from core.infra.time import utc_now
 from integrations.lark import parsing as lark_parsing
 from integrations.lark import process as lark_process
 from integrations.lark import state as lark_state
+from integrations.lark.repository import LarkConnectionRepository
+
+logger = logging.getLogger(__name__)
 
 def update_connection(user_id: str, data: Dict[str, Any]) -> None:
     """Update the connection record with an independent DB session (for the background login task — must not borrow the request-scoped session)."""
@@ -18,7 +22,7 @@ def update_connection(user_id: str, data: Dict[str, Any]) -> None:
         with SessionLocal() as db:
             LarkConnectionRepository(db).update(user_id, data)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("[lark] _update_connection user=%s failed: %s", user_id, exc)
+        logger.warning("[lark] update_connection user=%s failed: %s", user_id, exc)
 
 
 async def build_connected_update(user_id: str) -> Dict[str, Any]:
@@ -89,19 +93,19 @@ async def device_complete_flow(user_id: str, device_code: str) -> None:
             if st_state is False:
                 verdict = "error"
             elif st_state is True or lark_parsing.is_authenticated(st) or rc == 0:
-                update_connection(user_id, await build_connected_update(user_id))
+                await run_db(update_connection, user_id, await build_connected_update(user_id))
                 return
             else:
                 verdict = "error"
         if verdict == "error":
             tail = ((err or out or "").strip())[-300:]
-            update_connection(user_id, {
+            await run_db(update_connection, user_id, {
                 "status": "error", **lark_state.CLEAR_LOGIN,
                 "last_error": f"扫码授权未完成或已过期，请重试。{('详情: ' + tail) if tail else ''}",
             })
             return
         # pending reaching here (timed out unauthorized) → set error so the user can retry
-        update_connection(user_id, {
+        await run_db(update_connection, user_id, {
             "status": "error", **lark_state.CLEAR_LOGIN,
             "last_error": "扫码授权超时，请重新发起连接。",
         })
@@ -109,6 +113,6 @@ async def device_complete_flow(user_id: str, device_code: str) -> None:
         raise
     except Exception as exc:  # noqa: BLE001
         logger.warning("[lark] device complete failed user=%s: %s", user_id, exc)
-        update_connection(user_id, {"status": "error", "last_error": f"登录异常: {exc}"})
+        await run_db(update_connection, user_id, {"status": "error", "last_error": f"登录异常: {exc}"})
     finally:
         lark_state.LOGIN_TASKS.pop(user_id, None)

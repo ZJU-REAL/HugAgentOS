@@ -4,9 +4,6 @@
 - ``sandbox_put_artifact``: copy an existing artifact's bytes into the sandbox.
 - ``sandbox_get_artifact``: read a sandbox file and register it as a
   downloadable artifact.
-
-Relocated from the former ``core.llm.tool`` module so the singular ``tool.py``
-no longer coexists with this ``tools/`` package.
 """
 
 from __future__ import annotations
@@ -19,7 +16,7 @@ from typing import Any, Optional
 
 from agentscope.tool import Toolkit
 
-# AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolChunk).
+# AgentScope 2.0: tool functions must return ToolChunk.
 from agentscope.tool._response import ToolChunk
 from core.llm.tools._common import resolve_sandbox_session
 from core.llm.tools._tool_helpers import resp_json as _resp_json

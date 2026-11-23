@@ -6,6 +6,7 @@ for a tool or server should import from here.
 
 from __future__ import annotations
 
+import re
 from typing import Dict
 
 from core.config.edition import (
@@ -18,8 +19,6 @@ from core.config.edition import (
 
 # MCP server ID -> Chinese name (used for capability-center panel titles)
 MCP_SERVER_DISPLAY_NAMES: Dict[str, str] = {
-    "query_database": "数据库查询",
-    "db_query": "数据库直连查询",
     "retrieve_dataset_content": "知识库检索",
     "internet_search": "互联网搜索",
     # (Word/Excel/PPT capability migrated to the officecli-* skills, PDF to pdf-editing;
@@ -30,8 +29,6 @@ MCP_SERVER_DISPLAY_NAMES: Dict[str, str] = {
 
 # MCP server ID -> one-line feature description (used for capability-center panel description text)
 MCP_SERVER_DESCRIPTIONS: Dict[str, str] = {
-    "query_database": "查询数据仓库中的行业指标与统计数值，支持自然语言提问直接获取精确数据。",
-    "db_query": "通过 DBHub 网关只读直连 MySQL/PostgreSQL/SQL Server/MariaDB/SQLite 等数据库，自动探查表结构并执行 SQL 取数。",
     "retrieve_dataset_content": "从公有/私有知识库中语义检索政策文件、产业报告及用户上传文档，支持混合检索与重排序。",
     "internet_search": "检索公开网页、官方文档、新闻及财经资讯，支持多查询并发、来源去重和原文核验。",
     # (Word/Excel/PPT capability migrated to the officecli-* skills, PDF to pdf-editing;
@@ -46,9 +43,6 @@ MCP_SERVER_DESCRIPTIONS: Dict[str, str] = {
 TOOL_DISPLAY_NAMES: Dict[str, str] = {
     # MCP tools
     "publish_site": "发布站点",
-    "query_database": "数据库查询",
-    "execute_sql": "执行 SQL 查询",
-    "search_objects": "探查库表结构",
     "retrieve_dataset_content": "公有知识库检索",
     "retrieve_local_kb": "本地知识库检索",
     "list_datasets": "查看知识库列表",
@@ -95,8 +89,48 @@ TOOL_DISPLAY_NAMES: Dict[str, str] = {
     # Deprecated (kept for fallback display)
     "execute_code": "代码执行（已废弃）",
     "run_command": "执行命令（已废弃）",
-    # Deprecated (kept for fallback display)
-    "use_skill": "加载技能（已废弃）",
     # My Space access tools (code-execution mode)
     **edition_tool_display_names(),
 }
+
+# ── Data-source tool suffixes ────────────────────────────────────────────────
+
+# Every data source is its own MCP server whose tools are named
+# ``<prefix>__<suffix>`` (prefix = the data-source id, so it is unbounded and
+# can't be listed above). The suffix set is fixed by the database MCP, so the
+# display name is resolved from the suffix instead.
+DATASOURCE_TOOL_SUFFIX_DISPLAY_NAMES: Dict[str, str] = {
+    # SQL data sources
+    "list_schemas": "查看库表",
+    "list_tables": "查看库表",
+    "describe_table": "查看表结构",
+    "sample_rows": "查看样例数据",
+    "execute_sql": "执行 SQL 查询",
+    "explain_query": "查看执行计划",
+    "execute_write_sql": "写入数据库",
+    # Elasticsearch data sources
+    "list_indices": "查看库表",
+    "get_mappings": "查看表结构",
+    "search": "检索 Elasticsearch",
+    "esql": "执行 ES|QL 查询",
+    "get_document": "读取 Elasticsearch 文档",
+    # Both
+    "get_business_context": "读取数据字典",
+}
+
+# Mirrors the database MCP's prefix rule (lower-case id, ``-`` → ``_``, ≤ 40
+# chars) so an unrelated tool that merely contains ``__`` is not renamed.
+_DATASOURCE_TOOL_RE = re.compile(r"^[a-z0-9_]{1,40}__([a-z_]+)$")
+
+
+def tool_display_name(tool_name: str) -> str:
+    """Chinese display name for a tool: exact table first, then data-source suffix."""
+    exact = TOOL_DISPLAY_NAMES.get(tool_name)
+    if exact:
+        return exact
+    match = _DATASOURCE_TOOL_RE.match(tool_name or "")
+    if match:
+        suffix_name = DATASOURCE_TOOL_SUFFIX_DISPLAY_NAMES.get(match.group(1))
+        if suffix_name:
+            return suffix_name
+    return tool_name

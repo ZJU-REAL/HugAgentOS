@@ -1,5 +1,4 @@
 """Behavioral gates and native assembly order for contributed tools."""
-from features.datasources import metadata
 from unittest.mock import Mock
 
 import pytest
@@ -9,7 +8,6 @@ from core.llm.factory.request import AgentRequest
 from features import register_product_tools
 from features.sites.tools import design_picker as design_picker_tool
 from integrations.channels.tools import attachment as channel_attachment_tool
-from features.datasources.tools import data_context as data_context_tool
 
 
 @pytest.fixture
@@ -39,27 +37,6 @@ async def test_product_gates(contributions, monkeypatch, skills, channel, automa
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("servers,eligible,fail,expected", [
-    (["query_database"], ["db"], False, []),
-    (["db_query"], [], False, []),
-    (["db_query"], ["db"], False, [["db"]]),
-    (["es_query"], ["es"], False, [["es"]]),
-    (["db_query"], [], True, []),
-])
-async def test_data_dictionary_gates(contributions, monkeypatch, servers, eligible, fail, expected):
-
-    lookup = Mock(side_effect=RuntimeError("unavailable")) if fail else Mock(return_value=eligible)
-    monkeypatch.setattr(metadata, 'eligible_datasource_ids', lookup)
-    calls = []
-    monkeypatch.setattr(data_context_tool, "register_get_data_context", lambda toolkit, ids: calls.append(ids))
-    context = NativeToolContext(AgentRequest(), True, False, None, None, [], servers, Mock())
-    await install_tools("after_workflow", object(), context)
-    assert calls == expected
-    assert lookup.call_count == (0 if servers == ["query_database"] else 1)
-    assert context.logger.warning.call_count == int(fail)
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("disabled,turbo,expected", [(False, False, ["after_sandbox", "after_image", "after_workflow"]), (True, False, []), (False, True, [])])
 async def test_native_assembly_gates_and_order(monkeypatch, disabled, turbo, expected):
     import importlib
@@ -85,6 +62,6 @@ async def test_native_assembly_gates_and_order(monkeypatch, disabled, turbo, exp
 def test_headless_host_composes_tools_without_asgi():
     import subprocess
     import sys
-    script = 'import asyncio\nimport logging\nimport sys\nfrom unittest.mock import patch\nfrom features import register_product_tools\nfrom core.harness.registry import NativeToolContext, install_tools\nfrom core.llm.factory.request import AgentRequest\nfrom core.llm.factory.tools.definitions import ToolAssembly\n\nassert "api.app" not in sys.modules\nregister_product_tools()\nregister_product_tools()\n\nasync def main():\n    toolkit = ToolAssembly()\n    context = NativeToolContext(AgentRequest(chat_id="test", current_user_id="test"), True, True, None, None, ["site-builder"], ["db_query"], logging.getLogger("test"))\n    with patch("features.datasources.metadata.eligible_datasource_ids", return_value=["fixture"]):\n        for stage in ("after_sandbox", "after_image", "after_workflow"):\n            await install_tools(stage, toolkit, context)\n    names = [tool.name for tool in list(toolkit)]\n    assert names == ["choose_design", "channel_read_attachment", "get_data_context"], names\n    assert "api.app" not in sys.modules\n    print("headless tool composition passed", names)\n\nasyncio.run(main())\n'
+    script = 'import asyncio\nimport logging\nimport sys\nfrom unittest.mock import patch\nfrom features import register_product_tools\nfrom core.harness.registry import NativeToolContext, install_tools\nfrom core.llm.factory.request import AgentRequest\nfrom core.llm.factory.tools.definitions import ToolAssembly\n\nassert "api.app" not in sys.modules\nregister_product_tools()\nregister_product_tools()\n\nasync def main():\n    toolkit = ToolAssembly()\n    context = NativeToolContext(AgentRequest(chat_id="test", current_user_id="test"), True, True, None, None, ["site-builder"], ["db_query"], logging.getLogger("test"))\n    for stage in ("after_sandbox", "after_image", "after_workflow"):\n        await install_tools(stage, toolkit, context)\n    names = [tool.name for tool in list(toolkit)]\n    assert names == ["choose_design", "channel_read_attachment"], names\n    assert "api.app" not in sys.modules\n    print("headless tool composition passed", names)\n\nasyncio.run(main())\n'
     result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr

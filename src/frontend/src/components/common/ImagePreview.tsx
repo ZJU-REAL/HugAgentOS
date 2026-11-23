@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react';
 import { Modal } from 'antd';
 import { t } from '../../i18n';
@@ -34,11 +34,14 @@ export default function ImagePreview() {
   const [dragging, setDragging] = useState(false);
   const dragRef = useRef<{ px: number; py: number; ox: number; oy: number } | null>(null);
 
-  // Reset the transform whenever a different image is opened.
-  useEffect(() => {
+  // Reset the transform whenever a different image is opened (during render, not in an effect).
+  const imageUrl = previewImage?.url;
+  const [shownUrl, setShownUrl] = useState(imageUrl);
+  if (imageUrl !== shownUrl) {
+    setShownUrl(imageUrl);
     setScale(1);
     setOffset({ x: 0, y: 0 });
-  }, [previewImage?.url]);
+  }
 
   const close = () => setPreviewImage(null);
   const reset = () => {
@@ -87,16 +90,16 @@ export default function ImagePreview() {
       width="auto"
       centered
       closable={false}
-      maskClosable
+      mask={{ closable: true }}
       className="jx-imagePreviewModal"
       rootClassName="jx-imagePreviewRoot"
-      destroyOnClose
+      destroyOnHidden
     >
       {previewImage && (
         <div className="jx-imagePreviewStage" onWheel={onWheel}>
           <div
             className="jx-imagePreviewCanvas"
-            style={{ cursor: scale > 1 ? (dragRef.current ? 'grabbing' : 'grab') : 'default' }}
+            style={{ cursor: scale > 1 ? (dragging ? 'grabbing' : 'grab') : 'default' }}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={endDrag}

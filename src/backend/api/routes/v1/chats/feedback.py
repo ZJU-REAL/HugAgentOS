@@ -6,8 +6,9 @@ import core.auth.backend as auth_backend
 import core.chat.context as chat_context
 import core.db.engine as db_engine
 import core.chat.service as chat_services_ChatService_module
+from core.chat import evaluation
 from core.auth.backend import UserContext
-from core.db.models import MessageFeedback
+from core.db.models import ChatMessage, MessageFeedback
 from core.infra.exceptions import ResourceNotFoundError
 from core.infra.logging import get_logger
 from core.infra.responses import success_response
@@ -27,14 +28,25 @@ def submit_feedback(
     user: UserContext = Depends(auth_backend.get_current_user),
     db: Session = Depends(db_engine.get_db),
 ):
-    """对某条助手消息提交点赞/点踩反馈（可附评论）。
+    """对某条助手回答提交评价：采纳 / 需修改 / 不满意（可附原因维度与说明）。
 
-    rating 仅接受 'like' / 'dislike'；同一用户对同一消息重复提交会覆盖原记录。
+    rating 接受 ``adopt`` / ``revise`` / ``reject``，旧值 ``like`` / ``dislike`` 仍可用（分别视为采纳、
+    不满意）。原因维度只在需修改、不满意时保存。同一用户对同一回答重复提交会覆盖原记录。
     """
-    if body.rating not in ("like", "dislike"):
-        raise HTTPException(status_code=400, detail="rating must be 'like' or 'dislike'")
+    verdict = evaluation.normalize_verdict(body.rating)
+    if verdict is None:
+        raise HTTPException(status_code=400, detail="rating must be one of adopt / revise / reject")
+    reasons = [] if verdict == evaluation.ADOPT else evaluation.clean_reasons(body.reasons)
+    comment = (body.comment or "").strip()[: evaluation.COMMENT_MAX] or None
 
     db_user_id = chat_session_context.authenticated_user_id(user)
+    message = (
+        db.query(ChatMessage.chat_id, ChatMessage.role).filter(ChatMessage.message_id == message_id).first()
+    )
+    if message is None or message.role != "assistant":
+        raise ResourceNotFoundError(resource_type="chat_message", resource_id=message_id)
+    if not evaluation.message_evaluable(db, message_id):
+        raise HTTPException(status_code=400, detail="定时任务和循环任务的回答不参与评价")
 
     existing = (
         db.query(MessageFeedback)
@@ -45,8 +57,10 @@ def submit_feedback(
         .first()
     )
     if existing:
-        existing.rating = body.rating
-        existing.comment = body.comment
+        existing.rating = evaluation.legacy_rating(verdict)
+        existing.verdict = verdict
+        existing.reasons = reasons
+        existing.comment = comment
         existing.updated_at = utc_now()
         db.commit()
         db.refresh(existing)
@@ -54,13 +68,15 @@ def submit_feedback(
     else:
         record = MessageFeedback(
             message_id=message_id,
-            chat_id=body.chat_id or "",
+            chat_id=message.chat_id,
             user_id=db_user_id,
-            rating=body.rating,
-            comment=body.comment,
+            rating=evaluation.legacy_rating(verdict),
+            verdict=verdict,
+            reasons=reasons,
+            comment=comment,
         )
         db.add(record)
         db.commit()
         db.refresh(record)
 
-    return {"ok": True, "feedback_id": record.feedback_id, "rating": record.rating}
+    return {"ok": True, "rating": record.rating, **evaluation.feedback_to_dict(record)}

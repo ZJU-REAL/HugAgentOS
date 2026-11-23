@@ -18,11 +18,14 @@ import {
 import { readDesktopVersion } from "./desktop-version.mjs";
 import { buildDesktopRuntime } from "./build-runtime.mjs";
 import { validateDesktopBuildTarget } from "./desktop-build-target.mjs";
+import { findPython, run as runCommand } from "./process-utils.mjs";
 
 assertMacosSigning();
 
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(desktopDir, "..");
+const run = (command, args, options = {}) =>
+  runCommand(command, args, { ...options, cwd: options.cwd || repoRoot });
 const generatedRoot = join(desktopDir, "generated", "server-ce");
 const generatedArchive = join(desktopDir, "generated", "server-ce.zip");
 const npmCommand =
@@ -47,46 +50,7 @@ if (bundleFlavor === "full") {
 const desktopTarget = currentDesktopTarget();
 const dependencyFingerprint = desktopDependencyFingerprint(repoRoot, desktopTarget);
 run(process.execPath, [join(repoRoot, "scripts", "build-workbench.mjs"), "--check"]);
-const python = bundleFlavor === "full" ? findPython() : null;
-
-function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
-    cwd: options.cwd || repoRoot,
-    env: { ...process.env, ...(options.env || {}) },
-    stdio: "inherit",
-    shell: false,
-  });
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    throw new Error(
-      `${command} ${args.join(" ")} failed with exit code ${result.status}`,
-    );
-  }
-}
-
-function findPython() {
-  const commands =
-    process.platform === "win32" ? ["python", "py"] : ["python3", "python"];
-  for (const command of commands) {
-    const prefix = command === "py" ? ["-3"] : [];
-    const result = spawnSync(
-      command,
-      [
-        ...prefix,
-        "-c",
-        "import sys, tarfile; raise SystemExit(0 if sys.version_info >= (3, 11) and hasattr(tarfile, 'data_filter') else 1)",
-      ],
-      {
-        stdio: "ignore",
-        shell: false,
-      },
-    );
-    if (result.status === 0) return { command, prefix };
-  }
-  throw new Error(
-    "Python 3.11.4 or later with tarfile extraction filters is required to generate the bundled CE server.",
-  );
-}
+const python = bundleFlavor === "full" ? findPython("generate the bundled CE server") : null;
 
 if (bundleFlavor === "full") assertPinnedUv(repoRoot);
 

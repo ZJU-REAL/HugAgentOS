@@ -102,8 +102,6 @@ def _capture_started_runs(monkeypatch, db_session) -> List[Dict[str, Any]]:
         return "run_1"
 
     import core.capabilities.catalog.resolver as resolver_mod
-    import core.chat.service as chat_service_mod
-    pass
 
     monkeypatch.setattr(chat_session_context, 'load_session_messages', fake_load_session_messages)
     monkeypatch.setattr(resolver_mod, "resolve_all_runtime_enabled", fake_resolve_all)

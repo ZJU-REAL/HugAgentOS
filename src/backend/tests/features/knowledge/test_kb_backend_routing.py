@@ -11,6 +11,7 @@ import pytest
 from features.knowledge import edition as external_provider, kb_vector
 from core.config.store.system_config import SystemConfigService
 from extensions.mcp_servers.retrieve_dataset_content_mcp import impl, server, wiki_impl
+from tests.db_support import share_factory
 
 
 def configure(monkeypatch, provider):
@@ -51,7 +52,7 @@ def local_data(db_session, monkeypatch):
         ]
     )
     db_session.commit()
-    monkeypatch.setattr(engine, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
+    share_factory(monkeypatch, sessionmaker(bind=db_session.get_bind()))
     monkeypatch.setattr(vector_embedding, 'embed_text', lambda *args, **kwargs: [0.1])
     calls = []
 
@@ -212,4 +213,28 @@ def test_external_failure_does_not_search_local(monkeypatch, local_data):
     monkeypatch.setattr(impl, "retrieve_dataset_content_async", fail)
     result = asyncio.run(server.retrieve_dataset_content(query="policy"))
     assert result["error"]["code"] == "upstream_unavailable"
+    assert local_data == []
+
+
+def test_explicit_kb_ids_skip_soft_deleted_spaces(db_session, local_data):
+    """A soft-deleted space keeps its vectors; an explicit allowed id must not reach them."""
+    from features.knowledge.models import KBSpace
+    from core.infra.time import utc_now
+    from extensions.mcp_servers.retrieve_dataset_content_mcp.local_impl import retrieve_local_kb
+
+    db_session.add(
+        KBSpace(kb_id="kb_deleted", user_id="reader", name="Gone", visibility="private", deleted_at=utc_now())
+    )
+    db_session.commit()
+
+    result = retrieve_local_kb(
+        "", "anything", allowed_kb_ids="kb_deleted,kb_private", current_user_id="reader"
+    )
+    assert isinstance(result, dict)
+    assert [call["kb_ids"] for call in local_data] == [["kb_private"]]
+
+    local_data.clear()
+    assert retrieve_local_kb(
+        "", "anything", allowed_kb_ids="kb_deleted", current_user_id="reader"
+    ) == [{"error": "未找到可访问的私有知识库"}]
     assert local_data == []

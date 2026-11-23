@@ -19,7 +19,7 @@ from core.harness.ledger import DurableEventStore, HarnessUsageLedger
 from core.runs.journal import RunJournal
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import sessionmaker
+from tests.db_support import session_factory
 
 POSTGRES_URL = os.getenv("RUN_JOURNAL_POSTGRES_URL", "").strip()
 pytestmark = pytest.mark.skipif(
@@ -42,7 +42,7 @@ def test_postgres_allocates_unique_usage_and_event_sequences_under_concurrency()
     )
 
     engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
-    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+    sessions = session_factory(engine)
     suffix = uuid4().hex[:12]
     user_id = f"pg-hook-user-{suffix}"
     chat_id = f"pg-hook-chat-{suffix}"

@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-26
 
-HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://modelcontextprotocol.io) 之上：每一类外部能力（联网搜索、网页抓取、数据库查询、图表生成……）都是一个独立的 MCP Server，统一运行在专用的 `mcp` 容器中，后端通过 streamable-http 协议连接调用。这种设计带来三点好处：
+HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://modelcontextprotocol.io) 之上：每一类外部能力（联网搜索、网页抓取、数据库查询……）都是一个独立的 MCP Server，统一运行在专用的 `mcp` 容器中，后端通过 streamable-http 协议连接调用。这种设计带来三点好处：
 
 - **插拔粒度在 Server 级**——启用/禁用一个能力只需改一行 catalog 配置或在管理台开关，无需改代码；
 - **故障隔离**——单个工具崩溃由 launcher 自动重启，不影响后端主进程；
@@ -21,7 +21,7 @@ HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://mo
                        ┌──────────────────────── mcp 容器 (docker/Dockerfile.mcp) ───┐
                        │  extensions.mcp_servers._launcher（每个 server 一个子进程）       │
 ┌─────────┐  HTTP  ┌───┴────┐   :9100  retrieve_dataset_content（知识库检索）   │
-│ backend │───────▶│streama-│   :9101  query_database（数仓查询，EE）           │
+│ backend │───────▶│streama-│   :9101  保留（原 NL2SQL 取数 MCP 已退役）        │
 │ (FastAPI│        │ble-http│   :9102  internet_search（联网搜索）              │
 │  agent) │        │        │   :9103  产业知识中心统一 MCP（插件，EE）       │
 └─────────┘        │        │   :9104  保留（图表 MCP 已退役）                  │
@@ -30,6 +30,7 @@ HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://mo
   mcp_pool.py)     └───┬────┘   :9108  automation_task（自动化插件提供）      │
                        │        9109–9111 保留（原 excel/ppt/pdf MCP）        │
                        │        :9112  skill_manager（技能管理）              │
+                       │        :9118  database（数据库工具，每个数据源一个连接器，EE）│
                        └──────────────────────────────────────────────────────┘
 ```
 
@@ -47,16 +48,16 @@ HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://mo
 | Server（目录） | 端口 | 工具 | 版本 |
 |---|---|---|---|
 | `retrieve_dataset_content_mcp` | 9100 | `retrieve_dataset_content` / `list_datasets` / `retrieve_local_kb` | 社区版 CE |
-| `query_database_mcp` | 9101 | `query_database` | **商业版 EE** |
 | `internet_search_mcp` | 9102 | `internet_search` | 社区版 CE |
 | `ai_chain_information_mcp` | 9103 | 27 个产业链、企业、资讯、政策、报告、专利与技术工具 | **商业版 EE（产业知识中心插件）** |
 | `web_fetch_mcp` | 9106 | `web_fetch` | 社区版 CE |
 | `automation_task_mcp` | 9108 | `create_scheduled_task` / `list_scheduled_tasks` / `update_scheduled_task` 等 | 社区版 CE（自动化插件提供） |
 | `skill_manager_mcp` | 9112 | `search_marketplace` / `install_from_marketplace` / `register_skill` / `list_my_skills` / `submit_to_marketplace` / `delete_skill` | 社区版 CE |
+| `database_mcp` | 9118 | 每个数据源一组 `<前缀>__*` 工具（见下文 database） | **商业版 EE** |
 
 > 版本边界以 [开源与商业化产品方案](../editions/overview.md) 为准：依赖行业数据源的
-> 产业知识中心插件与数据仓库查询属于商业版。社区版派生树通过 `ce/manifest.yaml`
-> 物理剔除产业插件的 1 个自包含 MCP 和 14 个 Skills；通用工具进入社区版。
+> 产业知识中心插件与数据库工具属于商业版。社区版派生树通过 `ce/manifest.yaml`
+> 物理剔除产业插件的 1 个自包含 MCP 和 14 个 Skills，以及 `database_mcp` 与 `features/datasources`；通用工具进入社区版。
 
 ### retrieve_dataset_content — 知识库检索（CE）
 
@@ -67,10 +68,6 @@ HugAgentOS 的工具生态构建在 [MCP（Model Context Protocol）](https://mo
 - **`retrieve_local_kb(kb_id, query, top_k)`**：检索平台自建私有知识库。
 
 它是唯一的 **per-request** Server：每次对话请求按当前用户把允许访问的知识库 ID、用户 ID、重排序开关通过 **HTTP 请求头**（`X-Allowed-Dataset-Ids` / `X-Allowed-Kb-Ids` / `X-Current-User-Id` / `X-Reranker-Enabled`）注入（见 `core/llm/factory/build.py::_apply_runtime_kb_constraints`），Server 端用 `ctx.request_context` 读头实现多用户隔离。详见[知识库模块](knowledge-base.md)。
-
-### query_database — 数据仓库查询（商业版 EE）
-
-`query_database(question, 工号)`：把用户的完整自然语言问题整体传给内网数据仓库服务，由其内部完成问题分解、多表联查与 NL2SQL，返回可核对的精确指标数值（如规上工业增加值、增速、利润总额）。工具描述中将其定为"精确数值类问题的最高优先级数据源"。**完全依赖内网数仓，无法脱离行业数据运行，属商业版。**
 
 ### internet_search — 联网搜索（CE）
 
@@ -143,6 +140,21 @@ MCP（即使工具同名）也统一使用通用 JSON 卡片展示。两类结�
 ### skill_manager — 技能管理（CE）
 
 服务于能力中心和技能管理类插件：`search_marketplace` 搜索技能市场，`install_from_marketplace` 安装市场技能，`register_skill` 从上传包注册个人技能，`list_my_skills` 查看当前用户技能，`submit_to_marketplace` 提交上架申请，`delete_skill` 删除个人技能。服务层复用技能权限位与 owner 隔离，CE/EE 都按当前用户边界执行。
+
+### database — 数据库工具（每个数据源一个 MCP，EE）
+
+管理员在 `/config`「数据库工具」里添加的每个数据源都是一个独立的 MCP 连接器：`admin_mcp_servers` 行 `db_<数据源 id>`（显示名「数据库：<名称>」），指向同一个 `database_mcp` 进程（9118），由加密请求头 `X-Datasource-Id` 指明数据源。没有总开关，也没有子工具开关：数据源的启停就是连接器的启停，删除数据源即删除连接器。这些行只由 `features/datasources` 维护（启动时对账 + 每次增删改），不写进迁移或 catalog 种子。`database_mcp` 直接用驱动连库（psycopg / pymysql / pymssql / oracledb 薄模式 / sqlite3，ES 走 httpx），从应用数据库读取数据源配置，并校验后端签名的调用头。
+
+工具名为 `<前缀>__<工具>`，前缀是数据源 id（小写、`-` 换成 `_`，最长 40 字符）：
+
+| 数据源类型 | 工具 |
+|---|---|
+| MySQL / MariaDB / PostgreSQL / SQL Server / Oracle / SQLite | `list_schemas`、`list_tables`、`describe_table`、`sample_rows`、`execute_sql`、`explain_query`、`get_business_context`；关闭只读保护后另有 `execute_write_sql` |
+| Elasticsearch（`database` 字段为允许访问的索引模式） | `list_indices`、`get_mappings`、`search`、`esql`、`get_document`、`get_business_context` |
+
+只读执行分两层：先由 sqlglot 拒绝多语句和非只读 SQL，再在数据库支持时以只读事务执行（PostgreSQL、MySQL/MariaDB、Oracle；SQLite 以 `mode=ro` 打开），且总是回滚。单条语句超时 30 秒，最多返回 1000 行，样例 20 行，结果约 6 万字符封顶。`execute_write_sql` 仅在数据源关闭只读保护时出现，并按删除级操作确认：「逐项确认」和「替我批准」都会先询问用户，只有「完全放开」以及定时任务、IM 渠道等无人值守入口直接执行（策略由平台写入连接器的 `extra_config.tool_permissions`，不依赖 MCP 自报的注解）。`get_business_context` 返回元数据治理里的业务注释、枚举字典与黄金 SQL。
+
+管理员在「可用表」里只开放部分表后，列表类工具只显示这些表，查询语句引用的每张表（不含语句自己的 CTE）都必须在选中范围内，系统目录（`information_schema`、`pg_catalog`、`sys`、Oracle `ALL_*` 等）、跨库名、自定义表函数以及 `query_to_xml` / `dbms_xmlgen` 这类执行字符串 SQL 的函数都会被拒绝。视图和函数内部读到的表无法从语句里看出，要彻底隔离请给数据库账号只授权这些表。
 
 ## 统一的 Server 工程结构
 
@@ -384,6 +396,7 @@ docker-compose up -d --build mcp
 | `src/backend/core/config/mcp_config.py` | 内置 Server URL 构造（http://mcp:NNNN/mcp/） |
 | `src/backend/core/config/catalog.json` | 能力目录：MCP 启停门控种子 |
 | `src/backend/api/routes/v1/admin_mcp_servers.py` | 管理员自定义 MCP API |
+| `src/backend/features/datasources/` | 数据源 CRUD、`db_<id>` 连接器行对账、驱动引擎与工具定义（EE） |
 | `src/backend/api/routes/v1/me_capabilities.py` | 用户自助私有 MCP / 技能 API |
 | `src/backend/features/marketplace/api/mcp_marketplace.py` | 用户端 MCP 市场 API |
 | `src/backend/features/marketplace/api/admin_mcp_marketplace.py` | 管理端 MCP 市场与审核 API |

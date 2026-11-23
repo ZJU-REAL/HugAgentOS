@@ -8,6 +8,7 @@ import os
 from core.harness.registry.run_capabilities import has_run_capabilities
 from core.llm.factory.request import AgentRequest
 from core.llm.factory.selection import capabilities as factory_capabilities
+from core.db.threads import run_db
 
 
 async def skill_registration(
@@ -15,12 +16,12 @@ async def skill_registration(
 ):
     skill_ids_to_register = request.enabled_skill_ids
     if skill_ids_to_register is None:
-        skill_ids_to_register = factory_capabilities.effective_main_available_skills()
+        skill_ids_to_register = await run_db(factory_capabilities.effective_main_available_skills)
         # The fallback resolves from the static catalog, which today carries no
         # evolution-authored ids — but the exposure gate is applied here anyway
         # rather than relying on that. A gate that only covers the paths we
         # happened to think of is not a gate.
-        skill_ids_to_register = factory_capabilities.filter_skill_ids_for_user(
+        skill_ids_to_register = await run_db(factory_capabilities.filter_skill_ids_for_user,
             skill_ids_to_register, request.current_user_id
         )
     # Note: a subagent's (user_agent) enabled_skill_ids is always a list ([]

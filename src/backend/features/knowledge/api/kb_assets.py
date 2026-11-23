@@ -10,6 +10,7 @@ from core.infra.exceptions import BadRequestError, FileTooLargeError, ResourceNo
 from core.infra.responses import success_response
 from core.files.storage import get_storage
 from fastapi import Depends, File, Form, Path, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 import logging
 logger = logging.getLogger(__name__)
@@ -99,7 +100,9 @@ async def preview_chunks(
 
         embed_fn = embed_batch
 
-    parent_chunks = parse_and_chunk(
+    # 文档解析与语义分块的嵌入请求都是同步阻塞调用，放到工作线程，不卡住共享事件循环
+    parent_chunks = await run_in_threadpool(
+        parse_and_chunk,
         content,
         mime_type,
         chunk_method=chunk_method,

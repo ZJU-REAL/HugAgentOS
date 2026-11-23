@@ -17,13 +17,14 @@ from core.db.models import ChatRun, ChatSession
 from core.llm.context import compaction as C
 from fastapi import FastAPI
 from sqlalchemy.orm import sessionmaker
+from tests.db_support import share_factory
 
 CHAT_ID = "chat_manual_compact"
 
 
 @pytest.fixture
 def svc(db_session, monkeypatch):
-    monkeypatch.setattr(engine_mod, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
+    share_factory(monkeypatch, sessionmaker(bind=db_session.get_bind()))
     db_session.add(ChatSession(chat_id=CHAT_ID, user_id="owner", title="manual"))
     db_session.commit()
     return ChatService(db_session)

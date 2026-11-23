@@ -48,12 +48,6 @@ BACKFILL_DAYS = int(os.getenv("EVOLUTION_BACKFILL_DAYS", "180") or 180)
 # database. Already-harvested turns are skipped, so it resumes rather than repeats.
 BACKFILL_MAX_BATCHES = int(os.getenv("EVOLUTION_BACKFILL_MAX_BATCHES", "25") or 25)
 
-_instance: Optional["EvolutionCronScheduler"] = None
-
-
-def get_scheduler() -> Optional["EvolutionCronScheduler"]:
-    return _instance
-
 
 class EvolutionCronScheduler:
     def __init__(self) -> None:
@@ -64,8 +58,6 @@ class EvolutionCronScheduler:
         if self._running or not ENABLED:
             logger.info("[evolution-cron] disabled")
             return
-        global _instance
-        _instance = self
         self._running = True
         self._task = asyncio.create_task(self._loop())
         logger.info("[evolution-cron] started (%s %s)", CRON_EXPRESSION, CRON_TIMEZONE)

@@ -148,7 +148,7 @@ def _build_read_artifact_payload(result: Any) -> Dict[str, Any]:
             "preview": "",
             "extra": {},
         }
-    # output structure from the read_artifact tool (see core/llm/tool.py::read_artifact)
+    # output structure from the read_artifact tool (see core/llm/tools/read_artifact_tool.py)
     content = result.get("content")
     extra: Dict[str, Any] = {}
     for k in (

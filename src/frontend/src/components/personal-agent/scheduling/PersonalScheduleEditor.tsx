@@ -30,8 +30,8 @@ export function PersonalScheduleEditor({ item, onClose, onSaved }: {
     } catch (exc) { setError(errorText(exc)); } finally { setSaving(false); }
   }
   return <Modal open styles={{ body: { maxHeight: '65vh', overflowY: 'auto', paddingRight: 8 } }} title={t('定时任务设置')} onCancel={() => { if (!saving) onClose(); }} onOk={() => void save()}
-    okButtonProps={{ 'aria-label': t('保存') }} okText={t('保存')} cancelText={t('取消')} confirmLoading={saving} cancelButtonProps={{ disabled: saving }} closable={!saving} maskClosable={!saving}>
-    {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} />}
+    okButtonProps={{ 'aria-label': t('保存') }} okText={t('保存')} cancelText={t('取消')} confirmLoading={saving} cancelButtonProps={{ disabled: saving }} closable={!saving} mask={{ closable: !saving }}>
+    {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 12 }} />}
     <Form form={form} layout="vertical" disabled={saving} initialValues={{ title: item.title, instruction: item.instruction,
       kind: item.cron ? 'recurring' : 'once', cron: item.cron || '', run_at: originalTime, timezone: item.timezone, enabled: item.enabled !== false }}>
       <Form.Item name="title" label={t('任务名称')} rules={[{ required: true, whitespace: true }]}><Input maxLength={100} /></Form.Item>

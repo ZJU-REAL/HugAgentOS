@@ -10,25 +10,24 @@ import logging
 import os
 import re
 import threading
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from core.auth.backend import UserContext, get_current_user
 from features.knowledge.processing import vectorise_document_background
 from core.db.engine import SessionLocal, get_db
 from core.db.threads import run_in_session
-from core.db.models import Artifact, ChatMessage, ChatSession, UserShadow
+from core.db.models import ChatMessage, ChatSession, UserShadow
 from features.knowledge.models import KBDocument, KBSpace
 from core.db.paging import DEFAULT_PAGE_SIZE
 from core.db.repository import ArtifactRepository
 from core.infra.responses import error_response, success_response
+from core.infra.time import utc_now
 from features.knowledge.service import KBService
-from core.files.edition import artifact_list_scope, artifact_scope_fields, can_access_artifact, extend_artifact_item
+from core.files.edition import artifact_list_scope, can_access_artifact, extend_artifact_item
 from core.files.storage import get_storage
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import desc, func
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -59,7 +58,7 @@ def _mark_backfill_done(db: Session, user_id: str) -> None:
     from core.auth.users import UserService
 
     UserService(db).update_user_metadata(
-        user_id, {_BACKFILL_MARKER: datetime.now(timezone.utc).isoformat()}
+        user_id, {_BACKFILL_MARKER: utc_now().isoformat()}
     )
 
 
@@ -97,12 +96,6 @@ def _run_backfill_once(user_id: str) -> None:
 
 class AddArtifactToKBRequest(BaseModel):
     kb_id: str
-
-
-# ── Shared artifact-ref helpers ───────────────────────────────────────────
-# Moved to core.files.artifacts.refs so lower layers can use them without
-# importing this API route module. Re-exported here for existing call sites.
-from core.files.artifacts.refs import extract_file_refs, infer_artifact_type  # noqa: E402
 
 
 def sanitize_chat_preview(content: Optional[str], max_len: int = 200) -> str:
@@ -148,7 +141,7 @@ def _collect_artifact_kb_usage(
 
     usage: Dict[str, List[Dict[str, str]]] = {artifact_id: [] for artifact_id in artifact_ids}
     rows = (
-        db.query(KBDocument, KBSpace)
+        db.query(KBDocument.extra_data, KBSpace.kb_id, KBSpace.name)
         .join(KBSpace, KBDocument.kb_id == KBSpace.kb_id)
         .filter(
             KBSpace.user_id == user_id,
@@ -159,15 +152,15 @@ def _collect_artifact_kb_usage(
     )
 
     artifact_id_set = set(artifact_ids)
-    for document, space in rows:
-        meta = document.extra_data if isinstance(document.extra_data, dict) else {}
+    for extra_data, kb_id, kb_name in rows:
+        meta = extra_data if isinstance(extra_data, dict) else {}
         source_artifact_id = meta.get("source_artifact_id")
         if not source_artifact_id or source_artifact_id not in artifact_id_set:
             continue
         usage.setdefault(source_artifact_id, []).append(
             {
-                "kb_id": space.kb_id,
-                "name": space.name,
+                "kb_id": kb_id,
+                "name": kb_name,
             }
         )
 

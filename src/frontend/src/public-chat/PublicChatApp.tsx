@@ -1,6 +1,7 @@
 import { PublicFilePreview } from './PublicFilePreview';
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router';
+import { useShallow } from 'zustand/react/shallow';
 import { Button, Result, Skeleton } from 'antd';
 import { MenuOutlined, PlusOutlined, CloseOutlined, CommentOutlined } from '@ant-design/icons';
 import { apiRequest, unwrapData } from '../api';
@@ -16,6 +17,7 @@ import { ContentErrorBoundary, ImagePreview } from '../components/common';
 import { PublicChatContext, type PublicChatInfo } from './PublicChatContext';
 import { createPublicDraft, usePublicConversation } from './usePublicConversation';
 import { t } from '../i18n';
+import { readLocal, writeLocal } from '../storage';
 import '../styles/standalone-chat.css';
 
 const noExport = async () => {};
@@ -23,10 +25,10 @@ const noShare = async (): Promise<never> => { throw new Error('Unavailable'); };
 
 function visitorSecret(token: string) {
   const key = `public-chat:visitor:${token}`;
-  let value = localStorage.getItem(key);
+  let value = readLocal(key);
   if (!value || !/^[A-Za-z0-9_-]{32,64}$/.test(value)) {
     value = Array.from(crypto.getRandomValues(new Uint8Array(24)), x => x.toString(16).padStart(2, '0')).join('');
-    localStorage.setItem(key, value);
+    writeLocal(key, value);
   }
   return value;
 }
@@ -65,18 +67,22 @@ function PublicEntry({ token, kind }: { token: string; kind: string }) {
 }
 
 function PublicWorkspace({ info }: { info: PublicChatInfo }) {
-  const st = useChatStore();
+  const currentChatId = useChatStore(s => s.currentChatId);
+  const setCurrentChatId = useChatStore(s => s.setCurrentChatId);
+  const newChatAction = useChatStore(s => s.newChat);
+  const order = useChatStore(s => s.store.order);
+  const titles = useChatStore(useShallow(s => s.store.order.map(id => s.store.chats[id]?.title || '')));
+  const hasMessages = useChatStore(s => !!s.store.chats[s.currentChatId]?.messages.length);
   const conversation = usePublicConversation(info);
   const files = useComposerFiles(getApiUrl());
   const [sidebar, setSidebar] = useState(false);
-  const hasMessages = !!st.store.chats[st.currentChatId]?.messages.length;
   const { inputRef, fileInputRef, chatListRef, messagesEndRef, handleContentRef, userScrolledUpRef } =
-    useChatViewport(st.currentChatId, hasMessages, true);
+    useChatViewport(currentChatId, hasMessages, true);
   const send = (text?: string) => {
     userScrolledUpRef.current = false;
     conversation.send(text);
   };
-  const newChat = () => { st.newChat(); createPublicDraft(info); setSidebar(false); };
+  const newChat = () => { newChatAction(); createPublicDraft(info); setSidebar(false); };
   return <div className="jx-appShell jx-publicChat">
     {sidebar && <button className="jx-publicBackdrop" onClick={() => setSidebar(false)} aria-label={t('关闭侧边栏')} />}
     <aside className={`jx-publicSidebar${sidebar ? ' is-open' : ''}`} aria-label={t('对话历史')}>
@@ -85,10 +91,10 @@ function PublicWorkspace({ info }: { info: PublicChatInfo }) {
       </div>
       <Button className="jx-publicNewChat" icon={<PlusOutlined />} onClick={newChat}>{t('新对话')}</Button>
       <div className="jx-publicHistoryLabel">{t('对话历史')}</div>
-      <nav className="jx-publicHistory">{st.store.order.map(id => <button key={id} type="button"
-        className={id === st.currentChatId ? 'is-active' : ''} aria-current={id === st.currentChatId ? 'page' : undefined}
-        title={st.store.chats[id]?.title} onClick={() => { st.setCurrentChatId(id); setSidebar(false); }}>
-        <CommentOutlined /><span>{st.store.chats[id]?.title || t('新对话')}</span>
+      <nav className="jx-publicHistory">{order.map((id, index) => <button key={id} type="button"
+        className={id === currentChatId ? 'is-active' : ''} aria-current={id === currentChatId ? 'page' : undefined}
+        title={titles[index] || undefined} onClick={() => { setCurrentChatId(id); setSidebar(false); }}>
+        <CommentOutlined /><span>{titles[index] || t('新对话')}</span>
       </button>)}</nav>
       <p className="jx-publicHistoryNote">{t('对话记录仅在当前浏览器保留入口。')}</p>
     </aside>

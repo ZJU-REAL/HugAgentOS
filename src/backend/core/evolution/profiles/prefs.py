@@ -150,7 +150,3 @@ def available_ontology_packs() -> List[Dict[str, str]]:
     except Exception as exc:
         logger.debug("[evo-prefs] pack listing failed: %s", exc)
         return []
-
-
-def mechanism_enabled(prefs: Dict[str, Any], mechanism: str) -> bool:
-    return mechanism in (prefs or {}).get("mechanisms", ALL_MECHANISMS)

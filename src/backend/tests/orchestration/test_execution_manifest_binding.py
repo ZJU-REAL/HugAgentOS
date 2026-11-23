@@ -33,7 +33,6 @@ async def test_main_streaming_propagates_unknown_tool_outcome_after_partial_text
     from core.capabilities.agents import edition as user_agent_service
     from core.auth import users as user_service
     from core.runs.tool_effects.errors import ToolOutcomeUnknown
-    pass
 
     class DummySession:
         def __enter__(self):
@@ -121,7 +120,6 @@ async def test_main_streaming_propagates_unknown_tool_outcome_after_partial_text
 @pytest.mark.asyncio
 async def test_main_streaming_forwards_run_and_workspace_to_agent_factory(monkeypatch):
     from core.capabilities.agents import builtin as builtin_subagents
-    pass
 
     captured = {}
 

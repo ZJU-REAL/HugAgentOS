@@ -2,7 +2,7 @@
 from core.db.engine import Base
 from core.db.utc_datetime import UTCDateTime
 from core.infra.time import utc_now
-from sqlalchemy import Boolean, CheckConstraint, Column, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import CheckConstraint, Column, ForeignKey, Index, Integer, String, Text
 
 class EmailConnection(Base):
     """Per-user email account connection (used by the email plugin / himalaya CLI). 1:1 with users_shadow.

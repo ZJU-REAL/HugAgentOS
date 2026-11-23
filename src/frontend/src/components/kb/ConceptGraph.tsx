@@ -1,11 +1,12 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import type { WikiGraphData, WikiGraphNode } from '../../types';
+import { t } from '../../i18n';
 import { graphStyleOf, type GraphTypeStyle } from './wikiGraphTheme';
 
 /**
  * 概念图谱可视化：交互式 SVG 力导向图（渲染逻辑移植自 WeKnora WikiBrowser）。
  *
- * 与旧版「一次性布局后静止」不同，这里是常驻力仿真 + 完整交互：
+ * 常驻力仿真 + 完整交互：
  * - 力仿真带 alpha 衰减动画收敛，斥力用 X 轴一维空间排序把 O(n²) 降到近似 O(n log n)；
  * - 节点可拖拽（拖完钉住）、画布可平移、滚轮朝光标缩放；
  * - 悬停高亮邻域（debounce 防抖，快速扫过不闪烁）；
@@ -509,14 +510,20 @@ export const ConceptGraph = forwardRef<ConceptGraphHandle, ConceptGraphProps>(
               if (sn && tn) setEdgeGeometry(edge, sn, tn);
             }
           };
+          const detach = () => {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onEnd);
+            disposersRef.current = disposersRef.current.filter((d) => d !== detach);
+          };
           const onEnd = () => {
             circle.setAttribute('stroke', '#fff');
             circle.setAttribute('stroke-width', '2');
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onEnd);
+            detach();
           };
           window.addEventListener('mousemove', onMove);
           window.addEventListener('mouseup', onEnd);
+          // Unmounting or rebuilding mid-drag must not leave the window listeners behind.
+          disposersRef.current.push(detach);
         };
         g.addEventListener('mousedown', onDragStart);
 
@@ -784,7 +791,7 @@ export const ConceptGraph = forwardRef<ConceptGraphHandle, ConceptGraphProps>(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedSlug]);
 
-    return <div ref={containerRef} className="jx-wikiGraphCanvas" role="img" aria-label="概念图谱" />;
+    return <div ref={containerRef} className="jx-wikiGraphCanvas" role="img" aria-label={t('概念图谱')} />;
   },
 );
 

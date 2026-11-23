@@ -13,7 +13,7 @@ from personal_agent.models import PersonalMessageInbox, PersonalMessageTask, Per
 from tests.test_personal_agent_routing import sessions  # noqa: F401
 from tests.test_personal_agent import personal_agent_on  # noqa: F401
 
-CONN = SimpleNamespace(channel_id="bot", channel_type="lark", owner_user_id="owner")
+CONN = SimpleNamespace(channel_id="bot", channel_type="lark", owner_user_id="owner", agent_id=None)
 
 
 class Adapter:
@@ -54,7 +54,11 @@ def im(sessions, monkeypatch):
         svc = AgentContext(db, "owner")
         svc.identity.ensure()
         agent = svc.identity.agent()
-        agent.config = {**agent.config, "channel_ids": ["bot"], **listed_owner("bot", "alice")}
+        agent.config = {**agent.config, **listed_owner("bot", "alice")}
+        # Hugo answers every bot its owner bound.
+        from integrations.channels.models import ChannelConnection
+        db.add(ChannelConnection(channel_id="bot", owner_user_id="owner", channel_type="lark", app_id="bot",
+                                 display_name="bot", config={}, transport="long_conn", enabled=True))
         db.commit()
     return SimpleNamespace(sessions=sessions, adapter=adapter)
 

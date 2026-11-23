@@ -13,6 +13,7 @@ const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, root);
 const protocol = resolve(root, '../workbench-protocol');
 const options = hostTools ? {...parsed.options, paths: {
   '@hugagent/workbench-protocol': [protocol + '/dist/index.d.ts'],
+  '@hugagent/workbench-protocol/message-bounds': [protocol + '/dist/message-bounds.d.ts'],
   '@hugagent/workbench-protocol/*': [protocol + '/*'],
 }} : parsed.options;
 const compilerHost = ts.createCompilerHost(options);
@@ -38,7 +39,8 @@ if (emitted.emitSkipped) throw new Error('SDK declaration emit failed: ' +
 await require('esbuild').build({
   entryPoints: [root + 'src/index.ts'], outfile: root + 'dist/index.js',
   bundle: true, platform: 'browser', format: 'esm', target: 'es2022',
-  ...(hostTools ? {alias: {'@hugagent/workbench-protocol': protocol},
+  ...(hostTools ? {alias: {'@hugagent/workbench-protocol/message-bounds': protocol + '/dist/message-bounds.js',
+    '@hugagent/workbench-protocol': protocol},
     nodePaths: [toolsRoot + 'node_modules']} : {}),
 });
 

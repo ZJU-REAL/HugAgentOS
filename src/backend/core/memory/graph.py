@@ -191,36 +191,6 @@ async def search_graph_relations(
     )
 
 
-def relation_is_active(relation_id: str, *, scope_user_id: str) -> Optional[bool]:
-    """Whether a relation still exists and is active. ``None`` = could not tell.
-
-    Used by the evolution runtime to decide whether a skill whose manifest
-    depends on this relation is still applicable. Tri-state on purpose: an
-    unreachable graph store must not disable every dependent skill.
-    """
-    driver = get_driver()
-    if driver is None or not relation_id:
-        return None
-    try:
-        with driver.session() as session:
-            record = session.run(
-                """
-                MATCH (s:MemoryEntity)-[r:MEMORY_RELATION {relation_id: $relation_id}]->()
-                WHERE s.scope_user_id = $scope_user_id
-                RETURN coalesce(r.active, true) AS active
-                """,
-                relation_id=relation_id,
-                scope_user_id=scope_user_id,
-            ).single()
-            if record is None:
-                return False
-            return bool(record["active"])
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[GraphMemory] relation_is_active failed: %s", exc)
-        reset_driver()
-        return None
-
-
 def update_relation_state(
     relation_id: str,
     *,

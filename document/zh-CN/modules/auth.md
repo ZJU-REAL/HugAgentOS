@@ -149,7 +149,7 @@ SSO 提供方响应必须是 JSON 对象，且成功码必须为有限数值 0�
 | `lab_enabled` | **开** | `PATCH /v1/config/users/{id}/lab-permission` | 实验室模块入口与访问 |
 | `sites_enabled` | **开** | `PATCH /v1/config/users/{id}/sites-permission` | 站点入口、站点管理与发布（已发布站点的公开地址不受影响）；从 `lab_enabled` 拆出，升级时复制了已有的实验室设置 |
 | `allowed_apps` | 无限制 | `PATCH /v1/config/users/{id}/app-permissions` | 应用可见范围；`None`=全部启用应用，列表=白名单（空列表=全屏蔽） |
-| `role: super_admin` | 无 | （直接写 metadata） | `require_super_admin` 依赖放行；可绕过团队角色检查 |
+| `role: super_admin` | 无 | （直接写 metadata） | 隐含全部能力位；可绕过团队角色检查 |
 
 自助添加的私有 MCP / 技能记录 `owner_user_id` = 当前用户，**仅本人可见可用**（owner 隔离）。
 
@@ -164,7 +164,6 @@ SSO 提供方响应必须是 JSON 对象，且成功码必须为有限数值 0�
 | `ADMIN_TOKEN`（`require_admin`） | `admin_skills`（技能管理）、`admin_skill_drafts`（蒸馏草稿审核）、`admin_marketplace`（市场上架审核）、`admin_kb`（公共知识库管理）、`admin_sandbox`（沙盒依赖重建）、`admin_agents`（子智能体）、`content.py` 中的内容块写入（如 `PUT /v1/content/docs/{block_id}`、操作手册上传） |
 | `CONFIG_TOKEN`（`require_config`） | `admin_prompts`（提示词管理）、`admin_mcp_servers`（MCP 管理）、`admin_billing` / `admin_usage_logs`（计费与用量）、`admin_logs` / `admin_chat_history`（调用日志与会话审查）、`config_users` / `config_teams` / `config_invites`（用户 / 团队 / 注册码）、`config_security`（安全管理台）、`config_license`（License）、`config_verify`（令牌校验）、`service_configs`（外部服务配置）、`models.py`（模型管理）、`content.py` 中的页面 / 应用配置写入 |
 | 两者皆可（`require_admin_or_config`） | 提示词快照导入 / 导出（`/v1/content/prompts/export|import`）——CLI 迁移脚本带 `ADMIN_TOKEN`，Config 后台带 `CONFIG_TOKEN` |
-| `require_super_admin` | 会话用户 metadata 中 `role=super_admin`，或合法 `ADMIN_TOKEN` 作为 fallback |
 
 > 注意命名与凭证并不一一对应：`admin_prompts`、`admin_mcp_servers`、`admin_billing` 等虽以 `admin_` 命名，实际由 `CONFIG_TOKEN` 门控，对应面板也渲染在 `/config` 系统管理台。完整面板划分见 [管理台](admin-console.md)。
 

@@ -126,7 +126,7 @@ def _migrate_legacy_shape(raw: Dict[str, Any]) -> Dict[str, Any]:
         strategy = str(router.get("value", "")).strip() or str(router.get("strategy", "")).strip() or "unknown"
         _LOGGER.info(
             "catalog migration ignored legacy router_strategy (strategy=%s, enabled=%s); "
-            "router is env-controlled via ROUTER_STRATEGY",
+            "chat always routes to the main agent",
             strategy,
             enabled,
         )

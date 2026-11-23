@@ -85,7 +85,6 @@ def test_a_disabled_user_produces_no_candidates(db, monkeypatch):
     for i in range(5):
         _episode(db, f"e{i}", "alice", ["a", "b"])
     db.commit()
-    monkeypatch.setattr(PE, "resolve_prefs", lambda uid: {"enabled": False}, raising=False)
     import core.evolution.profiles.prefs as prefs_mod
 
     monkeypatch.setattr(prefs_mod, "resolve_prefs", lambda uid: {"enabled": False})

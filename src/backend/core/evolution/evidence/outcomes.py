@@ -125,11 +125,13 @@ def build_outcome(
     """
     signals: List[Signal] = []
 
-    if feedback_rating in ("like", "dislike"):
+    # like / dislike are the legacy two-way ratings; adopt / revise / reject the task evaluation.
+    feedback_values = {"like": 1.0, "adopt": 1.0, "revise": -0.5, "dislike": -1.0, "reject": -1.0}
+    if feedback_rating in feedback_values:
         signals.append(
             Signal(
                 name=SIG_FEEDBACK,
-                value=1.0 if feedback_rating == "like" else -1.0,
+                value=feedback_values[feedback_rating],
                 # Capped confidence: a rating is cheap to produce and easy to
                 # game, so it informs but never decides.
                 confidence=0.5,

@@ -12,6 +12,8 @@ from core.projects.edition import ProjectScope
 
 from ._common import (
     pin_artifact_to_workspace,
+    read_local_bytes,
+    write_local_bytes,
     resolve_sandbox_session,
     resp_json,
     sandbox_exec_bash,
@@ -114,8 +116,7 @@ def register_write(
             try:
                 if _is_local:
                     require_local_path_permission(physical, "read")
-                    with open(physical, "rb") as _f:
-                        existing = _f.read()
+                    existing = await read_local_bytes(physical)
                 else:
                     existing = await provider.get_file(_sess, physical, user_id=user_id)
             except FileNotFoundError:
@@ -176,15 +177,8 @@ def register_write(
                     # real file directly. This reaches the user's actual folders
                     # (incl. real paths outside the sandbox workspace root), which the
                     # sidecar put_file refuses.
-                    import os as _os
-
                     require_local_path_permission(physical, "write")
-
-                    parent = _os.path.dirname(physical)
-                    if parent:
-                        _os.makedirs(parent, exist_ok=True)
-                    with open(physical, "wb") as _f:
-                        _f.write(new_bytes)
+                    await write_local_bytes(physical, new_bytes)
                 else:
                     await provider.put_file(_sess, physical, new_bytes, user_id=user_id)
             except PermissionEnforcementError as exc:

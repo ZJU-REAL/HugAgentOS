@@ -4,10 +4,7 @@ and the watcher that reports the end of runs a task started."""
 import json
 import time
 import pytest
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-from core.db.engine import Base
+from sqlalchemy import select
 from core.db.models import ChatMessage, ChatRun, ChatSession, Project, UserShadow
 from hugagent_cli.contract import READS, ROUTES
 from personal_agent.tasks import approvals
@@ -17,19 +14,17 @@ from personal_agent.sessions import session_watch
 from personal_agent.tools import tools
 from personal_agent.models import PersonalMessageInbox, PersonalSessionOperation as Operation, PersonalWorkItem
 from personal_agent.context import AgentContext
+from tests.db_support import memory_engine, session_factory, share_factory
 
 
 @pytest.fixture
 def db(monkeypatch):
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
-    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    engine = memory_engine()
+    factory = session_factory(engine)
     for module in (approvals, session_tool, session_watch, tools):
         monkeypatch.setattr(module, "SessionLocal", factory)
         monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", factory)
-    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
+    share_factory(monkeypatch, factory)
     with factory() as session:
         session.add(UserShadow(user_id="owner", user_center_id="owner", username="owner"))
         session.commit()

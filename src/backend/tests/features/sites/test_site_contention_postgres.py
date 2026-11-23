@@ -24,6 +24,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
+from tests.db_support import share_factory
 
 pytestmark = pytest.mark.postgres
 
@@ -53,7 +54,7 @@ def site_http(tmp_path, monkeypatch):
         storage = LocalStorageBackend()
         monkeypatch.setattr('core.files.storage.get_storage', lambda: storage)
         monkeypatch.setattr('features.sites.service.get_storage', lambda: storage)
-        monkeypatch.setattr("core.db.engine.SessionLocal", factory)
+        share_factory(monkeypatch, factory)
         monkeypatch.setattr('features.desktop.auth.bridge.bridge_enabled', lambda: False)
         monkeypatch.setenv("BACKEND_INTERNAL_TOKEN", "site-test-only")
 

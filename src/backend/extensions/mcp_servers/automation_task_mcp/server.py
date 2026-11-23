@@ -11,36 +11,23 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Dict, Optional
 
 from mcp.server.mcpserver import Context, MCPServer
 
+from extensions.mcp_servers._context import current_user, header
 from extensions.mcp_servers.automation_task_mcp import impl
 
 mcp = MCPServer("hugagent-automation-task")
 
-_HDR_USER = "x-current-user-id"
 _HDR_CHANNEL = "x-channel-id"
 _HDR_CONV = "x-conversation-id"
 
 
-def _hdr(ctx: Optional[Context], name: str) -> Optional[str]:
-    if ctx is None:
-        return None
-    try:
-        v = ctx.request_context.request.headers.get(name)
-        return v or None
-    except Exception:
-        return None
-
-
-def _user(ctx: Optional[Context]) -> str:
-    return _hdr(ctx, _HDR_USER) or ""
-
-
 def _channel_origin(ctx: Optional[Context]) -> Dict[str, Any]:
-    cid = _hdr(ctx, _HDR_CHANNEL)
-    conv = _hdr(ctx, _HDR_CONV)
+    cid = header(ctx, _HDR_CHANNEL)
+    conv = header(ctx, _HDR_CONV)
     return {"channel_id": cid, "conversation_id": conv} if (cid and conv) else {}
 
 
@@ -80,8 +67,9 @@ async def create_scheduled_task(
     - timezone：IANA 时区，默认 Asia/Shanghai；确认时展示执行位置、项目和时区。
     - tool_effect_id：系统内部幂等回执令牌，由 ToolGateway 注入；模型不要填写。
     """
-    return impl.create_task(
-        user_id=_user(ctx),
+    return await asyncio.to_thread(
+        impl.create_task,
+        user_id=current_user(ctx),
         cron_expression=cron_expression,
         prompt=prompt,
         name=name,
@@ -101,7 +89,7 @@ async def list_channel_conversations(ctx: Context | None = None) -> Dict[str, An
     当用户要把定时任务结果**发到"别的"会话/群**（不是当前会话）时，先调本工具拿到目标会话的
     conversation_id，再把它作为 create_scheduled_task 的 deliver_to。按用户说的群名/对象匹配 title。
     """
-    return impl.list_conversations(user_id=_user(ctx))
+    return await asyncio.to_thread(impl.list_conversations, user_id=current_user(ctx))
 
 
 @mcp.tool()
@@ -118,7 +106,7 @@ async def list_scheduled_tasks(
     from features.automation.execution import instance_location
     if execution_location and execution_location != instance_location():
         return {"ok": False, "message": "执行位置不匹配，请选择对应的本机或云端任务"}
-    return impl.list_tasks(user_id=_user(ctx), status=status)
+    return await asyncio.to_thread(impl.list_tasks, user_id=current_user(ctx), status=status)
 
 
 @mcp.tool()
@@ -134,7 +122,7 @@ async def get_scheduled_task(
     from features.automation.execution import instance_location
     if execution_location and execution_location != instance_location():
         return {"ok": False, "message": "执行位置不匹配，请选择对应的本机或云端任务"}
-    return impl.get_task(user_id=_user(ctx), task_ref=task_ref)
+    return await asyncio.to_thread(impl.get_task, user_id=current_user(ctx), task_ref=task_ref)
 
 
 @mcp.tool()
@@ -156,8 +144,9 @@ async def update_scheduled_task(
     from features.automation.execution import instance_location
     if execution_location and execution_location != instance_location():
         return {"ok": False, "message": "执行位置不匹配，请选择对应的本机或云端任务"}
-    return impl.update_task(
-        user_id=_user(ctx),
+    return await asyncio.to_thread(
+        impl.update_task,
+        user_id=current_user(ctx),
         task_ref=task_ref,
         cron_expression=cron_expression or None,
         prompt=prompt or None,
@@ -172,7 +161,7 @@ async def pause_scheduled_task(task_ref: str, execution_location: str = "", ctx:
     from features.automation.execution import instance_location
     if execution_location and execution_location != instance_location():
         return {"ok": False, "message": "执行位置不匹配，请选择对应的本机或云端任务"}
-    return impl.pause_task(user_id=_user(ctx), task_ref=task_ref)
+    return await asyncio.to_thread(impl.pause_task, user_id=current_user(ctx), task_ref=task_ref)
 
 
 @mcp.tool()
@@ -181,7 +170,7 @@ async def resume_scheduled_task(task_ref: str, execution_location: str = "", ctx
     from features.automation.execution import instance_location
     if execution_location and execution_location != instance_location():
         return {"ok": False, "message": "执行位置不匹配，请选择对应的本机或云端任务"}
-    return impl.resume_task(user_id=_user(ctx), task_ref=task_ref)
+    return await asyncio.to_thread(impl.resume_task, user_id=current_user(ctx), task_ref=task_ref)
 
 
 @mcp.tool()
@@ -199,8 +188,9 @@ async def delete_scheduled_task(
     from features.automation.execution import instance_location
     if execution_location and execution_location != instance_location():
         return {"ok": False, "message": "执行位置不匹配，请选择对应的本机或云端任务"}
-    return impl.delete_task(
-        user_id=_user(ctx),
+    return await asyncio.to_thread(
+        impl.delete_task,
+        user_id=current_user(ctx),
         task_ref=task_ref,
         tool_effect_id=tool_effect_id,
     )

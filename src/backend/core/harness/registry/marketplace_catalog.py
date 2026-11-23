@@ -25,7 +25,6 @@ class MarketplaceCatalog(Protocol):
 
 
 def register_marketplace_catalog(provider: MarketplaceCatalog) -> None:
-    pass
     registration_state().provider = provider
 
 def marketplace_catalog() -> MarketplaceCatalog:

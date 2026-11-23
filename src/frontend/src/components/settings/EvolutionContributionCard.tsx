@@ -73,11 +73,19 @@ export function EvolutionContributionCard({ open, onClose }: Props) {
   const [data, setData] = useState<EvolutionContributions | null>(null);
   const [error, setError] = useState('');
 
+  // Reset to the loading state when the card opens (during render, not in the effect).
+  const [wasOpen, setWasOpen] = useState(false);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setLoading(true);
+      setError('');
+    }
+  }
+
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    setLoading(true);
-    setError('');
     getEvolutionContributions()
       .then((result) => {
         if (!cancelled) setData(result);

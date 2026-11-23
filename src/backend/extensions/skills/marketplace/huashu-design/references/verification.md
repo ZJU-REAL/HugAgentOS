@@ -1,5 +1,7 @@
 # Verification：输出验证流程
 
+> **HugAgentOS 版本说明**：本版本只做 HTML 动画，视频与音频管线没有随技能分发。文中提到的 `scripts/render-video*.js`、`verify-video.sh`、`add-music.sh`、`mix-voiceover.sh`、`sfx-cues.sh`，以及 `hyperframes-backend.md`、`video-export.md`、`audio-design-rules.md` 等文档在本版本不可用，相关步骤一律跳过（见 `references/modules/motion.md` 开头的说明）。
+
 一些 design-agent 原生环境（如 Claude.ai Artifacts）有内置的 `fork_verifier_agent` 起 subagent 用 iframe 截图检查。大部分 agent 环境（Claude Code / Codex / Cursor / Trae / 等）里没有这个内置能力——用 Playwright 手动做就能覆盖相同的验证场景。
 
 ## 🔴 第 0 条：先验证你的验证工具

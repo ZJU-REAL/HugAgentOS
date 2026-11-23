@@ -358,4 +358,6 @@ export interface MCPItem extends CatalogItemBase {
   marketplace_installed?: boolean;
   /** The system copy of the same marketplace MCP is used in place of this private copy. */
   superseded_by_system?: boolean;
+  /** Feature that owns this connector (e.g. "datasources" for database connectors). */
+  managed_by?: string | null;
 }

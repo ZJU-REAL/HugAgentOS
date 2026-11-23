@@ -30,7 +30,7 @@ export function fileQuote(artifact: Pick<CanvasArtifact, 'file_id' | 'name'>, te
 }
 
 /** The chat API's limit on `quoted_follow_up.text`. */
-export const QUOTE_MAX_CHARS = 8000;
+const QUOTE_MAX_CHARS = 8000;
 
 /** Put a quote (and optionally a ready-to-edit prompt) into that chat's composer. Never sends. */
 export function quoteIntoChat(chatId: string, quote: QuotedFollowUp, prompt?: string): boolean {

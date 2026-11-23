@@ -7,6 +7,7 @@ import { useLocation } from 'react-router';
 import { WorkspaceApplication } from '../workbench/WorkspaceApplication';
 import { ApplicationAccess } from '../workbench/ApplicationAccess';
 import { chatDraftKey } from '../stores/composerStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useChatStore } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
 import { usePersonalAgentAvailable } from '../personalAgentEdition';
@@ -33,7 +34,7 @@ import { resolvePlanModeActive } from '../utils/chatMode';
 import { TOPIC_TAG_COLORS } from '../utils/constants';
 import { RightSidebarPanel } from './canvas';
 import { RunMonitorRail } from './monitor';
-import { PromptHubPanel } from './chat';
+import { EvaluationReminder, PromptHubPanel } from './chat';
 import { builtinPages } from '../applicationComposition';
 import { WorkbenchPage } from '../workbench/WorkbenchPage';
 import { AuthExpiredModal, ImagePreview } from './common';
@@ -51,7 +52,21 @@ const ProjectHeader = lazy(() => import('./projects/ProjectHeader'));
 const ProjectWorkspaceRail = lazy(() => import('./projects/ProjectWorkspaceRail'));
 const { Header, Content } = Layout;
 export function AppWorkspace({ state }: { state: ReturnType<typeof useAppController> }) {
-  const { handleNewChat, handleNewProjectChat, deleteChat, toggleChatPinned, toggleChatFavorite, startRenameChat, commitRenameChat, exportChatRecord, handleSelectChat, handleSetPanel, siderCollapsed, setSiderCollapsed, handleSelectSearchResult, canvasFullscreen, canvasPanelWidth, canvasOpen, chatSurface, showChatHeader, openMobileSidebar, isEmptyChat, handleRightSidebarToggle, showHeader, title, hint, chat, chatProjectName, recommendBarVisible, recommendBannerText, handleCapabilityClick, setRecommendBarVisible, panel, overviewProjectId, toolResultPanel, promptHubOpen, isCE, rightSidebarView, detailModal, setDetailModal, refreshCatalog } = state;
+  const { handleNewChat, handleNewProjectChat, deleteChat, toggleChatPinned, toggleChatFavorite, startRenameChat, commitRenameChat, exportChatRecord, handleSelectChat, handleSetPanel, siderCollapsed, setSiderCollapsed, handleSelectSearchResult, canvasFullscreen, canvasPanelWidth, canvasOpen, chatSurface, showChatHeader, openMobileSidebar, isEmptyChat, handleRightSidebarToggle, showHeader, title, hint, chatProjectName, recommendBarVisible, recommendBannerText, handleCapabilityClick, setRecommendBarVisible, panel, overviewProjectId, toolResultPanel, promptHubOpen, isCE, rightSidebarView, detailModal, setDetailModal, refreshCatalog } = state;
+  // The header needs only these fields of the current chat; subscribing to them (not to the whole
+  // chat object) keeps a streaming reply from re-rendering the application shell.
+  const chat = useChatStore(useShallow((s) => {
+    const current = s.store.chats[s.currentChatId];
+    if (!current) return null;
+    return {
+      title: current.title,
+      projectId: current.projectId,
+      agentName: current.agentName,
+      businessTopic: current.businessTopic,
+      planModeActive: resolvePlanModeActive(current),
+      hasMessages: current.messages.length > 0,
+    };
+  }));
   const personalAgentAvailable = usePersonalAgentAvailable();
   const authUserLoaded = useAuthStore(s => s.authUser != null);
   useEffect(() => {
@@ -185,12 +200,13 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
               )}
               {/* Follows the live composer mode, not the historical planChat marker: once the user
                 closes plan mode the header must stop claiming the chat is still in it. */}
-              {resolvePlanModeActive(chat) && (
+              {chat?.planModeActive && (
                 <Tag className="jx-headerTopicTag" color="blue">{t('计划模式')}</Tag>
               )}
               {chat?.businessTopic && (
                 <Tag className="jx-headerTopicTag" color={TOPIC_TAG_COLORS[chat.businessTopic] || 'default'}>{chat.businessTopic}</Tag>
               )}
+              <EvaluationReminder placement="topbar" />
               <button
                 type="button"
                 className="jx-mobileNewChatBtn"
@@ -227,7 +243,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
               * opening beside it (run timeline, tool result, prompt hub) narrow the
               * column instead of sliding under the rail. */}
             <div className={`jx-conversationColumn${showRunMonitor ? ' jx-conversationColumn--runMonitor' : ''}`}>
-              <Content ref={moduleScrollRef} className={`jx-content${moduleSurface ? ' jx-content--moduleSurface' : ''}${chatSurface ? ' jx-content--chatSurface' : ''}${chatSurface && !!chat?.messages.length ? ' jx-content--messageSurface' : ''}${panelEntering ? ' jx-content--panelEntering' : ''}`}>
+              <Content ref={moduleScrollRef} className={`jx-content${moduleSurface ? ' jx-content--moduleSurface' : ''}${chatSurface ? ' jx-content--chatSurface' : ''}${chatSurface && chat?.hasMessages ? ' jx-content--messageSurface' : ''}${panelEntering ? ' jx-content--panelEntering' : ''}`}>
                 {/* Unified panel-switch entrance (fade+rise, enter-only to stay responsive); key=panel:
                 * switching chats within the chat panel does not replay it. One-way entrance
                 * needs no motion — CSS primitives suffice. */}

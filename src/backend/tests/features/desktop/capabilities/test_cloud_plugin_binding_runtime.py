@@ -13,6 +13,7 @@ from core.harness.capability_errors import IntegrityFailed
 from features.desktop.bridge import client as bridge
 from core.capabilities.manifest_protocol import entity_content_hash, skill_content_hash
 from tests.features.desktop.capabilities.test_runtime_recovery import state, durable_index
+from tests.db_support import share_factory
 
 
 def cloud_plugin(monkeypatch, index_db):
@@ -21,7 +22,7 @@ def cloud_plugin(monkeypatch, index_db):
     monkeypatch.setattr(skill_account, 'current_local_user_id', lambda: "local-owner")
     monkeypatch.setattr(skill_candidates, 'builtin_candidates', lambda: [])
     monkeypatch.setattr(bridge_identity, 'ensure_current_authorization', lambda: None)
-    monkeypatch.setattr("core.db.engine.SessionLocal", index_db)
+    share_factory(monkeypatch, index_db)
     profile = profile_id(st["cloud_base"], "cloud-owner")
     definition = {
         "slug": "pack",

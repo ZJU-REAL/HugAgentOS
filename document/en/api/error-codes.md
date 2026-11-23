@@ -73,37 +73,25 @@ A mismatched `require_admin` / `require_config` token is even simpler: just `{"d
 
 | code | HTTP | Exception class | Meaning | Typical trigger | Extra fields |
 |---|---|---|---|---|---|
-| 30001 | 401 | `AuthenticationError` | Authentication required | No session cookie / Bearer present; the 401 `detail` from `get_current_user` includes a `login_url` for redirect | `login_url?` |
-| 30002 | 401 | `InvalidTokenError` | Invalid or expired token / API key | Bearer verification failed; a Bearer with the `sk-jx-` prefix that fails validation | — |
-| 30003 | 401 | `TokenExpiredError` | Token expired | Session/ticket expiry | `expired_at`, `hint` |
+| 30001 | 401 | — (envelope built in `core/auth/backend.py`) | Authentication required | No session cookie / Bearer present; the 401 `detail` from `get_current_user` includes a `login_url` for redirect | `login_url?` |
+| 30002 | 401 | — (envelope built in `core/auth/backend.py`) | Invalid or expired token / API key | Bearer verification failed; a Bearer with the `sk-jx-` prefix that fails validation | — |
+| 30003 | 401 | — (envelope built in `core/auth/backend.py`) | Token expired | Session/ticket expiry | `expired_at`, `hint` |
 | 31001 | 403 | `AccessDeniedError` | Access denied | Accessing someone else's resource, insufficient role | `reason?` |
-| 31002 | 403 | `InsufficientPermissionsError` | Insufficient permissions | Missing a specific grant (e.g. Lab or API-key enablement) | `required_permission` |
-| 31003 | 403 | `ResourceOwnershipError` | Owner-only operation | Deleting/modifying another user's chat, file, or share | `resource_type`, `resource_id`, `reason` |
 
 ### 4xxxx — Resource state
 
 | code | HTTP | Exception class | Meaning | Typical trigger | Extra fields |
 |---|---|---|---|---|---|
 | 40001 | 404 | `ResourceNotFoundError` | Resource not found | chat_id / kb_id / artifact_id does not exist or was deleted | `resource_type`, `resource_id`, `hint` |
-| 40002 | 404 | `EndpointNotFoundError` | API endpoint not found | Requesting an unregistered path | `path` |
 | 40201 | **402** | `FeatureNotLicensed` | Feature not licensed | A CE / expired-license deployment hitting an EE route (teams, audit, admin consoles, …) — see below | `feature` |
 | 40202 | **402** | `SeatLimitExceeded` | Seat limit reached / license invalid for adding users | Registration/invites exceeding the licensed seat count | Varies |
-| 41001 | 409 | `ResourceAlreadyExistsError` | Resource already exists | Duplicate-name creation (team, skill ID, …) | `resource_type`, `identifier` |
-| 41002 | 409 | `ConcurrentModificationError` | Concurrent modification conflict | Optimistic-lock version mismatch | `expected_version`, `actual_version`, `hint` |
-| 42001 | 429 | `RateLimitExceededError` | Rate limit exceeded | Triggered the rate-limiting middleware | `limit`, `retry_after`, `reset_at` |
 
 ### 5xxxx — Server-side & upstream
 
 | code | HTTP | Exception class | Meaning | Typical trigger | Extra fields |
 |---|---|---|---|---|---|
-| 50001 | 500 | `InternalServerError` | Internal server error | Uncategorized runtime failure | `error_type?`, `hint` |
-| 50002 | 500 | `DatabaseError` | Database error | DB connection/transaction failure | `error_type`, `hint` |
+| 50001 | 500 | — (`error_response(code=50001)`) | Internal server error | Uncategorized runtime failure | `error_type?`, `hint` |
 | 51001 | 500 | `StorageError` | Object storage operation failed | local/S3/OSS read/write failure (`message` reads like `Storage upload failed`) | `error`, `hint` |
-| 52001 | 502 | `UserCenterError` | User center error | User-center call failure under `AUTH_MODE=remote` | `error` |
-| 52101 | 502 | `ModelAPIError` | Model API error | The LLM endpoint returned an error | `model`, `provider`, `error`, `hint` |
-| 52103 | 400 | `ModelAPIRateLimitedError` | Model quota exceeded | Model-side rate limiting / quota exhaustion (note: the implemented HTTP status is 400, not 429) | `model`, `hint` |
-| 53001 | 504 | `RequestTimeoutError` | Request timeout | A dependent service timed out | `service`, `timeout` |
-| 53003 | 504 | `ModelAPITimeoutError` | Model response timeout | The LLM did not respond in time | `model`, `timeout`, `hint` |
 | 54001 | 503 | `ServiceUnavailableError` | Service unavailable | Dependency not ready, feature not configured (e.g. internal endpoint without its token) | — |
 
 ## Unlicensed Features (HTTP 402)

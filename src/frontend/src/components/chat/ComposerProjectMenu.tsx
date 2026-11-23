@@ -92,7 +92,7 @@ export function ComposerProjectMenu({ state }: { state: ComposerState }) {
       <Dropdown
         trigger={['click']}
         placement="topLeft"
-        overlayClassName="jx-projectMenu"
+        classNames={{ root: "jx-projectMenu" }}
         onOpenChange={(open) => {
           setProjectOpen(open);
           if (open && projects.length === 0) void fetchProjects();

@@ -5,10 +5,12 @@ import { useDeploymentModeStore } from '../stores/deploymentModeStore';
 import type { ExternalApplication } from './externalApi';
 import {setHostedWorkbenchOrigin} from './sourceRequest';
 import {sourceDirectory, projectedSource, type SourceDirectory} from './sourceCatalog';
-import {directoryPollDelay} from './directoryTransport';
 import {workbenchRequest} from './sourceRequest';
 import {identityKey,reconcileWorkbenchSessions,subscribeDirectoryInvalidation} from './invalidation';
 import {sourceTargets, type WorkbenchOrigin, type WorkbenchSource, type SourceFailure} from './sourceIdentity';
+
+/** Back-off between directory refreshes after consecutive failures: 1 min doubling up to 10 min. */
+const directoryPollDelay = (failures: number) => Math.min(60000 * 2 ** Math.min(failures, 4), 600000);
 
 export interface CatalogItem extends Omit<ExternalApplication, 'revision'> {
   revision: number | string;

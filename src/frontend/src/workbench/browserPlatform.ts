@@ -1,4 +1,5 @@
 import {randomUUID} from './uuid';
+import {saveBlob} from '../utils/download';
 import { assertActive, PLATFORM_FILE_LIMIT, safeFileName, safePlatformUrl,
  type PlatformAdapter, type RuntimeCapabilities } from './platformAdapter';
 /** Browser file grants are snapshots, scoped to this adapter's identity lifetime. */
@@ -40,9 +41,7 @@ export function createBrowserPlatform(capabilities: ()=>RuntimeCapabilities): Pl
    if(!file)throw new Error('permission_denied');return file;},
   async saveFile(name,content,signal){check(signal);safeFileName(name);
    if(content.size>PLATFORM_FILE_LIMIT)throw new Error('file_too_large');
-   const url=URL.createObjectURL(content),link=document.createElement('a');
-   try{link.href=url;link.download=name;link.rel='noopener';document.body.append(link);link.click();}
-   finally{link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}return true;},
+   saveBlob(content,name);return true;},
   releaseFile(handle){files.delete(handle);},
   reset(){cancelPickers.forEach(cancel=>cancel());cancelPickers.clear();files.clear();},
   dispose(){ended=true;cancelPickers.forEach(cancel=>cancel());cancelPickers.clear();files.clear();},

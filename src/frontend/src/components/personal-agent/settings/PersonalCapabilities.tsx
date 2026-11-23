@@ -114,7 +114,7 @@ export function PersonalCapabilities({ agent, onChange }: PersonalCapabilitiesPr
   const options = (ids: string[], names?: { id: string; name: string }[]) =>
     ids.map(id => ({ value: id, label: names?.find(item => item.id === id)?.name || id }));
   const select = (key: CapabilityField, items: { value: string; label: string }[]) =>
-    <Select mode="multiple" aria-label={t('绑定') + ' ' + t(key === 'skill_ids' ? '技能' : key === 'mcp_ids' ? '工具' : '插件')}
+    <Select mode="multiple" aria-label={t('绑定 {kind}', { kind: t(key === 'skill_ids' ? '技能' : key === 'mcp_ids' ? '工具' : '插件') })}
       style={{ width: '100%' }} allowClear showSearch optionFilterProp="label" value={available ? current[key] : []}
       options={[...items, ...(available ? current[key] : []).filter(id => !items.some(item => item.value === id))
         .map(id => ({ value: id, label: id + ' ' + t('（暂不可用）') }))]} loading={!available && !error} disabled={!available || busy}

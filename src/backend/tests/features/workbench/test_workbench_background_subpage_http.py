@@ -12,9 +12,7 @@ import zipfile
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
-from sqlalchemy.pool import StaticPool
 
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import Base, get_db
@@ -22,6 +20,7 @@ from core.db.models import UserShadow
 from core.db.models.plugin_resource import PluginResource
 from core.capabilities.plugins.resources.crypto import encrypt_secret
 from tests.db_support import share_session
+from tests.db_support import memory_engine
 
 
 @pytest.fixture()
@@ -30,10 +29,7 @@ def boundary(monkeypatch):
     from api.routes.v1.plugins import router as plugins
     from features.workbench.api.workbench import router as workbench
 
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
+    engine = memory_engine()
     with Session(engine) as db:
         db.add(
             UserShadow(

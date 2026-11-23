@@ -13,28 +13,8 @@
     ],
     "inline_template": ""
   },
-  "mcp_servers": {
-    "enabled": [
-      "query_database",
-      "retrieve_dataset_content",
-      "internet_search"
-    ]
-  },
-  "tools": {
-    "allowed": [],
-    "routing": {
-      "strict_allowlist": true
-    }
-  },
   "model": {
-    "default_model_name": "deepseek",
     "temperature": 0.6,
-    "timeout": 120,
-    "env": {
-      "base_url": "MODEL_URL",
-      "api_key": "API_KEY",
-      "base_model_name": "BASE_MODEL_NAME",
-      "summarize_model_name": "SUMMARIZE_MODEL_NAME"
-    }
+    "timeout": 120
   }
 }

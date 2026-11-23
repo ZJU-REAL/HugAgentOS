@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from features.desktop.capabilities import discovery, registry
 from features.desktop.local.skills import service as local_skill_service
+from tests.db_support import share_factory
 
 
 def test_directory_requires_explicit_install_and_uninstall_never_resurrects(
@@ -12,7 +13,7 @@ def test_directory_requires_explicit_install_and_uninstall_never_resurrects(
     from core.db.engine import Base
 
     Base.metadata.create_all(index_db.kw["bind"])
-    monkeypatch.setattr("core.db.engine.SessionLocal", index_db)
+    share_factory(monkeypatch, index_db)
     folder = Path(os.environ["HUGAGENT_CAPS_ROOT"]) / "skills" / "dropped"
     folder.mkdir(parents=True)
     (folder / "SKILL.md").write_text("---\nname: dropped\ndescription: Dropped skill\n---\nBody")

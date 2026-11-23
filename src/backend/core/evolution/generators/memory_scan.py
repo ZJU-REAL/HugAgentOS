@@ -28,10 +28,11 @@ and would not be at fleet scale, so the scan is per-user by construction.
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+from core.evolution.assessment.similarity import cosine
 
 logger = logging.getLogger(__name__)
 
@@ -146,15 +147,6 @@ def to_records(raw_items: Sequence[Dict[str, Any]]) -> List[MemoryRecord]:
     return records
 
 
-def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
-    if not a or not b or len(a) != len(b):
-        return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
-    na = math.sqrt(sum(x * x for x in a))
-    nb = math.sqrt(sum(y * y for y in b))
-    return dot / (na * nb) if na and nb else 0.0
-
-
 def _embed(texts: List[str]) -> Optional[List[List[float]]]:
     try:
         from core.models.embedding import embed_batch
@@ -261,7 +253,7 @@ def scan_records(
                 continue
             if items[i].workspace_id != items[j].workspace_id:
                 continue
-            similarity = _cosine(vectors[i], vectors[j])
+            similarity = cosine(vectors[i], vectors[j])
             if similarity < SAME_SUBJECT_THRESHOLD:
                 continue
 

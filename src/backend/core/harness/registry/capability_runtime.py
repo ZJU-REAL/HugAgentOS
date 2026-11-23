@@ -17,7 +17,6 @@ class CapabilityRuntime(Protocol):
 
 
 def register_capability_runtime(provider: CapabilityRuntime) -> None:
-    pass
     registration_state().provider = provider
 
 

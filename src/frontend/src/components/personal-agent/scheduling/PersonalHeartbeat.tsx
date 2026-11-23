@@ -63,7 +63,7 @@ export function PersonalHeartbeat({ heartbeat, name, save, onChange }: PersonalH
   const [bots, setBots] = useState<PersonalChannel[]>([]);
   const [editing, setEditing] = useState(false);
   const [running, setRunning] = useState(false);
-  useEffect(() => { personalApi.channels().then(items => setBots(items.filter(bot => bot.personal_agent))).catch(() => setBots([])); }, []);
+  useEffect(() => { personalApi.channels().then(setBots).catch(() => setBots([])); }, []);
   const beat = (patch: Record<string, unknown>) => save({ heartbeat: patch });
   const hours = heartbeat.active_hours;
   // "Web only" is the owner's choice, not something missing: the backend's answer can lag the choice by half a minute.

@@ -8,7 +8,7 @@ import { t } from '../../i18n';
 export default function AppCenterPanel() {
   const {catalog,entries} = useApplicationEntries();
   const {open,feedback} = useApplicationOpen();
-  const {title,subtitle} = usePanelHeader('app_center', {title:'应用中心',subtitle:'基于 AI 能力的场景化智能应用'});
+  const {title,subtitle} = usePanelHeader('app_center', {title:t('应用中心'),subtitle:t('基于 AI 能力的场景化智能应用')});
   return <div className="jx-agentPage">
     <div className="jx-agentPage-header"><div><div className="jx-agentPage-title">{title}</div>
       {subtitle && <div className="jx-agentPage-subtitle">{subtitle}</div>}</div></div>

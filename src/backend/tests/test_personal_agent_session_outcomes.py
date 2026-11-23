@@ -7,11 +7,8 @@ import time
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy import select
 
-from core.db.engine import Base
 from core.db.models import UserShadow
 from hugagent_cli import contract
 from personal_agent.computer import devices
@@ -19,19 +16,19 @@ from personal_agent.context import AgentContext
 from personal_agent.models import PersonalDevice, PersonalSessionOperation as Operation, PersonalWorkItem
 from personal_agent.sessions import session_cloud, session_manager, session_queue, session_tool
 from personal_agent.tasks import approvals
+from tests.db_support import memory_engine, session_factory, share_factory
 
 OLD_UNKNOWN = {"outcome_unknown": True, "error": "local_failure; check the result before retry"}
 
 
 @pytest.fixture
 def factory(monkeypatch):
-    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-    Base.metadata.create_all(engine)
-    make = sessionmaker(bind=engine, expire_on_commit=False)
+    engine = memory_engine()
+    make = session_factory(engine)
     for module in (approvals, session_tool, devices):
         monkeypatch.setattr(module, "SessionLocal", make)
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", make)
-    monkeypatch.setattr("core.db.engine.SessionLocal", make)
+    share_factory(monkeypatch, make)
     # Every write runs without a card here; the approval gate has its own tests.
     monkeypatch.setattr(approvals, "preapproved", lambda mode, action: True)
     monkeypatch.setattr(session_manager, "POLL_SEC", 0.05)

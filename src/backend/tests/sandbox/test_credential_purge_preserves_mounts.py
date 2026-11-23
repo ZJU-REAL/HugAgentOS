@@ -21,15 +21,13 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 import core.db.models  # noqa: F401  registers all models (FKs depend on users_shadow)
 import core.sandbox.workspace.credentials as common_credentials
-from core.db.engine import Base
 from core.db.models import UserShadow
 from core.sandbox.workspace.credentials import purge_credential_dir
+from tests.db_support import memory_engine, share_factory
 
 # The bind-mount subpaths the volume builders declare, per platform. These are
 # the exact directories whose inode must survive a purge.
@@ -44,11 +42,8 @@ _MOUNT_SUBPATHS = (
 
 @pytest.fixture
 def db(monkeypatch):
-    eng = create_engine(
-        "sqlite:///:memory:", poolclass=StaticPool, connect_args={"check_same_thread": False}
-    )
-    Base.metadata.create_all(eng)
-    monkeypatch.setattr("core.db.engine.SessionLocal", sessionmaker(bind=eng))
+    eng = memory_engine()
+    share_factory(monkeypatch, sessionmaker(bind=eng))
     s = sessionmaker(bind=eng)()
     s.add(UserShadow(user_id="u1", username="alice"))
     s.commit()

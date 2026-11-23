@@ -96,9 +96,6 @@ class RateLimiter:
         """Stop every layer at once — the incident-time bleed stop."""
         self.frozen = True
 
-    def unfreeze(self) -> None:
-        self.frozen = False
-
 
 # ── Stability monitoring (ticket 38) ─────────────────────────────────────────
 

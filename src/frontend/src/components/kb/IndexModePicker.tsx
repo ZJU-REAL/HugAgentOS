@@ -26,25 +26,23 @@ const MODE_CARDS: Array<{
   {
     mode: 'rag',
     icon: '◎',
-    title: '检索',
-    tagline: '按语义找原文',
-    detail: '向量 + 关键词混合检索。提问时按语义召回相关的原文片段，是问答的默认底座。',
+    title: t('检索'),
+    tagline: t('按语义找原文'),
+    detail: t('向量 + 关键词混合检索。提问时按语义召回相关的原文片段，是问答的默认底座。'),
   },
   {
     mode: 'wiki',
     icon: '◈',
     title: 'Wiki',
-    tagline: '自动整理成知识地图',
-    detail:
-      '用大模型从原文抽出实体与概念，为每个条目生成带出处的页面并互相链接，可按目录树与概念图谱浏览。'
-      + '生成在索引完成后异步进行，会消耗模型用量。',
+    tagline: t('自动整理成知识地图'),
+    detail: t('用大模型从原文抽出实体与概念，为每个条目生成带出处的页面并互相链接，可按目录树与概念图谱浏览。生成在索引完成后异步进行，会消耗模型用量。'),
   },
 ];
 
 const GRANULARITY_OPTIONS: Array<{ value: WikiGranularity; label: string; hint: string }> = [
-  { value: 'focused', label: '聚焦', hint: '每篇只抽 3-7 个核心主题。索引最干净，成本最低。' },
-  { value: 'standard', label: '标准', hint: '核心主题 + 有独立段落展开的实体概念。推荐。' },
-  { value: 'exhaustive', label: '穷举', hint: '见名即收，适合当术语表。条目最多，成本最高。' },
+  { value: 'focused', label: t('聚焦'), hint: t('每篇只抽 3-7 个核心主题。索引最干净，成本最低。') },
+  { value: 'standard', label: t('标准'), hint: t('核心主题 + 有独立段落展开的实体概念。推荐。') },
+  { value: 'exhaustive', label: t('穷举'), hint: t('见名即收，适合当术语表。条目最多，成本最高。') },
 ];
 
 /**
@@ -98,15 +96,15 @@ export default function IndexModePicker({
               <span className="jx-idxModeIcon">{card.icon}</span>
               <span className="jx-idxModeText">
                 <span className="jx-idxModeTitle">
-                  {t(card.title)}
-                  <Tooltip title={t(card.detail)}>
+                  {card.title}
+                  <Tooltip title={card.detail}>
                     <InfoCircleOutlined
                       className="jx-idxModeInfo"
                       onClick={(e) => e.stopPropagation()}
                     />
                   </Tooltip>
                 </span>
-                <span className="jx-idxModeTagline">{t(card.tagline)}</span>
+                <span className="jx-idxModeTagline">{card.tagline}</span>
               </span>
             </button>
           );
@@ -124,7 +122,7 @@ export default function IndexModePicker({
               onChange={(v) => onGranularityChange(v as WikiGranularity)}
               options={GRANULARITY_OPTIONS.map((o) => ({
                 value: o.value,
-                label: <Tooltip title={t(o.hint)}>{t(o.label)}</Tooltip>,
+                label: <Tooltip title={o.hint}>{o.label}</Tooltip>,
               }))}
             />
           </div>

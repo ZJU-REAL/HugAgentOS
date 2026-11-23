@@ -34,8 +34,11 @@ _METADATA_USER_ID_KEY = USER_ID_METADATA_KEY
 # /workspace/skills and would miss its user's private skills once those move into the
 # per-user dir. Adoption after a backend upgrade uses this tag to drop such sandboxes
 # instead of handing back one whose skill mount no longer matches.
+# "user-view-hidden-shared": the shared dir moved from /workspace/skills_shared to the
+# hidden /workspace/.skills_shared, and view links were repointed to match — a sandbox
+# still mounting the old path would see every shared skill as a dangling link.
 _METADATA_SKILLS_LAYOUT_KEY = "hugagent-skills-layout"
-_METADATA_SKILLS_LAYOUT_VALUE = "user-view"
+_METADATA_SKILLS_LAYOUT_VALUE = "user-view-hidden-shared"
 
 
 def _pool_metadata(kind: str, user_id: Optional[str] = None) -> dict[str, str]:
@@ -56,8 +59,8 @@ def _make_skills_volumes(user_id: Optional[str] = None) -> list:
 
     A sandbox belonging to ``user_id`` mounts **that user's skill view** at
     ``/workspace/skills`` (their private skills plus one relative symlink per
-    shared skill) and the shared dir at ``/workspace/skills_shared``, where those
-    symlinks resolve. Every skill keeps the one path ``/workspace/skills/<id>``,
+    shared skill) and the shared dir at the hidden ``/workspace/.skills_shared``,
+    where those symlinks resolve. Every skill keeps the one path ``/workspace/skills/<id>``,
     while another user's private skills — a market skill's ``secrets.json``
     included — are simply not mounted. Nothing is copied; the view is symlinks.
 
@@ -103,7 +106,7 @@ def _make_skills_volumes(user_id: Optional[str] = None) -> list:
             read_only=True,
         ),
         # The view's entries for shared skills are relative symlinks
-        # (``../skills_shared/<id>``), so this mount path is what makes them
+        # (``../.skills_shared/<id>``), so this mount path is what makes them
         # resolve inside the sandbox — it must stay in step with SHARED_LINK_NAME.
         Volume(
             name="skills-shared",

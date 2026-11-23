@@ -165,8 +165,8 @@ export default function CitationBadge({
       // During streaming output, the cursor sweeping across the text no longer causes cascading popover flickers
       mouseEnterDelay={0.15}
       mouseLeaveDelay={0.1}
-      overlayClassName="jx-citPopover"
-      overlayStyle={{ zIndex: 9999 }}
+      classNames={{ root: "jx-citPopover" }}
+      styles={{ root: { zIndex: 9999 } }}
     >
       {badgeEl}
     </Popover>

@@ -19,21 +19,19 @@ never raising a bare exception that breaks the front end.
 """
 
 from __future__ import annotations
-from integrations.dingtalk import parsing as dingtalk_parsing
-from core.infra.time import utc_now
 
 import asyncio
 import json
 import logging
 import os
-import re
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
-from core.db.threads import AsyncRepository
-
-from integrations.dingtalk.repository import DingTalkConnectionRepository
+from core.db.threads import AsyncRepository, run_db
 from core.infra.proc import no_window_kwargs
+from core.infra.time import utc_now
+from integrations.cli_process import run_cli
+from integrations.dingtalk import parsing as dingtalk_parsing
+from integrations.dingtalk.repository import DingTalkConnectionRepository
 
 logger = logging.getLogger(__name__)
 
@@ -44,26 +42,6 @@ logger = logging.getLogger(__name__)
 # updates the DB itself on completion, and removes itself from the map.
 _LOGIN_TASKS: "dict[str, asyncio.Task]" = {}
 _DWS_BIN = "dws"
-
-# Regexes for parsing device-flow output (lenient; tolerates json / plain text / Chinese and English copy).
-
-
-
-
-def dingtalk_login_session_id(user_id: str) -> str:
-    return f"dingtalk-{user_id}"
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def _dws_env(user_id: str) -> Dict[str, str]:
@@ -87,25 +65,7 @@ def _dws_env(user_id: str) -> Dict[str, str]:
 
 async def _run_dws(user_id: str, args: List[str], timeout: int = 40) -> Tuple[str, str, int]:
     """Run one non-blocking dws subcommand on the backend as this user; returns (stdout, stderr, exit_code)."""
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            _DWS_BIN, *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=_dws_env(user_id),
-            **no_window_kwargs(),
-        )
-    except FileNotFoundError:
-        return "", "dws binary not found on backend", 127
-    try:
-        out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        return out.decode("utf-8", "replace"), err.decode("utf-8", "replace"), proc.returncode or 0
-    except asyncio.TimeoutError:
-        try:
-            proc.kill()
-        except ProcessLookupError:
-            pass
-        return "", f"dws {' '.join(args[:2])} timeout", 124
+    return await run_cli(_DWS_BIN, args, env=_dws_env(user_id), timeout=timeout, label="dws")
 
 
 # The three login-state fields: filled while pending, cleared on connect success/failure/disconnect.
@@ -233,7 +193,7 @@ async def _device_login_flow(user_id: str) -> None:
             **no_window_kwargs(),
         )
     except FileNotFoundError:
-        _update_connection(user_id, {"status": "error", "last_error": "后端未安装 dws"})
+        await run_db(_update_connection, user_id, {"status": "error", "last_error": "后端未安装 dws"})
         return
 
     buf = ""
@@ -258,7 +218,7 @@ async def _device_login_flow(user_id: str) -> None:
                 # Box-complete markers: the trailing "过期/expire" line appears, or both URL + code are in place
                 box_done = ("过期" in buf) or ("expire" in buf.lower()) or (u and c)
                 if box_done and (u or c):
-                    _update_connection(user_id, {
+                    await run_db(_update_connection, user_id, {
                         "status": "pending",
                         "login_verification_url": u,
                         "login_verification_url_complete": comp,
@@ -276,7 +236,7 @@ async def _device_login_flow(user_id: str) -> None:
         raise
     except Exception as exc:  # noqa: BLE001
         logger.warning("[dingtalk] device login stream failed user=%s: %s", user_id, exc)
-        _update_connection(user_id, {"status": "error", "last_error": f"登录流异常: {exc}"})
+        await run_db(_update_connection, user_id, {"status": "error", "last_error": f"登录流异常: {exc}"})
         return
     finally:
         _LOGIN_TASKS.pop(user_id, None)
@@ -285,14 +245,14 @@ async def _device_login_flow(user_id: str) -> None:
     out, _, _ = await _run_dws(user_id, ["auth", "status", "-f", "json"])
     if not dingtalk_parsing.parse_auth_status(out):
         tail = buf.strip()[-400:]
-        _update_connection(user_id, {
+        await run_db(_update_connection, user_id, {
             "status": "error",
             **_CLEAR_LOGIN,
             "last_error": f"授权未完成或已过期，请重试。{('详情: ' + tail) if tail else ''}",
         })
         return
     # Authenticated → backfill the DingTalk identity + export the portable credential bundle (for per-user injection into cube session sandboxes)
-    _update_connection(user_id, await _build_connected_update(user_id))
+    await run_db(_update_connection, user_id, await _build_connected_update(user_id))
 
 
 class DingTalkService:

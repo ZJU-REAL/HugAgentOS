@@ -25,9 +25,3 @@
 .jx-personalNavName{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @keyframes jx-taskBreathe{0%,100%{opacity:.4;transform:scale(.9)}50%{opacity:1;transform:scale(1.08)}}
 @media(prefers-reduced-motion:reduce){@keyframes jx-taskBreathe{from,to{opacity:1;transform:scale(1)}}}
-
-.jx-personalStatus--compact{position:absolute;inset:0;pointer-events:none}
-.jx-personalStatus--compact .jx-taskStatus{position:absolute;top:3px;right:3px;width:6px;height:6px;margin:0}
-.jx-personalStatus--compact .jx-personalUnread{position:absolute;bottom:0;right:0;min-width:15px;height:15px;padding:0 2px}
-
-.jx-personalStatus--compact .jx-taskStatus--running{width:14px;height:14px}

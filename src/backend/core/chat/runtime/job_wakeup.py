@@ -250,7 +250,7 @@ def _accept_wake_run(db, chat_id: str, user_id: str, message: str, wake_kind: st
     # 一条"用 run_job(action='resume') 续跑"的系统消息，却在工具面里找不到
     # run_job，只能弃用作业、把 N 个工作项拖回主循环逐项重做（成本二次方增长，
     # 前端也再没有后台作业卡片）。会话元数据里的 workflow_chat 是这件事的真源，
-    # 用户消息路径读的也是它（见 chats.py 的 ctx 组装）。
+    # 用户消息路径读的也是它（见 core/chat/operations/request_context.py 的 ctx 组装）。
     _sess = chat_service.get_session(chat_id, user_id)
     workflow_chat = bool(dict(getattr(_sess, "extra_data", None) or {}).get("workflow_chat"))
     # 唤醒消息按 user 角色落库：它要能进历史、能被模型看见，走和普通消息完全一样的链路。

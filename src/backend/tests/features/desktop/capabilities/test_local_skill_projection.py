@@ -13,13 +13,14 @@ from core.db.engine import get_db
 from core.db.models import AdminSkill
 from api.routes.v1 import me_capabilities, admin_skills, catalog
 from features.desktop.api import desktop_capabilities
+from tests.db_support import share_factory
 
 
 @pytest.fixture
 def local_client(index_db, caps_root, tmp_path, monkeypatch):
     with index_db() as db:
         AdminSkill.__table__.create(db.get_bind(), checkfirst=True)
-    monkeypatch.setattr("core.db.engine.SessionLocal", index_db)
+    share_factory(monkeypatch, index_db)
     monkeypatch.setenv("HUGAGENT_DESKTOP_BRIDGE_SECRET", "test-config-only")
     monkeypatch.setenv("SANDBOX_SKILLS_DIR", str(tmp_path / "workspace" / "skills"))
     monkeypatch.setattr(skill_candidates, 'builtin_candidates', lambda: [])

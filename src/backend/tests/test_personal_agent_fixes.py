@@ -236,14 +236,14 @@ async def test_channel_message_enters_inbox_and_reply_returns_to_same_conversati
     class Adapter:
         async def send_text(self, conn, msg, text):
             sent.append(text); return SendResult(success=True, message_id="ph-1")
-    conn = SimpleNamespace(channel_id="ch1", channel_type="lark", owner_user_id="owner")
+    conn = SimpleNamespace(channel_id="ch1", channel_type="lark", owner_user_id="owner", agent_id=None)
     msg = InboundMsg(channel_id="ch1", channel_type="lark", text="帮我查天气", chat_type="p2p", sender_id="alice",
                      external_conversation_id="u1", message_id="m1", raw={"large": "x"})
     from tests.test_personal_agent_im_actions import listed_owner
     with sessions() as db:
         AgentContext(db, "owner").identity.ensure()
         agent = AgentContext(db, "owner").identity.agent()
-        agent.config = {**agent.config, "channel_ids": ["ch1"], **listed_owner("ch1", "alice")}; db.commit()
+        agent.config = {**agent.config, **listed_owner("ch1", "alice")}; db.commit()
         assert channel_bridge.handled_by_agent(db, conn)
     await channel_bridge.admit_inbound(conn, msg, Adapter())
     from personal_agent.channels.im_actions import PLACEHOLDER
@@ -287,8 +287,6 @@ def test_schedule_is_not_duplicated_and_scheduled_run_cannot_schedule(sessions, 
     from personal_agent.tools import tools
     monkeypatch.setattr(tools, "SessionLocal", sessions)
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
-    monkeypatch.setattr(schedules, "SessionLocal", sessions, raising=False)
-    monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions, raising=False)
     with sessions() as db:
         AgentContext(db, "owner").identity.ensure()
         first = schedules.create(db, "owner", "Mail", "Check my mail", cron="0 8 * * *")

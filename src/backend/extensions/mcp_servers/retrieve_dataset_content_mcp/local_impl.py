@@ -56,6 +56,34 @@ def _get_current_user_id() -> str:
     return os.getenv("CURRENT_USER_ID", "").strip()
 
 
+def _drop_deleted_document_hits(hits: list[dict]) -> list[dict]:
+    """Drop hits whose document is soft-deleted or no longer exists.
+
+    Deleting a document only marks it in PostgreSQL; its Milvus rows are purged
+    best-effort and an in-flight index job can still write rows afterwards, so the
+    vector store alone can't be trusted to reflect deletions.
+    """
+    doc_ids = {h.get("document_id") for h in hits if h.get("document_id")}
+    if not doc_ids:
+        return hits
+    try:
+        from core.db.engine import SessionLocal
+        from features.knowledge.models import KBDocument
+
+        with SessionLocal() as db:
+            live = {
+                row.document_id
+                for row in db.query(KBDocument.document_id).filter(
+                    KBDocument.document_id.in_(doc_ids),
+                    KBDocument.deleted_at.is_(None),
+                )
+            }
+    except Exception as exc:
+        _local_kb_logger.warning("Failed to check deleted documents for KB hits: %s", exc)
+        return hits
+    return [h for h in hits if not h.get("document_id") or h["document_id"] in live]
+
+
 def _fetch_parent_contents(parent_ids: list[str]) -> dict[str, str]:
     """Fetch parent chunk content from PostgreSQL by chunk_id list."""
     if not parent_ids:
@@ -132,7 +160,8 @@ def retrieve_local_kb(
 ) -> Any:  # 错误分支返回 list[dict]，成功/空命中分支返回 dict —— 异构返回，标注为 Any
     """Search user's private KB and return ranked result chunks.
 
-    Returns a list of dicts with keys: id, title, content, kb_id, score.
+    Returns a dict (``available_kbs`` + ``items``; items carry id, title, content,
+    kb_id, score) on success or empty hits, and ``[{"error": ...}]`` on failure.
     """
     deadline = time.monotonic() + LOCAL_RETRIEVE_TOTAL_TIMEOUT_SECONDS
 
@@ -213,12 +242,19 @@ def retrieve_local_kb(
             # public 与 scoped 都是「共享库」：按 kb_id 全局检索（向量行归属系统属主，
             # 不能再叠加 user_id 过滤，否则被授权用户搜不到）。仅 private 才 owner 隔离。
             shared_set = {r.kb_id for r in rows if is_shared_visibility(r.visibility)}
+            # Explicit ids (header / env) may name soft-deleted or unknown spaces whose
+            # vectors still exist; only live rows are searchable.
+            live_set = {r.kb_id for r in rows}
             public_ids = [k for k in search_kb_ids if k in shared_set]
-            private_ids = [k for k in search_kb_ids if k not in shared_set]
+            private_ids = [k for k in search_kb_ids if k in live_set and k not in shared_set]
             if private_ids and not user_id:
                 user_id = next((r.user_id for r in rows if r.kb_id in private_ids), user_id)
     except Exception as exc:
         _local_kb_logger.warning("retrieve_local_kb: visibility classification failed: %s", exc)
+
+    if not public_ids and not private_ids:
+        _local_kb_logger.warning("retrieve_local_kb: no live KB among %s", search_kb_ids)
+        return [{"error": "未找到可访问的私有知识库"}]
 
     if private_ids and not user_id:
         return [{"error": "未能获取当前用户 ID"}]
@@ -251,6 +287,8 @@ def retrieve_local_kb(
     except Exception as exc:
         _local_kb_logger.error("retrieve_local_kb: hybrid_search failed: %s", exc)
         return [{"error": f"检索失败：{exc}"}]
+
+    hits = _drop_deleted_document_hits(hits)
 
     # Build KB metadata for the response
     kb_meta: list[dict[str, str]] = []

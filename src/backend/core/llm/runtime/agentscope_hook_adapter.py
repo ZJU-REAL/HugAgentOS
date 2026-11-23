@@ -161,6 +161,8 @@ class AgentScopeHookAdapter(MiddlewareBase):
     ) -> None:
         self.bus = bus or build_hook_bus()
         self.permission_policy = permission_policy
+        # Steering policy whose ``wait_for_steer`` may cancel a running tool.
+        self.tool_interrupt = None
         from core.llm.runtime.tool_execution_adapter import DurableToolDispatch
         self.tool_dispatch = DurableToolDispatch() if durable_tools else None
 

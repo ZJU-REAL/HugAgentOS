@@ -1,5 +1,4 @@
 """Plugin browser tools forward trusted invocation context to the owning backend."""
-import os
 import uuid
 import base64
 from core.infra.http_errors import response_error
@@ -7,6 +6,7 @@ from mcp.server.mcpserver.utilities.types import Image
 from typing import Any
 import httpx
 from mcp.server.mcpserver import Context, MCPServer
+from extensions.mcp_servers._backend import backend_url, internal_token
 from extensions.mcp_servers._ports import PORTS
 from extensions.mcp_servers._serve import run
 
@@ -22,13 +22,12 @@ async def call(ctx, action, resource_id=None, params=None, checkpoint_id=None):
     chat_id = headers.get("x-chat-id") or headers.get("x-conversation-id", "")
     if not user_id or not chat_id:
         raise ValueError("conversation_identity_required")
-    base = os.getenv("BACKEND_INTERNAL_URL") or ("http://127.0.0.1:" + (os.getenv("BACKEND_PORT") or os.getenv("PORT") or "3001"))
     async with httpx.AsyncClient(timeout=120, trust_env=False) as client:
-        response = await client.post(base.rstrip("/") + "/v1/internal/plugin-resources/tool", json={
+        response = await client.post(backend_url() + "/v1/internal/plugin-resources/tool", json={
             "slug": slug, "install_id": plugin_id or None, "module_id": "browser", "chat_id": chat_id,
             "resource_id": resource_id, "action": action, "params": params or {},
             "checkpoint_id": checkpoint_id, "command_id": uuid.uuid4().hex,
-        }, headers={"X-Internal-Token": os.getenv("BACKEND_INTERNAL_TOKEN", ""), "X-Current-User-Id": user_id,
+        }, headers={"X-Internal-Token": internal_token(), "X-Current-User-Id": user_id,
                     "X-Chat-Id": chat_id, "X-Hugagent-Mcp-Audience": "browser_runtime",
                     "X-Hugagent-Invocation": headers.get("X-Hugagent-Invocation", ""),
                     "X-Hugagent-Plugin-Id": plugin_id})

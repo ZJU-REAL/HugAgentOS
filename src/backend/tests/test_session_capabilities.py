@@ -9,7 +9,7 @@ import pytest
 from core.db.models import ChatSession, UserShadow
 from core.llm.runtime import session_capabilities
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from tests.db_support import session_factory, share_factory
 
 USER = "sticky_user"
 CHAT = "sticky_chat"
@@ -19,8 +19,8 @@ CHAT = "sticky_chat"
 def sticky_env(tmp_path, monkeypatch):
     engine = create_engine(f"sqlite:///{tmp_path}/sticky.db")
     dbe.Base.metadata.create_all(engine)
-    test_session = sessionmaker(bind=engine, expire_on_commit=False)
-    monkeypatch.setattr(dbe, "SessionLocal", test_session)
+    test_session = session_factory(engine)
+    share_factory(monkeypatch, test_session)
     with test_session() as db:
         db.add(UserShadow(user_id=USER, username=USER))
         db.add(ChatSession(chat_id=CHAT, user_id=USER, title="sticky"))

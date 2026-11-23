@@ -11,7 +11,6 @@ import {createRoot} from 'react-dom/client';
 import {MemoryRouter} from 'react-router';
 import {ChatSidebarItem} from './src/components/sidebar/ChatSidebarItem';
 import {PersonalAgentSidebarEntry,usePersonalAgentNotifications} from './src/personalAgentEdition';
-import {ApplicationButton} from './src/workbench/ApplicationButton';
 import {PersonalTaskDialog} from './src/components/personal-agent/tasks/PersonalTaskDialog';
 import {useChatResultRead} from './src/hooks/useChatResultRead';
 import {usePersonalResultRead} from './src/components/personal-agent/conversation/usePersonalResultRead';
@@ -48,7 +47,6 @@ function Fixture(){
  return <main><nav id='ordinary'>{chats.map(item=><ChatSidebarItem key={item.id} item={item} groupItems={chats} scopeKey='history' dragScopeRef={{current:null}} actions={actions} active={selected===item.id}/>)}</nav>
  <nav id='project' className='jx-projectGroup'><div className='jx-projectRow'><span className='jx-projectRowIcon'/><span className='jx-projectRowName'>测试项目</span></div><div className='jx-projectChatList'>{projectChats.map(item=><ChatSidebarItem key={item.id} item={item} groupItems={projectChats} scopeKey='project:project-status' dragScopeRef={{current:null}} actions={actions} active={selected===item.id}/>)}</div></nav>
  <nav id='personal'><PersonalAgentSidebarEntry onOpen={()=>open('personal')}/></nav>
- <div id='compact' style={{position:'relative',width:48,height:48}}><ApplicationButton entry={{key:'builtin:personal_agent',title:'Personal Agent',item:{availability:{available:true}}}} onOpen={()=>open('personal')} current={false} className='rail' expanded={false}/></div>
  <Reader selected={selected}/><button id='open-dialog' onClick={()=>{useTaskNotificationStore.getState().observe([{key:'personal:dialogtask',id:'dialogtask:current-run',status:'completed',startedAt:0,updatedAt:2}]);setDialog(true)}}>Open task</button>{dialog&&<PersonalTaskDialog task={{id:'dialogtask',status:'completed',goal:'Result identity test',run_id:'current-run'}} onClose={()=>setDialog(false)} onChange={async()=>{}}/>}</main>;
 }
 createRoot(document.getElementById('root')).render(<MemoryRouter><Fixture/></MemoryRouter>);
@@ -120,9 +118,6 @@ try{
  await page.locator('#personal .jx-personalUnread').waitFor();assert.equal(await page.locator('#personal .jx-personalUnread').innerText(),'3');
  assert.equal(await page.locator('#personal .jx-taskStatus').count(),1,'unread messages light the entry');
  assert.equal(await page.locator('#personal [data-task-status]').count(),0,'task progress does not light the entry');
- const compactLabel=await page.locator('#compact button').getAttribute('aria-label');
- assert.match(compactLabel,/3 条未读消息/,'compact navigation announces the unread count');
- assert.doesNotMatch(compactLabel,/运行中/,'compact navigation omits task progress');
  await page.screenshot({path:resolve(evidence,'light-four-states.png'),fullPage:true});
  await row('completed').click();await page.waitForTimeout(100);
  assert.equal(await page.locator('#ordinary [data-task-status="completed"]').getAttribute('data-task-unread'),'true','opening a scrolled-away result does not mark it read');
@@ -159,7 +154,7 @@ try{
  await page.evaluate(()=>document.documentElement.dataset.theme='dark');
  await page.screenshot({path:resolve(evidence,'dark-read-and-new-completion.png'),fullPage:true});
  await page.setViewportSize({width:360,height:820});
- assert.ok(await page.locator('#compact .jx-taskStatus').isVisible());
+ assert.ok(await page.locator('#personal .jx-taskStatus').isVisible(),'the Personal Agent entry keeps its lamp at narrow width');
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'narrow preview fits');
  const other=await page.context().newPage();await other.goto('http://127.0.0.1:'+server.address().port);
  await other.locator('#personal .jx-personalUnread').waitFor();

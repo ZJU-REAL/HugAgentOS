@@ -37,14 +37,6 @@ CONTEXT_META_KEY = "harness_context_items"
 class AgentScopeContextAdapter:
     """Translate the IR while preserving current model-facing roles/blocks."""
 
-    @staticmethod
-    def wrap_content(content: Any) -> list[Any]:
-        """Construct AgentScope-compatible blocks inside the sole SDK seam."""
-        if isinstance(content, str):
-            return [TextBlock(type="text", text=content)] if content else []
-        if isinstance(content, list):
-            return content
-        return [content] if content else []
 
     @staticmethod
     def _defaults(role: str, block_type: str) -> dict[str, Any]:
@@ -339,14 +331,6 @@ class AgentScopeContextAdapter:
             current_items.append(item)
         flush()
         return messages
-
-    def annotate_provider_messages(
-        self,
-        source_messages: Sequence[Msg],
-        formatted_messages: Sequence[Mapping[str, Any]],
-        row_counts: Sequence[int],
-    ) -> list[dict[str, Any]]:
-        return provider_conversion.annotate_provider_messages(self, source_messages, formatted_messages, row_counts)
 
     def items_from_provider_messages(
         self,

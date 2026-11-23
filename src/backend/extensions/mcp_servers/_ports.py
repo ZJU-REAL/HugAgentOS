@@ -10,7 +10,14 @@ from __future__ import annotations
 import os
 
 
-def _parse_port_offset(raw: str | None, *, highest_base_port: int = 9117) -> int:
+# Installation placement and base ports share one registry.
+from extensions.mcp_servers.registry import SERVERS
+
+_BASE_PORTS = {key: server.port for key, server in SERVERS.items()
+               if server.exposure == "process" and server.port is not None}
+
+
+def _parse_port_offset(raw: str | None, *, highest_base_port: int | None = None) -> int:
     """Parse the optional local-desktop MCP port namespace.
 
     Compose and ordinary server deployments leave the value unset and retain
@@ -18,6 +25,7 @@ def _parse_port_offset(raw: str | None, *, highest_base_port: int = 9117) -> int
     so two products may run their private MCP meshes on the same computer.
     """
 
+    highest = max(_BASE_PORTS.values()) if highest_base_port is None else highest_base_port
     value = (raw or "0").strip()
     try:
         offset = int(value)
@@ -25,7 +33,7 @@ def _parse_port_offset(raw: str | None, *, highest_base_port: int = 9117) -> int
         raise RuntimeError(
             f"HUGAGENT_LOCAL_MCP_PORT_OFFSET 必须是整数，当前为 {value!r}"
         ) from exc
-    if offset < 0 or highest_base_port + offset > 65535:
+    if offset < 0 or highest + offset > 65535:
         raise RuntimeError(
             "HUGAGENT_LOCAL_MCP_PORT_OFFSET 超出有效端口范围："
             f"{offset}"
@@ -34,12 +42,6 @@ def _parse_port_offset(raw: str | None, *, highest_base_port: int = 9117) -> int
 
 
 _PORT_OFFSET = _parse_port_offset(os.getenv("HUGAGENT_LOCAL_MCP_PORT_OFFSET"))
-
-# Installation placement and base ports share one registry.
-from extensions.mcp_servers.registry import SERVERS
-
-_BASE_PORTS = {key: server.port for key, server in SERVERS.items()
-               if server.exposure == "process" and server.port is not None}
 
 PORTS: dict[str, int] = {
     server_id: port + _PORT_OFFSET for server_id, port in _BASE_PORTS.items()

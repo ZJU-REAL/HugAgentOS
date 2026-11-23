@@ -5,7 +5,7 @@ import type { ComponentType, ReactNode } from 'react';
  * (for example EE-only modules). A module registers its renderer when it loads;
  * a build without that module never opens such a tab.
  */
-export interface CustomCanvasRenderer {
+interface CustomCanvasRenderer {
   component: ComponentType;
   icon?: () => ReactNode;
 }

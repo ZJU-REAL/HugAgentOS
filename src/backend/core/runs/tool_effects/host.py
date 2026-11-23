@@ -17,6 +17,11 @@ class DurableToolEffects:
     async def execute_outcome(self, **kwargs):
         return await self.gateway.execute_outcome(**kwargs)
 
+    def interruptible(self, tool_name):
+        """A user steer may cancel this tool mid-call. Reconcile-policy tools
+        write remote state whose outcome must stay knowable, so they finish."""
+        return self.gateway.registry.resolve(tool_name).policy != "reconcile"
+
     def binding_error(self, message):
         return ToolIntentCommitError(message)
 

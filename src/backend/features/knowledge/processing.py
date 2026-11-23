@@ -72,8 +72,10 @@ def vectorise_document_background(
         from features.knowledge.kb_parser import parse_and_chunk_rich
         from features.knowledge.vector_client import get_or_create_collection
         from core.models.embedding import embed_batch
-        from features.knowledge.kb_vector import build_sparse_text, text_to_sparse
-        from features.knowledge.vector_indexing import upsert_rows, upsert_question_rows
+        from features.knowledge.kb_vector import build_sparse_text
+        from features.knowledge.vector_indexing import (
+            build_question_rows, delete_document_vectors, insert_rows,
+        )
         from features.knowledge.vector_fields import truncate_utf8
         from features.knowledge.kb_vector_state import TITLE_FIELD_MAX_BYTES, TAGS_FIELD_MAX_BYTES
         from core.db.engine import SessionLocal
@@ -150,6 +152,9 @@ def vectorise_document_background(
             )
 
         milvus_rows: list[dict] = []
+        # (parent_chunk_id, chunk_index, questions) — embedded and written for the
+        # whole document at once instead of one Milvus round trip set per chunk.
+        question_entries: list[tuple[str, int, list[str]]] = []
         vec_idx = 0
 
         db = SessionLocal()
@@ -179,6 +184,9 @@ def vectorise_document_background(
                 if not want_vectors:
                     continue
 
+                if chunk_questions:
+                    question_entries.append((pc.parent_id, pc_idx, chunk_questions))
+
                 if parent_child:
                     for child in pc.children:
                         tags_for_bm25 = chunk_tags if chunk_tags else []
@@ -195,7 +203,7 @@ def vectorise_document_background(
                             "tags_text":       truncate_utf8(" ".join(tags_for_bm25), TAGS_FIELD_MAX_BYTES),
                             "chunk_index":     child.index,
                             "dense_embedding": dense_vecs[vec_idx],
-                            "sparse_embedding": text_to_sparse(sparse_text),
+                            "sparse_text":     sparse_text,
                         })
                         vec_idx += 1
                 else:
@@ -213,7 +221,7 @@ def vectorise_document_background(
                         "tags_text":       truncate_utf8(" ".join(tags_for_bm25), TAGS_FIELD_MAX_BYTES),
                         "chunk_index":     pc_idx,
                         "dense_embedding": dense_vecs[vec_idx],
-                        "sparse_embedding": text_to_sparse(sparse_text),
+                        "sparse_text":     sparse_text,
                     })
                     vec_idx += 1
 
@@ -225,35 +233,30 @@ def vectorise_document_background(
         finally:
             db.close()
 
-        BATCH = 100
-        for i in range(0, len(milvus_rows), BATCH):
-            upsert_rows(milvus_rows[i:i + BATCH])
-        logger.info("Upserted %d chunk vectors to Milvus for document %s", len(milvus_rows), document_id)
+        if want_vectors:
+            # Rows left by an earlier failed attempt carry other (random) chunk ids;
+            # clear them so the fresh ids below can be plain inserts.
+            delete_document_vectors(document_id, kb_id)
+            insert_rows(milvus_rows)
+            logger.info("Inserted %d chunk vectors to Milvus for document %s", len(milvus_rows), document_id)
 
-        if auto_questions > 0 and want_vectors:
-            db2 = SessionLocal()
+        if question_entries:
             try:
-                chunks_with_questions = db2.query(KBChunk).filter(
-                    KBChunk.document_id == document_id,
-                    KBChunk.kb_id == kb_id,
-                ).all()
-                for c in chunks_with_questions:
-                    if c.questions:
-                        try:
-                            upsert_question_rows(
-                                parent_chunk_id=c.chunk_id,
-                                questions=c.questions,
-                                user_id=user_id,
-                                kb_id=kb_id,
-                                document_id=document_id,
-                                title=title,
-                                chunk_index=c.chunk_index,
-                            )
-                        except Exception as q_exc:
-                            logger.warning("Question row upsert failed for chunk %s: %s", c.chunk_id, q_exc)
-            finally:
-                db2.close()
-            logger.info("Upserted question rows for document %s", document_id)
+                flat_questions = [q for _, _, qs in question_entries for q in qs]
+                question_vecs = embed_batch(flat_questions)
+                vec_iter = iter(question_vecs)
+                question_rows: list[dict] = []
+                for parent_id, chunk_index, qs in question_entries:
+                    question_rows.extend(build_question_rows(
+                        parent_id, qs, [next(vec_iter) for _ in qs],
+                        user_id=user_id, kb_id=kb_id, document_id=document_id,
+                        title=title, chunk_index=chunk_index,
+                    ))
+                insert_rows(question_rows)
+                logger.info("Inserted %d question rows for document %s", len(question_rows), document_id)
+            except Exception as q_exc:
+                # Questions only add recall; the document stays searchable by its chunks.
+                logger.warning("Question rows failed for document %s: %s", document_id, q_exc)
 
         # 图生文 + 资产检索行。放在文本索引之后：VLM 调用慢且可能没配，文本检索不该等它。
         if stored_asset_ids and want_vectors:

@@ -2,25 +2,10 @@
 
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 from sqlalchemy import create_engine, inspect, text
-
-
-def _alembic(repo_root: Path, database_url: str, *args: str) -> None:
-    env = dict(os.environ)
-    env["DATABASE_URL"] = database_url
-    subprocess.run(
-        [sys.executable, "-m", "alembic", *args],
-        cwd=repo_root,
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+from tests.db_support import run_alembic
 
 
 def test_sqlite_hook_ledgers_upgrade_downgrade_and_reupgrade(tmp_path):
@@ -50,7 +35,7 @@ def test_sqlite_hook_ledgers_upgrade_downgrade_and_reupgrade(tmp_path):
 
     # The fixture seeds only the tables the harness chain touches; revisions after
     # harness69mem alter unrelated tables, so the target is the harness head.
-    _alembic(repo_root, database_url, "upgrade", "harness69mem")
+    run_alembic(repo_root, database_url, "upgrade", "harness69mem")
     assert {
         "harness_usage_cursors",
         "harness_usage_attempts",
@@ -64,12 +49,12 @@ def test_sqlite_hook_ledgers_upgrade_downgrade_and_reupgrade(tmp_path):
         }
     )
 
-    _alembic(repo_root, database_url, "downgrade", "compact01")
+    run_alembic(repo_root, database_url, "downgrade", "compact01")
     assert "harness_usage_attempts" not in inspect(engine).get_table_names()
     assert "harness_event_log" not in inspect(engine).get_table_names()
 
     # The fixture seeds only the tables the harness chain touches; revisions after
     # harness69mem alter unrelated tables, so the target is the harness head.
-    _alembic(repo_root, database_url, "upgrade", "harness69mem")
+    run_alembic(repo_root, database_url, "upgrade", "harness69mem")
     assert "harness_usage_attempts" in inspect(engine).get_table_names()
     engine.dispose()

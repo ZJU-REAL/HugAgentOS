@@ -131,7 +131,6 @@ async def test_event_authorization_rechecks_identity_scope_and_edit(command_db, 
 
 
 async def test_publish_failure_retries_without_starting_run_again(command_db, monkeypatch):
-    pass
     with command_db() as db:
         source = ChatSequencer(db).accept_main_run(chat_id="c", user_id="u",
             user_content="start", request_payload={}).run
@@ -264,7 +263,6 @@ def test_snapshot_is_bounded_and_returns_latest_runs(command_db, monkeypatch):
 def test_followup_active_run_inherits_execution_mode(command_db, monkeypatch, mode, thinking):
     from core.auth.backend import UserContext
     from core.chat.operations.runs import chat_active_run
-    pass
     monkeypatch.setattr(engine, "SessionLocal", command_db)
     with command_db() as db:
         source = ChatSequencer(db).accept_main_run(chat_id="c", user_id="u",

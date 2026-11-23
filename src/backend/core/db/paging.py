@@ -38,16 +38,3 @@ def apply_page(query: Any, *, page: Any = 1, page_size: Any = DEFAULT_PAGE_SIZE)
     if size is None:
         return query
     return query.offset((normalize_page(page) - 1) * size).limit(size)
-
-
-def paging_meta(*, total: int, page: Any = 1, page_size: Any = DEFAULT_PAGE_SIZE) -> dict:
-    """返回给调用方的分页信息：当前页、页长、总数、总页数、是否还有下一页。"""
-    size = normalize_page_size(page_size)
-    current = normalize_page(page) if size is not None else 1
-    return {
-        "page": current,
-        "page_size": size,
-        "total": total,
-        "total_pages": 1 if size is None else max(-(-total // size), 1),
-        "has_more": size is not None and current * size < total,
-    }

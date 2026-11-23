@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """MCP server exposing tools: retrieve_dataset_content & retrieve_local_kb.
 
-Supports two transports:
-- stdio (default): spawned per-request as a subprocess
-- streamable-http: long-running HTTP server, runtime params via HTTP headers
+Runs as a long-lived streamable-http server started by ``_launcher``; per-call
+runtime parameters (user, allowed datasets/KBs, reranker) arrive as HTTP headers.
 """
 
 from __future__ import annotations
@@ -292,10 +291,9 @@ async def retrieve_local_kb(
             },
         }
 
-    # impl now returns dict with available_kbs + items
+    # Success / empty hits return a dict; impl error branches return [{"error": ...}].
     if isinstance(result, dict):
         return result
-    # Legacy: list of items
     return {"items": result}
 
 

@@ -54,7 +54,7 @@ export function ChatWelcome({ view, shareAccessLevel, ...composer }: ComposerPro
             />
           )}
           <h1 className="jx-heroTitle">{heroTitle}</h1>
-          <p className="jx-heroSubtitle">{heroSubtitle}</p>
+          {heroSubtitle && <p className="jx-heroSubtitle">{heroSubtitle}</p>}
           {((!isAgentChat && !isSiteChat) || publicChat) && (
             <div className="jx-mobileHeroText">
               <h1>{publicChat ? heroTitle : 'HugAgentOS'}</h1>

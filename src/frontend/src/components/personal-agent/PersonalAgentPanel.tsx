@@ -131,8 +131,8 @@ function ConversationPanel({ chatId, onSelectChat, savedDraft, saveDraft }: { ch
       <Button className="pa-header-action" type="text" icon={<SearchOutlined />} aria-label={t('查找消息或任务')} title={t('查找消息或任务')} onClick={() => setSearchOpen(true)} />
       <Button className="pa-side-toggle" type="text" icon={<UnorderedListOutlined />} aria-label={t('打开状态栏')} onClick={() => setSideOpen(value => !value)} />
     </header>
-    {error && <Alert type="error" message={error} closable onClose={() => setError('')} />}
-    {pollError && <Alert type="warning" message={pollError} />}
+    {error && <Alert type="error" title={error} closable onClose={() => setError('')} />}
+    {pollError && <Alert type="warning" title={pollError} />}
     {/* The composer docks inside the scroller so its scrollbar runs down to the bottom of the panel. */}
     <div ref={scroll.setViewport} className="pa-messages" onScroll={scroll.onScroll}>
       <div ref={scroll.setContent} className="pa-messages-inner" role="log" aria-live="polite" aria-busy={loading}>

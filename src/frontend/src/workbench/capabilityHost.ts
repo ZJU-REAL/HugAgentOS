@@ -1,4 +1,5 @@
 import {t} from '../i18n';
+import {saveBlob} from '../utils/download';
 import {sourceLabel} from './sourceIdentity';
 import {workbenchRequest as apiRequest,workbenchFetch} from './sourceRequest';
 import type {WorkspaceLaunch} from './PluginWorkspaceFrame';
@@ -7,7 +8,7 @@ import type {PlatformApproval} from './platformExtension';
 import {pickPlatformFile,savePlatformFile} from './platformFiles';
 import type {WorkspaceExtension} from './workspaceBridge';
 import {workspaceActions} from './workspaceActions';
-import {validateMessage} from './messageBounds';
+import {validateMessage} from '@hugagent/workbench-protocol/message-bounds';
 export interface FileReference {fileId:string;name:string;size:number;mimeType?:string}
 export interface HostPrompt {
  kind:'approval'|'file'|'save'|'compose'|'navigate'; detail:string;
@@ -102,8 +103,7 @@ export function createCapabilityHost(launch:WorkspaceLaunch,confirm:HostConfirm)
    const blob=await response.blob();if(signal.aborted)throw new Error('cancelled');
    await grant('file.save',signal);
    if(platform&&platform.adapter.runtimeCapabilities().platform!=='web')return platform.approve('file.save',name,()=>savePlatformFile(platform!.adapter,name,blob,async s=>{await grant('file.save',s);},signal),signal);
-   const url=URL.createObjectURL(blob),link=document.createElement('a');
-   link.href=url;link.download=name;link.rel='noopener';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+   saveBlob(blob,name);
    return {saved:true};
   },
   'chat.compose':async(params,signal)=>{

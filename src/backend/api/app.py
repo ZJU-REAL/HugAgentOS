@@ -1,8 +1,8 @@
 """FastAPI application for HugAgentOS.
 
-This module is the slim orchestrator: it creates the FastAPI instance,
-wires up middleware / error-handlers / routers, and defines lifecycle
-events.  Heavy logic lives in dedicated sub-modules:
+This module is the slim orchestrator: it creates the FastAPI instance and
+wires up middleware / error-handlers / routers; the lifespan (startup and
+shutdown steps) comes from api.lifecycle. Heavy logic lives in dedicated sub-modules:
 
 - api.middleware.cors          – CORS setup
 - api.middleware.logging       – HTTP logging & request-size limit
@@ -10,8 +10,6 @@ events.  Heavy logic lives in dedicated sub-modules:
 - api.health                   – /health, /ready, /live endpoints
 """
 
-import os
-import sys
 
 from orchestration.configuration import register_configuration
 register_configuration()
@@ -57,21 +55,6 @@ from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
-# Lifespan (replaces the deprecated @app.on_event handlers). Startup steps run
-# in the same order they were previously registered; the handler functions
-# themselves are defined further below and resolved by late binding at startup.
-# ---------------------------------------------------------------------------
-
-
-# Startup is one declarative table. ``gate`` steps must finish before uvicorn
-# opens the port (the health check promises a usable database and execution
-# plane); everything else runs afterwards, in the same relative order, without
-# holding the port. ``roles`` limits a step to the processes that own that
-# responsibility: the hybrid-desktop local backend is only a local execution
-# plane and never runs cloud-side workers.
-
-
-# ---------------------------------------------------------------------------
 # Create app
 # ---------------------------------------------------------------------------
 
@@ -89,26 +72,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# ---------------------------------------------------------------------------
-# Custom OpenAPI: inject the unified envelope into empty response schemas of all /v1/* endpoints
-# ---------------------------------------------------------------------------
-#
-# By project convention every /v1/* endpoint returns
-# { code, message, data, trace_id, timestamp } (see core/infra/responses.py).
-# But most routes declare no response_model, so in the FastAPI auto-generated
-# openapi.json those response schemas are empty `{}`.
-#
-# Here we post-process at OpenAPI generation time: when a /v1/* endpoint's 2xx
-# response has no explicit schema, replace it with a reference to the
-# `ApiResponseEnvelope` component. That way Swagger / ReDoc / the custom API
-# docs page all display the envelope structure without touching any existing route.
-#
-# The `data` field stays as an arbitrary type (varies per endpoint); if a
-# specific endpoint later needs to display concrete business fields, just
-# declare a response_model on that route — this hook only injects when the
-# schema is empty and never overrides an existing declaration.
-
-
+# Custom OpenAPI: inject the unified envelope into /v1/* response schemas (see api/openapi.py).
 app.openapi = _build_custom_openapi(app)  # type: ignore[assignment]
 
 
@@ -229,11 +193,6 @@ if settings.deploy.is_local:
     from api.local_hosting import mount_frontend_static
 
     mount_frontend_static(app)
-
-# ---------------------------------------------------------------------------
-# Lifecycle events
-# ---------------------------------------------------------------------------
-
 
 # ---------------------------------------------------------------------------
 # CLI entry point

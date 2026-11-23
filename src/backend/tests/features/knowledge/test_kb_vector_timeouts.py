@@ -31,7 +31,7 @@ def test_embed_text_uses_retrieval_timeout_and_caches_dimension(monkeypatch):
         'resolve_embed_config',
         lambda: ("http://embedding.test/v1", "embed-model", "secret"),
     )
-    monkeypatch.setattr(vector_embedding.requests, "post", _post)
+    monkeypatch.setattr(vector_embedding.http_session(), "post", _post)
     embedding_state.process_state().DETECTED_DIM_CACHE.clear()
 
     vector = vector_embedding.embed_text("query", timeout=4.5)

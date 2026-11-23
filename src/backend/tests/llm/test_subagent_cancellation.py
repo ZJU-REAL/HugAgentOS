@@ -133,7 +133,6 @@ async def test_cancel_during_log_creation_waits_then_finishes(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_direct_conversation_cancel_during_log_creation(monkeypatch):
-    pass
 
     started, release = asyncio.Event(), asyncio.Event()
 
@@ -163,7 +162,6 @@ async def test_direct_conversation_cancel_during_log_creation(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_public_workflow_close_waits_for_direct_child(monkeypatch):
-    pass
     stopped = asyncio.Event()
     async def direct(**kwargs):
         try:

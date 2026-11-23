@@ -32,7 +32,6 @@ def _patch_mem0_embedding() -> None:
     but mem0's OpenAIEmbedding.embed() hardcodes dimensions=...
     Patched only once.
     """
-    pass
     if process_state().embedding_patched:
         return
     try:
@@ -366,7 +365,6 @@ def _close_failed_memory(instance) -> None:
 
 def _get_memory() -> Optional[object]:
     """Thread-safe lazy initialization: cache the instance on success; on failure allow retry next time."""
-    pass
 
     if not settings.memory.enabled:
         return None
@@ -448,7 +446,6 @@ def _reset_memory() -> None:
 
     Used when the Milvus connection is broken (e.g. closed channel).
     """
-    pass
     with process_state().memory_lock:
         process_state().memory_instance = None
         process_state().memory_epoch = None

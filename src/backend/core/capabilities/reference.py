@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Dict
 from urllib.parse import urlsplit, urlunsplit
 
-from core.capabilities.identity_rules import KINDS, LOCAL_PROFILE, safe_segment
+from core.capabilities.identity_rules import KINDS, safe_segment
 
 LOCAL_ISSUER = "local"
 LOCAL_NAMESPACE = "device"
@@ -120,7 +120,3 @@ def profile_id(cloud_base: str, subject: str) -> str:
     # Wider v2 IDs cannot alias the old host-only 40-bit profiles. Old profile
     # bytes remain untouched and are never automatically merged or adopted.
     return f"p_{digest[:32]}"
-
-
-def is_local_profile(profile: str) -> bool:
-    return profile == LOCAL_PROFILE

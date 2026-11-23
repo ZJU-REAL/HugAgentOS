@@ -21,7 +21,6 @@ from tests.api.test_chat_stream_sequencer import _patch_common_chat_route, _rout
 )
 def test_worker_start_failure_releases_admission_for_http_retry(monkeypatch, tmp_path, route, body):
     from core.db import engine as db_engine
-    pass
 
     engine, Session = _route_database(tmp_path)
     Base.metadata.create_all(engine)

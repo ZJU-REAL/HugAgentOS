@@ -8,7 +8,7 @@ import { CopyButton } from '../common/CopyButton';
 import { useApiKeys } from './useApiKeys';
 import { t } from '../../i18n';
 
-export interface ApiKeyActions {
+interface ApiKeyActions {
   list: (id: string, signal?: AbortSignal) => Promise<ApiKeyItem[]>;
   create: (id: string, name: string, expiry: number | null, signal?: AbortSignal) => Promise<ApiKeyItem>;
   toggle: (id: string, keyId: string, enabled: boolean, signal?: AbortSignal) => Promise<ApiKeyItem>;

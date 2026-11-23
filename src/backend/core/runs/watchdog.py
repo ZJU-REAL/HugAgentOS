@@ -17,7 +17,7 @@ import core.runs.ownership as ownership
 import core.runs.settings as settings
 import core.runs.tasks as tasks
 from core.infra.logging import get_logger
-from core.db.threads import run_in_session
+from core.db.threads import run_db, run_in_session
 
 logger = get_logger(__name__)
 
@@ -257,7 +257,7 @@ async def reap_stale_runs() -> int:
         # 豁免只在本进程有效——多 worker / 多副本部署里，另一个进程看不到这个 task，
         # 照样会把健康的长作业杀掉。所以这里用**跨进程可见的证据**：DB 里这个会话是否
         # 还有正在推进的作业（每次子调用都会 add_usage → jobs.updated_at 前进）。
-        if _chat_has_live_job(cid, now):
+        if await run_db(_chat_has_live_job, cid, now):
             logger.info("chat_run_stale_skip_live_job", run_id=rid, chat_id=cid)
             continue
 
@@ -285,7 +285,8 @@ async def reap_stale_runs() -> int:
         else:
             reason = "run exceeded hard max age (stale watchdog)"
 
-        if not ownership._request_run_stop(
+        if not await run_db(
+            ownership._request_run_stop,
             rid,
             status="failed",
             error_message=reason,
@@ -314,7 +315,7 @@ async def reap_stale_runs() -> int:
             except Exception as exc:
                 logger.warning("stale_reaper_await_failed", run_id=rid, error=str(exc))
             if task.done():
-                ownership._acknowledge_terminal_writer(rid)
+                await run_db(ownership._acknowledge_terminal_writer, rid)
         reaped += 1
 
     if reaped:

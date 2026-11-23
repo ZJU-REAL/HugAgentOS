@@ -17,6 +17,7 @@ console's user, team, and role management panels:
 | ``can_add_agent``   | bool | ``False``      | Build or import own sub-agents, submit them to the sub-agent marketplace |
 | ``can_install_market_agent`` | bool | ``False`` | Install sub-agents from the sub-agent marketplace |
 | ``can_switch_model`` | bool | ``False``     | User-side chat model switching                 |
+| ``can_use_evaluation`` | bool | ``False``   | Task evaluation card, reminder and history marks |
 | ``can_use_personal_agent`` | bool | ``False`` | EE account permission for the shared Personal Agent module |
 | ``allowed_apps``    | list/None | ``None``  | App visibility whitelist (``None`` = all enabled apps) |
 
@@ -99,6 +100,8 @@ BOOL_CAPABILITY_DEFAULTS: Dict[str, bool] = {
     "can_create_channel_bot": False,
     "can_switch_model": False,
     "can_use_voice": False,  # Dictation is opt-in, including for administrators.
+    # 会话评价：评价卡片（采纳 / 需修改 / 不满意）、「温馨提醒」浮窗与历史对话待评价标记。
+    "can_use_evaluation": False,
     "can_run_autonomous_loop": True,  # long-running autonomous loop (open in CE, enabled by default, can be disabled per user/team)
     # 自定义对话模式：授予后「设置 → 模式选择」出现，可自建仅本人可见的模式
     "can_manage_chat_modes": False,
@@ -261,6 +264,12 @@ def resolve_user_capabilities(db: Session, user_id: str) -> Dict[str, Any]:
     chain is "personal → role → team → system" (both role and team degrade
     defensively to ``{}``).
     """
+    return _resolve_user_meta_and_capabilities(db, user_id)[1]
+
+
+def _resolve_user_meta_and_capabilities(
+    db: Session, user_id: str
+) -> tuple[Dict[str, Any], Dict[str, Any]]:
     from core.auth.edition import default_capability_layers_for_user
     from core.db.models import UserShadow
 
@@ -269,4 +278,23 @@ def resolve_user_capabilities(db: Session, user_id: str) -> Dict[str, Any]:
     caps = resolve_capabilities(meta, *default_capability_layers_for_user(db, user_id))
     if settings.edition.edition == "ce":
         caps["can_create_public_kb"] = False
-    return caps
+    return meta, caps
+
+
+def account_capability_payload(db: Session, user_id: str) -> Dict[str, Any]:
+    """Effective permission fields for the current account, as serialized to clients.
+
+    Same field set as ``GET /v1/auth/session/check``: ``allowed_apps``, every
+    boolean flag, ``can_use_personal_agent`` (module switch + permission) and the
+    two page-admin flags (implied by ``super_admin``). Used by ``GET /v1/me`` so
+    API-key callers, which have no session cookie, can read their permissions.
+    """
+    from personal_agent import access as personal_agent_access
+
+    meta, caps = _resolve_user_meta_and_capabilities(db, user_id)
+    return {
+        "allowed_apps": caps.get("allowed_apps"),
+        **{k: bool(caps.get(k)) for k in BOOL_CAPABILITY_DEFAULTS if k not in PAGE_ADMIN_FLAGS},
+        "can_use_personal_agent": personal_agent_access.visible(meta, caps),
+        **page_admin_flags(meta, caps),
+    }

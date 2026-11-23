@@ -3,7 +3,7 @@ from core.harness.events import thaw_value
 from core.llm.context.items import ContextItem
 from core.llm.context.ir_constants import POLICY_HEAD_TAIL
 from core.llm.context.rendering import append_state_context_item, next_context_sequence
-from core.llm.runtime.turn_state import reset_artifact_read_state, reset_pin_hint_state
+from core.llm.runtime.turn_state import reset_artifact_read_state
 
 
 def attachment_input(agent):
@@ -16,7 +16,6 @@ def attachment_input(agent):
 
 def begin_context_turn():
     reset_artifact_read_state()
-    reset_pin_hint_state()
 
 
 def append_hook_context(agent, invocation):

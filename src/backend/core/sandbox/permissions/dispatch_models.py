@@ -1,12 +1,12 @@
 """Permission declarations, execution tickets and final effect guards."""
 
 from __future__ import annotations
-import hashlib
 import json
 import os
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Callable, Mapping, Optional, Sequence
+from core.infra.hashing import stable_json_hash as _json_hash
 from core.sandbox.permissions.approval import APPROVAL_ASK, APPROVAL_FULL
 from core.sandbox.permissions.authority import ApprovalAuthority
 
@@ -23,17 +23,6 @@ DOMAIN_DENY = "deny"
 READ = "read"
 WRITE = "write"
 EXECUTE = "execute"
-
-
-def _json_hash(value: Any) -> str:
-    encoded = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
 
 
 def _call_args(tool_call: Any) -> dict[str, Any]:

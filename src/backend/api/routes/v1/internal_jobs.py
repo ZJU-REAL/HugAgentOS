@@ -17,32 +17,47 @@ import json
 import logging
 import re
 import time
-from typing import Any, Dict, List, Optional, Union
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator, Dict, Optional
 
 from core.db.engine import SessionLocal
+from core.db.threads import run_db, run_in_session
 from core.infra.responses import success_response
 from core.jobs.store import JobService
 from fastapi import APIRouter, Header, HTTPException
 
 from .job_callback_session import callback_session
-from core.db.threads import run_in_session
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/internal/jobs", tags=["internal-jobs"])
 
 # 每个 job 的在途子作业闸门（进程内）：脚本可能一次打出 concurrency 个并发回调，
-# 这里按 job 预算收口，全局闸再防单会话吃光后端。
+# 这里按 job 预算收口，全局闸再防单会话吃光后端。闸门按在途（持有或排队）回调计数，
+# 最后一个回调离开时移除，所以表里只有正在跑的 job；再来的回调会建一个满额新闸。
 _job_gates: Dict[str, asyncio.Semaphore] = {}
+_job_gate_users: Dict[str, int] = {}
 _GLOBAL_GATE = asyncio.Semaphore(24)
 
 
-def _gate(job_id: str, concurrency: int) -> asyncio.Semaphore:
+@asynccontextmanager
+async def _gate(job_id: str, concurrency: int) -> AsyncIterator[None]:
     gate = _job_gates.get(job_id)
     if gate is None:
         gate = asyncio.Semaphore(max(1, min(int(concurrency or 8), 16)))
         _job_gates[job_id] = gate
-    return gate
+    _job_gate_users[job_id] = _job_gate_users.get(job_id, 0) + 1
+    try:
+        async with gate:
+            yield
+    finally:
+        remaining = _job_gate_users.get(job_id, 1) - 1
+        if remaining <= 0:
+            _job_gate_users.pop(job_id, None)
+            if _job_gates.get(job_id) is gate:
+                _job_gates.pop(job_id, None)
+        else:
+            _job_gate_users[job_id] = remaining
 
 
 # ── 请求体 ────────────────────────────────────────────────────────────
@@ -135,10 +150,11 @@ async def job_agent(
     body: AgentBody,
     x_job_token: Optional[str] = Header(None, alias="X-Job-Token"),
 ):
-    ctx = _auth(job_id, x_job_token)
+    ctx = await run_db(_auth, job_id, x_job_token)
     if not isinstance(ctx.get("parent_runtime"), dict):
         raise HTTPException(409, "作业缺少主智能体运行配置，请重新提交工作流")
 
+    # run_with_job_fence 在工作线程里调用它（asyncio.to_thread），可以直接同步访问 DB。
     def validate_execution():
         _auth(job_id, x_job_token)
         with SessionLocal() as db:
@@ -147,8 +163,8 @@ async def job_agent(
             raise HTTPException(429, "作业执行预算已用尽")
 
     def _budget_left(db):
-        left = JobService(db).budget_left(job_id)
-        return left
+        return JobService(db).budget_left(job_id)
+
     left = await run_in_session(_budget_left)
     if left["calls_left"] <= 0:
         raise HTTPException(status_code=429, detail="作业子调用预算已用尽")
@@ -176,19 +192,21 @@ async def job_agent(
     # ——历史事故正是如此：568 项全程 pending、调用真在跑、成果全丢，外面看不出任何异常。
     # 所以只要带了 item_key，服务端先把该项标成 running 并累加 attempts；脚本随后的回写会
     # 覆盖它（顺序天然如此），进度条与中途唤醒因此永远有真实分母。
+    def _pre_mark():
+        with callback_session(job_id, x_job_token) as svc:
+            svc.update_item(job_id, body.item_key, status="running", bump_attempts=True)
+
     if body.item_key:
         try:
-            with callback_session(job_id, x_job_token) as svc:
-                svc.update_item(job_id, body.item_key, status="running", bump_attempts=True)
+            await run_db(_pre_mark)
         except HTTPException:
             raise
         except Exception:  # noqa: BLE001 —— 落账失败绝不能挡住真正的作业
             logger.warning("[job-agent] job=%s pre-mark failed key=%s", job_id, body.item_key)
 
-    gate = _gate(job_id, left.get("concurrency", 8))
     infra_failed = False
-    async with _GLOBAL_GATE, gate:
-        _auth(job_id, x_job_token)
+    async with _GLOBAL_GATE, _gate(job_id, left.get("concurrency", 8)):
+        await run_db(_auth, job_id, x_job_token)
         try:
             from core.runs.journal import durable_run_binding
 
@@ -259,31 +277,35 @@ async def job_agent(
         if ok
         else ("工具不可用/配额/超时，本项未取得证据" if infra_failed else "结构化输出解析失败")
     )
-    with callback_session(job_id, x_job_token) as svc:
-        svc.add_usage(job_id, calls=1)
-        svc.record_call(
-            job_id,
-            item_key=body.item_key,
-            prompt=prompt,
-            model=body.model or ctx["model_name"],
-            duration_ms=duration_ms,
-            status="success" if ok else "failed",
-            error=reason,
-        )
-        # 结账：脚本的回写在这之后发生、会覆盖这里的判断——这只是脚本没回写时的兜底真相
-        if body.item_key:
-            try:
-                if ok:
-                    svc.update_item(
-                        job_id,
-                        body.item_key,
-                        status="done",
-                        result=result if isinstance(result, dict) else {"text": result},
-                    )
-                else:
-                    svc.update_item(job_id, body.item_key, status="failed", error=reason)
-            except Exception:  # noqa: BLE001
-                logger.warning("[job-agent] job=%s post-mark failed key=%s", job_id, body.item_key)
+
+    def _settle():
+        with callback_session(job_id, x_job_token) as svc:
+            svc.add_usage(job_id, calls=1)
+            svc.record_call(
+                job_id,
+                item_key=body.item_key,
+                prompt=prompt,
+                model=body.model or ctx["model_name"],
+                duration_ms=duration_ms,
+                status="success" if ok else "failed",
+                error=reason,
+            )
+            # 结账：脚本的回写在这之后发生、会覆盖这里的判断——这只是脚本没回写时的兜底真相
+            if body.item_key:
+                try:
+                    if ok:
+                        svc.update_item(
+                            job_id,
+                            body.item_key,
+                            status="done",
+                            result=result if isinstance(result, dict) else {"text": result},
+                        )
+                    else:
+                        svc.update_item(job_id, body.item_key, status="failed", error=reason)
+                except Exception:  # noqa: BLE001
+                    logger.warning("[job-agent] job=%s post-mark failed key=%s", job_id, body.item_key)
+
+    await run_db(_settle)
     if not ok:
         if infra_failed:
             # A full agent may have already changed external state before failing.

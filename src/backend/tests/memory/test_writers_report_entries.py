@@ -12,18 +12,12 @@ import pytest
 from core.memory.context import MemoryContext
 from core.memory.extractors import writers as W
 from core.memory.extractors.router import ExtractorType
+from tests.memory.memory_writer_support import _breaker_closed  # noqa: F401 (autouse fixture)
 
 
 @pytest.fixture
 def ctx():
     return MemoryContext(user_id="u1", workspace_id="default", write_enabled=True, message_id="m1")
-
-
-@pytest.fixture(autouse=True)
-def _breaker_closed(monkeypatch):
-    monkeypatch.setattr(W.milvus_breaker, "is_open", lambda: False)
-    monkeypatch.setattr(W.milvus_breaker, "record_success", lambda: None)
-    monkeypatch.setattr(W.milvus_breaker, "record_failure", lambda: None)
 
 
 @pytest.fixture(autouse=True)

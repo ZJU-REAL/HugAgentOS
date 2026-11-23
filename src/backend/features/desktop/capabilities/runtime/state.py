@@ -15,6 +15,7 @@ import copy
 import hashlib
 import json
 import threading
+from collections import OrderedDict
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -208,7 +209,11 @@ def rebuild(run: PreparedRun) -> Path:
     if unavailable != run.unavailable:
         run = save(replace(run, unavailable=unavailable))
     with _view_build_lock:
-        _view_built[(run.run_id, run.scope_id)] = fingerprint
+        key = (run.run_id, run.scope_id)
+        _view_built[key] = fingerprint
+        _view_built.move_to_end(key)
+        while len(_view_built) > _VIEW_BUILT_MAX:
+            _view_built.popitem(last=False)
     return run.view_dir
 
 
@@ -247,7 +252,9 @@ _view_build_lock = threading.Lock()
 # junction view on disk is already correct; rebuilding it (deep validate + all
 # junctions) on every agent assembly was pure per-session waste. A capability
 # change re-resolves to new revisions → new fingerprint → rebuild.
-_view_built: dict[tuple[str, str], tuple] = {}
+# Bounded LRU: an evicted entry only costs one extra rebuild.
+_VIEW_BUILT_MAX = 256
+_view_built: "OrderedDict[tuple[str, str], tuple]" = OrderedDict()
 
 
 def _view_fingerprint(run: PreparedRun) -> tuple:

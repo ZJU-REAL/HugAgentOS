@@ -1,12 +1,13 @@
 from tests.test_personal_agent_routing import sessions, AgentContext, admit
 from tests.test_personal_agent import personal_agent_on
+from tests.db_support import share_factory
 
 
 def test_the_turn_prefix_stays_cacheable(sessions, monkeypatch):
     """The system prompt is identical across turns; the per-turn context follows the current message."""
     from core.db import engine as db_engine
     from personal_agent.conversation.router import context as front
-    monkeypatch.setattr(db_engine, "SessionLocal", sessions)
+    share_factory(monkeypatch, sessions)
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
     with sessions() as db:
         svc = AgentContext(db, "owner")

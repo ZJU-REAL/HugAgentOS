@@ -443,18 +443,24 @@ def test_capability_logo_tool_ownership(tmp_path, db_session):
     assert server.server_id not in {p["id"] for p in others}
 
 
-def test_database_connector_inherits_child_tool_names(db_session, monkeypatch):
+def test_datasource_connector_is_an_ordinary_catalog_item(db_session):
+    """Each data source is its own ``db_<id>`` connector with its own name and tools."""
     from core.capabilities.catalog import runtime as runtime
 
-    monkeypatch.setattr(runtime, "_database_query_capability_available", lambda: True)
     row = AdminMcpServer(
-        server_id="query_database",
-        display_name="Database",
+        server_id="db_ds1",
+        display_name="数据库：销售库",
         transport="streamable_http",
-        tools_json=[{"name": "query_sql"}],
+        icon="/home/mcp/database.svg",
+        tools_json=[{"name": "ds1__execute_sql"}, {"name": "ds1__list_tables"}],
+        extra_config={"datasource_id": "ds1", "managed_by": "datasources", "ds_type": "mysql"},
+        is_enabled=True,
     )
     db_session.add(row)
     db_session.flush()
     items = runtime._public_db_mcp_items(db_session, include_runtime_details=False)
-    assert next(item for item in items if item["id"] == "database_query")["tools"] == ["query_sql"]
-    assert not any(item["id"] == "query_database" for item in items)
+    item = next(item for item in items if item["id"] == "db_ds1")
+    assert item["name"] == "数据库：销售库"
+    assert item["icon"] == "/home/mcp/database.svg"
+    assert item["tools"] == ["ds1__execute_sql", "ds1__list_tables"]
+    assert item["enabled"] is True

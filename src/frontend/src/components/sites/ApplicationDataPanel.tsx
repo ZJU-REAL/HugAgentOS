@@ -6,6 +6,7 @@ import { t } from '../../i18n';
 import { MCPManagementPanel } from './MCPManagementPanel';
 import { applicationRequest, type Target, type RecordRow } from './applicationApi';
 import { useApplicationData } from './useApplicationData';
+import { saveBlob } from '../../utils/download';
 
 function errorMessage(error: unknown) {
   message.error(error instanceof Error ? error.message : t('操作失败'));
@@ -81,23 +82,20 @@ export function ApplicationDataPanel({ siteId, applicationId, target = 'cloud', 
       const response = await authFetch(`${getApiUrl()}/v1/applications/${appId}/tables/${tableName}/export`,
         { headers: target === 'local' ? { [LOCAL_TARGET_HEADER]: 'local' } : {} });
       if (!response.ok) throw new Error(t('导出失败'));
-      const url = URL.createObjectURL(await response.blob());
-      const link = document.createElement('a');
-      link.href = url; link.download = `${tableName}.csv`; link.click();
-      URL.revokeObjectURL(url);
+      saveBlob(await response.blob(), `${tableName}.csv`);
     } catch (error) { errorMessage(error); }
   };
 
-  if (error && !apps.length) return <Alert type="error" message={error}
+  if (error && !apps.length) return <Alert type="error" title={error}
     action={<Button onClick={() => void reload()}>{t('重试')}</Button>} />;
   if (loading && !apps.length) return <Spin aria-label={t('加载中')} />;
-  if (!available) return <Alert type="info" message={t('数据库与 MCP 托管尚未启用')} />;
+  if (!available) return <Alert type="info" title={t('数据库与 MCP 托管尚未启用')} />;
   if (!apps.length) {
     return <Empty description={siteId ? t('该站点没有数据库；静态网页无需创建数据库') : t('暂无应用数据库或 MCP 服务')} />;
   }
 
   return <Space orientation="vertical" style={{ width: '100%' }}>
-    {error && <Alert type="error" message={error} />}
+    {error && <Alert type="error" title={error} />}
     {!applicationId && <Select aria-label={t('选择应用')} value={appId} disabled={busy || mcpBusy} onChange={setAppId} style={{ width: '100%' }}
       options={apps.map((app) => ({ value: app.id, label: app.title }))} />}
     <Tabs defaultActiveKey={initialTab} items={[
@@ -113,7 +111,7 @@ export function ApplicationDataPanel({ siteId, applicationId, target = 'cloud', 
           <Button onClick={() => void reload().catch(errorMessage)}>{t('刷新')}</Button>
         </Space>
         {table && <>
-          {table.public_replace && <Alert type="warning" message={t('匿名访客可以清空或替换全部记录。历史仅保留最近20个版本，限流不能防止首次清空。')} />}
+          {table.public_replace && <Alert type="warning" title={t('匿名访客可以清空或替换全部记录。历史仅保留最近20个版本，限流不能防止首次清空。')} />}
           <Tag color={table.public_insert ? 'blue' : 'default'}>{table.public_insert ? t('访客可提交，管理员可查看') : t('仅管理员访问')}</Tag>
           <Table size="small" rowKey="name" pagination={false} dataSource={table.columns}
             columns={[
@@ -134,7 +132,7 @@ export function ApplicationDataPanel({ siteId, applicationId, target = 'cloud', 
         onBusyChange={(value) => { setMcpBusy(value); onBusyChange?.(value); }} onChanged={async () => { await reload(); onChanged?.(); }} /> },
     ]} />
     <Modal title={editor === 'table' ? t('定义数据表') : t('导入记录')}
-      open={!!editor} closable={!busy} maskClosable={!busy} cancelButtonProps={{ disabled: busy }} onCancel={() => setEditor(null)} onOk={() => void save()} confirmLoading={busy} width={680}>
+      open={!!editor} closable={!busy} mask={{ closable: !busy }} cancelButtonProps={{ disabled: busy }} onCancel={() => setEditor(null)} onOk={() => void save()} confirmLoading={busy} width={680}>
       <Input.TextArea aria-label={t('JSON 定义')} value={json} onChange={(event) => setJson(event.target.value)} rows={16} />
     </Modal>
   </Space>;

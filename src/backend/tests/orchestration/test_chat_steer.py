@@ -21,25 +21,19 @@ import fakeredis.aioredis
 import pytest
 from agentscope.message import ToolResultState
 from agentscope.tool._response import ToolChunk
-from core.db.engine import Base
 from core.db.models import ChatMessage, ChatRun, ChatSession, ChatSteerQueueItem
 from core.chat.steer_hook import SteeringHook
 from core.chat import steer as chat_steer_service
 from core.chat.service import ChatService
 from core.runs.journal import RunJournal, RunLeaseLost
 from core.chat.steer_queue import SteerQueue
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from tests.db_support import file_engine, session_factory, share_factory
 
 
 @pytest.fixture()
 def durable_steer_env(tmp_path, monkeypatch):
-    engine = create_engine(
-        f"sqlite:///{tmp_path / 'chat-steer.sqlite'}",
-        connect_args={"check_same_thread": False},
-    )
-    Base.metadata.create_all(engine)
-    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+    engine = file_engine(tmp_path / 'chat-steer.sqlite')
+    sessions = session_factory(engine)
     with sessions() as db:
         db.add(ChatSession(chat_id="chat-1", user_id="user-1", title="test"))
         db.commit()
@@ -289,7 +283,7 @@ async def test_executor_persists_steer_at_the_stream_boundary(monkeypatch):
     async def fake_xadd(_run_id, _offset, event):
         emitted.append(dict(event))
 
-    monkeypatch.setattr(db_engine, "SessionLocal", lambda: FakeSession())
+    share_factory(monkeypatch, lambda: FakeSession())
     monkeypatch.setattr(runtime, "get_run", lambda _run_id: SimpleNamespace(request_payload={}, status="running"))
     monkeypatch.setattr(services_ChatService_module, "ChatService", FakeChatService)
     monkeypatch.setattr(handoff, "_persisted_history", lambda *_args: [])
@@ -373,7 +367,7 @@ async def test_executor_atomically_applies_claimed_queue_item(durable_steer_env,
     async def no_event_write(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(db_engine, "SessionLocal", sessions)
+    share_factory(monkeypatch, sessions)
     monkeypatch.setattr(runner, "astream_chat_workflow", fake_workflow)
     monkeypatch.setattr(writer, 'xadd_event', no_event_write)
     monkeypatch.setattr(writer, 'expire_stream', no_event_write)
@@ -442,7 +436,7 @@ async def test_crash_after_steer_ack_safe_stops_with_exact_post_steer_context(
     async def no_event_write(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(db_engine, "SessionLocal", sessions)
+    share_factory(monkeypatch, sessions)
     monkeypatch.setattr(runner, "astream_chat_workflow", crashing_workflow)
     monkeypatch.setattr(writer, 'xadd_event', no_event_write)
     monkeypatch.setattr(writer, 'expire_stream', no_event_write)

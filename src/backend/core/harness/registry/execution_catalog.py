@@ -12,7 +12,6 @@ class ExecutionCatalog(Protocol):
 
 
 def register_execution_catalog(provider: ExecutionCatalog | None) -> None:
-    pass
     registration_state().provider = provider
 
 def bridge_context():

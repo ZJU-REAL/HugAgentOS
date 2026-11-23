@@ -348,9 +348,8 @@ def test_ce_mcp_market_risk_migration_preserves_existing_notices(tmp_path):
 
 
 def test_ce_startup_seams_and_compose_defaults_are_ce_safe():
-    from orchestration.workers.edition_startup import bootstrap_edition_plugins, create_distillation_scheduler, recover_datasource_sidecars, recover_persona_distill_jobs
+    from orchestration.workers.edition_startup import bootstrap_edition_plugins, create_distillation_scheduler, recover_persona_distill_jobs
 
-    assert asyncio.run(recover_datasource_sidecars()) == {}
     assert bootstrap_edition_plugins(None) == ()
     assert create_distillation_scheduler() is None
     assert recover_persona_distill_jobs() == 0

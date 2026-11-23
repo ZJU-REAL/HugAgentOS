@@ -20,14 +20,10 @@ async def test_exports_with_same_requested_name_create_distinct_current_files(se
     storage = Storage()
     import core.files.storage
     monkeypatch.setattr(core.files.storage, "get_storage", lambda: storage)
-    monkeypatch.setattr(tools, "SessionLocal", sessions)
-    monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
-    from personal_agent.tools import space
     from personal_agent.tools import email
     from personal_agent.tasks.execution import current_execution
     current_execution.set(None)
-    monkeypatch.setattr(space, "SessionLocal", sessions)
-    monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
+    monkeypatch.setattr(tools, "SessionLocal", sessions)
     monkeypatch.setattr(email, "SessionLocal", sessions)
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
     class Provider:
@@ -49,7 +45,6 @@ async def test_exports_with_same_requested_name_create_distinct_current_files(se
     tools.register_personal_tools(kit,SimpleNamespace(profile_ref=task["id"],current_user_id="owner"))
     from personal_agent.delivery import delivery
     monkeypatch.setattr(delivery, "SessionLocal", sessions)
-    monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
     first=json.loads((await kit.functions["pa_deliver"](request_key="first", path="/workspace/work/output.txt", filename="output.txt")).content[0].text)
     provider.content=b"current-second"
     second=json.loads((await kit.functions["pa_deliver"](request_key="second", path="/workspace/work/output.txt", filename="output.txt")).content[0].text)
@@ -100,11 +95,10 @@ async def test_edit_file_replaces_one_exact_entry_after_read(sessions, monkeypat
     from personal_agent.models import PersonalWorkItem
     from personal_agent.tasks.execution import current_execution
     current_execution.set(None)
-    from personal_agent.tools import space
     from personal_agent.tools import email
-    for module in (tools, space, email):
+    for module in (tools, email):
         monkeypatch.setattr(module, "SessionLocal", sessions)
-        monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
+    monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
     class Provider:
         files = {"/workspace/USER.md": "- 优先简洁\n- 总是中文\n- 总是中文\n".encode()}
         async def get_file(self, box, path, user_id=None): return self.files[path]
@@ -130,21 +124,27 @@ async def test_edit_file_replaces_one_exact_entry_after_read(sessions, monkeypat
     root = _pa_files.local_workspace(agent_id)
     root.mkdir(parents=True)
     (root / "USER.md").write_bytes(provider.files["/workspace/USER.md"])
+    (root / "HEARTBEAT.md").write_bytes(provider.files["/workspace/USER.md"])
     edit = kit.functions["pa_edit_file"]
     with pytest.raises(ValueError, match="Read the file"):
-        await edit("/workspace/USER.md", "优先简洁", "优先详细")
-    await kit.functions["pa_read_file"]("/workspace/USER.md")
+        await edit("/workspace/HEARTBEAT.md", "优先简洁", "优先详细")
+    await kit.functions["pa_read_file"]("/workspace/HEARTBEAT.md")
     with pytest.raises(ValueError, match="occurs 2 times"):
-        await edit("/workspace/USER.md", "总是中文", "总是英文")
+        await edit("/workspace/HEARTBEAT.md", "总是中文", "总是英文")
     with pytest.raises(ValueError, match="not found"):
-        await edit("/workspace/USER.md", "不存在", "x")
+        await edit("/workspace/HEARTBEAT.md", "不存在", "x")
     with pytest.raises(ValueError, match="inside /workspace"):
         await edit("/etc/passwd", "a", "b")
-    result = json.loads((await edit("/workspace/USER.md", "优先简洁", "优先详细")).content[0].text)
+    result = json.loads((await edit("/workspace/HEARTBEAT.md", "优先简洁", "优先详细")).content[0].text)
     assert result["replacements"] == 1
-    result = json.loads((await edit("/workspace/USER.md", "总是中文", "总是英文", True)).content[0].text)
+    result = json.loads((await edit("/workspace/HEARTBEAT.md", "总是中文", "总是英文", True)).content[0].text)
     assert result["replacements"] == 2
-    assert (root / "USER.md").read_text() == "- 优先详细\n- 总是英文\n- 总是英文\n"
+    assert (root / "HEARTBEAT.md").read_text() == "- 优先详细\n- 总是英文\n- 总是英文\n"
+    # USER.md holds the owner's own words: a background task may read it but never edit it.
+    await kit.functions["pa_read_file"]("/workspace/USER.md")
+    with pytest.raises(PermissionError, match="USER.md"):
+        await edit("/workspace/USER.md", "优先简洁", "优先详细")
+    assert (root / "USER.md").read_bytes() == provider.files["/workspace/USER.md"]
 
 
 def test_default_name_is_hugo_and_renames_reach_title_and_identity(sessions, tmp_path, monkeypatch):
@@ -187,7 +187,7 @@ def test_unnamed_agent_upgrade_keeps_a_self_chosen_name(sessions, tmp_path, monk
         config = svc.identity.ensure()["config"]
         # Capabilities are derived, not chosen: an emptied tool list comes back.
         assert config["name"] == expected and config["mcp_ids"] == ["internet_search", "web_fetch"]
-        assert config["space_enabled"] and config["email_enabled"]
+        assert config["email_enabled"] and "space_enabled" not in config
         assert db.get(ChatSession, view["chat_id"]).title == expected
         assert "- **名字：** " + expected in (tmp_path / view["id"] / "workspace" / "IDENTITY.md").read_text()
 
@@ -195,7 +195,7 @@ def test_unnamed_agent_upgrade_keeps_a_self_chosen_name(sessions, tmp_path, monk
 def test_capabilities_follow_what_the_user_may_use(sessions, monkeypatch):
     from personal_agent import context as module
     from personal_agent.identity import config as identity_config
-    permitted = {"skills": ["officecli-docx", "officecli-xlsx", "some-other-skill"], "mcps": ["internet_search", "web_fetch", "database_query"]}
+    permitted = {"skills": ["officecli-docx", "officecli-xlsx", "some-other-skill"], "mcps": ["internet_search", "web_fetch", "db_ds1"]}
     monkeypatch.setattr('core.capabilities.catalog.resolver.resolve_all_runtime_enabled',
                         lambda db, uid: (permitted["skills"], [], permitted["mcps"]))
     with sessions() as db:

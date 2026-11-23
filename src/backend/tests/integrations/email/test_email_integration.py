@@ -12,11 +12,8 @@ from tests.sandbox.provider_test_support import patch_open_settings
 import base64
 
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from core.db.engine import Base
 import core.db.models  # noqa: F401  ensures all models are registered (FK depends on users_shadow)
 from core.db.models import UserShadow
 from integrations.email.models import EmailConnection
@@ -24,14 +21,12 @@ from integrations.email.repository import EmailConnectionRepository
 from integrations.email import service as es
 from integrations.email.service import EmailService, detect_provider, render_config_toml, get_email_config_bundle
 from tests.db_support import share_factory
+from tests.db_support import memory_engine
 
 
 @pytest.fixture
 def db(monkeypatch):
-    eng = create_engine(
-        "sqlite:///:memory:", poolclass=StaticPool, connect_args={"check_same_thread": False}
-    )
-    Base.metadata.create_all(eng)
+    eng = memory_engine()
     # The service's repository opens its own sessions, one per step, on this database.
     share_factory(monkeypatch, sessionmaker(bind=eng))
     s = sessionmaker(bind=eng)()
@@ -317,10 +312,7 @@ def test_email_routes_e2e(monkeypatch, tmp_path):
     # TestClient runs requests on other threads it still sees the same in-memory DB
     # with the tables created (plain :memory: gives each thread its own empty
     # connection → no such table).
-    eng = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool,
-    )
-    Base.metadata.create_all(eng)
+    eng = memory_engine()
     Session = sessionmaker(bind=eng)
     seed = Session()
     seed.add(UserShadow(user_id="u1", username="alice"))

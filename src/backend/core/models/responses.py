@@ -287,10 +287,6 @@ class OpenAICompatResponsesModel(
             if reasoning_effort_is_wire
             else native_reasoning_effort(reasoning_effort)
         )
-        self._context_rewrite_listener = None
-
-    def set_context_rewrite_listener(self, listener) -> None:  # noqa: ANN001
-        self._context_rewrite_listener = listener
 
     def _build_client(self):  # noqa: ANN202
         import openai
@@ -385,34 +381,6 @@ class OpenAICompatResponsesModel(
                 request_started=usage_started,
             )
         return self._parse_completion_response(start_datetime, response)
-
-    async def _publish_context_rewrite(
-        self,
-        messages: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        """Observe and optionally canonicalize a provider-level retry request.
-
-        Mirrors ``OpenAICompatChatModel``: the orchestration layer installs a listener
-        on every request but only a retry consumes it, so the normal path never pays
-        for a context re-assembly.
-        """
-        import inspect
-
-        from core.models.constants import PROVIDER_CONTEXT_META_KEY
-
-        listener = self._context_rewrite_listener
-        if listener is not None:
-            rendered = listener(messages)
-            if inspect.isawaitable(rendered):
-                rendered = await rendered
-            if rendered is not None:
-                messages = list(rendered)
-        cleaned = []
-        for message in messages:
-            row = dict(message)
-            row.pop(PROVIDER_CONTEXT_META_KEY, None)
-            cleaned.append(row)
-        return cleaned
 
     async def _parse_stream_response(  # type: ignore[override]
         self,

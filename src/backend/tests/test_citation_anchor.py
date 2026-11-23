@@ -95,13 +95,13 @@ def test_search_company_snippet_join():
 
 def test_whole_mode_spec():
     alloc = _alloc()
-    payload = {"result": "✅ 查询成功\n\n[{\"a\": 1}]"}
+    payload = {"result": "产业链分析：上游原材料、中游制造、下游应用"}
     new_text, items = annotate_tool_result(
-        "query_database", "t4", json.dumps(payload, ensure_ascii=False), alloc
+        "get_chain_information", "t4", json.dumps(payload, ensure_ascii=False), alloc
     )
     assert len(items) == 1
     assert items[0].id == "e1"
-    assert items[0].title == "数据库查询结果"
+    assert items[0].title == "产业链分析报告"
     assert items[0].item_index == -1
     assert json.loads(new_text)["cite_id"] == "e1"
 
@@ -206,7 +206,7 @@ def test_empty_list_result_not_annotated():
 
 def test_annotate_never_raises_on_garbage():
     alloc = _alloc()
-    new_text, items = annotate_tool_result("query_database", "t14", "", alloc)
+    new_text, items = annotate_tool_result("web_fetch", "t14", "", alloc)
     assert new_text == "" and items == []
 
 

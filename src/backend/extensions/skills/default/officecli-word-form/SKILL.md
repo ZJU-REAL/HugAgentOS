@@ -160,7 +160,7 @@ officecli raw-set "$FILE" /document \
 
 ```bash
 # One-time in Word: Developer tab → Insert Content Control → Save as template.docx
-cp templates/onboarding_with_signature.docx "$FILE"
+cp "<your-template>.docx" "$FILE"   # the template you saved from Word — none ships with this skill
 officecli open "$FILE"
 officecli view "$FILE" forms                 # inspect embedded controls + paths
 officecli set "$FILE" '/body/sdt[@sdtId=3]' --prop text="Jane Smith"
@@ -303,7 +303,7 @@ For fields CLI cannot express (signature `picture` SDT, real SDT checkbox, `plac
 **Fill via CLI:**
 
 ```bash
-cp templates/onboarding_with_signature.docx "$FILE"
+cp "<your-template>.docx" "$FILE"   # the template you saved from Word — none ships with this skill
 officecli open "$FILE"
 officecli view "$FILE" forms                                    # see /body/... paths + sdtId values
 officecli set "$FILE" '/body/sdt[@sdtId=3]' --prop text="Jane Smith"

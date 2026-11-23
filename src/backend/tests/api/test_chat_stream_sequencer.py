@@ -118,7 +118,6 @@ def test_regenerate_busy_does_not_delete_existing_history(monkeypatch, tmp_path)
 
 def test_regenerate_admits_then_deletes_tail_and_launches_reserved_run(monkeypatch, tmp_path):
     from core.chat.service import ChatService
-    pass
 
     engine, Session = _route_database(tmp_path, "regenerate-success.db")
     with Session() as db:
@@ -215,7 +214,6 @@ def test_edit_busy_does_not_delete_existing_history(monkeypatch, tmp_path):
 
 def test_edit_replays_original_turn_invocation(monkeypatch, tmp_path):
     from core.chat.service import ChatService
-    pass
 
     engine, Session = _route_database(tmp_path, "edit-invocation.db")
     saved_extra = {

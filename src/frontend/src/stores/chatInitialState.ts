@@ -1,6 +1,6 @@
 import type { ChatState } from './chatState';
 
-export function createChatInitialState(): Pick<ChatState, "currentUserId" | "store" | "storeRef" | "currentChatId" | "projectOverviewChatId" | "homeDraftId" | "sending" | "sendingChatIds" | "remoteRunningChatIds" | "expandedThinking" | "chatMode" | "lastStandardMode" | "modeSlug" | "toolResultPanel" | "copiedMsg" | "chatsLoading" | "feedbackMap" | "dislikingUid" | "dislikeComment" | "toolDisplayNames" | "backendSessionIds" | "loadedMsgIds" | "messagePaging" | "shareSelectionMode" | "selectedShareMessageUids" | "pendingScrollMessageTs" | "planMode" | "loopMode" | "currentPlanId" | "editingMessageUid" | "sessionLoadEpoch" | "activeRuns" | "queuedMessages" | "compactionNotices" | "visionReading" | "contextCompactions" | "contextUsages" | "contextUsageEpochs" | "planProgress"> { return {
+export function createChatInitialState(): Pick<ChatState, "currentUserId" | "store" | "storeRef" | "currentChatId" | "projectOverviewChatId" | "homeDraftId" | "sending" | "sendingChatIds" | "remoteRunningChatIds" | "expandedThinking" | "chatMode" | "lastStandardMode" | "modeSlug" | "toolResultPanel" | "copiedMsg" | "chatsLoading" | "toolDisplayNames" | "backendSessionIds" | "loadedMsgIds" | "recentLoadedChats" | "messagePaging" | "shareSelectionMode" | "selectedShareMessageUids" | "pendingScrollMessageTs" | "planMode" | "loopMode" | "currentPlanId" | "editingMessageUid" | "sessionLoadEpoch" | "activeRuns" | "queuedMessages" | "compactionNotices" | "visionReading" | "contextCompactions" | "contextUsages" | "contextUsageEpochs" | "planProgress"> { return {
 // currentUserId stays null until hydrateForUser runs after login. While null,
   // the store is empty and all save helpers no-op — avoids any chance of
   // writing one user's data under a key that a later user could read.
@@ -22,12 +22,10 @@ modeSlug: 'standard',
 toolResultPanel: null,
 copiedMsg: null,
 chatsLoading: false,
-feedbackMap: {},
-dislikingUid: null,
-dislikeComment: '',
 toolDisplayNames: {},
 backendSessionIds: new Set(),
 loadedMsgIds: new Set(),
+recentLoadedChats: [],
 messagePaging: {},
 shareSelectionMode: false,
 selectedShareMessageUids: new Set(),

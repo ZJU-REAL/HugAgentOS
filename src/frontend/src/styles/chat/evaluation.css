@@ -1,0 +1,318 @@
+/* ── 会话评价：回答下方的评价卡片、「温馨提醒」浮窗、历史对话待评价标记 ── */
+
+/* 评价卡片：静止无投影，一行文案 + 三个按钮；窄栏里按钮组整组换行靠右。 */
+.jx-evalCard{
+  margin-top:var(--space-sm);
+  padding:var(--space-sm) 12px;
+  border-radius:var(--radius-sm);
+  background:color-mix(in srgb, var(--color-text) 3%, transparent);
+  max-width:720px;
+}
+
+.jx-evalCard-row{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:var(--space-sm);
+}
+
+.jx-evalCard-prompt{
+  flex:1 1 max(200px, 40%);
+  min-width:0;
+  display:flex;
+  flex-wrap:wrap;
+  align-items:baseline;
+  gap:var(--space-xs) var(--space-sm);
+  font-size:13px;
+  color:var(--color-text-secondary);
+}
+
+.jx-evalCard-summary{
+  color:var(--color-text-tertiary);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  max-width:100%;
+}
+
+.jx-evalCard-actions{
+  flex:none;
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:var(--space-xs);
+  max-width:100%;
+  margin-left:auto;
+}
+
+.jx-evalCard-btn,
+.jx-evalCard-reason,
+.jx-evalCard-link{
+  display:inline-flex;
+  align-items:center;
+  gap:var(--space-xs);
+  height:28px;
+  padding:0 12px;
+  border:none;
+  border-radius:var(--radius-xs);
+  font:inherit;
+  font-size:13px;
+  cursor:pointer;
+  transition:background-color var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-instant) var(--motion-ease-standard);
+}
+
+.jx-evalCard-btn,
+.jx-evalCard-reason{
+  color:var(--color-text-secondary);
+  background:var(--color-bg-container);
+}
+
+.jx-evalCard-btn:hover,
+.jx-evalCard-reason:hover{
+  background:color-mix(in srgb, var(--color-text) 6%, var(--color-bg-container));
+}
+
+.jx-evalCard-btn:active,
+.jx-evalCard-reason:active,
+.jx-evalCard-link:active{
+  transform:scale(.97);
+}
+
+.jx-evalCard-btn:disabled{
+  opacity:.4;
+  cursor:default;
+}
+
+.jx-evalCard-btn:focus-visible,
+.jx-evalCard-reason:focus-visible,
+.jx-evalCard-link:focus-visible,
+.jx-evalReminder-chip:focus-visible,
+.jx-evalReminder-close:focus-visible,
+.jx-evalReminder-item:focus-visible,
+.jx-evalReminder-dismiss:focus-visible{
+  outline:2px solid var(--color-primary);
+  outline-offset:1px;
+}
+
+/* 选中：只用一种蓝色调，不按评价结果区分颜色。 */
+.jx-evalCard-btn.is-active,
+.jx-evalCard-reason.is-active{
+  color:var(--color-primary-text);
+  background:var(--color-primary-bg);
+  font-weight:500;
+}
+
+.jx-evalCard-link{
+  color:var(--color-primary-text);
+  background:transparent;
+  padding:0 var(--space-sm);
+}
+
+.jx-evalCard-link:hover{
+  background:var(--state-hover);
+}
+
+.jx-evalCard-detail{
+  display:flex;
+  flex-direction:column;
+  gap:var(--space-sm);
+  margin-top:12px;
+  padding-top:12px;
+  border-top:1px solid var(--color-border);
+}
+
+.jx-evalCard-reasons{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:var(--space-xs) var(--space-sm);
+}
+
+.jx-evalCard-label{
+  font-size:12px;
+  color:var(--color-text-tertiary);
+}
+
+.jx-evalCard-detailActions{
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+  gap:var(--space-sm);
+  max-width:100%;
+}
+
+/* 温馨提醒：对话里是顶栏右侧的一枚胶囊（不压住消息）；新对话页浮在右上角（L2 材质）。 */
+.jx-evalReminder{
+  flex:none;
+  display:flex;
+  align-items:center;
+  border-radius:999px;
+  --fadeInUp-distance:-4px;
+  animation:jx-kf-fadeInUp var(--motion-duration-normal) var(--motion-ease-brand-out) backwards;
+}
+
+.jx-evalReminder--topbar{
+  min-width:0;
+  background:color-mix(in srgb, var(--color-text) 4%, transparent);
+}
+
+.jx-evalReminder--topbar .jx-evalReminder-chip,
+.jx-evalReminder--topbar .jx-evalReminder-close{
+  height:28px;
+}
+
+.jx-evalReminder--topbar .jx-evalReminder-close{
+  width:28px;
+}
+
+.jx-evalReminder--welcome{
+  position:absolute;
+  top:var(--space-md);
+  right:var(--space-md);
+  z-index:12;
+  background:var(--material);
+  backdrop-filter:blur(20px);
+  -webkit-backdrop-filter:blur(20px);
+  box-shadow:var(--shadow-floating);
+}
+
+/* 窄屏顶栏：只留数量，把位置让给对话标题。 */
+@media (max-width: 640px){
+  .jx-evalReminder--topbar .jx-evalReminder-prefix{ display:none; }
+}
+
+.jx-evalReminder-chip,
+.jx-evalReminder-close{
+  display:inline-flex;
+  align-items:center;
+  height:32px;
+  border:none;
+  background:transparent;
+  font:inherit;
+  color:var(--color-text-secondary);
+  cursor:pointer;
+}
+
+.jx-evalReminder-chip{
+  gap:var(--space-sm);
+  padding:0 var(--space-xs) 0 12px;
+  font-size:13px;
+  border-radius:999px 0 0 999px;
+}
+
+.jx-evalReminder-chip .anticon{
+  color:var(--color-primary-text);
+}
+
+.jx-evalReminder-close{
+  justify-content:center;
+  width:32px;
+  font-size:11px;
+  color:var(--color-text-tertiary);
+  border-radius:0 999px 999px 0;
+}
+
+.jx-evalReminder-chip:hover,
+.jx-evalReminder-close:hover{
+  background:var(--state-hover);
+}
+
+.jx-evalReminder-panel{
+  width:min(320px, calc(100vw - 48px));
+}
+
+.jx-evalReminder-hint{
+  margin:0 0 var(--space-sm);
+  font-size:12px;
+  color:var(--color-text-tertiary);
+}
+
+.jx-evalReminder-list{
+  list-style:none;
+  margin:0;
+  padding:0;
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+
+.jx-evalReminder-item{
+  display:grid;
+  grid-template-columns:minmax(0, 1fr) auto;
+  grid-template-rows:auto auto;
+  column-gap:var(--space-sm);
+  width:100%;
+  padding:var(--space-sm);
+  border:none;
+  border-radius:var(--radius-xs);
+  background:transparent;
+  font:inherit;
+  text-align:left;
+  cursor:pointer;
+}
+
+.jx-evalReminder-item:hover{
+  background:var(--state-hover);
+}
+
+.jx-evalReminder-title{
+  font-size:14px;
+  color:var(--color-text);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.jx-evalReminder-meta{
+  grid-row:2;
+  font-size:12px;
+  color:var(--color-text-tertiary);
+  font-variant-numeric:tabular-nums;
+}
+
+.jx-evalReminder-chevron{
+  grid-row:1 / span 2;
+  grid-column:2;
+  align-self:center;
+  font-size:11px;
+  color:var(--color-text-tertiary);
+}
+
+.jx-evalReminder-footer{
+  display:flex;
+  justify-content:flex-end;
+  margin-top:var(--space-sm);
+  padding-top:var(--space-sm);
+  border-top:1px solid var(--color-border);
+}
+
+.jx-evalReminder-dismiss{
+  height:28px;
+  padding:0 var(--space-sm);
+  border:none;
+  border-radius:var(--radius-xs);
+  background:transparent;
+  font:inherit;
+  font-size:12px;
+  color:var(--color-text-tertiary);
+  cursor:pointer;
+}
+
+.jx-evalReminder-dismiss:hover{
+  background:var(--state-hover);
+}
+
+/* 历史对话：待评价标记（蓝色文字 + 浅蓝底，与评价卡片同一色调）。 */
+.jx-historyEvalMark{
+  flex:none;
+  margin-left:var(--space-xs);
+  padding:0 var(--space-xs);
+  line-height:18px;
+  border-radius:var(--radius-xs);
+  font-size:11px;
+  color:var(--color-primary-text);
+  background:var(--color-primary-bg);
+  white-space:nowrap;
+}

@@ -26,18 +26,18 @@ def main() -> None:
 
     try:
         mod = importlib.import_module("extensions.mcp_servers.retrieve_dataset_content_mcp.impl")
-        fn = getattr(mod, "retrieve_dataset_content", None)
+        fn = getattr(mod, "retrieve_dataset_content_async", None)
         if fn is None:
-            _fail("impl.retrieve_dataset_content not found")
-        _ok("import impl.retrieve_dataset_content")
+            _fail("impl.retrieve_dataset_content_async not found")
+        _ok("import impl.retrieve_dataset_content_async")
     except Exception as e:
-        _fail(f"import impl.retrieve_dataset_content failed: {e!r}")
+        _fail(f"import impl.retrieve_dataset_content_async failed: {e!r}")
 
     try:
         sig = inspect.signature(fn)
         for k in ["dataset_id", "query"]:
             if k not in sig.parameters:
-                _fail(f"retrieve_dataset_content signature missing '{k}'")
+                _fail(f"retrieve_dataset_content_async signature missing '{k}'")
         _ok("signature check")
     except Exception as e:
         _fail(f"signature check failed: {e!r}")

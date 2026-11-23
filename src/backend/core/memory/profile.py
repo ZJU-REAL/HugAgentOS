@@ -90,20 +90,6 @@ def get_sync(user_id: str, workspace_id: str = "default") -> str:
 # ─── Write (incremental) ───────────────────────────────────────────────────
 
 
-async def upsert_field(
-    ctx: MemoryContext,
-    key: str,
-    value: str,
-    reason: Optional[str] = None,
-) -> list[dict]:
-    """Idempotently update one field: replace the value if the key exists, otherwise append.
-
-    `key` should preferably be namespaced: `identity.name` / `identity.dept` / `preference.verbosity`.
-    Same key with the same value short-circuits (no profile change, no audit row).
-    """
-    return await upsert_fields(ctx, [(key, value, reason)])
-
-
 async def upsert_fields(
     ctx: MemoryContext,
     fields: list[tuple[str, str, Optional[str]]],
@@ -237,7 +223,7 @@ async def patch(
     patch_text: str,
     reason: Optional[str] = None,
 ) -> bool:
-    """(Kept, rarely used) Append free text to the end of the profile; **prefer `upsert_field`**.
+    """(Kept, rarely used) Append free text to the end of the profile; **prefer `upsert_fields`**.
 
     If the profile exceeds `MEMORY_PROFILE_MAX_CHARS` after appending, compact() is called automatically.
     """

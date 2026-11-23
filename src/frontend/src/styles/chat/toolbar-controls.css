@@ -85,37 +85,6 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
 
 .jx-composerChip.open svg.jx-modeArrow{ transform:rotate(180deg); opacity:.85; }
 
-.jx-dispatchDropBtn{
-  min-height:30px;
-  height:30px;
-  padding:7px 12px;
-  border:1px solid var(--color-border);
-  border-radius:8px;
-  background:transparent;
-  display:flex;
-  align-items:center;
-  gap:5px;
-  cursor:pointer;
-  color:color-mix(in srgb, var(--color-text) 62%, transparent);
-  font-size:13px;
-  font-weight:500;
-  outline:none;
-  white-space:nowrap;
-  transition:border-color .18s ease;
-}
-
-.jx-dispatchDropBtn:hover{
-  border-color:color-mix(in srgb, var(--color-text) 22%, transparent);
-}
-
-.jx-dispatchOptionHead{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:10px;
-  min-width:96px;
-}
-
 /* ── ➕ 附件/能力入口（工具条最左）──
    参考稿把 add 放在输入区左下角、发送放右下角，两端各一个圆钮把工具条框住。
    实心浅底（不是 hover 才出现）——它是这排里唯一的"加东西"入口，值得一直有形。 */
@@ -160,8 +129,6 @@ svg.jx-modeArrow{ color:currentColor; opacity:.5; transition:transform .16s ease
 /* ── 模型 + 思考强度位（工具条右侧，两级菜单）── */
 
 .jx-modelEffort{ position:relative; min-width:0; flex-shrink:1; }
-
-
 
 /* 思考强度贴在模型名右侧，弱一档：一个 chip 报两件事，主次要分得开 */
 

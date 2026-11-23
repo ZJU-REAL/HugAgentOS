@@ -149,7 +149,7 @@ POST /v1/agents/responses                       api/routes/v1/agent_responses.py
 |---|---|
 | 应用组装 | `api/app.py`、`api/lifecycle.py`、`api/startup/` |
 | 路由注册表 | `api/routes/v1/__init__.py`（CE）、`edition_ee/routes/registry.py`（EE）、`core/harness/registry`（模块路由） |
-| 依赖注入 | `api/deps.py`（require_admin / require_config / require_admin_or_config / require_system_settings / require_super_admin / console_actor） |
+| 依赖注入 | `api/deps.py`（require_admin / require_config / require_admin_or_config / require_system_settings / console_actor） |
 | 认证 | `core/auth/backend.py`（get_current_user / UserContext）、`core/auth/bearer.py` |
 | DB | `core/db/engine.py`（get_db）、`core/db/threads.py`、`core/db/models/`、`core/db/repository/` |
 | 信封 / 异常 | `core/infra/responses.py`、`core/infra/exceptions.py`、`api/middleware/error_handler.py` |

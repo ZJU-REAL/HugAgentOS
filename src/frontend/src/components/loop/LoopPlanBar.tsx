@@ -7,13 +7,13 @@ import { useLoopStore } from '../../stores/loopStore';
 import './loop.css';
 
 const STATUS_LABEL: Record<string, string> = {
-  running: '进行中',
-  completed: '已达成',
-  budget_exhausted: '部分完成',
-  cancelled: '已取消',
-  awaiting_human: '待人工',
-  interrupted: '已中断',
-  failed: '失败',
+  running: t('进行中'),
+  completed: t('已达成'),
+  budget_exhausted: t('部分完成'),
+  cancelled: t('已取消'),
+  awaiting_human: t('待人工'),
+  interrupted: t('已中断'),
+  failed: t('失败'),
 };
 
 interface LoopPlanBarProps {

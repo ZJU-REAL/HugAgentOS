@@ -58,8 +58,6 @@ _F_PARAMS = "indexing_params"
 MAX_ATTEMPTS = 3
 
 
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _meta(doc: KBDocument) -> Dict[str, Any]:
@@ -117,7 +115,7 @@ def release_stale(db: Session) -> int:
 
     进程被 kill / 容器重建后，那批文档就靠这里回到队列——这正是老实现缺的一环。
     """
-    stale_before = _now() - STALE_AFTER
+    stale_before = utc_now() - STALE_AFTER
     candidates = (
         db.query(KBDocument)
         .filter(KBDocument.indexing_status == STATUS_RUNNING, KBDocument.deleted_at.is_(None))
@@ -200,7 +198,7 @@ def claim_next(db: Session, worker_id: str) -> Optional[Dict[str, Any]]:
         return None
     meta[_F_ATTEMPT] = attempt
     meta[_F_CLAIMED_BY] = worker_id
-    meta[_F_HEARTBEAT] = _now().isoformat()
+    meta[_F_HEARTBEAT] = utc_now().isoformat()
     _write_meta(db, doc, meta)
     db.commit()
 
@@ -251,7 +249,7 @@ def heartbeat(db: Session, document_ids: Sequence[str]) -> None:
     """
     if not document_ids:
         return
-    stamp = _now().isoformat()
+    stamp = utc_now().isoformat()
     docs = db.query(KBDocument).filter(KBDocument.document_id.in_(list(document_ids))).all()
     for doc in docs:
         meta = _meta(doc)
@@ -285,14 +283,6 @@ def give_up_or_requeue(db: Session, document_id: str, error: str) -> None:
     doc.indexing_status = STATUS_FAILED
     db.commit()
     logger.error("[kb-index] 文档 %s 重试 %d 次仍失败，置 failed：%s", document_id, attempt, error)
-
-
-def queue_depth(db: Session) -> int:
-    return (
-        db.query(KBDocument)
-        .filter(KBDocument.indexing_status == STATUS_QUEUED, KBDocument.deleted_at.is_(None))
-        .count()
-    )
 
 
 def _parse_ts(value: Any) -> Optional[datetime]:

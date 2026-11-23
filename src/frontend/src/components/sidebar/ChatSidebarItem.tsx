@@ -1,9 +1,12 @@
 import { TaskStatusDot } from './TaskStatusDot';
 import { taskIndicator, useTaskNotificationStore } from '../../stores/taskNotificationStore';
+import { useAuthStore } from '../../stores/authStore';
+import { useEvaluationStore } from '../../stores/evaluationStore';
 import { DeleteOutlined, EditOutlined, EllipsisOutlined, ExportOutlined, PushpinFilled, PushpinOutlined, RobotOutlined, SortAscendingOutlined, StarFilled, StarOutlined } from '@ant-design/icons';
 import { Dropdown, Input, Tooltip, message, type MenuProps } from 'antd';
 import { motion } from 'motion/react';
 import { useMemo, useRef, type DragEvent as ReactDragEvent } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useIsMobileViewport } from '../../hooks/useIsMobileViewport';
 import { t } from '../../i18n';
 import { chatIdFromPath } from '../../routing/navigation';
@@ -22,9 +25,15 @@ export function ChatSidebarItem({ item, groupItems, scopeKey, dragScopeRef, acti
   dragScopeRef: ReturnType<typeof useRef<string | null>>; actions: SidebarProps; active?: boolean; statusChatIds?: string[];
 }) {
   const { onSelectChat, onCommitRename, onStartRename, onTogglePinned, onToggleFavorite, onExportChat, onDeleteChat } = actions;
-  const { editingChatId, setEditingChatId, editingTitle, setEditingTitle, pendingConfirm, pendingDesignPick, pendingUserQuestions } = useUIStore();
-  const { sendingChatIds, remoteRunningChatIds } = useChatStore();
-  const { draggingId, dropTarget, setDragging, setDropTarget, reorderWithinGroup, order: manualOrder, resetOrder: resetSidebarOrder } = useSidebarOrderStore();
+  const { editingChatId, setEditingChatId, editingTitle, setEditingTitle, pendingConfirm, pendingDesignPick, pendingUserQuestions } = useUIStore(useShallow(s => ({
+    editingChatId: s.editingChatId, setEditingChatId: s.setEditingChatId, editingTitle: s.editingTitle, setEditingTitle: s.setEditingTitle,
+    pendingConfirm: s.pendingConfirm, pendingDesignPick: s.pendingDesignPick, pendingUserQuestions: s.pendingUserQuestions,
+  })));
+  const { sendingChatIds, remoteRunningChatIds } = useChatStore(useShallow(s => ({ sendingChatIds: s.sendingChatIds, remoteRunningChatIds: s.remoteRunningChatIds })));
+  const { draggingId, dropTarget, setDragging, setDropTarget, reorderWithinGroup, order: manualOrder, resetOrder: resetSidebarOrder } = useSidebarOrderStore(useShallow(s => ({
+    draggingId: s.draggingId, dropTarget: s.dropTarget, setDragging: s.setDragging, setDropTarget: s.setDropTarget,
+    reorderWithinGroup: s.reorderWithinGroup, order: s.order, resetOrder: s.resetOrder,
+  })));
   const panel = usePanel();
   const historyItemHeight = useIsMobileViewport() ? 44 : 36;
   const resetOrderMenuItems = useMemo<NonNullable<MenuProps['items']>>(() => (
@@ -68,6 +77,11 @@ export function ChatSidebarItem({ item, groupItems, scopeKey, dragScopeRef, acti
     ? groupNotices.map(n => n.seen || new Date(n.updatedAt).toDateString() === latestDay ? n : { ...n, seen: true })
     : groupNotices, running, waitingForAnswer || waitingForConfirmation);
 
+
+  // 会话评价: this conversation has an answer still waiting for an evaluation.
+  const evaluationEnabled = useAuthStore((st) => st.authUser?.can_use_evaluation === true);
+  const evaluationPending = useEvaluationStore((st) => !!st.pendingChatIds[item.id]);
+  const awaitingEvaluation = evaluationEnabled && evaluationPending;
 
   const handleClick = async () => {
     if (editingChatId && editingChatId !== item.id) { setEditingChatId(null); setEditingTitle(''); }
@@ -200,6 +214,9 @@ export function ChatSidebarItem({ item, groupItems, scopeKey, dragScopeRef, acti
           <span className="jx-historyTitle">
             {conversationTitle(item.title) || t('对话')}
           </span>
+          {awaitingEvaluation && (
+            <span className="jx-historyEvalMark" title={t('有回答待评价，打开对话即可评价')}>{t('待评价')}</span>
+          )}
           {!inProjectGroup && <TaskStatusDot {...indicator} />}
         </div>
       )}
@@ -214,7 +231,7 @@ export function ChatSidebarItem({ item, groupItems, scopeKey, dragScopeRef, acti
             { type: 'divider' as const },
             { key: 'delete', label: t('删除'), icon: <DeleteOutlined />, danger: true, onClick: ({ domEvent }) => { domEvent.stopPropagation(); onDeleteChat(item.id); } },
           ],
-        }} trigger={['click']} placement="bottomRight" overlayClassName="jx-chatItemMenu">
+        }} trigger={['click']} placement="bottomRight" classNames={{ root: "jx-chatItemMenu" }}>
           <button aria-label={t('更多操作')} className="jx-historyMoreBtn" onClick={(e) => e.stopPropagation()}><EllipsisOutlined /></button>
         </Dropdown>
       </div>

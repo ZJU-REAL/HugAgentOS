@@ -3,7 +3,7 @@
 import logging
 import os
 import uuid
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from core.files.artifacts.refs import infer_artifact_type, require_artifact_storage_key
 from core.db.models import Artifact as ArtifactModel
@@ -247,14 +247,3 @@ def persist_artifacts(
             db.rollback()
         else:
             raise
-
-
-def extend_collected_artifacts(collected: list, refs: List[dict]) -> None:
-    """Append new file refs to ``collected``, de-duplicating by file_id."""
-    existing_ids = {item.get("file_id") for item in collected if item.get("file_id")}
-    for ref in refs:
-        file_id = ref.get("file_id")
-        if not file_id or file_id in existing_ids:
-            continue
-        collected.append(ref)
-        existing_ids.add(file_id)

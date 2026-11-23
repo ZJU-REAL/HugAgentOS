@@ -10,7 +10,7 @@ async function buildFixture(apiBase) {
 await build({ stdin: { contents: `
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { ResourceCard } from './src/components/myspace/ResourceCard';
+import { ResourceCard } from './src/edition-ee/myspace/ResourceCard';
 import { CanvasPanel } from './src/components/canvas/CanvasPanel';
 import { FilePreviewPane } from './src/components/file/FilePreviewPane';
 import { useCanvasStore } from './src/stores/canvasStore';
