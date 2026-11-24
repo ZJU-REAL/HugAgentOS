@@ -28,5 +28,21 @@ Report consequential bugs introduced, exposed or worsened by this PR, with a con
 and a precise changed-line location. Inspect callers and existing protections; avoid speculative/style findings.
 Check the PR walkthrough against the code and flag consequential misinformation.
 Do not demand unrelated historical fixes or recommend enterprise-only dependencies.
-Keep explanations separate from actionable defects. After three unresolved rounds, summarize for a human.
+After three unresolved rounds, summarize for a human.
 Review does not authorize automatic repair, merge or deployment.
+
+Provide a separate, concise PR-level review summary, including on a clean review when the
+review interface supports posting a summary. Assess the current head against its base.
+
+1. **Functional changes.** Name affected product modules and describe what a user or operator
+   can do, what behavior changed, or what outcome improved. Explain before and after in product
+   terms. Use implementation details only as evidence.
+2. **Necessity and scope.** Judge whether each material change solves a demonstrated problem
+   in the current system. Identify excess abstraction, refactoring, or scope. Explain the evidence
+   and describe a smaller adequate change when one exists.
+3. **Cross-module impact.** Trace the affected workflows and consumers across module
+   boundaries. State confirmed effects, plausible regression risks, and unverified boundaries
+   separately. Name the relevant check or state when the inspected dependencies support a
+   conclusion that no downstream change is expected.
+
+Keep actionable findings separate and use inline comments only for qualifying defects.
