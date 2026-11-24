@@ -88,9 +88,20 @@ Do not put production inventories, credentials, customer data or private hostnam
 
 The reviewer checks whether the explanation matches the diff.
 Report consequential contradictions as findings; do not turn optional teaching material into style blockers.
-When supported, provide a separate short explanation: goal, flow, boundaries and what to read next.
-If the native reviewer posts only findings or a clean reaction, use the PR body and the
-`PR review context / context` Actions job summary as the visible walkthrough.
+When the review interface supports a PR-level summary, use the three headings from the
+Code Review Rules in `AGENTS.md`, including when there are no actionable findings.
+
+- Under **Functional changes**, lead with the observable before/after behavior by feature.
+  For documentation or tooling changes, describe the contributor or operator workflow affected.
+- Under **Necessity and scope**, distinguish the work needed for the stated goal from optional
+  improvements and excess scope. Tie the judgment to current behavior and existing mechanisms.
+- Under **Cross-module impact**, follow affected callers, shared data, permissions, APIs, and
+  clients as applicable. Say what changed downstream, what evidence supports the assessment,
+  and which checks remain open.
+
+Reserve inline findings for actionable defects. If the native reviewer only posts findings
+or a clean reaction, use the PR body and the `PR review context / context` Actions job summary
+for the author's walkthrough.
 
 ## 5. Findings and convergence
 
