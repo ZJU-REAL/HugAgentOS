@@ -50,8 +50,6 @@ from api.startup.runtime import (
     _startup_device_link,
     _shutdown_device_link,
     _startup_reconcile_datasource_catalog,
-    _startup_recover_datasource_sidecars,
-    _shutdown_datasource_sidecar_recovery,
     _startup_desktop_observability,
     _shutdown_desktop_observability,
     _startup_channel_desktop,
@@ -168,13 +166,6 @@ def _startup_steps():
         (
             _startup_mcp_market_monitor,
             _shutdown_mcp_market_monitor,
-            False,
-            _SERVICE_ONLY,
-            _SINGLETON,
-        ),
-        (
-            _startup_recover_datasource_sidecars,
-            _shutdown_datasource_sidecar_recovery,
             False,
             _SERVICE_ONLY,
             _SINGLETON,
@@ -318,7 +309,6 @@ async def lifespan(app: FastAPI):
     await _shutdown_kb_index_worker()
     await _shutdown_channel_desktop()
     await _shutdown_channel_manager()
-    await _shutdown_datasource_sidecar_recovery()
     await _shutdown_mcp_market_monitor()
     await _shutdown_local_sidecars()
     await _shutdown_sandbox_provider()

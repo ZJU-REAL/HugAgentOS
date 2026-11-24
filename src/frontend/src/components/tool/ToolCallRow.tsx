@@ -22,6 +22,8 @@ import { useCollapseHeight } from '../../hooks/useCollapseHeight';
 import { EDITION_STEP_ICONS, getEditionToolRowLabel } from '../../toolEdition';
 import { ToolIcon } from './toolIcons';
 import { toolIconKind } from '../../utils/toolActionLabel';
+import { databaseToolLabels, databaseToolSuffix } from '../../utils/databaseTools';
+
 import {
   resolvePluginToolLabel,
   resolvePluginToolStepText,
@@ -55,6 +57,18 @@ function getRowLabel(
     if (contributed) {
       const items = Array.isArray(out?.items) ? out.items.length : undefined;
       return { prefix: contributed, value: '', ...(items !== undefined ? { count: items } : {}) };
+    }
+
+    const dbSuffix = databaseToolSuffix(tool.name);
+    if (dbSuffix) {
+      const input = (tool.input ?? {}) as Record<string, unknown>;
+      const target = [input.table, input.index].find((v): v is string => typeof v === 'string' && !!v) || '';
+      const rowCount = (out as { row_count?: unknown } | null)?.row_count;
+      return {
+        prefix: databaseToolLabels(dbSuffix).step,
+        value: target,
+        ...(typeof rowCount === 'number' ? { count: rowCount } : {}),
+      };
     }
 
     switch (tool.name) {
@@ -104,7 +118,6 @@ function getRowLabel(
         const an = tool.displayName?.split('：')[1]?.trim() || '';
         return { prefix: t('调用智能体：'), value: an };
       }
-      case 'query_database': return { prefix: t('数据库查询'), value: '' };
       case 'Bash':
     case 'bash': {
         const cmd = (tool.input as Record<string, string> | undefined)?.command || '';

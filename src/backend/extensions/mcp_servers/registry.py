@@ -19,6 +19,9 @@ class MCPServer:
     installation: Installation = "both"
     port: int | None = None
     exposure: Literal["process", "desktop_gateway"] = "process"
+    # False: the process runs, but agents reach it only through rows another
+    # module creates (``database`` is reached via one ``db_<id>`` row per data source).
+    catalog: bool = True
 
     def installed_on(self, location: Location) -> bool:
         if location not in ("local", "cloud"):
@@ -46,8 +49,12 @@ _PROCESS_PORTS = {
     "plugin_manager": 9116,
     "browser_runtime": 9117,
 }
+# Processes agents reach only through rows other modules create, never as a
+# catalog connector of their own.
+_ROW_ADDRESSED = {"database"}
 SERVERS = {
-    key: MCPServer(key, key if key.endswith("_mcp") else key + "_mcp", port=port)
+    key: MCPServer(key, key if key.endswith("_mcp") else key + "_mcp", port=port,
+                   catalog=key not in _ROW_ADDRESSED)
     for key, port in _PROCESS_PORTS.items()
 }
 SERVERS["hugagent-space-files"] = MCPServer(

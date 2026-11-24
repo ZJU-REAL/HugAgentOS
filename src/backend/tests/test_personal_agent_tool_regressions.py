@@ -195,7 +195,7 @@ def test_unnamed_agent_upgrade_keeps_a_self_chosen_name(sessions, tmp_path, monk
 def test_capabilities_follow_what_the_user_may_use(sessions, monkeypatch):
     from personal_agent import context as module
     from personal_agent.identity import config as identity_config
-    permitted = {"skills": ["officecli-docx", "officecli-xlsx", "some-other-skill"], "mcps": ["internet_search", "web_fetch", "database_query"]}
+    permitted = {"skills": ["officecli-docx", "officecli-xlsx", "some-other-skill"], "mcps": ["internet_search", "web_fetch", "db_ds1"]}
     monkeypatch.setattr('core.capabilities.catalog.resolver.resolve_all_runtime_enabled',
                         lambda db, uid: (permitted["skills"], [], permitted["mcps"]))
     with sessions() as db:

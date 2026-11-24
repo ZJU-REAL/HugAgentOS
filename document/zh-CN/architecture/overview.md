@@ -139,7 +139,7 @@ HugAgentOS 是一个开源、可自托管的 Agent Harness，提供 HugAgentOS C
 
 ### MCP 工具独立进程
 
-每个工具是 `src/backend/extensions/mcp_servers/<name>/` 下的独立 MCP 服务器，统一运行在专用 `mcp` 容器内，以 streamable-http 常驻监听（端口表 `extensions/mcp_servers/_ports.py` 为单一真源），后端经 `core/llm/mcp/manager.py` 的 HTTP 客户端连接池复用连接。好处：工具崩溃不影响主进程、依赖隔离（文档编辑与导出已迁入沙箱技能）、可独立扩缩。`query_database` 与 `ai_chain_information_mcp` 两个行业工具依赖内网数据源，归商业版 EE。详见 [MCP 工具](../modules/mcp-tools.md)。
+每个工具是 `src/backend/extensions/mcp_servers/<name>/` 下的独立 MCP 服务器，统一运行在专用 `mcp` 容器内，以 streamable-http 常驻监听（端口表 `extensions/mcp_servers/_ports.py` 为单一真源），后端经 `core/llm/mcp/manager.py` 的 HTTP 客户端连接池复用连接。好处：工具崩溃不影响主进程、依赖隔离（文档编辑与导出已迁入沙箱技能）、可独立扩缩。行业工具 `ai_chain_information_mcp` 依赖内网数据源，归商业版 EE。详见 [MCP 工具](../modules/mcp-tools.md)。
 
 ### Run 与连接、进程解耦
 

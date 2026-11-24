@@ -1,0 +1,199 @@
+/* ── /admin and /config console shell ───────────────────────────────────────
+   Shared by AdminApp.tsx and ConfigApp.tsx (root Layout carries .jx-console).
+   Breakpoints follow antd Grid: lg 992 (config sider becomes an icon rail),
+   md 768 (header buttons turn into icons, config nav moves into a drawer). */
+
+.jx-console.ant-layout {
+  height: 100vh;
+  height: 100dvh;
+  min-width: 0;
+  background: var(--color-bg-gray);
+}
+
+/* Header ------------------------------------------------------------------ */
+.jx-consoleHeader.ant-layout-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  padding: 0 32px;
+  background: var(--color-bg-container);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.jx-consoleHeader-brand {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.jx-consoleHeader-title.ant-typography {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.jx-consoleHeader-divider.ant-divider {
+  flex: none;
+  margin: 0;
+}
+
+.jx-consoleHeader-section.ant-typography {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.jx-consoleHeader-actions {
+  /* layout-ok: the brand beside it shrinks with ellipsis, and below 768px the buttons turn into fixed 32px icons */
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.jx-consoleHeader-navToggle.ant-btn {
+  flex: none;
+}
+
+/* Body -------------------------------------------------------------------- */
+.jx-console-body.ant-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+.jx-console-sider.ant-layout-sider {
+  height: 100%;
+  overflow-y: auto;
+  background: var(--color-bg-container);
+  border-right: 1px solid var(--color-border);
+}
+
+.jx-console-menu.ant-menu {
+  border-inline-end: none !important;
+  padding: 8px 0 16px;
+}
+
+/* Icon rail: group titles would truncate to "基础…", so they become a short rule. */
+.jx-console-sider.ant-layout-sider-collapsed .ant-menu-item-group-title {
+  height: 1px;
+  margin: 8px 16px;
+  padding: 0;
+  overflow: hidden;
+  font-size: 0;
+  background: var(--color-border);
+}
+
+.jx-console-sider.ant-layout-sider-collapsed .ant-menu-item-group:first-child .ant-menu-item-group-title {
+  margin-top: 0;
+  background: transparent;
+}
+
+.jx-console-content.ant-layout-content {
+  min-width: 0;
+  overflow: auto;
+  padding: 24px;
+  background: var(--color-bg-gray);
+}
+
+.jx-console-page {
+  min-width: 0;
+  max-width: 1400px;
+}
+
+.jx-adminApp-page {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 32px;
+}
+
+.jx-console-navDrawer .ant-drawer-body {
+  padding: 0;
+}
+
+/* Panel content: the editors are plain antd, written for a wide window.
+   These let them shrink instead of pushing the page wider than the viewport. */
+.jx-console .ant-table-container,
+.jx-console .ant-descriptions-view {
+  overflow-x: auto;
+}
+
+.jx-console .ant-card-head-wrapper {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.jx-console .ant-card-head-title {
+  min-width: 0;
+}
+
+.jx-console .ant-card-extra {
+  max-width: 100%;
+  margin-inline-start: auto;
+}
+
+/* antd Space without `wrap` is a nowrap row; toolbars of 3–6 buttons then
+   overflow narrow windows. Space already sets row-gap, so only wrapping is needed. */
+.jx-console .ant-space-horizontal {
+  flex-wrap: wrap;
+}
+
+.jx-console .ant-statistic-content-value {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 767.98px) {
+  .jx-consoleHeader.ant-layout-header {
+    gap: 8px;
+    padding: 0 16px;
+  }
+
+  .jx-consoleHeader-brand {
+    gap: 8px;
+  }
+
+  .jx-consoleHeader-divider.ant-divider,
+  .jx-consoleHeader-section.ant-typography,
+  .jx-consoleHeader-label {
+    display: none;
+  }
+
+  .jx-consoleHeader-actions {
+    gap: 4px;
+  }
+
+  .jx-consoleHeader-actions .ant-btn {
+    width: 32px;
+    height: 32px;
+    padding-inline: 0;
+  }
+
+  .jx-console-content.ant-layout-content {
+    padding: 16px;
+  }
+
+  .jx-adminApp-page {
+    padding: 16px;
+  }
+
+  /* Editors often nest a Card in the tab Card; 24px + 24px leaves little room. */
+  .jx-console .ant-card .ant-card-body {
+    padding: 16px;
+  }
+
+  .jx-console .ant-card .ant-card-head {
+    padding-inline: 16px;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 991.98px) {
+  .jx-adminApp-page {
+    padding: 24px;
+  }
+}

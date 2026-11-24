@@ -65,6 +65,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
 USER appuser
 
 # Expose active MCP ports; retired assignments remain reserved.
-EXPOSE 9100 9101 9102 9103 9106 9107 9108 9112 9113 9114 9115 9116 9117
+EXPOSE 9100 9102 9103 9106 9107 9108 9112 9113 9114 9115 9116 9117 9118
 
 CMD ["python", "-m", "extensions.mcp_servers._launcher"]

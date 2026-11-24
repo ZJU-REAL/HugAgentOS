@@ -35,7 +35,7 @@ def _synthesize_missing_tool_call(
     display_name = (
         "加载技能"
         if tool_name == "load_skill"
-        else display_names.TOOL_DISPLAY_NAMES.get(tool_name, tool_name)
+        else display_names.tool_display_name(tool_name)
     )
     return {
         "type": "tool_call",

@@ -12,14 +12,13 @@ from fastapi import HTTPException
 from sqlalchemy import case
 from sqlalchemy.exc import IntegrityError
 
-from core.db.models import AgentApiCallLog, ChatRun, ChatSession, UserAgent, UserApiKey
+from core.db.models import AgentApiCallLog, Artifact, ChatRun, ChatSession, UserAgent, UserApiKey
 
 # The mutable tracker is intentionally shared with the request's ASGI boundary
 # across worker-thread contexts; it prevents duplicate rejection records.
 call_log_tracking: ContextVar[dict | None] = ContextVar("agent_api_call_tracking", default=None)
 
 _FORBIDDEN_INPUTS = (
-    "attachments",
     "referenced_chats",
     "project_id",
     "mention_agent_id",
@@ -118,6 +117,23 @@ def _bind_api_session(db, scope: dict, name: str):
         raise HTTPException(status_code=403, detail={"code": "api_session_scope_mismatch"})
 
 
+def _require_scoped_attachments(db, scope: dict, attachments) -> None:
+    """A key may attach only files uploaded into this key's own session.
+
+    The key acts as its owner, so an unchecked file_id would let the caller
+    read any of the owner's files.
+    """
+    for item in attachments or ():
+        artifact = db.get(Artifact, item.file_id)
+        if (
+            artifact is None
+            or artifact.deleted_at is not None
+            or artifact.user_id != scope["owner_user_id"]
+            or artifact.chat_id != scope["chat_id"]
+        ):
+            raise HTTPException(status_code=403, detail={"code": "api_attachment_out_of_scope"})
+
+
 def prepare_agent_api_request(db, user, request):
     """Bind only trusted authentication metadata; request bodies cannot set scope."""
     agent_id = getattr(user, "api_key_agent_id", None)
@@ -135,7 +151,7 @@ def prepare_agent_api_request(db, user, request):
         if request.agent_id != agent_id:
             raise HTTPException(status_code=403, detail={"code": "agent_key_target_mismatch"})
         for field in _FORBIDDEN_INPUTS:
-            if getattr(user, "public_chat_visitor", None) and field in ("attachments", "model_provider_id"):
+            if getattr(user, "public_chat_visitor", None) and field == "model_provider_id":
                 continue
             value = getattr(request, field, None)
             if value is not None and value is not False and value != [] and value != "":
@@ -143,6 +159,11 @@ def prepare_agent_api_request(db, user, request):
         if getattr(request, "chat_mode", None) == "turbo":
             raise HTTPException(status_code=403, detail={"code": "api_capability_override"})
         agent = require_agent_manager(db, str(user.user_id), str(agent_id))
+        # Visitors may reuse uploads from their other conversations; admission
+        # checks those with validate_visitor_attachments instead. The session
+        # binding below proves this chat id is the key's own session.
+        if not getattr(user, "public_chat_visitor", None):
+            _require_scoped_attachments(db, scope, request.attachments)
         _bind_api_session(db, scope, agent.name)
         return request, scope
     except HTTPException as exc:

@@ -12,7 +12,8 @@
 
 import { fillTemplate, resolveText } from '../plugin-ui';
 import { usePluginUiStore } from '../stores/pluginUiStore';
-import { TOOL_ICONS, TOOL_NAME_OVERRIDES } from './constants';
+import { DATABASE_TOOL_ICON, TOOL_ICONS, TOOL_NAME_OVERRIDES } from './constants';
+import { databaseToolSuffix } from './databaseTools';
 
 /**
  * 一个工具对外显示的名字：这条链路原先在 ToolCallRow / ToolRunShell 等处
@@ -32,7 +33,7 @@ export function resolveToolDisplayName(
 /** Icon URL for a tool: plugin contribution → host table → caller's fallback. */
 export function resolveToolIcon(toolName: string, fallback = '/icons/knowledge.png'): string {
   const contributed = usePluginUiStore.getState().findToolMeta(toolName)?.contribution.icon;
-  return contributed || TOOL_ICONS[toolName] || fallback;
+  return contributed || TOOL_ICONS[toolName] || (databaseToolSuffix(toolName) ? DATABASE_TOOL_ICON : fallback);
 }
 
 /** Human-readable tool name contributed by a plugin, if any. */

@@ -97,12 +97,13 @@ class _OpenSandboxAdoptionMixin:
                 ):
                     stats["killed_invalid"] += 1
                 return
-            # Created before the per-user skill view: its /workspace/skills is the
-            # whole shared dir, which no longer holds this user's private skills.
-            # Mounts can't be changed after creation, so drop it.
+            # Created under an older skill layout (whole shared dir at
+            # /workspace/skills, or the shared dir at the old /workspace/skills_shared):
+            # its mounts no longer match the views. Mounts can't be changed after
+            # creation, so drop it.
             if metadata.get(_METADATA_SKILLS_LAYOUT_KEY) != _METADATA_SKILLS_LAYOUT_VALUE:
                 if await self._kill_by_id(
-                    mgr, info.id, reason="jupyter sandbox predates the per-user skill view"
+                    mgr, info.id, reason="jupyter sandbox uses an outdated skill layout"
                 ):
                     stats["killed_invalid"] += 1
                 return

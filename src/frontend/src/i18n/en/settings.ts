@@ -141,7 +141,6 @@ export const SETTINGS_DICT: Record<string, string> = {
   '模式决定一段对话能用哪些工具、技能与插件，配哪段专属提示词，以及默认思考多深。这里建的模式只有你自己能看见和使用。': 'A mode decides which tools, skills and plugins a conversation may use, which dedicated prompt it carries, and how deeply it thinks by default. Modes created here are visible and usable only by you.',
   '开启后，你本轮用 / 技能、@智能体、插件呼唤的能力仍可临时用上，不受上面清单限制。': 'When on, capabilities you summon this turn (/skill, @agent, plugin) can still be used temporarily, regardless of the list above.',
   '留空表示不额外收紧。最小 2。': 'Blank means no extra limit. Minimum 2.',
-  '填工具 id，回车确认。填错的会被忽略。': 'Enter tool ids and press Enter. Unknown ids are ignored.',
   '加载我的模式失败：{msg}': 'Failed to load your modes: {msg}',
   // ── SettingsModal ──────────────────────────────────────────────────────────
   '界面语言': 'Display Language',
@@ -311,7 +310,6 @@ export const SETTINGS_DICT: Record<string, string> = {
   // ── ReindexModal ───────────────────────────────────────────────────────────
   '语义分块（基于嵌入相似度）⭐ 推荐': 'Semantic (embedding similarity) ⭐ Recommended',
   '开始索引': 'Start Indexing',
-  '将删除现有分块并使用所选方法重新解析索引。': 'Existing chunks will be deleted and the document re-parsed using the selected method.',
   '重新索引已启动': 'Re-indexing started',
   '重新索引失败': 'Re-indexing failed',
 
@@ -344,7 +342,6 @@ export const SETTINGS_DICT: Record<string, string> = {
   '删除文件？': 'Delete File?',
   '将从项目和「我的空间」中同步软删除该文件。': 'This file will be soft-deleted from the project and My Space.',
   '文件预览': 'File Preview',
-  '点击预览': 'Click to preview',
 
   // ── Project conversation ─────────────────────────────────────────────────────
   '执行成功': 'Succeeded',
@@ -367,21 +364,17 @@ export const SETTINGS_DICT: Record<string, string> = {
   '未命名对话': 'Unnamed conversation',
   '只读': 'Read-only',
   '可编辑': 'Editable',
-  '已共享': 'Shared',
   '创建人：{name}': 'Created by: {name}',
   '项目不存在或你无权访问': 'Project not found or access denied',
-  '返回项目列表': 'Back to Projects',
   '删除项目': 'Delete Project',
   '删除项目「{name}」？': 'Delete project "{name}"?',
   '项目对应的直传文件会一同软删除；引用文件不动。该操作可由数据库恢复。': 'Directly uploaded files will be soft-deleted; referenced files remain. This action can be recovered from the database.',
-  '项目已删除': 'Project deleted',
   '刚刚': 'just now',
   '{n} 分钟前': '{n} min ago',
   '{n} 小时前': '{n} hr ago',
   '{n} 天前': '{n} day(s) ago',
   '其他成员': 'Other member',
   '在「{name}」内开始新对话': 'Start a new conversation in "{name}"',
-  '调用示例：在请求头携带': 'Usage: set the request header',
   '你的Key': 'your-key',
   '调用': 'to call',
   '所有接口均在请求头携带': 'All endpoints take the request header ',
@@ -392,7 +385,6 @@ export const SETTINGS_DICT: Record<string, string> = {
   '（Cherry Studio 等，Base URL）': ' (Cherry Studio etc., Base URL)',
   '（Claude Code 等，Base URL）': ' (Claude Code etc., Base URL)',
   '自动追加': 'auto-appends',
-  '如需用此密钥在 Cherry Studio / Claude Code 等以 OpenAI / Anthropic 接口直接调用模型，请在创建密钥时勾选「对外模型网关」。': 'To call models directly via the OpenAI / Anthropic protocols in Cherry Studio / Claude Code etc., tick "Also use for the API gateway" when creating the key.',
 
   // ── CreateProjectModal ─────────────────────────────────────────────────────
   '创建项目': 'Create Project',
@@ -537,7 +529,6 @@ export const SETTINGS_DICT: Record<string, string> = {
   // ── 渠道机器人（我的机器人）─────────────────────────────────────────────────
   '我的机器人': 'My Bots',
   '渠道机器人': 'Channel Bot',
-  '飞书机器人': 'Feishu Bot',
   // ── 多渠道（钉钉 / 企业微信 / 微信）──
   '飞书': 'Feishu',
   '钉钉': 'DingTalk',
@@ -565,8 +556,6 @@ export const SETTINGS_DICT: Record<string, string> = {
   '微信已绑定': 'WeChat bound',
   '绑定失败，请重试': 'Bind failed, please retry',
   '获取二维码失败': 'Failed to fetch QR code',
-  '绑定你自己的飞书机器人：消息推给它就由你的智能体回复，复用你的知识库与技能。':
-    'Bind your own Feishu bot: messages sent to it are answered by your agent, reusing your knowledge bases and skills.',
   '注意：机器人以你本人的权限运行——群里任何人 @ 它，都能隔着机器人用到你的知识库与技能。可在「资源范围」里收窄暴露范围。':
     'Note: the bot runs with your permissions — anyone who @-mentions it in a group can reach your knowledge bases and skills through it. You can narrow the exposure in "Resource scope".',
   // ── 智能体页面绑定渠道机器人 ──
@@ -591,20 +580,11 @@ export const SETTINGS_DICT: Record<string, string> = {
   '连接中': 'Connecting',
   '请填写 App ID 和 App Secret': 'Please fill in App ID and App Secret',
   '机器人已绑定': 'Bot bound',
-  '请将回调地址填回飞书后台：{path}': 'Please fill this callback path back into the Feishu console: {path}',
   '绑定失败': 'Bind failed',
   '凭据有效': 'Credentials valid',
   '测试失败': 'Test failed',
   '确认删除该机器人？将清除凭据。': 'Delete this bot? Its credentials will be cleared.',
   '加载机器人列表失败': 'Failed to load bot list',
-  '开放后，用户可在设置中心自助绑定飞书等渠道机器人（以本人身份运行，复用本人的知识库与技能）。':
-    'When enabled, users can self-bind channel bots (e.g. Feishu) in Settings, running as themselves and reusing their own knowledge bases and skills.',
-  '飞书应用需开通权限：im:message（收发消息）、im:resource（收发文件/图片）。开通后机器人即可接收你发来的文档/图片并回传生成的文件。':
-    'Required Feishu app scopes: im:message (send/receive messages) and im:resource (send/receive files & images). Once granted, the bot can receive your documents/images and send back generated files.',
-  '投递到渠道会话（可选）': 'Deliver to channel chat (optional)',
-  '到点把结果发到选定的飞书群/单聊；不选则仅在站内生成。':
-    'On schedule, send the result to the selected Feishu group/DM; leave empty to keep it in-app only.',
-  '不投递到渠道': 'Do not deliver to a channel',
   // 对外网关（工作树既有改动，补齐缺失译文以通过 i18n 门禁）
   '对外网关模型组': 'External gateway model group',
   '如 chat-pool（留空=不分组）': 'e.g. chat-pool (empty = no grouping)',
@@ -613,8 +593,6 @@ export const SETTINGS_DICT: Record<string, string> = {
   '网关权重': 'Gateway weight',
   '模型切换权重': 'Model failover weight',
   '值越大越优先用于模型故障切换；启用网关时也用于网关组权重，默认 1': 'Higher values take priority during model failover and also set gateway group weights when enabled; default: 1',
-  '值越大越优先使用：对外网关同组内按此加权轮询，主模型不可用时也按此顺序自动切换到下一个供应商；默认 1':
-    'Higher means preferred: it weights round-robin within an external gateway group, and also orders the automatic switch to the next provider when the main model is unavailable. Default 1.',
 
   // ── CE 个人系统设置（SystemModelPanel / SystemServicePanel / MyLogsPanel）──
   '模型服务': 'Model Services',
@@ -628,7 +606,6 @@ export const SETTINGS_DICT: Record<string, string> = {
   '接口协议': 'Wire protocol',
   '思考走独立通道（reasoning_content）': 'Reasoning via separate channel (reasoning_content)',
   '上游把思考内容放在独立字段单独下发（reasoning_content 或 reasoning，DeepSeek 官方及多数云网关均属此类，两种字段名都兼容），而不是内联在正文里的 <think> 标签。开启后流式一开始就告知前端「正文就是正文」，模型不思考的回合也能逐字流式；关闭时前端按内联 <think> 兼容处理，无思考的回合正文会攒到该轮结束才一次性显示。自部署 vLLM/sglang 把思考内联在正文输出的保持关闭。': 'The upstream delivers reasoning in a separate field (reasoning_content or reasoning — official DeepSeek API and most cloud gateways; both field names are supported) instead of inline <think> tags in the body. When enabled, the stream announces "content is the answer" from the very start, so turns where the model skips thinking still stream token by token; when disabled, the frontend applies inline-<think> compatibility and a no-thinking turn only shows its answer once the round completes. Keep it off for self-hosted deployments that emit reasoning inline in the body.',
-  '开启后，前端「思考强度」选项里会出现「思考·高 / 思考·超高」两档，并通过 chat_template_kwargs.reasoning_effort 传给上游。需要上游模型本身认 reasoning_effort 字段（如 Qwen3 多档、GPT-OSS、Claude thinking 等），否则可能 4xx。普通 DeepSeek/Qwen 关闭即可。': 'When enabled, the "Thinking Intensity" selector will show "High / Ultra" levels, passed as chat_template_kwargs.reasoning_effort upstream. Requires the upstream model to support the reasoning_effort field (e.g. Qwen3 multi-level, GPT-OSS, Claude thinking). May result in 4xx for other models. Keep disabled for standard DeepSeek/Qwen.',
   '没有符合条件的模型：该角色只能指派已勾选「支持读图（多模态）」的供应商': 'No eligible model: this role only accepts providers with "Supports image input (multimodal)" enabled.',
   '支持读图（多模态）': 'Supports image input (multimodal)',
   '该模型本身能直接看图（如 qwen-vl / GLM-4V / gpt-4o / gemini）。开启后图片会原样送给模型；关闭时，若已为「图像理解（视觉桥）」角色指派了多模态模型，图片会先被转写成文字证据再送入。纯文本模型（DeepSeek、Qwen 文本版等）保持关闭。': 'The model can read images directly (e.g. qwen-vl, GLM-4V, gpt-4o, gemini). When enabled, images are sent to the model as-is. When disabled, images are first transcribed into text evidence by whichever multimodal model is assigned to the "Image understanding (vision bridge)" role. Keep it off for text-only models such as DeepSeek or the text-only Qwen builds.',
@@ -696,12 +673,8 @@ export const SETTINGS_DICT: Record<string, string> = {
   '对话上下文压缩': 'Chat Context Compression',
   '知识库后端': 'Knowledge Base Backend',
   '知识库服务提供方': 'Knowledge base service provider',
-  '知识库 API URL': 'Knowledge Base API URL',
-  '知识库 API Key': 'Knowledge Base API Key',
   '知识库服务鉴权密钥': 'Knowledge base authentication key',
   '允许的数据集 ID': 'Allowed Dataset IDs',
-  '逗号分隔的数据集 ID 白名单，为空则全部允许': 'Comma-separated dataset ID allowlist; empty allows all datasets',
-  '逗号分隔的数据集 ID 白名单（支持直接粘贴数据集页面 URL），为空则全部允许': 'Comma-separated dataset ID allowlist (pasting dataset page URLs is supported); empty allows all datasets',
   '逗号分隔的数据集 ID（可直接粘贴数据集页面 URL），为空则全部允许': 'Comma-separated dataset IDs (pasting dataset page URLs is supported); empty allows all',
   '详情最大字符数': 'Maximum Detail Length',
   '知识库文档详情最大字符数': 'Maximum number of characters in knowledge base document details',
@@ -719,8 +692,6 @@ export const SETTINGS_DICT: Record<string, string> = {
   '启用表格识别': 'Enable Table Recognition',
   '是否启用表格识别': 'Whether to recognize tables',
   '搜索引擎': 'Search Engine',
-  '互联网搜索引擎 (tavily / baidu)': 'Internet search engine (Tavily / Baidu)',
-  '互联网搜索引擎 (tavily / baidu / langsearch)': 'Internet search engine (Tavily / Baidu / LangSearch)',
   'Tavily 互联网搜索服务密钥': 'Tavily internet search service key',
   '百度搜索 API Key': 'Baidu Search API Key',
   '百度千帆 AppBuilder 搜索服务密钥': 'Baidu Qianfan AppBuilder search service key',
@@ -730,11 +701,7 @@ export const SETTINGS_DICT: Record<string, string> = {
   'DeepSeek Search API 服务密钥（DeepSeek 开放平台 API Key）':
     'DeepSeek Search API service key (DeepSeek platform API key)',
   '主智能体代码执行能力': 'Main Agent Code Execution',
-  '开启后主/计划/批量/智能体默认具备文件工具+沙箱+我的空间访问；关闭则仅 Lab 入口可用。本开关为唯一控制源，保存后 ≤30s 生效、无需重启。':
-    'When enabled, main, plan, workflow, and agents can use file tools, the sandbox, and My Space by default. When disabled, only Lab can use them. Changes take effect within 30 seconds without a restart.',
   '轮内压缩触发比例': 'In-turn Compression Threshold',
-  '上下文估算 token 超过「模型窗口 × 该值」时触发轮内压缩（0.5~0.95）。计数用字节估算：中文会被高估（实际触发比标称晚）、英文/代码接近真实。调大=更晚压缩（上下文更完整，但英文/代码密集会话有触顶风险）；调小=更早压缩。':
-    'Trigger in-turn compression when estimated tokens exceed the model context window multiplied by this value (0.5–0.95). Higher values compress later; lower values compress earlier.',
   '百度千帆': 'Baidu Qianfan',
   '技能调用': 'Skill Calls',
   '模型用量': 'Model Usage',
@@ -762,7 +729,6 @@ export const SETTINGS_DICT: Record<string, string> = {
   // GCE evolution console (settings section)
   '进化控制台': 'Evolution console',
   '待我批准的能力': 'Capabilities awaiting your approval',
-  '暂无待批准的能力': 'No capabilities awaiting approval',
   '当同类任务反复出现，系统会把稳定的做法整理成能力候选，等你确认。':
     'When similar tasks recur, the system distils the stable approach into a capability candidate for you to confirm.',
   '能力候选': 'Capability candidate',
@@ -775,8 +741,6 @@ export const SETTINGS_DICT: Record<string, string> = {
   '来自你的 {n} 次对话': 'from {n} of your conversations',
   '为我启用': 'Enable for me',
   // Personal approval queue: only changes the user can actually carry out.
-  '查看将要安装的技能正文': 'View the skill document that will be installed',
-  '收起技能正文': 'Hide the skill document',
   '查看技能详情': 'View skill details',
   '收起技能详情': 'Hide skill details',
   '这个技能会做什么': 'What this skill will do',
@@ -802,16 +766,12 @@ export const SETTINGS_DICT: Record<string, string> = {
   '已为你启用该能力': 'Capability enabled for you',
   '已为你启用该能力，可在「能力中心 → 技能」查看':
     'Capability enabled for you — find it under Capability Centre → Skills',
-  '启用失败，请稍后重试': 'Could not enable it — please try again',
-  '启用后仅对你生效，不影响其他成员；随时可在能力中心停用。':
-    'Enabling applies to you only and does not affect other members; you can disable it anytime in the capability centre.',
   // GCE evolution console + prefs
   '能力进化': 'Capability evolution',
   '进化数据加载失败': 'Could not load evolution data',
   '本次未运行：{reason}': 'Not run this time: {reason}',
   '已扫描 {n} 条证据，产出 {m} 个候选': 'Scanned {n} pieces of evidence, produced {m} candidates',
   '全局启用该能力？': 'Enable this capability for everyone?',
-  '启用后将对所有成员生效。请确认已查看其证据与回放结果。': 'It will apply to every member. Confirm you have reviewed its evidence and replay result.',
   '确认启用': 'Enable',
   '已全局启用': 'Enabled for everyone',
   '启用失败': 'Could not enable',

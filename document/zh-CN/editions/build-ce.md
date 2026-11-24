@@ -28,7 +28,8 @@ glob 模式（相对仓库根），命中即不拷贝。覆盖：
 
 - **后端 EE 模块**：完整的 `edition_ee/**` 实现根（团队/RBAC、SSO、License 验签与闸门、EE ORM、Dify 集成），以及云存储（`core/files/storage/s3.py`、`oss.py`）、Cube 沙箱 provider、记忆审计、技能蒸馏等 EE 服务；
 - **EE 路由**：`api/routes/v1/admin_*.py`、`config_*.py`、`audit.py`、`auth.py`、`team_files.py`、`service_configs.py`、`data_sources.py`、`db_metadata.py`、`gateway_*.py`；
-- **行业 MCP**：`extensions/mcp_servers/query_database_mcp/**`、`ai_chain_information_mcp/**`；
+- **行业 MCP**：`extensions/mcp_servers/ai_chain_information_mcp/**`；
+- **数据库工具**：`features/datasources/**` 与每个数据源一个连接器的 `extensions/mcp_servers/database_mcp/**`（`registry.py` 的 `"database": 9118` 行同时裁掉）；
 - **行业专属前端与种子**：产业链 Canvas、资讯 / 企业画像渲染器、行业 API 客户端、图标资源；
 - **主仓 alembic 链整体**（`alembic/versions/**`，CE 用 overlay 的独立链，见下文）；
 - **10 个行业 / 品牌技能**（`extensions/skills/marketplace/` 下，前 5 个硬依赖 EE 行业 MCP，后 5 个含品牌域文案）；
@@ -53,9 +54,9 @@ transforms 只改文件内容不改路径，因此本步骤为确有需要的路
 
 | pruner | 目标 | 动作 |
 |---|---|---|
-| `catalog_json` | `core/config/catalog.json` | 去掉 EE MCP 种子（`database_query`、`query_database`、`ai_chain_information_mcp`） |
+| `catalog_json` | `core/config/catalog.json` | 去掉 EE MCP 种子（`ai_chain_information_mcp`） |
 | `package_json` | `src/frontend/package.json` | 改名 `hugagent-ui`；删商业 License 预设 `@univerjs/preset-sheets-advanced` 与死依赖 `pptxgenjs`；固定 `@univerjs/icons=1.1.1`，避免无主仓 lockfile 时与 Univer 0.19 发生导出契约不兼容 |
-| `requirements` | `requirements.txt` | 保留 OpenSandbox SDK；删除云存储与 Cube 依赖（boto3 / oss2 / e2b-code-interpreter）；neo4j / mem0ai 移入独立档 `requirements-mem0.txt`（无 Docker 一键安装器会默认安装该档） |
+| `requirements` | `requirements.txt` | 保留 OpenSandbox SDK；删除云存储与 Cube 依赖（boto3 / oss2 / e2b-code-interpreter）及数据库工具驱动（pymysql / pymssql / oracledb / sqlglot）；neo4j / mem0ai 移入独立档 `requirements-mem0.txt`（无 Docker 一键安装器会默认安装该档） |
 | `docker_compose` | `docker-compose.yml` | 保留 OpenSandbox 控制器与配置初始化；Docker CE 默认选择 opensandbox profile；script-runner 保留可选 profile。控制器不映射宿主端口，使用初始化生成的密钥。删除企业模型网关与企业环境变量 |
 | `frontend_lock` | `package-lock.json` + 前端 Dockerfile | 删 lock（与裁剪后的 package.json 必然失同步）、`npm ci` 改 `npm install` |
 | `repository_resources` | 内置商业字体的构建与源码引用 | 从 CE Dockerfile 删除字体复制/安装段，并清除后端的仓库字体目录回退引用；生成后由禁止产物门禁再次检查 |

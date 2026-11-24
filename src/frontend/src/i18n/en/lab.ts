@@ -36,7 +36,6 @@ export const LAB_DICT: Record<string, string> = {
   '任务类型': 'Task Type',
   '执行计划': 'Execution Plan',
   '任务名称': 'Task Name',
-  '为任务取一个名称（可选）': 'Give the task a name (optional)',
   '请输入提示词': 'Please enter a prompt',
   '输入需要定时执行的提示词，如：帮我搜索今天的政策新闻并生成摘要': "Enter the prompt to run on schedule, e.g.: Search today's policy news and generate a summary",
   '选择计划': 'Select Plan',
@@ -92,10 +91,8 @@ export const LAB_DICT: Record<string, string> = {
   '手动执行': 'Manual',
 
   // ── AutomationPanel ────────────────────────────────────────────
-  '设置定时或周期性 AI 任务，到时间后自动执行': 'Set up scheduled or recurring AI tasks that run automatically',
   '创建自动化': 'Create Automation',
   '暂无定时任务': 'No scheduled tasks yet',
-  '创建第一个定时任务': 'Create your first scheduled task',
   '已完成 / 已停用': 'Completed / Disabled',
 
   // ── ScheduleSelector ──────────────────────────────────────────
@@ -125,8 +122,6 @@ export const LAB_DICT: Record<string, string> = {
   '自主循环': 'Autonomous Loop',
   '让智能体自我推进的长时运行任务：按可验证目标（环境验证）反复迭代、自我修正，达标或触预算即停': 'Long-running tasks where the agent self-advances: iterating against a verifiable goal (environment verification), self-correcting, and stopping on success or budget exhaustion',
 
-  // ── SkillDistillCreateModal ───────────────────────────────────
-
   // ── LabPanel ──────────────────────────────────────────────────
   'AI 能力实验性应用': 'Experimental AI Features',
   '暂无访问权限，请联系管理员开通实验室权限。': 'No access. Please contact your administrator to enable Lab.',
@@ -145,10 +140,6 @@ export const LAB_DICT: Record<string, string> = {
 
   // CRON_PRESETS labels
   '每天 09:00': 'Every day at 09:00',
-  '工作日 09:00': 'Weekdays at 09:00',
-  '每周一 09:00': 'Every Monday at 09:00',
-  '每 2 小时': 'Every 2 hours',
-  '每 6 小时': 'Every 6 hours',
 
   // formatRelativeTime interpolated keys
   '即将执行': 'Running soon',
@@ -257,7 +248,6 @@ export const LAB_DICT: Record<string, string> = {
   '创建定时任务来自动执行周期性 AI 工作': 'Create a scheduled task to run recurring AI work automatically',
   '定时任务执行后，这里会汇总每一次的运行结果': 'Once tasks run, every execution result is summarised here',
   '未命名任务': 'Untitled task',
-  '{n} 秒': '{n}s',
 
   // ── 推荐任务轮播 ──
   '推荐任务': 'Recommended Tasks',

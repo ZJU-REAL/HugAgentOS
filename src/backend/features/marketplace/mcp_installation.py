@@ -168,6 +168,14 @@ async def install_market_item(
     The URL check and probe run between two database steps, on a transient
     candidate row, so nothing is held open while the remote server answers.
     """
+    from features.marketplace import managed_items
+
+    # Items another feature owns carry platform-fixed connection details: their
+    # owner installs them, without installer credentials or a remote probe.
+    managed = await run_in_session(managed_items.try_install, slug, owner_user_id, installed_by)
+    if managed is not None:
+        refresh_mcp_caches()
+        return managed
     plan = await run_in_session(
         _plan_installation, slug, owner_user_id, installed_by, credentials, auth_method, oauth_bundle
     )

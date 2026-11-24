@@ -78,9 +78,9 @@ Each source can be disabled individually via `HUGAGENT_DISABLE_{ADMIN,USER,PROJE
   [`2900a4a20f49`](https://github.com/iOfficeAI/OfficeCLI/commit/2900a4a20f49d6a94384d6ea7fb8cc0120999825)
   (2026-10-20), preserving this system's Chinese triggers and runtime/delivery rules.
 
-- **`marketplace/` — 45 installable skill packages** (install-to-use): each directory holds the raw SKILL.md, referenced files and a `marketplace.json` manifest. Because they sit two levels deep at `marketplace/<slug>/SKILL.md`, the built-in loader **never** auto-loads them — before installation they don't appear in the catalog and aren't registered with agents; only an explicit install persists them.
+- **`marketplace/` — 54 installable skill packages** (install-to-use): each directory holds the raw SKILL.md, referenced files and a `marketplace.json` manifest. Because they sit two levels deep at `marketplace/<slug>/SKILL.md`, the built-in loader **never** auto-loads them — before installation they don't appear in the catalog and aren't registered with agents; only an explicit install persists them.
 
-  Ten of these are industry/brand skills (economic-indicator query, enterprise profiling, industry-chain analysis, etc.) hard-wired to the [EE industry MCP servers](mcp-tools.md) and are therefore **Enterprise EE**; the CE derivation strips them via `ce/manifest.yaml`.
+  Industry skills (enterprise profiling, industry-chain analysis, industry news, etc.) are hard-wired to the [EE industry MCP servers](mcp-tools.md) and ship inside the Enterprise EE plugin `industry-knowledge-center` rather than here; `process-guidance` here is also **Enterprise EE**. The CE derivation strips them via `ce/manifest.yaml`.
 
 ## Injection: how skills enter the prompt
 
@@ -123,7 +123,7 @@ skills come only from the current user's rows. Existing source priorities resolv
   retired trees stay outside the sandbox skill mounts.
 - The shared root defaults to `$STORAGE_PATH/sandbox_skills`; private files live in the sibling
   `sandbox_skills_u/<user_id>` tree. User views reference shared skills through relative links.
-  Sandbox mounts at `/workspace/skills` and `/workspace/skills_shared` remain read-only.
+  Sandbox mounts at `/workspace/skills` and `/workspace/.skills_shared` remain read-only.
   The backend publishes and removes files through its writable source directory.
 - Web, admin, MCP and plugin deletion paths remove materialized files. New-session preparation also
   removes historical orphans using current sources, independently of another worker's cache
@@ -289,7 +289,7 @@ only submission, never conversation or continued local editing.
 | `src/backend/core/capabilities/skills/backends/` | filesystem / database / composite loading backends |
 | `src/backend/core/llm/tools/skill_tool.py` | Restricted view_text_file + {baseDir} substitution + Runtime Hint |
 | `src/backend/extensions/skills/default/` | The 12 built-in skills (incl. the 10 OfficeCLI ones) |
-| `src/backend/extensions/skills/marketplace/` | The 45 installable marketplace packages |
+| `src/backend/extensions/skills/marketplace/` | The 54 installable marketplace packages |
 | `src/backend/features/marketplace/` | Marketplace listing / install / secret injection / submission review |
 | `src/backend/features/marketplace/api/marketplace.py` | User-side marketplace API (browse/install/submit/withdraw) |
 | `src/backend/features/marketplace/api/admin_marketplace.py` | Admin marketplace API (global install / submission review) |

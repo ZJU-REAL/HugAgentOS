@@ -10,12 +10,6 @@ export const CORE_DICT: Record<string, string> = {
   '导航': 'Navigation',
   '更多': 'More',
   // ── 语境消歧条目（tCtx 专用，key 形如 `中文#ctx`） ──
-  '关闭#switch': 'Off',
-  '退出#leave': 'Leave',
-  '恢复#restore': 'Restore',
-  '启用#state': 'Enabled',
-  '创建#time': 'Created',
-  '图片#unit': 'image ',
   'HugAgentOS AI 智能助手': 'HugAgentOS AI Assistant',
   'AI 智能助手': 'AI Assistant',
   '基于 AI 能力的场景化智能应用': 'AI-powered smart applications for business scenarios',
