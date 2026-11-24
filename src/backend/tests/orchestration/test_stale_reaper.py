@@ -20,11 +20,9 @@ import core.runs.settings as settings
 import core.runs.tasks as tasks
 import core.runs.watchdog as watchdog
 import pytest
-from core.db.engine import Base
 from core.db.models import ChatRun
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+from tests.db_support import memory_engine, share_factory
 
 # ─── fakes / fixtures ──────────────────────────────────────────────────
 
@@ -52,16 +50,11 @@ class FakeRedis:
 @pytest.fixture()
 def reaper_env(monkeypatch):
     """Isolated in-memory sqlite DB + FakeRedis, all patched into the executor module."""
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
+    engine = memory_engine()
     session_factory = sessionmaker(bind=engine)
     fake_redis = FakeRedis()
     monkeypatch.setattr(run_event_stream, "redis_configured", lambda: True)
-    monkeypatch.setattr(db_engine, "SessionLocal", session_factory)
+    share_factory(monkeypatch, session_factory)
     monkeypatch.setattr('core.runs.events.store.get_redis', lambda **_: fake_redis)
     yield session_factory, fake_redis
     engine.dispose()

@@ -382,7 +382,7 @@ export default function ShareRecordsPage({ embedded = false, hideEmbeddedDesc = 
                     <Popover
                       trigger="click"
                       placement="bottomLeft"
-                      overlayClassName="jx-shareRecordIdPopover"
+                      classNames={{ root: "jx-shareRecordIdPopover" }}
                       content={<span className="jx-shareRecordIdValue">{record.share_id}</span>}
                     >
                       <button type="button" className="jx-shareRecordMetaBtn">

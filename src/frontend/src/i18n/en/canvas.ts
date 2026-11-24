@@ -22,7 +22,6 @@ export const CANVAS_EN: Record<string, string> = {
   '{app}（默认）': '{app} (default)',
   '正在读取关联应用…': 'Loading applications…',
   '重新读取关联应用': 'Retry loading applications',
-  '请输入有效的网页地址': 'Enter a valid web address',
   '打开失败': 'Unable to open',
   '新标签页': 'New tab',
   '网页地址': 'Web address',

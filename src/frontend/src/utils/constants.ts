@@ -1,6 +1,7 @@
 import type { PanelKey } from '../types';
 import { t } from '../i18n';
 import { EDITION_TOOL_NAME_OVERRIDES } from '../toolEdition';
+import { API_BASE } from './apiBase';
 
 export type CatalogKind = Exclude<PanelKey, 'chat' | 'docs' | 'app_center' | 'share_records' | 'settings'>;
 
@@ -77,8 +78,7 @@ export const ROOT_FOLDER_SENTINEL = '__root__';
 
 
 /** API base URL (e.g. '/api') */
-export const getApiBase = (): string =>
-  (import.meta.env.VITE_API_BASE_URL as string || '/api').replace(/\/+$/, '');
+export const getApiBase = (): string => API_BASE;
 
 /** Build a direct download URL for an artifact file. */
 export const buildFileUrl = (fileId: string): string =>

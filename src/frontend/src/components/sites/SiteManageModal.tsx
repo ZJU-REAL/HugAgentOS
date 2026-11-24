@@ -82,11 +82,11 @@ export function SiteManageModal({
       open
       onCancel={onClose}
       closable={!applicationBusy}
-      maskClosable={!applicationBusy}
+      mask={{ closable: !applicationBusy }}
       keyboard={!applicationBusy}
       footer={null}
       width={720}
-      destroyOnClose
+      destroyOnHidden
     >
       <Tabs
         items={[

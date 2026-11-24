@@ -54,17 +54,6 @@ class UpdateCatalogRequest(BaseModel):
     config: Optional[Dict[str, Any]] = Field(None, description="Configuration overrides")
 
 
-class CatalogItemResponse(BaseModel):
-    """Response model for a catalog item."""
-
-    id: str
-    name: str
-    description: str
-    enabled: bool
-    config: Optional[Dict[str, Any]] = None
-    metadata: Optional[Dict[str, Any]] = None
-
-
 @router.patch("/{kind:catalog_kind}/{id}", summary="更新能力配置")
 def update_catalog_item(
     kind: str = Path(..., description="Item kind: skills, agents, mcp, or knowledge_bases"),

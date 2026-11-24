@@ -13,7 +13,6 @@ from core.harness.hooks import Decision, HookBus, HookContractError, HookSpec, H
 from core.harness.observation_writer import flush_observations
 from core.harness.usage import MemoryUsageRecorder
 from core.llm.runtime.agentscope_hook_adapter import AgentScopeHookAdapter, adapt_agentscope_event
-from core.llm.middleware.migration_map import MIDDLEWARE_MIGRATION, deletion_checklist
 
 
 def _fake(name: str, **fields):
@@ -52,32 +51,6 @@ def test_fake_model_and_tool_events_have_stable_neutral_shape():
     assert tool.stage == HookStage.AFTER_TOOL
     assert tool.operation_name == "write"
     assert tool.data["metadata"]["tool_call_id"] == "tc-1"
-
-
-def test_every_registered_business_middleware_has_a_deletion_entry():
-    expected = {
-        "DynamicModelMiddleware",
-        "FileContextMiddleware",
-        "SteerMiddleware",
-        "WorkspacePinHintMiddleware",
-        "IterBudgetReminderMiddleware",
-        "StallInterventionMiddleware",
-        "OntologyGateMiddleware",
-        "ToolPermissionMiddleware",
-        "CitationAnchorMiddleware",
-        "ActingToolCallIdMiddleware",
-        "ToolEffectMiddleware",
-        "JobLedgerReminderMiddleware",
-        "FinishPinGuardMiddleware",
-        "CommandCompletionMiddleware",
-        "ProjectEnvironmentMiddleware",
-        "ScreenshotPruningMiddleware",
-        "PlanStaleReminderMiddleware",
-    }
-    assert {item.middleware for item in MIDDLEWARE_MIGRATION} == expected
-    assert all(item.status == "neutral-hook" for item in MIDDLEWARE_MIGRATION)
-    assert all(item.delete_after for item in MIDDLEWARE_MIGRATION)
-    assert len(deletion_checklist()) == len(expected)
 
 
 @pytest.mark.asyncio

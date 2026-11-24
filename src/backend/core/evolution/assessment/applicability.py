@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -80,77 +80,4 @@ def manifest_permits(
     return True, "permitted"
 
 
-def filter_by_manifest(
-    skill_manifests: Dict[str, Optional[Dict[str, Any]]],
-    *,
-    task_type: Optional[str] = None,
-    relation_active: Optional[Callable[[str], Optional[bool]]] = None,
-) -> List[str]:
-    """Of ``{skill_id: manifest}``, the ids permitted in this context."""
-    permitted: List[str] = []
-    for skill_id, manifest in skill_manifests.items():
-        ok, reason = manifest_permits(
-            manifest, task_type=task_type, relation_active=relation_active
-        )
-        if ok:
-            permitted.append(skill_id)
-        else:
-            logger.info("[applicability] %s withheld: %s", skill_id, reason)
-    return permitted
-
-
 # ── Replay coverage ──────────────────────────────────────────────────────────
-
-
-def assess_replay_coverage(
-    pack: Any,
-    task_ids: Sequence[str],
-) -> Dict[str, Any]:
-    """Whether a replay set covers what the pack claims. ``pack`` is a
-    :class:`~core.evolution.evidence.evidence_contract.CapabilityEvidencePackV2`.
-
-    Required, each only when the pack actually contains that class of evidence:
-
-    * ≥1 成功 Episode（有效性的最低门槛）；
-    * pack 带失败恢复 → 回放集必须含失败 Episode；
-    * pack 带负样本 → 回放集必须含负样本 Episode；
-    * pack 的 L3 证据带依赖 → 回放集须同时覆盖「用到图谱」与「没用图谱」
-      两类场景（当证据里两类都存在时）。
-    """
-    chosen = {str(t) for t in task_ids}
-    missing: List[str] = []
-
-    episodes = list(getattr(pack, "episodes", []) or [])
-    by_id = {str(e.get("episode_id") or ""): e for e in episodes}
-    selected = [by_id[t] for t in chosen if t in by_id]
-
-    if not any(e.get("verdict") == "success" for e in selected):
-        missing.append("success_episode")
-
-    failure_ids = {
-        str(f.get("episode_id") or "")
-        for f in getattr(pack, "failure_recoveries", []) or []
-    } - {""}
-    if failure_ids and not (failure_ids & chosen):
-        missing.append("failure_recovery_episode")
-
-    negative_ids = {
-        str(n.get("episode_id") or "")
-        for n in getattr(pack, "negative_examples", []) or []
-    } - {""}
-    if negative_ids and not (negative_ids & chosen):
-        missing.append("negative_example_episode")
-
-    has_dependency = any(
-        str(r.get("role") or "") in ("dependency", "constraint")
-        for r in getattr(pack, "graph_context", []) or []
-    )
-    if has_dependency:
-        with_graph = {e["episode_id"] for e in episodes if e.get("used_graph")}
-        without_graph = {e["episode_id"] for e in episodes if not e.get("used_graph")}
-        if with_graph and not (with_graph & chosen):
-            missing.append("graph_dependency_episode")
-        if without_graph and not (without_graph & chosen):
-            missing.append("no_graph_dependency_episode")
-
-    return {"covered": not missing, "missing": missing}

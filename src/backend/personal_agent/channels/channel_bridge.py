@@ -66,12 +66,24 @@ def load_file(chat_id, artifact_id):
         raise OutputUnavailable("Personal Agent output exceeds 20 MiB")
     return content, name, mime
 
+def connected(conn, user_id):
+    """Hugo answers every bot its owner bound for the main agent: one not tied to a sub-agent."""
+    return bool(conn and conn.owner_user_id == str(user_id) and conn.agent_id is None and conn.channel_type in SUPPORTED)
+
+def connected_bots(db, user_id, enabled_only=False):
+    """The owner's bots Hugo answers."""
+    from integrations.channels.service import ChannelService
+    return [conn for conn in ChannelService(db).list_bots(str(user_id), main_only=True)
+            if connected(conn, user_id) and (conn.enabled or not enabled_only)]
+
+def connected_ids(db, user_id, enabled_only=False):
+    return {conn.channel_id for conn in connected_bots(db, user_id, enabled_only)}
+
 def handled_by_agent(db, conn):
-    """True when the bot owner routed this bot to Personal Agent."""
+    """True when Hugo answers this bot."""
     agent = db.scalar(select(PersonalAgent).where(PersonalAgent.user_id == conn.owner_user_id))
     # Without the permission the bot answers as an ordinary channel bot again.
-    return bool(agent and conn.channel_id in (agent.config or {}).get("channel_ids", [])
-                and access.allowed(db, conn.owner_user_id))
+    return bool(agent and connected(conn, conn.owner_user_id) and access.allowed(db, conn.owner_user_id))
 
 def pack(msg):
     data = dataclasses.asdict(msg)
@@ -192,12 +204,14 @@ def home_origin(db, chat_id):
     the owner's latest one-to-one message to the bot they chose, or, with no bot chosen, to any connected
     bot. None when the owner chose the web only ("none"), or without such a conversation."""
     agent = db.scalar(select(PersonalAgent).where(PersonalAgent.chat_id == chat_id))
-    config = (agent.config or {}) if agent else {}
+    if not agent: return None
+    config = agent.config or {}
     channel = (config.get("heartbeat") or {}).get("channel_id")
-    connected = config.get("channel_ids", [])
-    if channel == "none" or not connected or (channel and channel not in connected): return None
+    if channel == "none": return None
+    # Only an enabled bot Hugo answers: the only kind delivery can write to.
+    ids = connected_ids(db, agent.user_id, enabled_only=True)
+    if not ids or (channel and channel not in ids): return None
     # No bot chosen: the bot of the owner's latest direct chat.
-    bots = {channel} if channel else set(connected)
     from core.db.models import ChatSession
     from personal_agent.conversation.conversations import MARKER
     rows = db.scalars(select(ChatMessage).join(ChatSession, ChatSession.chat_id == ChatMessage.chat_id).where(
@@ -207,7 +221,8 @@ def home_origin(db, chat_id):
     from personal_agent.channels.owner_binding import listed
     for row in rows:
         origin = (row.extra_data or {}).get("channel_origin") or {}
-        if (origin.get("channel_id") not in bots or (origin.get("msg") or {}).get("chat_type") == "group"
+        if (origin.get("channel_id") not in ids or (channel and origin["channel_id"] != channel)
+                or (origin.get("msg") or {}).get("chat_type") == "group"
                 or not origin.get("owner") or not row.created_at):
             continue
         # Never a group, and only an account listed now, written in since it was listed: an alert is for the owner only.
@@ -272,8 +287,7 @@ def delivery_allowed(chat_id, conn):
         agent = (db.get(PersonalAgent, (session.extra_data or {}).get(MARKER)) if session and (session.extra_data or {}).get(MARKER)
                  else db.scalar(select(PersonalAgent).where(PersonalAgent.chat_id == chat_id)))
         return bool(agent and conn and agent.user_id == conn.owner_user_id
-                    and conn.channel_id in (agent.config or {}).get("channel_ids", [])
-                    and access.allowed(db, agent.user_id))
+                    and connected(conn, agent.user_id) and access.allowed(db, agent.user_id))
 
 def connection(channel_id):
     """An enabled bot connection, detached with its credentials loaded, or None."""
@@ -438,34 +452,21 @@ def retry_delivery(db, agent, message_id):
     return {"message_id": message_id, "status": "pending"}
 
 def bots(db, uid):
-    """The owner's bots, with the Personal Agent routing flag."""
-    from integrations.channels.service import ChannelService, bot_to_dict
+    """The owner's bots Hugo answers, with who may instruct each one."""
+    from integrations.channels.service import bot_to_dict
     agent = db.scalar(select(PersonalAgent).where(PersonalAgent.user_id == str(uid)))
     config = (agent.config or {}) if agent else {}
-    routed = set(config.get("channel_ids", []))
     result = []
-    for conn in ChannelService(db).list_bots(str(uid), main_only=True):
+    for conn in connected_bots(db, uid):
         item = bot_to_dict(conn)
-        if item.get("channel_type") not in SUPPORTED: continue
         result.append({"channel_id": item["channel_id"], "channel_type": item["channel_type"],
             "display_name": item.get("display_name"), "enabled": item.get("enabled"),
-            "status": item.get("status"), "personal_agent": item["channel_id"] in routed,
-            "access": channel_access(config, item["channel_id"])})
+            "status": item.get("status"), "access": channel_access(config, item["channel_id"])})
     return result
 
 def _own_bot(db, uid, channel_id):
-    from integrations.channels.service import ChannelService
-    if channel_id not in {conn.channel_id for conn in ChannelService(db).list_bots(str(uid), main_only=True)}:
-        raise LookupError("Bot not found")
+    if channel_id not in connected_ids(db, uid): raise LookupError("Bot not found")
 
-def route(db, uid, channel_id, enabled):
-    _own_bot(db, uid, channel_id)
-    from personal_agent.identity.config import update_config
-    def change(config):
-        ids = [ident for ident in config.get("channel_ids", []) if ident != channel_id]
-        config["channel_ids"] = ids + ([channel_id] if enabled else [])
-    update_config(db, uid, change)
-    return bots(db, uid)
 
 def allow_account(db, uid, channel_id, *, key=None, sender_id=None):
     """List an account that may instruct this bot: a recent private sender (key), or a typed ID."""

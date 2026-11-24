@@ -5,7 +5,6 @@ from typing import Any, Callable
 
 
 def register_model_services(*, ranker: Callable[..., list[str]], prompt_reader: Callable[[], list[tuple[str, dict[str, Any]]]], prompt_renderer: Callable, text_agent: Callable, environment: Callable) -> None:
-    pass
     registration_state().ranker = ranker
     registration_state().prompt_reader = prompt_reader
     registration_state().prompt_renderer = prompt_renderer

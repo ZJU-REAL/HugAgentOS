@@ -12,8 +12,6 @@ from core.infra.logging import get_logger
 
 logger = get_logger(__name__)
 
-RunKind = _typing.Literal["chat", "plan_execute", "plan_generate", "autonomous_loop"]
-
 
 _COOPERATIVE_KINDS: tuple[str, ...] = ("plan_execute", "autonomous_loop")
 

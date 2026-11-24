@@ -10,21 +10,27 @@ ownership, and no admin privileges are needed. Also available under EE (own
 data, no governance conflict); cross-user review still goes through the EE
 admin console.
 
-Query logic is a trimmed-down adaptation of admin_logs.py — those two files
-don't exist in the CE tree and cannot be imported, so the pagination/filter
-helpers are inlined here.
+Query logic is a trimmed-down adaptation of admin_logs.py; the row / filter
+helpers both use live in ``log_queries.py`` (the ``admin_*`` modules don't
+exist in the CE tree).
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
+from api.routes.v1.log_queries import (
+    apply_date_range as _apply_date_range,
+    apply_filters as _apply_filters,
+    serialize_log as _serialize,
+    session_title_map as _session_title_map,
+)
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
 from core.db.usage_filters import model_usage_message_filter
@@ -40,47 +46,6 @@ from core.infra.responses import paginated_response, success_response
 router = APIRouter(prefix="/v1/me/logs", tags=["My Logs"])
 logger = logging.getLogger(__name__)
 
-_DATETIME_FIELDS = ("started_at", "completed_at", "created_at")
-
-
-def _row_to_dict(row: Any, *, session_title: Optional[str] = None) -> Dict[str, Any]:
-    data: Dict[str, Any] = {}
-    for col in row.__table__.columns:
-        val = getattr(row, col.name)
-        if col.name in _DATETIME_FIELDS and val is not None:
-            val = val.isoformat()
-        data[col.name] = val
-    if session_title is not None or "chat_id" in data:
-        data["session_title"] = session_title
-    return data
-
-
-def _session_title_map(db: Session, chat_ids: List[str]) -> Dict[str, str]:
-    if not chat_ids:
-        return {}
-    rows = (
-        db.query(ChatSession.chat_id, ChatSession.title)
-        .filter(ChatSession.chat_id.in_(list(set(chat_ids))))
-        .all()
-    )
-    return {r.chat_id: r.title for r in rows}
-
-
-def _apply_filters(query, mapping: Dict[Any, Any]):
-    for col, value in mapping.items():
-        if value is None:
-            continue
-        query = query.filter(col == value)
-    return query
-
-
-def _apply_date_range(query, col, date_from, date_to):
-    if date_from:
-        query = query.filter(col >= date_from)
-    if date_to:
-        query = query.filter(col <= date_to)
-    return query
-
 
 def _paginate(query, page: int, page_size: int, order_col):
     total = query.count()
@@ -91,11 +56,6 @@ def _paginate(query, page: int, page_size: int, order_col):
         .all()
     )
     return rows, total
-
-
-def _serialize(row, titles: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
-    title = (titles or {}).get(getattr(row, "chat_id", None)) if titles is not None else None
-    return _row_to_dict(row, session_title=title)
 
 
 def _get_own_row(db: Session, model, log_id: str, user_id: str):

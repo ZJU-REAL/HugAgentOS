@@ -15,7 +15,7 @@ import { copyHtmlToClipboard } from '../../utils/clipboard';
 import { message } from 'antd';
 import { ForkChatButton } from './ForkChatButton';
 import { formatTurnSeconds } from '../../utils/elapsed';
-const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
+import { API_BASE } from '../../utils/apiBase';
 
 /** Format a message timestamp as local "YYYY-MM-DD HH:MM:SS", shown below each message. */
 function formatMsgTime(ts: number): string {
@@ -184,7 +184,7 @@ export function MessageActions({ m, messageIndex, currentChatId, exportChatRecor
                   const next = feedbackMap[m.uid] === 'like' ? undefined : 'like' as const;
                   setFeedbackMap(next ? { ...feedbackMap, [m.uid]: next } : Object.fromEntries(Object.entries(feedbackMap).filter(([k]) => k !== m.uid)));
                   if (next && m.messageId) {
-                    authFetch(`${effectiveApiUrl}/v1/chats/messages/${m.messageId}/feedback`, {
+                    authFetch(`${API_BASE}/v1/chats/messages/${m.messageId}/feedback`, {
                       method: 'POST', headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ rating: 'like', chat_id: currentChatId }),
                     }).catch(() => {});
@@ -255,7 +255,7 @@ export function MessageActions({ m, messageIndex, currentChatId, exportChatRecor
                 <Button size="small" onClick={() => setDislikingUid(null)}>{t('跳过')}</Button>
                 <Button size="small" type="primary" onClick={() => {
                   if (m.messageId) {
-                    authFetch(`${effectiveApiUrl}/v1/chats/messages/${m.messageId}/feedback`, {
+                    authFetch(`${API_BASE}/v1/chats/messages/${m.messageId}/feedback`, {
                       method: 'POST', headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ rating: 'dislike', comment: dislikeComment || undefined, chat_id: currentChatId }),
                     }).catch(() => {});

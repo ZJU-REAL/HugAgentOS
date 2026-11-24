@@ -43,7 +43,7 @@ export function PersonalApprovalPill({ mode, onChange }: { mode?: ApprovalMode; 
   }];
   const label = saving ? t('正在保存权限…') : t(META[current].label);
 
-  return <Dropdown disabled={saving} trigger={['click']} placement="topLeft" overlayClassName="jx-modeMenu jx-approvalMenu" onOpenChange={setOpen} menu={{ items }}>
+  return <Dropdown disabled={saving} trigger={['click']} placement="topLeft" classNames={{ root: "jx-modeMenu jx-approvalMenu" }} onOpenChange={setOpen} menu={{ items }}>
     <button type="button" disabled={saving} aria-busy={saving} className={'jx-composerChip jx-projectDropBtn jx-approvalPillBtn' + (open ? ' open' : '')}
       title={t('操作权限（操作前要不要先问你一句）')} aria-label={t('操作权限：{label}，点击切换', { label })}>
       <span className="jx-approvalPillIcon">{META[current].icon}</span>

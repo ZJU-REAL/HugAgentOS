@@ -1,4 +1,5 @@
-.PHONY: help install install-dev dev test selftest lint format type-check security-scan \
+.PHONY: help install install-dev dev test selftest lint format type-check type-check-all security-scan \
+	check-tool-versions \
 	migrate migrate-new migrate-down migrate-history db-reset \
 	build build-no-cache up up-recreate down down-volumes restart logs logs-backend logs-frontend ps \
 	health-check clean clean-docker clean-all
@@ -17,14 +18,16 @@ help:
 	@echo "  make install        - Install runtime dependencies"
 	@echo "  make install-dev    - Install project with dev extras"
 	@echo "  make dev            - Start backend in local dev mode"
-	@echo "  make test           - Run backend test suite with coverage"
+	@echo "  make test           - Run backend test suite with coverage (needs dev extras)"
 	@echo "  make selftest       - Run backend self-tests (fail fast)"
 	@echo ""
 	@echo "Quality:"
 	@echo "  make lint           - Run format checks"
 	@echo "  make format         - Format code"
-	@echo "  make type-check     - Run mypy"
-	@echo "  make security-scan  - Run bandit and safety checks"
+	@echo "  make type-check     - Run the blocking mypy gate (same as CI)"
+	@echo "  make type-check-all - Run advisory mypy over core/ and api/"
+	@echo "  make security-scan  - Run bandit and safety scans"
+	@echo "  make check-tool-versions - Check pinned CLI versions across Dockerfiles"
 	@echo ""
 	@echo "Database:"
 	@echo "  make migrate        - Apply latest migrations"
@@ -75,12 +78,21 @@ format:
 	black . --line-length=100
 	isort . --profile black
 
+# Keep the paths and config in sync with the type-check job in .github/workflows/ci.yml.
+MYPY_GATE_PATHS := src/backend/personal_agent/ src/backend/hugagent_cli/ src/backend/features/desktop/
+
 type-check:
-	mypy src/backend --ignore-missing-imports
+	mypy --config-file mypy-gate.ini $(MYPY_GATE_PATHS)
+
+type-check-all:
+	-mypy src/backend/core/ src/backend/api/ --ignore-missing-imports
 
 security-scan:
-	bandit -r . -ll -i -x src/backend/tests,venv
-	safety check
+	bandit -r src/backend -ll -i -x src/backend/tests
+	safety scan
+
+check-tool-versions:
+	$(PYTHON) scripts/check_tool_versions.py
 
 migrate:
 	alembic upgrade head

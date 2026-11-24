@@ -33,7 +33,6 @@ def index_assets(
 
     from features.knowledge.kb_vector_state import TAGS_FIELD_MAX_BYTES, TITLE_FIELD_MAX_BYTES
     from core.models.embedding import embed_batch
-    from features.knowledge.kb_vector import text_to_sparse
     from features.knowledge.vector_fields import truncate_utf8
     from features.knowledge.vector_indexing import upsert_rows
 
@@ -63,7 +62,7 @@ def index_assets(
                 "tags_text": truncate_utf8(asset.text_content or "", TAGS_FIELD_MAX_BYTES),
                 "chunk_index": asset.asset_index or 0,
                 "dense_embedding": vector,
-                "sparse_embedding": text_to_sparse(text),
+                "sparse_text": text,
             }
         )
 

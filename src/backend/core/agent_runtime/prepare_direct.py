@@ -107,12 +107,10 @@ async def prepare_direct(turn: DirectTurn):
     # tool_id → tool_args, used at the tool_result stage to recover view_text_file's file_path/ranges
     turn.view_text_file_args: _typing.Dict[str, _typing.Dict[str, _typing.Any]] = {}
 
-    # Project scope is no longer passed via ContextVar — it now travels as
-    # explicit parameters along the call chain (agent_factory closes
-    # ProjectScope into every register_* tool; chats.py's finishing
-    # _persist_artifacts reconstructs the scope from the workflow context
-    # and passes it explicitly). See the header comment in
-    # core/projects/scope.py.
+    # Project scope travels as explicit parameters along the call chain, never
+    # via ContextVar: the factory closes ProjectScope into every register_*
+    # tool, and the worker's final _persist_artifacts rebuilds the scope from
+    # the run context and passes it explicitly.
 
     # Never keep a ContextVar token alive across an async-generator
     # ``yield``. The consumer may resume this generator in a copied

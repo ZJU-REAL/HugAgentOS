@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from core.capabilities.identity_rules import KIND_SKILL, KIND_PLUGIN, KIND_AGENT, KIND_MCP, KINDS, LOCAL_PROFILE, BUILTIN_PROFILE, safe_segment
+from core.capabilities.identity_rules import KIND_SKILL, KIND_PLUGIN, KIND_AGENT, safe_segment
 from typing import Optional
 
 from core.config.runtime_env import CAPS_ROOT_ENV

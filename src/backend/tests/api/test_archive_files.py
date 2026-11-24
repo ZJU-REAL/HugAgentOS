@@ -6,24 +6,20 @@ import zipfile
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
-from sqlalchemy.pool import StaticPool
 
 from api.routes.files import router
 from core.auth.backend import UserContext, get_current_user
-from core.db.engine import Base, get_db
+from core.db.engine import get_db
 from core.db.models import Artifact
 from core.files.storage.local import LocalStorageBackend
 from tests.db_support import share_session
+from tests.db_support import memory_engine
 
 
 @pytest.fixture
 def archive_client(tmp_path, monkeypatch):
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
+    engine = memory_engine()
     db = Session(engine)
     monkeypatch.setenv("STORAGE_PATH", str(tmp_path / "storage"))
     storage = LocalStorageBackend()

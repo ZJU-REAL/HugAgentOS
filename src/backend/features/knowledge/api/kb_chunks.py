@@ -1,4 +1,4 @@
-"""kb chunks responsibilities."""
+"""KB chunk routes: list chunks (with tags and questions), list a parent chunk's children, edit a chunk."""
 from __future__ import annotations
 from fastapi import APIRouter
 router = APIRouter()
@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 import logging
 logger = logging.getLogger(__name__)
 from features.knowledge.api import kb_helpers
+from core.db.paging import apply_page
 
 @router.get("/{kb_id}/chunks", summary="获取文档分块列表（含标签和问题）")
 def list_chunks(
@@ -55,7 +56,7 @@ def list_chunks(
         query = query.filter(KBChunk.document_id == document_id)
     total = query.count()
     chunks = (
-        query.order_by(KBChunk.chunk_index).offset((page - 1) * page_size).limit(page_size).all()
+        apply_page(query.order_by(KBChunk.chunk_index), page=page, page_size=page_size).all()
     )
 
     items = [
@@ -96,7 +97,7 @@ def list_chunk_children(
 
     from features.knowledge.vector_indexing import get_children_for_parent
 
-    children = get_children_for_parent(chunk_id)
+    children = get_children_for_parent(chunk_id, kb_id)
     return success_response(
         data={"children": children, "count": len(children)},
         message="Chunk children retrieved successfully",

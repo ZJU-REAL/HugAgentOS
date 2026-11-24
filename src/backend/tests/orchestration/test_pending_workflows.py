@@ -7,11 +7,12 @@ from core.db import engine, models
 from core.runs import ownership, tasks, runtime
 from orchestration import pending
 from tests.orchestration.test_background_commands import command_db
+from tests.db_support import share_factory
 
 
 @pytest.mark.parametrize("kind", ["plan_execute", "autonomous_loop"])
 async def test_pending_admission_restarts_once_but_running_never_replays(command_db, monkeypatch, kind):
-    monkeypatch.setattr(engine, "SessionLocal", command_db)
+    share_factory(monkeypatch, command_db)
     real_dispatch = pending.dispatch_pending
     async def no_dispatch(run):
         pass

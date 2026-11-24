@@ -6,14 +6,13 @@ from core.config.settings import settings
 from core.db.engine import SessionLocal
 
 __all__ = ["settings", "SessionLocal"]
-import hashlib
-import json
 import logging
-from datetime import datetime, timezone
 from typing import Any
 
 from core.memory.context import MemoryContext
 from core.memory.extractors.router import ExtractorType
+from core.infra.hashing import stable_json_hash as _stable_hash
+from core.infra.time import utc_now as _utcnow  # noqa: F401 - used as common._utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -29,21 +28,6 @@ _LAYER_BY_EXTRACTOR = {
 
 class RetryableMemoryError(RuntimeError):
     pass
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _stable_hash(value: Any) -> str:
-    encoded = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
 
 
 def _context_payload(ctx: MemoryContext) -> dict[str, Any]:

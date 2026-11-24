@@ -28,7 +28,7 @@ function OutputHistory({ onOpen }: { onOpen: () => void }) {
   }
   // Opening a file shows it in the canvas beside the conversation, so the drawer gets out of the way.
   return <div className="pa-outputs" onClick={event => { if ((event.target as HTMLElement).closest('.jx-runMonitor-row')) onOpen(); }}>
-    {error && <Alert type="error" message={error} />}
+    {error && <Alert type="error" title={error} />}
     <OutputRows items={items} />
     {page?.has_more && <Button loading={busy} onClick={() => void more()}>{t('查看更多输出')}</Button>}
   </div>;

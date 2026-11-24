@@ -1,6 +1,5 @@
 """Regression tests for file_id-only attachment requests and bounded previews."""
 from core.llm.runtime import file_context as file_context_module
-from core.files.content import spreadsheet_parser
 from core.files import artifact_bytes as shared_artifact_bytes
 
 
@@ -35,7 +34,6 @@ def test_file_context_injects_handles_without_reading_files(monkeypatch):
     monkeypatch.setattr(artifact_reader, "fetch_parsed_text", must_not_run)
     monkeypatch.setattr(shared_artifact_bytes, "download_artifact_bytes", must_not_run)
     monkeypatch.setattr(file_parser, "parse_file", must_not_run)
-    monkeypatch.setattr(spreadsheet_parser, "parse_xlsx_preview", must_not_run)
 
     context = build_file_context(
         [

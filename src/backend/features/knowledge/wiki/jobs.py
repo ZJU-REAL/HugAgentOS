@@ -8,7 +8,8 @@ Wiki 生成是分钟级到小时级的长任务，不能挂在请求生命周期
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from core.infra.time import utc_now
+from datetime import timedelta
 from typing import List, Optional, Sequence
 
 from features.knowledge.models import KBWikiJob
@@ -27,8 +28,6 @@ JOB_FINALIZE = "finalize"
 STALE_AFTER = timedelta(minutes=15)
 
 
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _new_job_id() -> str:
@@ -127,7 +126,7 @@ def claim_next_job(db: Session, worker_id: str) -> Optional[KBWikiJob]:
     判定某库空闲、再各自拿走它的不同作业。跨进程的保证来自 wiki worker 是单例
     （见 ``api/app.py`` 的启动步骤表）；真要支持多容器并发得另加按库的租约。
     """
-    stale_before = _now() - STALE_AFTER
+    stale_before = utc_now() - STALE_AFTER
     busy_kbs = db.query(KBWikiJob.kb_id).filter(
         KBWikiJob.status == "running", KBWikiJob.heartbeat_at >= stale_before
     )
@@ -155,10 +154,10 @@ def claim_next_job(db: Session, worker_id: str) -> Optional[KBWikiJob]:
             {
                 "status": "running",
                 "claimed_by": worker_id,
-                "claimed_at": _now(),
-                "heartbeat_at": _now(),
+                "claimed_at": utc_now(),
+                "heartbeat_at": utc_now(),
                 "attempt": KBWikiJob.attempt + 1,
-                "updated_at": _now(),
+                "updated_at": utc_now(),
             },
             synchronize_session=False,
         )
@@ -208,10 +207,10 @@ def claim_sibling_ingest_jobs(
                 {
                     "status": "running",
                     "claimed_by": worker_id,
-                    "claimed_at": _now(),
-                    "heartbeat_at": _now(),
+                    "claimed_at": utc_now(),
+                    "heartbeat_at": utc_now(),
                     "attempt": KBWikiJob.attempt + 1,
-                    "updated_at": _now(),
+                    "updated_at": utc_now(),
                 },
                 synchronize_session=False,
             )
@@ -231,8 +230,8 @@ def finish_jobs(db: Session, job_ids: Sequence[str], *, progress: Optional[dict]
     db.query(KBWikiJob).filter(KBWikiJob.job_id.in_(list(job_ids))).update(
         {
             "status": "succeeded",
-            "finished_at": _now(),
-            "updated_at": _now(),
+            "finished_at": utc_now(),
+            "updated_at": utc_now(),
             "last_error": None,
             **({"progress": progress} if progress is not None else {}),
         },
@@ -242,7 +241,7 @@ def finish_jobs(db: Session, job_ids: Sequence[str], *, progress: Optional[dict]
 
 
 def heartbeat(db: Session, job_id: str, progress: Optional[dict] = None) -> None:
-    values = {"heartbeat_at": _now(), "updated_at": _now()}
+    values = {"heartbeat_at": utc_now(), "updated_at": utc_now()}
     if progress is not None:
         values["progress"] = progress
     db.query(KBWikiJob).filter(KBWikiJob.job_id == job_id).update(values, synchronize_session=False)
@@ -253,8 +252,8 @@ def finish_job(db: Session, job_id: str, *, progress: Optional[dict] = None) -> 
     db.query(KBWikiJob).filter(KBWikiJob.job_id == job_id).update(
         {
             "status": "succeeded",
-            "finished_at": _now(),
-            "updated_at": _now(),
+            "finished_at": utc_now(),
+            "updated_at": utc_now(),
             "last_error": None,
             **({"progress": progress} if progress is not None else {}),
         },
@@ -270,8 +269,8 @@ def fail_job(db: Session, job: KBWikiJob, error: str) -> None:
         {
             "status": "failed" if exhausted else "pending",
             "last_error": str(error)[:2000],
-            "updated_at": _now(),
-            **({"finished_at": _now()} if exhausted else {}),
+            "updated_at": utc_now(),
+            **({"finished_at": utc_now()} if exhausted else {}),
         },
         synchronize_session=False,
     )

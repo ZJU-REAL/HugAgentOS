@@ -38,11 +38,11 @@ export function useChatWelcome(chat: ChatItem | undefined) {
   }, [chat?.agentId, agents]);
 
   // ── Page config default values ──
-  const cfgHeroTitle = usePageConfig('branding.hero_title', '你好，我是 HugAgentOS');
-  const cfgHeroSubtitle = usePageConfig('branding.hero_subtitle', '今天想从哪里开始？');
+  const cfgHeroTitle = usePageConfig('branding.hero_title', t('你好，我是 HugAgentOS'));
+  const cfgHeroSubtitle = usePageConfig('branding.hero_subtitle', t('今天想从哪里开始？'));
   const cfgProductName = usePageConfig('branding.product_name', 'HugAgentOS');
   const cfgDisclaimer = usePageConfig('branding.disclaimer', '');
-  const cfgInputPlaceholder = usePageConfig('texts.input_placeholder', '请输入你的问题，按Enter发送，Shift+Enter换行');
+  const cfgInputPlaceholder = usePageConfig('texts.input_placeholder', t('请输入你的问题，按Enter发送，Shift+Enter换行'));
   const showHomepageLogo = usePageConfig('homepage.show_logo', true);
   const homepageLogoUrl = usePageConfig('homepage.logo_url', '/icon.png');
   const showHomepageSuggestions = usePageConfig('homepage.show_suggestions', true);

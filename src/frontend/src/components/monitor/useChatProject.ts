@@ -5,7 +5,7 @@ import type { ProjectDetail } from '../../types';
 
 type EnvironmentMode = ProjectEnvironment['mode'];
 
-export interface ChatProject {
+interface ChatProject {
   project: ProjectDetail;
   /** null when the environment is not readable for this user. */
   environment: EnvironmentMode | null;

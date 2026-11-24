@@ -10,6 +10,7 @@ from core.db.models import UserShadow
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
+from tests.db_support import share_factory
 
 
 @pytest.fixture()
@@ -33,7 +34,7 @@ def client(db_session, monkeypatch):
         user: asyncio.run(session.create_session({"user_id": user}))
         for user in ["revision-alice", "revision-bob"]
     }
-    monkeypatch.setattr("core.db.engine.SessionLocal", sessionmaker(bind=db_session.get_bind()))
+    share_factory(monkeypatch, sessionmaker(bind=db_session.get_bind()))
     with TestClient(app) as http:
         http.cookies.set(settings.session.cookie_name, tokens["revision-alice"])
         yield http, tokens

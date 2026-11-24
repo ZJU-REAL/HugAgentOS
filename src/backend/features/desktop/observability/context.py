@@ -1,7 +1,6 @@
 """Request correlation only; no persistence or network on the execution path."""
 
 import uuid
-from contextvars import ContextVar
 
 from core.harness.log_context import model_call_id
 

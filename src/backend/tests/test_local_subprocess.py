@@ -26,14 +26,41 @@ def test_child_env_binds_local_mcp_to_loopback(monkeypatch):
     assert pythonpath[1:] == inherited.split(os.pathsep)
 
 
-def test_site_publish_callback_uses_local_listener_port(monkeypatch):
-    from extensions.mcp_servers.site_publish_mcp import impl
+def test_backend_callback_uses_local_listener_port(monkeypatch):
+    """site_publish / security_ops / browser_runtime share this callback URL."""
+    from extensions.mcp_servers._backend import backend_url
 
     monkeypatch.delenv("BACKEND_INTERNAL_URL", raising=False)
     monkeypatch.delenv("BACKEND_PORT", raising=False)
     monkeypatch.setenv("PORT", "32101")
 
-    assert impl._backend_url() == "http://127.0.0.1:32101"
+    assert backend_url() == "http://127.0.0.1:32101"
+
+
+@pytest.mark.asyncio
+async def test_security_ops_callback_uses_local_listener_port(monkeypatch):
+    import httpx
+    from extensions.mcp_servers.security_ops_mcp import impl
+
+    monkeypatch.delenv("BACKEND_INTERNAL_URL", raising=False)
+    monkeypatch.delenv("BACKEND_PORT", raising=False)
+    monkeypatch.setenv("PORT", "32101")
+    monkeypatch.setenv("BACKEND_INTERNAL_TOKEN", "secret")
+    seen = {}
+
+    def handler(request):
+        seen["url"] = str(request.url)
+        seen["token"] = request.headers.get("x-internal-token")
+        return httpx.Response(200, json={"ok": True})
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        impl.httpx, "AsyncClient",
+        lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw),
+    )
+
+    assert await impl.call("events", user_id="u1") == {"ok": True}
+    assert seen == {"url": "http://127.0.0.1:32101/v1/internal/security/events", "token": "secret"}
 
 
 @pytest.mark.asyncio

@@ -85,19 +85,6 @@
   .jx-sites-cardActions { opacity: 1; }
 }
 
-.jx-sites-emptyHint {
-  margin-top: var(--space-xs);
-  font-size: 12px;
-  color: var(--color-text-placeholder);
-}
-
-.jx-sites-tabActions {
-  display: flex;
-  gap: var(--space-sm);
-  margin-bottom: var(--space-sm);
-  justify-content: flex-end;
-}
-
 .jx-sites-passwordRow {
   display: flex;
   align-items: center;
@@ -106,13 +93,6 @@
 
 .jx-sites-passwordState {
   color: var(--color-text-secondary);
-}
-
-.jx-sites-payload {
-  font-family:var(--font-family-mono);
-  font-size: 12px;
-  color: var(--color-text-secondary);
-  word-break: break-all;
 }
 
 /* 分享记录页的「已发布站点」区块 */
@@ -167,20 +147,6 @@
   margin-top: var(--space-xs);
   font-size: 12px;
   color: var(--color-text-placeholder);
-}
-
-/* ── 建站落地视图：沿用主对话空态骨架，仅补一个右上浮层工具条 ── */
-.jx-sitesEmptyPage { position: relative; }
-
-.jx-sitesCreate-topbar {
-  position: absolute;
-  top: var(--space-md);
-  left: var(--space-md);
-  right: var(--space-md);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  z-index: 3;
 }
 
 /* ── 列表视图补充 ── */
@@ -238,11 +204,6 @@
 
   .jx-sites-cardActions .ant-btn {
     margin: 0;
-  }
-
-  .jx-sites-tabActions {
-    justify-content: flex-start;
-    flex-wrap: wrap;
   }
 
   .jx-sites-manageModal .ant-modal {

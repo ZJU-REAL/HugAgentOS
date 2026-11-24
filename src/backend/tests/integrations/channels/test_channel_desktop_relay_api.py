@@ -5,20 +5,19 @@ from contextvars import ContextVar
 import pytest
 from core.auth.backend import UserContext, get_current_user
 from integrations.channels.protocol import InboundMsg, SendResult
-from core.db.engine import Base, get_db
+from core.db.engine import get_db
 from integrations.channels.models import ChannelConnection
 from core.db.models import UserShadow
 from core.infra.exceptions import BadRequestError
 from integrations.channels.relay import ChannelRelayService
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 # Set while the cloud app serves a request, so a test that also runs a desktop
 # database in this process can route each session to the right side.
 IN_CLOUD = ContextVar("in_cloud", default=False)
-from sqlalchemy.pool import StaticPool
+from tests.db_support import memory_engine, share_factory
 
 
 @pytest.fixture
@@ -28,10 +27,7 @@ def api(monkeypatch):
     from integrations.channels.api.channels import router
     from features.desktop.api.capability_dependencies import require_capability_user as _require_capability_user
 
-    engine = create_engine(
-        "sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False}
-    )
-    Base.metadata.create_all(engine)
+    engine = memory_engine()
     factory = sessionmaker(bind=engine)
     with factory() as db:
         db.add(
@@ -60,7 +56,7 @@ def api(monkeypatch):
 
     app.dependency_overrides[get_db] = database
     # Async routes open their sessions through run_in_session.
-    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
+    share_factory(monkeypatch, factory)
     app.dependency_overrides[get_current_user] = lambda: UserContext(
         user_id="owner", user_center_id="center", username="owner"
     )

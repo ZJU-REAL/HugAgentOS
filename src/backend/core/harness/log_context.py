@@ -22,7 +22,7 @@ def now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def truncate_text(text: Optional[str], limit: int) -> tuple[Optional[str], bool]:
+def truncate_log_text(text: Optional[str], limit: int) -> tuple[Optional[str], bool]:
     if text is None:
         return None, False
     if not isinstance(text, str):
@@ -91,15 +91,6 @@ def subagent_scope(subagent_log_id: Optional[str], source: str = "subagent") -> 
     finally:
         subagent_log_id_var.reset(tok_id)
         source_var.reset(tok_src)
-
-
-@contextmanager
-def skill_scope(source: str = "skill") -> Iterator[None]:
-    tok = source_var.set(source)
-    try:
-        yield
-    finally:
-        source_var.reset(tok)
 
 
 def set_current_message_id(message_id: str) -> None:

@@ -4,11 +4,11 @@ import { renderRetrieveDatasetContent, renderRetrieveLocalKB } from './renderers
 import { renderInternetSearch } from './renderers/SearchRenderer';
 import { DataView } from './renderers/DataView';
 import { unwrapMcpResult } from './renderers/utils';
-import { mdToHtml } from '../../utils/markdown';
 import { t } from '../../i18n';
 import { databaseToolSuffix } from '../../utils/databaseTools';
 
 import { findGenericList, renderGenericList, renderFilePreview, renderLoadSkill } from './ToolOutputHelpers';
+import { MarkdownHtml } from '../common/MarkdownHtml';
 export { ToolOutputBody } from './PluginToolOutputBody';
 interface SqlTable {
   columns: string[];
@@ -102,7 +102,7 @@ export function renderToolOutputBody(
     return (
       <div className="jx-tr-db">
         <div className="jx-tr-dbHeader success">{t('插件已加载')}</div>
-        <div className="jx-md jx-tr-skillBody" dangerouslySetInnerHTML={{ __html: mdToHtml(raw) }} />
+        <MarkdownHtml className="jx-md jx-tr-skillBody" markdown={raw} />
       </div>
     );
   }

@@ -1,13 +1,13 @@
 import type { Editor } from '@tiptap/core';
 
 /** Shift+Enter uses structural editing where Markdown blocks need continuation. */
-export function hasStructuralEnter(editor: Editor | null | undefined): boolean {
+function hasStructuralEnter(editor: Editor | null | undefined): boolean {
   return !!editor && ['listItem', 'taskItem', 'blockquote', 'heading', 'table', 'codeBlock']
     .some(node => editor.isActive(node));
 }
 
 /** Pipe tables can be authored with Enter, without pasting or a separate source mode. */
-export function handleTableEnter(editor: Editor): boolean {
+function handleTableEnter(editor: Editor): boolean {
   const { $from } = editor.state.selection;
   if ($from.depth !== 1 || $from.parent.type.name !== 'paragraph') return false;
   const line = $from.parent.textContent;

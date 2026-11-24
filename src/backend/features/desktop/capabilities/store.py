@@ -7,7 +7,6 @@ new content means a new revision directory; the view is re-pointed afterwards.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
@@ -36,10 +35,6 @@ class StoredComponent:
     @property
     def entry_file(self) -> Path:
         return self.path / _ENTRY_FILE[self.kind]
-
-
-def entry_file_name(kind: str) -> str:
-    return _ENTRY_FILE[kind]
 
 
 def _validate_entry(kind: str, path: Path) -> None:
@@ -135,19 +130,6 @@ def remove_key(kind: str, profile: str, key: str) -> int:
     for comp in revisions(kind, profile, key):
         removed += int(remove_revision(kind, profile, key, comp.revision))
     return removed
-
-
-def content_hash_of_dir(path: Path) -> str:
-    """Order-independent hash of a stored component (inventory file excluded)."""
-    digest = hashlib.sha256()
-    for rel, file in archive.iter_files(path):
-        if rel == _INVENTORY:
-            continue
-        digest.update(rel.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(file.read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
 
 
 def inventory(component: StoredComponent) -> List[str]:

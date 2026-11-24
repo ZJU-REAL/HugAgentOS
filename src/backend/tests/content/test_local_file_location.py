@@ -5,17 +5,16 @@ from dataclasses import replace
 import pytest
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from api.routes import files
 from api.routes.v1 import projects
 from core.auth.backend import UserContext, get_current_user
 from core.config import settings as settings_module
-from core.db.engine import Base, get_db
+from core.db.engine import get_db
 from core.db.models import Artifact, Project, UserShadow
 from tests.db_support import share_session
+from tests.db_support import memory_engine
 
 
 @pytest.fixture
@@ -31,10 +30,7 @@ def local_files(tmp_path, monkeypatch):
         "settings",
         replace(settings, deploy=replace(settings.deploy, profile="local")),
     )
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
+    engine = memory_engine()
     db = sessionmaker(bind=engine)()
     db.add(UserShadow(user_id="owner", username="Owner"))
     db.add(UserShadow(user_id="other", username="Other"))

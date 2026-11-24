@@ -13,7 +13,7 @@ import core.runs.settings as settings
 import core.runs.tasks as tasks
 from core.infra.logging import get_logger
 from core.runs.journal import RecoveryDecision
-from core.db.threads import run_in_session
+from core.db.threads import run_db, run_in_session
 
 logger = get_logger(__name__)
 
@@ -37,8 +37,10 @@ async def recover_orphan_runs() -> int:
         return local_channel_runs
     local_channel_runs = await run_in_session(_orphaned_channel_runs)
     for run_id, chat_id in local_channel_runs:
-        if ownership.journal().cancel(
-            run_id, reason="desktop channel lease cannot survive process restart"
+        if await run_db(
+            ownership.journal().cancel,
+            run_id,
+            reason="desktop channel lease cannot survive process restart",
         ):
             await writer._write_terminal_to_stream(
                 run_id,
@@ -53,19 +55,20 @@ async def recover_orphan_runs() -> int:
         item.run_id for item in effect_decisions if item.action == "needs_attention"
     }
     for run_id in effect_attention_runs:
-        run = runtime.get_run(run_id)
+        run = await run_db(runtime.get_run, run_id)
         if run is not None:
             await writer._write_terminal_to_stream(
                 run_id,
                 chat_id=run.chat_id or "",
                 error_text="工具调用结果无法安全确定，任务已暂停等待处理",
             )
-    decisions = ownership.journal().recover()
+    decisions = await run_db(ownership.journal().recover)
     for decision in decisions:
         if decision.action == "resume":
-            if not _register_recovered_chat(decision):
+            restored = await run_db(_restore_recovered_chat, decision)
+            if not _register_recovered_chat(decision, restored):
                 reason = "run kind or recovery snapshot cannot be resumed automatically"
-                if ownership.journal().needs_attention(decision.run_id, reason=reason):
+                if await run_db(ownership.journal().needs_attention, decision.run_id, reason=reason):
                     await writer._write_terminal_to_stream(
                         decision.run_id,
                         chat_id=decision.chat_id or "",
@@ -112,13 +115,17 @@ async def recover_orphan_runs() -> int:
     return recovered_count
 
 
-def _register_recovered_chat(decision: RecoveryDecision) -> bool:
+def _restore_recovered_chat(decision: RecoveryDecision):
+    """Load and validate what a resumed worker needs; ``None`` when it cannot resume.
+
+    Database work only, so the recovery loop runs it in a worker thread.
+    """
     snapshot = dict(decision.snapshot or {})
     if snapshot.get("kind") != "chat":
-        return False
+        return None
     args = snapshot.get("worker_args")
     if not isinstance(args, dict):
-        return False
+        return None
     required = {
         "session_messages",
         "effective_user_message",
@@ -126,11 +133,10 @@ def _register_recovered_chat(decision: RecoveryDecision) -> bool:
         "context",
     }
     if not required.issubset(args):
-        return False
-    owner = ownership.new_worker_owner(decision.run_id)
+        return None
     recovered_run = runtime.get_run(decision.run_id)
     if recovered_run and (recovered_run.request_payload or {}).get("source") == "desktop_channel":
-        return False
+        return None
     from core.runs.api_recovery import validate_recovery_context
     from sqlalchemy.exc import SQLAlchemyError
 
@@ -153,7 +159,17 @@ def _register_recovered_chat(decision: RecoveryDecision) -> bool:
                 )
     except (ValueError, SQLAlchemyError):
         logger.warning("chat_run_recovery_scope_rejected", run_id=decision.run_id)
+        return None
+    return recovered_run, restored_context
+
+
+def _register_recovered_chat(decision: RecoveryDecision, restored) -> bool:
+    """Start the worker for a run :func:`_restore_recovered_chat` validated."""
+    if restored is None:
         return False
+    recovered_run, restored_context = restored
+    args = decision.snapshot["worker_args"]
+    owner = ownership.new_worker_owner(decision.run_id)
     runtime.register_run_task(
         decision.run_id,
         worker._run_workflow(

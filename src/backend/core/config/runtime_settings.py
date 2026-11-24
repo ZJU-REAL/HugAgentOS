@@ -68,9 +68,6 @@ class MemorySettings:
     profile_max_chars: int = field(
         default_factory=lambda: _int(_env("MEMORY_PROFILE_MAX_CHARS", "1500"), 1500)
     )
-    fact_default_ttl_days: int = field(
-        default_factory=lambda: _int(_env("MEMORY_FACT_DEFAULT_TTL_DAYS", "180"), 180)
-    )
     # ── Write-path quality gates ─────────────────────────────────
     # One fast LLM call after the regex classify that decides whether the turn
     # actually contains anything worth remembering. The regex classes are the
@@ -94,7 +91,6 @@ class MemorySettings:
     procedure_weak_ttl_days: int = field(
         default_factory=lambda: _int(_env("MEMORY_PROCEDURE_WEAK_TTL_DAYS", "30"), 30)
     )
-    frozen_topk: int = field(default_factory=lambda: _int(_env("MEMORY_FROZEN_TOPK", "5"), 5))
     breaker_threshold: int = field(
         default_factory=lambda: _int(_env("MEMORY_BREAKER_THRESHOLD", "3"), 3)
     )
@@ -119,9 +115,6 @@ class StorageSettings:
 @dataclass(frozen=True)
 class KnowledgeBaseSettings:
     backend: str = field(default_factory=lambda: (_env("KNOWLEDGE_BASE") or "").strip().lower())
-    detail_content_max_chars: int = field(
-        default_factory=lambda: _int(_env("KB_DETAIL_CONTENT_MAX_CHARS", "50000"), 50000)
-    )
     reranker_url: str = field(default_factory=lambda: _env("RERANKER_URL", "").rstrip("/"))
     reranker_model: str = field(default_factory=lambda: _env("RERANKER_MODEL", ""))
     reranker_api_key: str = field(default_factory=lambda: _env("RERANKER_API_KEY", ""))
@@ -188,9 +181,6 @@ class ServerSettings:
 
 @dataclass(frozen=True)
 class RoutingSettings:
-    strategy: str = field(
-        default_factory=lambda: (_env("ROUTER_STRATEGY") or "main_only").strip().lower()
-    )
     followup_enabled: bool = field(default_factory=lambda: _bool(_env("FOLLOWUP_ENABLED", "true")))
 
 @dataclass(frozen=True)

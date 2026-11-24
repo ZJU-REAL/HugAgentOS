@@ -5,6 +5,7 @@ import {
 } from 'antd';
 import 'highlight.js/styles/github.css';
 import { useCallback, useEffect, useRef } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { listenForFolderProjects } from '../desktop/folderMenu';
 import { t } from '../i18n';
 import { isConversationPath, panelFromPath } from '../routing/navigation';
@@ -32,7 +33,7 @@ import {
 } from '../stores';
 import { useDeploymentModeStore } from '../stores/deploymentModeStore';
 import { useProjectStore } from '../stores/projectStore';
-import type { PanelKey } from '../types';
+import type { ChatItem, PanelKey } from '../types';
 import { isImeKey } from '../utils/ime';
 
 
@@ -44,18 +45,46 @@ export function useAppController() {
   const panelTitles = pageConfig.navigation.panel_titles;
   const brandName = usePageConfig('branding.product_name', 'HugAgentOS');
   const recommendBannerText = usePageConfig('texts.recommend_banner_text', '');
-  const { authUser } = useAuthStore();
+  const authUserId = useAuthStore((s) => s.authUser?.user_id);
   const {
     detailModal, setDetailModal,
     recommendBarVisible, setRecommendBarVisible,
     promptHubOpen,
     siderCollapsed, setSiderCollapsed,
-  } = useUIStore();
+  } = useUIStore(useShallow((s) => ({
+    detailModal: s.detailModal, setDetailModal: s.setDetailModal,
+    recommendBarVisible: s.recommendBarVisible, setRecommendBarVisible: s.setRecommendBarVisible,
+    promptHubOpen: s.promptHubOpen,
+    siderCollapsed: s.siderCollapsed, setSiderCollapsed: s.setSiderCollapsed,
+  })));
+  // Subscribe to primitives derived from the current chat only: streaming replies (in this chat
+  // or any other) must not re-render the whole application shell. The header subscribes to its
+  // own fields in components/AppWorkspace.tsx.
   const {
-    store, currentChatId, setCurrentChatId,
+    currentChatId, setCurrentChatId,
     toolResultPanel, setToolResultPanel,
-    backendSessionIds, loadedMsgIds,
-  } = useChatStore();
+    isChatLoadingFromBackend, hasMessages, chatProjectId, cachedProjectName, overviewChatProjectId,
+  } = useChatStore(useShallow((s) => {
+    const current = s.store.chats[s.currentChatId] as ChatItem | undefined;
+    return {
+      hasMessages: !!current?.messages.length,
+      chatProjectId: current?.projectId,
+      cachedProjectName: current?.projectName,
+      overviewChatProjectId: projectOverviewId(current),
+      currentChatId: s.currentChatId,
+      setCurrentChatId: s.setCurrentChatId,
+      toolResultPanel: s.toolResultPanel,
+      setToolResultPanel: s.setToolResultPanel,
+      // Treat a chat as non-empty while its messages are still loading from the
+      // backend (backendSessionIds has the ID but messages array is empty).
+      // This prevents the homepage / recommend-banner from flashing when switching
+      // between history items. Once the load completed (loadedMsgIds) an empty
+      // chat is genuinely empty — show the normal empty state, not the skeleton.
+      isChatLoadingFromBackend: (!current || current.messages.length === 0)
+        && s.backendSessionIds.has(s.currentChatId)
+        && !s.loadedMsgIds.has(s.currentChatId),
+    };
+  }));
   const panel = usePanel();
   const chatSurface = isConversationPath();
   const setCatalogPanel = useCatalogStore((s) => s.setPanel);
@@ -72,15 +101,15 @@ export function useAppController() {
   const exitAutomationChat = useAutomationChatStore((s) => s.exitAutomationChat);
   const isCE = useEditionStore((s) => s.edition === 'ce');
 
-  const { closeMobileSidebar, openMobileSidebar, authUserId } = useAppBootstrap(chatSurface);
+  const { closeMobileSidebar, openMobileSidebar, authUserId: bootstrapUserId } = useAppBootstrap(chatSurface);
 
-  const chat = store.chats[currentChatId];
-  const overviewProjectId = chatSurface ? projectOverviewId(chat) : undefined;
+  const overviewProjectId = chatSurface ? overviewChatProjectId : undefined;
   useProjectResources(overviewProjectId);
-  const latestOntologyMessage = [...(chat?.messages || [])]
-    .reverse()
-    .find((message) => Boolean(message.ontologyGovernance));
   const handleRightSidebarToggle = () => {
+    const chat = useChatStore.getState().store.chats[currentChatId];
+    const latestOntologyMessage = [...(chat?.messages || [])]
+      .reverse()
+      .find((message) => Boolean(message.ontologyGovernance));
     if (canvasOpen) {
       closeCanvas();
       return;
@@ -100,22 +129,13 @@ export function useAppController() {
   // fetched from the backend only carry projectId, so fall back to looking the name up
   // in the project list.
   const projectList = useProjectStore((s) => s.list);
-  const chatProjectName = chat?.projectId
-    ? (chat.projectName || projectList.find((p) => p.project_id === chat.projectId)?.name || '')
+  const chatProjectName = chatProjectId
+    ? (cachedProjectName || projectList.find((p) => p.project_id === chatProjectId)?.name || '')
     : '';
-  // Treat a chat as non-empty while its messages are still loading from the
-  // backend (backendSessionIds has the ID but messages array is empty).
-  // This prevents the homepage / recommend-banner from flashing when switching
-  // between history items. Once the load completed (loadedMsgIds) an empty
-  // chat is genuinely empty — show the normal empty state, not the skeleton.
-  const isChatLoadingFromBackend = (!chat || chat.messages.length === 0)
-    && backendSessionIds.has(currentChatId)
-    && !loadedMsgIds.has(currentChatId);
-  const isEmptyChat = (!chat || chat.messages.length === 0) && !isChatLoadingFromBackend;
+  const isEmptyChat = !hasMessages && !isChatLoadingFromBackend;
   // ChatArea only mounts the scrollable list once a message exists; the scroll effects
   // below must re-run when this flips so they attach to the new DOM (e.g. entering an
   // automation run chat before its messages have loaded).
-  const hasMessages = !!chat?.messages.length;
 
   const { inputRef, fileInputRef, chatListRef, messagesEndRef, handleContentRef, userScrolledUpRef } = useChatViewport(currentChatId, hasMessages, chatSurface);
 
@@ -154,7 +174,7 @@ export function useAppController() {
     return () => window.removeEventListener('keydown', handleEscape);
   }, [abort]);
 
-  useProjectListBootstrap(authUser?.user_id);
+  useProjectListBootstrap(authUserId);
 
   useChatRecovery(currentChatId, resumeRunIfAny);
 
@@ -234,7 +254,7 @@ export function useAppController() {
   const openFolderProjectRef = useRef(handleNewProjectChat);
   useEffect(() => { openFolderProjectRef.current = handleNewProjectChat; });
   useEffect(() => {
-    if (!isDesktopShell || !authUserId ||
+    if (!isDesktopShell || !bootstrapUserId ||
       !['dual', 'local_only'].includes(desktopProvisionMode)) return;
     const stop = listenForFolderProjects(window, (project) => {
       openFolderProjectRef.current(project.project_id, project.name);
@@ -252,7 +272,7 @@ export function useAppController() {
       window.dispatchEvent(new CustomEvent('hugagent:open-project-folder', { detail: pending, cancelable: true }));
     }
     return stop;
-  }, [isDesktopShell, desktopProvisionMode, authUserId]);
+  }, [isDesktopShell, desktopProvisionMode, bootstrapUserId]);
 
   const handleCapabilityClick = (capabilityId: string) => {
     // 知识库已并入「我的空间」的 Tab，首页快捷入口直接落到那个 Tab
@@ -293,7 +313,6 @@ export function useAppController() {
     showHeader,
     title,
     hint,
-    chat,
     chatProjectName,
     recommendBarVisible,
     recommendBannerText,

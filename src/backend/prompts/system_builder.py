@@ -44,6 +44,8 @@ def build_system_prompt(
         ctx["desktop_environment"] = (ctx.get("preview_environment") if desktop_preview else None) or runtime.build_environment_context(
             ctx, current_date=runtime._PROMPT_NOW_SENTINEL
         )
+    for key in runtime._SESSION_ONLY_CTX_KEYS:
+        ctx.pop(key, None)
     if local_mode_enabled() and ctx.get("project_is_local") and ctx.get("project_local_path"):
         # Outer AGENTS.md files are prompt inputs too: snapshot them before hashing.
         from core.projects.instructions import inherited_local_instructions
@@ -71,8 +73,6 @@ def build_system_prompt(
     # Active pool version (preferred source) — bust cache on change
     active_version_key: tuple[str, str] = ("", "")
     try:
-        from core.llm import prompt_versions as pvs
-
         _av = prompt_versions_module.get_active_version("system")
         if _av:
             active_version_key = (str(_av.get("id") or ""), str(_av.get("updated_at") or ""))
@@ -98,6 +98,7 @@ def build_system_prompt(
         if cached is not None:
             expires_at, template, cached_sections = cached
             if runtime.monotonic() < expires_at:
+                runtime._prompt_cache.move_to_end(cache_key)
                 if manifest_builder is not None:
                     for spec in cached_sections:
                         manifest_builder.add_prompt_section(
@@ -164,8 +165,6 @@ def build_system_prompt(
     # collision for backward compatibility with rows created by the old admin UI.
     active_system_version: runtime.Optional[runtime.Dict[str, runtime.Any]] = None
     try:
-        from core.llm import prompt_versions as pvs
-
         active_system_version = prompt_versions_module.get_active_version("system")
     except Exception:
         active_system_version = None
@@ -432,7 +431,7 @@ def build_system_prompt(
             )
 
     # Desktop facts are independent of project instructions and remain in the
-    # system prompt when agent_factory extracts runtime/project as a ContextItem.
+    # system prompt when the agent factory extracts runtime/project as a ContextItem.
     if is_local:
         environment = ctx["desktop_environment"]
         guidance = runtime.build_local_mode_guidance()
@@ -460,12 +459,10 @@ def build_system_prompt(
         }
         for spec in section_specs
     )
-    with runtime._prompt_cache_lock:
-        runtime._prompt_cache[cache_key] = (
-            runtime.monotonic() + runtime._PROMPT_CACHE_TTL,
-            template,
-            cached_section_specs,
-        )
+    runtime._prompt_cache_store(
+        cache_key,
+        (runtime.monotonic() + runtime._PROMPT_CACHE_TTL, template, cached_section_specs),
+    )
 
     if manifest_builder is not None:
         for spec in cached_section_specs:

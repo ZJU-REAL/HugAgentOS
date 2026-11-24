@@ -29,7 +29,6 @@ export const WORKBENCH_DICT: Record<string, string> = {
   '固定': "Pin",
   '暂不可用': "Temporarily unavailable",
 
-  '插件页面未能加载': 'Plugin page failed to load',
   '插件工作区': 'Plugin workspace',
   '插件应用': 'Plugin applications',
   '工作台布局策略': "Workbench layout policy",
@@ -53,7 +52,6 @@ export const WORKBENCH_DICT: Record<string, string> = {
   '保存外部应用': "Save external app",
   '并发更新冲突时，请重新加载并选择最新应用后再编辑。': "After a revision conflict, reload and select the latest application before editing.",
   '外部应用': "External apps",
-  '暂无可用外部应用': "No external apps available",
   '外部应用已保存': "External application saved",
   '应用目录格式无效': "Invalid application directory",
   '应用目录加载失败': "Failed to load applications",

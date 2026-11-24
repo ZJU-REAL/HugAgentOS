@@ -5,7 +5,6 @@ from dataclasses import dataclass
 
 
 def register_retrieval_context(provider: Callable[[list[str]], tuple[dict, dict]] | None) -> None:
-    pass
     registration_state().provider = provider
 
 
@@ -14,7 +13,6 @@ def runtime_request_context(selected_ids: list[str]) -> tuple[dict, dict]:
 
 
 def register_retrieval_access_filter(provider: Callable) -> None:
-    pass
     registration_state().access_filter = provider
 
 

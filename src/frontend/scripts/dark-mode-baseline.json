@@ -5,16 +5,10 @@
   "src/ApiDocApp.tsx": {
     "js-inline-color": 1
   },
-  "src/ConfigApp.tsx": {
-    "js-inline-color": 1
-  },
   "src/components/admin/AdminAgentManager.tsx": {
     "js-inline-color": 1
   },
   "src/components/admin/AppConfigEditor.tsx": {
-    "js-inline-color": 1
-  },
-  "src/components/admin/DataSourceManager.tsx": {
     "js-inline-color": 1
   },
   "src/components/admin/IconPicker.tsx": {
@@ -35,23 +29,14 @@
   "src/components/admin/ModelsEditor.tsx": {
     "js-inline-color": 5
   },
-  "src/components/admin/PageConfigEditor.tsx": {
-    "js-inline-color": 3
-  },
   "src/components/admin/PluginsEditor.tsx": {
-    "js-inline-color": 2
-  },
-  "src/components/admin/PromptVersionsEditor.tsx": {
     "js-inline-color": 1
-  },
-  "src/components/admin/PromptsEditor.tsx": {
-    "js-inline-color": 2
   },
   "src/components/admin/SandboxDepsManager.tsx": {
     "js-inline-color": 6
   },
   "src/components/admin/ServiceConfigsEditor.tsx": {
-    "js-inline-color": 2
+    "js-inline-color": 1
   },
   "src/components/admin/SkillsEditor.tsx": {
     "js-inline-color": 4
@@ -66,7 +51,7 @@
     "js-inline-color": 1
   },
   "src/components/apidoc/ApiDocPanel.tsx": {
-    "js-inline-color": 6
+    "js-inline-color": 5
   },
   "src/components/catalog/CatalogPanel.tsx": {
     "js-inline-color": 2
@@ -81,7 +66,7 @@
     "js-inline-color": 1
   },
   "src/components/catalog/PluginsPage.tsx": {
-    "js-inline-color": 11
+    "js-inline-color": 5
   },
   "src/components/catalog/SkillMarketplaceModal.tsx": {
     "js-inline-color": 1
@@ -99,7 +84,7 @@
     "js-inline-color": 1
   },
   "src/components/config/ChatHistoryPanel.tsx": {
-    "js-inline-color": 5
+    "js-inline-color": 3
   },
   "src/components/config/ConfigLoginView.tsx": {
     "js-inline-color": 1
@@ -121,9 +106,6 @@
   },
   "src/components/config/UsageLogsPanel.tsx": {
     "js-inline-color": 1
-  },
-  "src/components/kb/ConceptGraph.tsx": {
-    "js-inline-color": 2
   },
   "src/components/kb/ReindexModal.tsx": {
     "js-inline-color": 1
@@ -147,31 +129,16 @@
     "js-inline-color": 1
   },
   "src/components/settings/SettingsModal.tsx": {
-    "js-inline-color": 5
-  },
-  "src/components/share/ShareRecordsPage.tsx": {
-    "js-inline-color": 1
+    "js-inline-color": 2
   },
   "src/components/sidebar/SearchModal.tsx": {
     "js-inline-color": 1
   },
-  "src/components/sidebar/Sidebar.tsx": {
-    "js-inline-color": 2
-  },
   "src/components/tool/ToolOutputRenderer.tsx": {
-    "js-inline-color": 8
-  },
-  "src/components/tool/ToolResultPanel.tsx": {
-    "js-inline-color": 2
+    "js-inline-color": 7
   },
   "src/components/tool/renderers/KBRenderer.tsx": {
     "js-inline-color": 1
-  },
-  "src/components/tool/renderers/SearchRenderer.tsx": {
-    "js-inline-color": 1
-  },
-  "src/edition-ee/myspace/ImageGrid.tsx": {
-    "js-inline-color": 2
   },
   "src/edition-ee/myspace/TeamScopeTree.tsx": {
     "js-inline-color": 1
@@ -198,10 +165,7 @@
     "css-literal-color": 2
   },
   "src/styles/canvas.css": {
-    "css-literal-color": 16
-  },
-  "src/styles/catalog.css": {
-    "css-literal-color": 115
+    "css-literal-color": 6
   },
   "src/styles/chat/attachments.css": {
     "css-literal-color": 12
@@ -210,19 +174,19 @@
     "css-literal-color": 1
   },
   "src/styles/chat/composer-layout.css": {
-    "css-literal-color": 9
-  },
-  "src/styles/chat/import-browser.css": {
-    "css-literal-color": 3
-  },
-  "src/styles/chat/message-actions.css": {
-    "css-literal-color": 12
-  },
-  "src/styles/chat/message-details.css": {
     "css-literal-color": 8
   },
+  "src/styles/chat/import-browser.css": {
+    "css-literal-color": 1
+  },
+  "src/styles/chat/message-actions.css": {
+    "css-literal-color": 10
+  },
+  "src/styles/chat/message-details.css": {
+    "css-literal-color": 6
+  },
   "src/styles/chat/messages.css": {
-    "css-literal-color": 9
+    "css-literal-color": 5
   },
   "src/styles/chat/prompt-hub.css": {
     "css-literal-color": 7
@@ -243,7 +207,7 @@
     "css-literal-color": 3
   },
   "src/styles/chat/welcome.css": {
-    "css-literal-color": 7
+    "css-literal-color": 4
   },
   "src/styles/common.css": {
     "css-literal-color": 8
@@ -267,11 +231,11 @@
     "css-literal-color": 3
   },
   "src/styles/mobile/surfaces.css": {
-    "css-var-literal-color": 1,
-    "css-literal-color": 7
+    "css-literal-color": 7,
+    "css-var-literal-color": 1
   },
   "src/styles/mobile/workspaces.css": {
-    "css-literal-color": 8
+    "css-literal-color": 4
   },
   "src/styles/myspace/assets.css": {
     "css-literal-color": 17
@@ -298,10 +262,7 @@
     "css-literal-color": 4
   },
   "src/styles/settings.css": {
-    "css-literal-color": 22
-  },
-  "src/styles/sidebar.css": {
-    "css-literal-color": 34
+    "css-literal-color": 17
   },
   "src/styles/sites.css": {
     "css-literal-color": 1
@@ -310,10 +271,10 @@
     "css-literal-color": 2
   },
   "src/styles/team-folder.css": {
-    "css-literal-color": 10
+    "css-literal-color": 9
   },
   "src/styles/tool.css": {
-    "css-literal-color": 47,
+    "css-literal-color": 13,
     "css-var-literal-color": 5
   }
 }

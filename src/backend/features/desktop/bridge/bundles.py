@@ -15,7 +15,7 @@ import threading
 from typing import Any, Dict, List, Optional
 
 from features.desktop.capabilities import plugins, registry, store, manifest_order
-from core.harness.capability_errors import CloudUnavailable, IntegrityFailed
+from core.harness.capability_errors import CloudUnavailable
 from core.capabilities.identity_rules import KIND_AGENT, KIND_PLUGIN
 from features.desktop.capabilities.paths import capabilities_enabled, revision_for_hash
 from core.capabilities.reference import cloud_ref, profile_id

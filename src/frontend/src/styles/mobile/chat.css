@@ -27,7 +27,6 @@
     overflow:visible;
   }
 
-  .jx-emptyPage--main .jx-heroBgImg,
   .jx-emptyPage--main .jx-homeBrandMark,
   .jx-emptyPage--main .jx-heroTitle,
   .jx-emptyPage--main .jx-heroSubtitle,
@@ -93,10 +92,6 @@
     padding:0;
   }
 
-  .jx-emptyPage--main .jx-homeInput .jx-chatModeSwitch{
-    margin-bottom:8px;
-  }
-
   .jx-emptyPage--main .jx-homeInput .jx-composerWrap{
     height:auto;
     min-height:90px;
@@ -125,10 +120,6 @@
   }
 
   /* 上方的标准/极速分段器在窄屏收成图标 + 短字 */
-  .jx-chatModeSwitch-opt{
-    padding:0 10px;
-    font-size:12px;
-  }
 
   .jx-projectMenu{
     max-width:calc(100vw - 24px);

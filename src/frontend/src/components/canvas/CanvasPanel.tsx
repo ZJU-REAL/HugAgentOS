@@ -33,6 +33,7 @@ import { FileTextPanel, type FileTextHandle, type FileTextState } from './FileTe
 import { CanvasFind } from './find';
 import { CanvasOutline } from './outline';
 import { DocxRenderer, PdfRenderer, OfficeRenderer, ImageRenderer, TextRenderer, MarkdownRenderer, HtmlRenderer, UnknownRenderer, LargeFileRenderer } from './renderers';
+import { saveBlob } from '../../utils/download';
 
 /* ── Main Panel ── */
 
@@ -144,12 +145,7 @@ export function CanvasPanel() {
     if (isXlsx && xlsxDirty && xlsxReady && univerRef.current) {
       try {
         const file = await univerRef.current.exportXlsx();
-        const url = URL.createObjectURL(file);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = artifact.name;
-        a.click();
-        URL.revokeObjectURL(url);
+        saveBlob(file, artifact.name);
         message.success(t('开始下载'));
       } catch {
         message.error(t('导出失败'));

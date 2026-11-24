@@ -11,8 +11,10 @@ from agentscope.tool import Toolkit, ToolResponse
 from core.projects.edition import ProjectScope
 
 from ._common import (
+    read_local_bytes,
     resolve_sandbox_session,
     resp_json,
+    write_local_bytes,
 )
 from core.sandbox.workspace.resolution import space_metadata, to_physical_path, validate_project_scope_path, validate_workspace_path
 from ._mutation_queue import file_mutation_lock
@@ -99,8 +101,7 @@ def register_edit(
                     # Local desktop mode: read the real host file directly (works for
                     # real paths outside the sandbox workspace, which put/get refuse).
                     require_local_path_permission(physical, "read")
-                    with open(physical, "rb") as _f:
-                        current_bytes = _f.read()
+                    current_bytes = await read_local_bytes(physical)
                 else:
                     current_bytes = await provider.get_file(_sess, physical, user_id=user_id)
             except PermissionEnforcementError as exc:
@@ -130,15 +131,8 @@ def register_edit(
                 record_best_effort_failure('core.llm.tools.edit_tool:Edit', fallback_error)
             try:
                 if _is_local:
-                    import os as _os
-
                     require_local_path_permission(physical, "write")
-
-                    parent = _os.path.dirname(physical)
-                    if parent:
-                        _os.makedirs(parent, exist_ok=True)
-                    with open(physical, "wb") as _f:
-                        _f.write(new_bytes)
+                    await write_local_bytes(physical, new_bytes)
                 else:
                     await provider.put_file(_sess, physical, new_bytes, user_id=user_id)
             except PermissionEnforcementError as exc:

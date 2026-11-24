@@ -84,7 +84,7 @@ export default function ProjectMemoryCard({ projectId }: { projectId: string }) 
             title={t('项目记忆设置')}
             trigger="click"
             placement="bottomRight"
-            overlayClassName="jx-projectRail-memoryPopover"
+            classNames={{ root: "jx-projectRail-memoryPopover" }}
           >
             <Button
               type="text"

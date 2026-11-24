@@ -1,4 +1,5 @@
 import { authFetch, getApiUrl, LOCAL_TARGET_HEADER } from '../../api';
+import { t } from '../../i18n';
 
 export async function desktopCapabilityRequest<T>(path: string, method = 'GET', signal?: AbortSignal): Promise<T> {
   const controller = new AbortController();
@@ -11,7 +12,7 @@ export async function desktopCapabilityRequest<T>(path: string, method = 'GET', 
       method, signal: controller.signal, headers: { [LOCAL_TARGET_HEADER]: 'local' },
     });
     const body = await response.json();
-    if (!response.ok) throw new Error(typeof body.detail === 'string' ? body.detail : body.message || '暂时无法连接本机服务');
+    if (!response.ok) throw new Error(typeof body.detail === 'string' ? body.detail : body.message || t('暂时无法连接本机服务'));
     return body.data as T;
   } finally {
     clearTimeout(timer);

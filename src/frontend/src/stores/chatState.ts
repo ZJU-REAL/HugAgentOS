@@ -73,6 +73,8 @@ export interface ChatState {
   backendSessionIds: Set<string>;
   /** Chat IDs whose messages have been loaded from backend */
   loadedMsgIds: Set<string>;
+  /** 已加载会话的最近使用顺序（新的在后）。超出保留数的会话会被裁回未加载形态，见 chatMemoryEviction。 */
+  recentLoadedChats: string[];
   /** 每个会话的历史分页游标。
    *
    *  打开会话只拉最近一页（后端 order=desc 的第 1 页），用户往上滚到顶再续拉更早的。

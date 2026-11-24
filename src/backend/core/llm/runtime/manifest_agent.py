@@ -8,7 +8,6 @@ from typing import Any, Callable, Optional
 
 from agentscope.agent import Agent, InjectionConfig
 from core.llm.context.adapter import AgentScopeContextAdapter
-from core.llm.context.ir_constants import VISIBILITY_MANIFEST_ONLY
 from core.llm.context.ir import ContextAssembler
 from core.llm.context.content import estimate_context_tokens
 from core.models.context_window import FALLBACK_CONTEXT_WINDOW, usable_context_window
@@ -92,34 +91,6 @@ class ManifestBoundAgent(Agent):
             result = listener(request_manifest)
             if inspect.isawaitable(result):
                 await result
-
-    async def _rebind_provider_context(
-        self,
-        messages: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        """Bind the exact post-media-recovery retry before it reaches the wire."""
-        adapter = self._context_adapter_factory()
-        items = adapter.items_from_provider_messages(messages)
-        base_manifest = getattr(
-            self,
-            "_jx_base_execution_manifest",
-            getattr(self, "_jx_execution_manifest", None),
-        )
-        if base_manifest is not None:
-            # Provider rows already contain every model-visible prompt section,
-            # including live project material.  Re-add only evidence-only refs;
-            # injecting the live project item here would duplicate it on retry.
-            items.extend(
-                item
-                for item in adapter.reference_items_from_execution_manifest(base_manifest)
-                if item.visibility == VISIBILITY_MANIFEST_ONLY
-            )
-        assembly = ContextAssembler(
-            total_budget=int(getattr(self, "_jx_context_budget", 0)),
-            budget_details=getattr(self, "_jx_context_budget_details", {}),
-        ).assemble(items)
-        await self._publish_context_assembly(assembly, base_manifest)
-        return adapter.provider_messages_from_items(assembly.included)
 
     async def _prepare_candidate_context(self, candidate, messages, tools):
         await enforce_context_budget(self)
@@ -221,9 +192,6 @@ class ManifestBoundAgent(Agent):
         set_candidate_listener = getattr(self.model, "set_candidate_context_listener", None)
         if callable(set_candidate_listener):
             set_candidate_listener(self._prepare_candidate_context)
-        set_rewrite_listener = getattr(self.model, "set_context_rewrite_listener", None)
-        if callable(set_rewrite_listener):
-            set_rewrite_listener(self._rebind_provider_context)
         return model_input
 
 

@@ -10,51 +10,6 @@
   gap:0;
 }
 
-.jx-docsNewHeader{
-  display:flex;
-  justify-content:center;
-  padding:16px 20px 12px;
-  flex-shrink:0;
-}
-
-.jx-docsNewTabGroup{
-  display:inline-flex;
-  background:color-mix(in srgb, var(--color-primary) 7%, transparent);
-  border-radius:999px;
-  padding:3px;
-  gap:2px;
-}
-
-.jx-docsNewTab{
-  appearance:none;
-  border:none;
-  background:transparent;
-  border-radius:999px;
-  padding:6px 22px;
-  font-size:13px;
-  font-weight:600;
-  color:color-mix(in srgb, var(--color-text) 60%, transparent);
-  cursor:pointer;
-  transition:all .18s ease;
-}
-
-.jx-docsNewTab:hover{ color:color-mix(in srgb, var(--color-text) 80%, transparent); }
-
-.jx-docsNewTab.active{
-  background:var(--color-bg-container);
-  color:color-mix(in srgb, var(--color-text) 90%, transparent);
-  box-shadow:0 1px 6px color-mix(in srgb, var(--color-primary) 10%, transparent);
-}
-
-/* ── Docs Panel 标题区 ── */
-
-.jx-docsHeader {
-  padding: 28px 20px 18px;
-  flex-shrink: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-text) 6%, transparent);
-  margin-bottom: 0;
-}
-
 /* ── 功能更新 Timeline ── */
 
 .jx-updatesView{

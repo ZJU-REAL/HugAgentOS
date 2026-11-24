@@ -3,18 +3,20 @@
 import calendar
 import json
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 from redis.exceptions import RedisError
 
 from core.auth.backend import UserContext, get_current_user
 from core.config.settings import settings
 from core.infra.redis import get_redis
+from core.infra.exceptions import AccessDeniedError, AppException, BadRequestError
 from core.infra.logging import get_logger
 from core.infra.responses import created_response, success_response
+from core.infra.time import utc_now
 
 router = APIRouter(prefix="/v1/chat-shares", tags=["Chat Shares"])
 logger = get_logger(__name__)
@@ -140,7 +142,7 @@ def _prune_memory_shares(now: datetime) -> None:
 
 async def _set_share_payload(share_id: str, payload: dict, ttl_seconds: Optional[int]) -> None:
     if _use_memory_share_store():
-        _prune_memory_shares(datetime.now(timezone.utc))
+        _prune_memory_shares(utc_now())
         _MEMORY_SHARE_PAYLOADS[share_id] = payload
         return
 
@@ -154,13 +156,13 @@ async def _set_share_payload(share_id: str, payload: dict, ttl_seconds: Optional
     except _REDIS_FALLBACK_EXCEPTIONS as exc:
         logger.warning("chat_share_store_fallback_to_memory", share_id=share_id, error=str(exc))
 
-    _prune_memory_shares(datetime.now(timezone.utc))
+    _prune_memory_shares(utc_now())
     _MEMORY_SHARE_PAYLOADS[share_id] = payload
 
 
 async def _set_share_metadata(share_id: str, metadata: dict) -> None:
     if _use_memory_share_store():
-        _prune_memory_shares(datetime.now(timezone.utc))
+        _prune_memory_shares(utc_now())
         _MEMORY_SHARE_METADATA[share_id] = metadata
         return
 
@@ -171,13 +173,13 @@ async def _set_share_metadata(share_id: str, metadata: dict) -> None:
     except _REDIS_FALLBACK_EXCEPTIONS as exc:
         logger.warning("chat_share_meta_fallback_to_memory", share_id=share_id, error=str(exc))
 
-    _prune_memory_shares(datetime.now(timezone.utc))
+    _prune_memory_shares(utc_now())
     _MEMORY_SHARE_METADATA[share_id] = metadata
 
 
 async def _append_share_history(user_id: str, share_id: str, score: float) -> None:
     if _use_memory_share_store():
-        _prune_memory_shares(datetime.now(timezone.utc))
+        _prune_memory_shares(utc_now())
         history = _MEMORY_SHARE_HISTORY.setdefault(user_id, [])
         history = [
             (existing_score, existing_share_id)
@@ -196,7 +198,7 @@ async def _append_share_history(user_id: str, share_id: str, score: float) -> No
     except _REDIS_FALLBACK_EXCEPTIONS as exc:
         logger.warning("chat_share_history_fallback_to_memory", user_id=user_id, share_id=share_id, error=str(exc))
 
-    _prune_memory_shares(datetime.now(timezone.utc))
+    _prune_memory_shares(utc_now())
     history = _MEMORY_SHARE_HISTORY.setdefault(user_id, [])
     history = [(existing_score, existing_share_id) for existing_score, existing_share_id in history if existing_share_id != share_id]
     history.append((score, share_id))
@@ -206,7 +208,7 @@ async def _append_share_history(user_id: str, share_id: str, score: float) -> No
 
 async def _get_share_payload(share_id: str) -> Optional[str]:
     if _use_memory_share_store():
-        _prune_memory_shares(datetime.now(timezone.utc))
+        _prune_memory_shares(utc_now())
         payload = _MEMORY_SHARE_PAYLOADS.get(share_id)
         return json.dumps(payload, ensure_ascii=False) if payload else None
 
@@ -216,14 +218,14 @@ async def _get_share_payload(share_id: str) -> Optional[str]:
     except _REDIS_FALLBACK_EXCEPTIONS as exc:
         logger.warning("chat_share_payload_read_fallback_to_memory", share_id=share_id, error=str(exc))
 
-    _prune_memory_shares(datetime.now(timezone.utc))
+    _prune_memory_shares(utc_now())
     payload = _MEMORY_SHARE_PAYLOADS.get(share_id)
     return json.dumps(payload, ensure_ascii=False) if payload else None
 
 
 async def _get_share_metadata(share_id: str) -> Optional[str]:
     if _use_memory_share_store():
-        _prune_memory_shares(datetime.now(timezone.utc))
+        _prune_memory_shares(utc_now())
         metadata = _MEMORY_SHARE_METADATA.get(share_id)
         return json.dumps(metadata, ensure_ascii=False) if metadata else None
 
@@ -233,7 +235,7 @@ async def _get_share_metadata(share_id: str) -> Optional[str]:
     except _REDIS_FALLBACK_EXCEPTIONS as exc:
         logger.warning("chat_share_meta_read_fallback_to_memory", share_id=share_id, error=str(exc))
 
-    _prune_memory_shares(datetime.now(timezone.utc))
+    _prune_memory_shares(utc_now())
     metadata = _MEMORY_SHARE_METADATA.get(share_id)
     return json.dumps(metadata, ensure_ascii=False) if metadata else None
 
@@ -296,7 +298,7 @@ async def _remove_share_history(user_id: str, share_id: str) -> None:
 
 async def _list_share_ids(user_id: str) -> list[str]:
     if _use_memory_share_store():
-        _prune_memory_shares(datetime.now(timezone.utc))
+        _prune_memory_shares(utc_now())
         return [share_id for _, share_id in _MEMORY_SHARE_HISTORY.get(user_id, [])]
 
     redis = get_redis()
@@ -306,7 +308,7 @@ async def _list_share_ids(user_id: str) -> list[str]:
     except _REDIS_FALLBACK_EXCEPTIONS as exc:
         logger.warning("chat_share_history_read_fallback_to_memory", user_id=user_id, error=str(exc))
 
-    _prune_memory_shares(datetime.now(timezone.utc))
+    _prune_memory_shares(utc_now())
     return [share_id for _, share_id in _MEMORY_SHARE_HISTORY.get(user_id, [])]
 
 
@@ -319,7 +321,7 @@ async def create_chat_share(
 
     按 expiry_option（3d/15d/3m/permanent）设置有效期，记录创建者并写入其分享历史。需登录。
     """
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     expires_at, ttl_seconds = _resolve_expiry(request.expiry_option, now)
     share_id = secrets.token_urlsafe(18)
     payload = {
@@ -370,7 +372,7 @@ async def list_chat_shares(
 ):
     """列出当前用户创建的全部分享记录，并按当前时间标注 valid / expired 状态。需登录。"""
     share_ids = await _list_share_ids(user.user_id)
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     records: List[dict] = []
 
     for share_id in share_ids:
@@ -398,12 +400,12 @@ async def get_chat_share(share_id: str):
     """
     raw = await _get_share_payload(share_id)
     if not raw:
-        raise HTTPException(status_code=404, detail="链接已失效")
+        raise AppException(code=40001, message="链接已失效", status_code=404)
 
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=500, detail="分享内容损坏") from exc
+        raise AppException(code=50001, message="分享内容损坏", status_code=500) from exc
 
     raw_meta = await _get_share_metadata(share_id)
     metadata = None
@@ -414,7 +416,7 @@ async def get_chat_share(share_id: str):
             metadata = None
 
     if isinstance(metadata, dict) and metadata.get("revoked"):
-        raise HTTPException(status_code=404, detail="链接已失效")
+        raise AppException(code=40001, message="链接已失效", status_code=404)
 
     if isinstance(metadata, dict):
         metadata["view_count"] = max(0, int(metadata.get("view_count") or 0)) + 1
@@ -434,15 +436,15 @@ async def revoke_chat_share(
     """
     raw_meta = await _get_share_metadata(share_id)
     if not raw_meta:
-        raise HTTPException(status_code=404, detail="链接不存在或已失效")
+        raise AppException(code=40001, message="链接不存在或已失效", status_code=404)
 
     try:
         metadata = json.loads(raw_meta)
     except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=500, detail="分享记录损坏") from exc
+        raise AppException(code=50001, message="分享记录损坏", status_code=500) from exc
 
     if metadata.get("created_by") != user.user_id:
-        raise HTTPException(status_code=403, detail="无权操作该分享链接")
+        raise AccessDeniedError("无权操作该分享链接")
 
     metadata["revoked"] = True
     metadata["view_count"] = max(0, int(metadata.get("view_count") or 0))
@@ -465,15 +467,15 @@ async def restore_chat_share(
     """
     raw_meta = await _get_share_metadata(share_id)
     if not raw_meta:
-        raise HTTPException(status_code=404, detail="链接不存在或已失效")
+        raise AppException(code=40001, message="链接不存在或已失效", status_code=404)
 
     try:
         metadata = json.loads(raw_meta)
     except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=500, detail="分享记录损坏") from exc
+        raise AppException(code=50001, message="分享记录损坏", status_code=500) from exc
 
     if metadata.get("created_by") != user.user_id:
-        raise HTTPException(status_code=403, detail="无权操作该分享链接")
+        raise AccessDeniedError("无权操作该分享链接")
 
     expires_at_raw = metadata.get("expires_at")
     if not expires_at_raw:
@@ -484,8 +486,8 @@ async def restore_chat_share(
         except ValueError:
             expires_at = None
 
-    if expires_at is not None and expires_at <= datetime.now(timezone.utc):
-        raise HTTPException(status_code=400, detail="链接已超过有效期，无法恢复访问")
+    if expires_at is not None and expires_at <= utc_now():
+        raise BadRequestError("链接已超过有效期，无法恢复访问")
 
     metadata["revoked"] = False
     metadata["view_count"] = max(0, int(metadata.get("view_count") or 0))
@@ -508,15 +510,15 @@ async def delete_chat_share(
     """
     raw_meta = await _get_share_metadata(share_id)
     if not raw_meta:
-        raise HTTPException(status_code=404, detail="分享记录不存在")
+        raise AppException(code=40001, message="分享记录不存在", status_code=404)
 
     try:
         metadata = json.loads(raw_meta)
     except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=500, detail="分享记录损坏") from exc
+        raise AppException(code=50001, message="分享记录损坏", status_code=500) from exc
 
     if metadata.get("created_by") != user.user_id:
-        raise HTTPException(status_code=403, detail="无权操作该分享链接")
+        raise AccessDeniedError("无权操作该分享链接")
 
     await _delete_share_payload(share_id)
     await _delete_share_metadata(share_id)

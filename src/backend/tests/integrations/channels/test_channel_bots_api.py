@@ -13,21 +13,19 @@ import hashlib
 import json
 
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 from fastapi.testclient import TestClient
 
 from core.auth.backend import UserContext, get_current_user
-from core.db.engine import Base, get_db
+from core.db.engine import get_db
 from core.db.models import UserShadow
+from tests.db_support import memory_engine, share_factory
 
 
 @pytest.fixture
 def client(monkeypatch):
     # 1) Single-connection shared in-memory DB (TestClient still sees the same tables across threads)
-    eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-    Base.metadata.create_all(eng)
+    eng = memory_engine()
     Session = sessionmaker(bind=eng)
     seed = Session()
     seed.add(UserShadow(user_id="u1", username="alice", extra_data={"can_create_channel_bot": True}))
@@ -56,7 +54,7 @@ def client(monkeypatch):
     )
     app.dependency_overrides[get_db] = _override_db
     # Async routes open their sessions through run_in_session.
-    monkeypatch.setattr("core.db.engine.SessionLocal", Session)
+    share_factory(monkeypatch, Session)
     c = TestClient(app)
     c.uidref = state  # lets tests switch the current user
     try:

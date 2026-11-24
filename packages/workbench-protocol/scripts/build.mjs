@@ -28,7 +28,7 @@ if (diagnostics.length) {
 await mkdir(root + 'dist', {recursive: true});
 if (program.emit().emitSkipped) throw new Error('Protocol declaration emit failed');
 await esbuild.build({
-  entryPoints: [root + 'src/index.ts', root + 'src/legacy.ts'],
+  entryPoints: [root + 'src/index.ts', root + 'src/legacy.ts', root + 'src/message-bounds.ts'],
   outdir: root + 'dist', bundle: true, platform: 'browser', format: 'esm', target: 'es2022',
   nodePaths: [toolsRoot + 'node_modules'],
 });

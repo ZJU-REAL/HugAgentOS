@@ -21,7 +21,7 @@ from contextvars import copy_context
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet

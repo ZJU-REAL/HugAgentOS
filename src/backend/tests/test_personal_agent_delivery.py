@@ -19,6 +19,7 @@ from personal_agent.tasks.execution import current_execution
 from personal_agent.models import PersonalWorkItem
 from personal_agent.context import AgentContext
 from tests.test_personal_agent import personal_agent_on, sessions  # noqa: F401
+from tests.db_support import session_factory
 
 
 def result(response):
@@ -245,7 +246,6 @@ async def test_screenshot_file_and_channel_end_to_end(sessions, setup, monkeypat
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
     with sessions() as db:
         svc = AgentContext(db, "owner")
-        svc.identity.agent().config = {**svc.identity.agent().config, "channel_ids": ["bot"]}
         user = db.get(ChatMessage, svc.conversation.list()[0]["id"])
         origin = {"channel_id": "bot", "channel_type": "weixin", "msg": channel_bridge.pack(
             InboundMsg(channel_id="bot", channel_type="weixin", text="", external_conversation_id="private",
@@ -267,7 +267,7 @@ async def test_screenshot_file_and_channel_end_to_end(sessions, setup, monkeypat
             if name == "云电脑截图.png" and attempts.count(name) == 1: return SendResult.fail("transient")
             sent.append(("file", name, mime)); return SendResult.ok()
     monkeypatch.setattr(channel_bridge, "connection", lambda ident: SimpleNamespace(
-        channel_id="bot", channel_type="weixin", owner_user_id="owner"))
+        channel_id="bot", channel_type="weixin", owner_user_id="owner", agent_id=None))
     monkeypatch.setattr('integrations.channels.registry.get_adapter', lambda kind: Adapter())
     monkeypatch.setattr(channel_bridge, "RETRY_BASE_SEC", 0)
     await channel_bridge.deliver_pending()
@@ -310,7 +310,7 @@ async def test_simultaneous_sqlite_deliveries_use_one_artifact_and_message(sessi
         try: source.driver_connection.backup(target)
         finally: source.close()
     engine = create_engine("sqlite:///" + str(path), connect_args={"timeout": 15})
-    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    factory = session_factory(engine)
     monkeypatch.setattr(delivery, "SessionLocal", factory)
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", factory)
     monkeypatch.setattr(tools, "SessionLocal", factory)

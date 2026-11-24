@@ -215,8 +215,8 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
       cancelText={t('取消')}
       width={620}
       centered
-      destroyOnClose
-      maskClosable={false}
+      destroyOnHidden
+      mask={{ closable: false }}
       keyboard={false}
     >
       <Form form={form} layout="vertical" style={{ marginTop: 16 }}>

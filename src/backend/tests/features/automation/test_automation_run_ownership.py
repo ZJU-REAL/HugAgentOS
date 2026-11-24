@@ -11,6 +11,7 @@ from features.automation.models import ScheduledTaskRun
 from features.automation.runs import AutomationRunRepository
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
+from tests.db_support import share_factory
 
 
 @pytest.fixture
@@ -149,7 +150,7 @@ async def test_expired_recovery_claimant_leaves_new_ownership_untouched(factory,
 
     # Recovery reads running rows from its own session; task metadata is enough
     # because expired ownership must return before observing/starting a child.
-    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
+    share_factory(monkeypatch, factory)
     monkeypatch.setattr(
         AutomationService, "get_task_by_id", lambda *a: SimpleNamespace(user_id="u")
     )
@@ -176,7 +177,7 @@ async def test_recovery_stops_before_claiming_next_run_after_lease_loss(factory,
     from orchestration.automations import automation_dispatch, automation_recovery
     from orchestration.automations.automation_scheduler import AutomationScheduler
 
-    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
+    share_factory(monkeypatch, factory)
     monkeypatch.setattr(
         AutomationService, "get_task_by_id", lambda *a: SimpleNamespace(user_id="u")
     )
@@ -221,7 +222,7 @@ async def test_recovery_reloads_child_link_created_before_claim(factory, monkeyp
     from orchestration.automations.automation_scheduler import AutomationScheduler
     from types import SimpleNamespace
 
-    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
+    share_factory(monkeypatch, factory)
     monkeypatch.setattr(
         AutomationService, "get_task_by_id", lambda *a: SimpleNamespace(user_id="u")
     )

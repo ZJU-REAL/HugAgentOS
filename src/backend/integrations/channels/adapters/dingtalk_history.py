@@ -1,10 +1,12 @@
 """dingtalk history behavior."""
 from __future__ import annotations
+import asyncio
 import json
 import logging
 import os
 import shutil
 import tempfile
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 import httpx
 from datetime import datetime, timezone
@@ -146,13 +148,12 @@ class DingTalkHistory:
                     file_id[:16], code, (err or out or "")[:160],
                 )
                 return None
-            with open(target, "rb") as fh:
-                return fh.read()
+            return await asyncio.to_thread(Path(target).read_bytes)
         except Exception:  # noqa: BLE001
             logger.warning("[dingtalk] dws 文件下载异常 file_id=%s", file_id[:16], exc_info=True)
             return None
         finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
+            await asyncio.to_thread(shutil.rmtree, tmpdir, ignore_errors=True)
 
     @staticmethod
     def _dws_ts_ms(value: Any) -> int:

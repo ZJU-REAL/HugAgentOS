@@ -1,13 +1,28 @@
 """Build and cache the per-user identity block injected at the head of a chat."""
 from __future__ import annotations
 import asyncio
-from dataclasses import dataclass, field
-from time import monotonic
-from typing import Dict
 import logging
+from collections import OrderedDict
+from time import monotonic
+
 from core.agent_runtime.integrations import memory_state
 
 logger = logging.getLogger(__name__)
+
+_IDENTITY_CACHE_MAX_ENTRIES = 1024
+# user_id -> (expires_at, block), least recently written first.
+_identity_cache: "OrderedDict[str, tuple[float, str]]" = OrderedDict()
+
+
+def _remember(user_id: str, expires_at: float, block: str) -> None:
+    """Store a block, dropping expired entries and then the oldest beyond the cap."""
+    now = monotonic()
+    for stale in [key for key, (deadline, _) in _identity_cache.items() if deadline <= now]:
+        del _identity_cache[stale]
+    _identity_cache[user_id] = (expires_at, block)
+    _identity_cache.move_to_end(user_id)
+    while len(_identity_cache) > _IDENTITY_CACHE_MAX_ENTRIES:
+        _identity_cache.popitem(last=False)
 
 async def build_user_identity_block(user_id: str) -> str:
     """Assemble the "current user" identity block (username / nickname) for injection into the session-frozen message.
@@ -24,7 +39,7 @@ async def build_user_identity_block(user_id: str) -> str:
     if not user_id or user_id == "anonymous":
         return ""
     now = monotonic()
-    hit = process_state().identity_cache.get(user_id)
+    hit = _identity_cache.get(user_id)
     if hit and now < hit[0]:
         return hit[1]
 
@@ -58,17 +73,5 @@ async def build_user_identity_block(user_id: str) -> str:
             + "\n".join(lines)
             + "\n需要称呼用户时，用上述昵称（无昵称则用用户名）自然称呼。"
         )
-    process_state().identity_cache[user_id] = (now + memory_state.IDENTITY_CACHE_TTL_S, block)
+    _remember(user_id, now + memory_state.IDENTITY_CACHE_TTL_S, block)
     return block
-
-
-@dataclass
-class MemoryState:
-    identity_cache: Dict[str, tuple] = field(default_factory=lambda: {})
-
-
-_STATE = MemoryState()
-
-
-def process_state() -> MemoryState:
-    return _STATE

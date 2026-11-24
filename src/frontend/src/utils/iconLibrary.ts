@@ -1,5 +1,7 @@
 // Default icon library served by nginx from src/frontend/public/home/.
-// Update the arrays below if new icons are added to the public folders.
+// APP_ICON_LIBRARY is the app-icon picker pool: Frame 442–471 (30 icons). Frame 472 also exists in
+// random-icons but is only used by the agent avatar set (components/agent/AgentIcon.tsx).
+// Update the counts / arrays below when icons are added to the public folders.
 
 export const APP_ICON_LIBRARY: string[] = Array.from(
   { length: 30 },

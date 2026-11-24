@@ -51,9 +51,9 @@ def db(monkeypatch):
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine, tables=_TABLES)
     factory = sessionmaker(bind=engine)
-    from core.evolution.cycle import episode_views, candidate_records, evaluation
+    from core.evolution.cycle import episode_views, candidate_records
     from core.evolution.profiles import profile_selection
-    for module in (episode_views, candidate_records, evaluation, MA, AP, X, profile_selection):
+    for module in (episode_views, candidate_records, MA, AP, X, profile_selection):
         if hasattr(module, "SessionLocal"): monkeypatch.setattr(module, "SessionLocal", factory)
     import core.db.engine as engine_mod
     import core.memory.weights as weights_mod

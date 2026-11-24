@@ -2,10 +2,7 @@
 import time
 import pytest
 from types import SimpleNamespace
-from sqlalchemy import create_engine,select
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-from core.db.engine import Base
+from sqlalchemy import select
 from core.db.models import UserShadow,ChatSession,ChatRun,Artifact
 from personal_agent.models import PersonalWorkItem, PersonalDeviceCommand
 from personal_agent.context import AgentContext
@@ -15,12 +12,12 @@ from core.db.models import ChatMessage
 from personal_agent.tasks.task_threads import history
 from personal_agent.worker import inputs
 from personal_agent.delivery.outputs import listing
+from tests.db_support import memory_engine, session_factory, share_factory
 
 @pytest.fixture
 def sessions(monkeypatch):
-    engine=create_engine("sqlite://",connect_args={"check_same_thread":False},poolclass=StaticPool)
-    Base.metadata.create_all(engine);factory=sessionmaker(bind=engine,expire_on_commit=False)
-    monkeypatch.setattr("core.db.engine.SessionLocal",factory)
+    engine = memory_engine();factory=session_factory(engine)
+    share_factory(monkeypatch, factory)
     with factory() as db:
         db.add_all([UserShadow(user_id=u,user_center_id=u,username=u) for u in ["owner","other"]]);db.commit()
     yield factory;engine.dispose()

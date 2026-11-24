@@ -9,6 +9,7 @@ Thread-safe singleton with a 30s TTL cache.
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import threading
@@ -334,10 +335,6 @@ class McpServerConfigService:
         owned.update(configs(user_id, enabled_only=enabled_only))
         return owned
 
-    def get_server(self, server_id: str) -> Optional[dict]:
-        """Get a single server config by ID."""
-        servers = self.get_all_servers(enabled_only=False)
-        return servers.get(server_id)
 
     def invalidate_cache(self) -> None:
         """Clear cache so next call re-reads from DB."""
@@ -345,15 +342,6 @@ class McpServerConfigService:
             self._cache = None
             self._cache_all = None
             self._cache_ts = 0.0
-
-    def get_all_rows(self) -> List[AdminMcpServer]:
-        """Return all DB rows (for admin API). Not cached."""
-        with SessionLocal() as session:
-            return (
-                session.query(AdminMcpServer)
-                .order_by(AdminMcpServer.sort_order, AdminMcpServer.server_id)
-                .all()
-            )
 
 
 # ── Built-in MCP catalog seed (single source of truth for fresh installs) ──────
@@ -420,10 +408,17 @@ def is_removed_builtin_mcp_server(
     if server_id in RETIRED_BUILTIN_MCP_SERVER_IDS:
         return True
 
+    return server_id in _edition_absent_builtin_ids()
+
+
+@functools.lru_cache(maxsize=1)
+def _edition_absent_builtin_ids() -> frozenset[str]:
+    """Built-in specs whose runtime port this edition does not register (static per process)."""
     from extensions.mcp_servers._ports import PORTS
 
-    builtin_ids = {str(spec["server_id"]) for spec in BUILTIN_MCP_SERVERS}
-    return server_id in builtin_ids and server_id not in PORTS
+    return frozenset(
+        str(spec["server_id"]) for spec in BUILTIN_MCP_SERVERS if str(spec["server_id"]) not in PORTS
+    )
 
 
 def prune_removed_builtin_mcp_servers(db) -> List[str]:

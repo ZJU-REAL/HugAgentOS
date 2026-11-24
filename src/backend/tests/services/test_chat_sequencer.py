@@ -119,7 +119,6 @@ async def test_restart_recovery_releases_writer_slot(db_session, monkeypatch):
         request_payload={"kind": "chat"},
     )
 
-    pass
 
     Session = sessionmaker(bind=db_session.get_bind())
 
@@ -152,7 +151,6 @@ async def test_cancel_keeps_writer_fenced_until_registered_worker_stops(db_sessi
         user_content="first",
         request_payload={"kind": "chat"},
     )
-    pass
 
     Session = sessionmaker(bind=db_session.get_bind())
     monkeypatch.setattr(db_engine, "SessionLocal", Session)
@@ -201,7 +199,6 @@ async def test_cross_process_cancel_retains_writer_fence_until_worker_acknowledg
         user_content="first",
         request_payload={"kind": "chat"},
     )
-    pass
 
     Session = sessionmaker(bind=db_session.get_bind())
     monkeypatch.setattr(db_engine, "SessionLocal", Session)
@@ -236,7 +233,6 @@ async def test_cancelled_pending_run_cannot_be_revived_by_late_remote_worker(
         user_content="first",
         request_payload={"kind": "chat"},
     )
-    pass
 
     Session = sessionmaker(bind=db_session.get_bind())
     monkeypatch.setattr(db_engine, "SessionLocal", Session)
@@ -295,7 +291,6 @@ async def test_losing_worker_cannot_release_concurrently_cancelled_winner_fence(
         user_content="first",
         request_payload={"kind": "chat"},
     )
-    pass
 
     Session = sessionmaker(bind=db_session.get_bind())
     monkeypatch.setattr(db_engine, "SessionLocal", Session)

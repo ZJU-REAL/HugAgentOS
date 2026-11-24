@@ -78,15 +78,6 @@
 
   /* 窄屏下同样保留 embedded 的无左右内边距（否则会比同级 Tab 内容多缩进 16px） */
 
-  .jx-kbTabs{
-    gap:18px;
-    overflow:auto;
-  }
-
-  .jx-kbTab{
-    font-size:16px;
-  }
-
   .jx-kbDetailHeader{
     padding:18px;
   }
@@ -102,10 +93,6 @@
   .jx-kbDetailActions{
     width:100%;
     margin-left:0;
-  }
-
-  .jx-kbSyncInline{
-    width:100%;
   }
 
   .jx-kbDocFilterTabs{

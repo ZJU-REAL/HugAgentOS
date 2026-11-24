@@ -32,6 +32,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
 from tests.db_support import share_session
+from tests.db_support import share_factory
 
 
 @pytest.fixture
@@ -198,7 +199,7 @@ def test_public_agent_artifact_roundtrip(db, monkeypatch):
         )
     )
     db.commit()
-    monkeypatch.setattr("core.db.engine.SessionLocal", sessionmaker(bind=db.bind))
+    share_factory(monkeypatch, sessionmaker(bind=db.bind))
     scope = parse_api_scope(
         make_agent_api_scope(user, "files-chat"),
         owner_user_id="owner",

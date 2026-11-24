@@ -171,6 +171,30 @@ class PersonalSandboxProvider(OpenSandboxProvider):
         """Ask the controller again next time: a command just failed on this computer."""
         getattr(self, "_alive_at", {}).pop(session_id, None)
 
+    async def forget_unbound_sessions(self, bound_session_ids, candidates=None):
+        """Close cached clients for computers no longer bound to a Personal Agent.
+
+        close_session never drops a permanent computer, so without this a deleted agent's
+        connected SDK client (and its HTTP pool) stays cached for the life of the process.
+        Only the local client is closed; the remote instance is left to its own lifecycle.
+        ``candidates`` limits the sweep to clients cached before ``bound_session_ids`` was
+        read, so a computer bound after that read is never mistaken for an unbound one.
+        """
+        keep = set(bound_session_ids)
+        pool = self._sessions if candidates is None else [sid for sid in candidates if sid in self._sessions]
+        dropped = 0
+        for session_id in [sid for sid in pool if sid not in keep]:
+            async with await self._get_session_lock(session_id):
+                cached = self._sessions.pop(session_id, None)
+                self.forget_alive(session_id)
+            if cached is None: continue
+            dropped += 1
+            try:
+                await cached.sandbox.close()
+            except Exception:  # noqa: BLE001 - a stale client must not stop the sweep
+                pass
+        return dropped
+
     async def _check_alive(self, sandbox):
         """Confirm the instance still exists; a missing one raises a 404 the caller recovers from.
 
@@ -409,3 +433,12 @@ def get_personal_sandbox_provider():
     global _provider
     if _provider is None: _provider = PersonalSandboxProvider()
     return _provider
+
+def cached_computer_ids():
+    """Computers with a cached client in this process; empty before the provider is first used."""
+    return set(_provider._sessions) if _provider is not None else set()
+
+async def forget_unbound_computers(bound_session_ids, candidates):
+    """Close cached clients, among ``candidates``, whose computer is no longer bound."""
+    if _provider is None or not candidates: return 0
+    return await _provider.forget_unbound_sessions(bound_session_ids, candidates)

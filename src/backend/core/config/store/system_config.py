@@ -30,7 +30,7 @@ class SystemConfigService:
                     cls._instance = cls()
         return cls._instance
 
-    # ── get / get_group ─────────────────────────────────────────────
+    # ── get ─────────────────────────────────────────────
 
     def get(self, key: str, default: str | None = None) -> str | None:
         """Get a config value. DB first, then env fallback, then default."""
@@ -45,16 +45,6 @@ class SystemConfigService:
                 return env_val.strip()
         return default
 
-    def get_group(self, group_key: str) -> dict[str, str]:
-        """Return all config key→value pairs for a group."""
-        self._maybe_refresh()
-        result: dict[str, str] = {}
-        for key, meta in self._cache_meta.items():
-            if meta.get("group_key") == group_key:
-                val = self.get(key)
-                if val is not None:
-                    result[key] = val
-        return result
 
     def get_all_configs(self) -> list[dict]:
         """Return all config rows as dicts (for API responses)."""

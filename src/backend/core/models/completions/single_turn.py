@@ -143,15 +143,6 @@ def stream_delta(endpoint: Endpoint, chunk: Mapping[str, Any]) -> str:
     return "".join(parts)
 
 
-def stream_complete(endpoint: Endpoint, chunk: Mapping[str, Any]) -> bool:
-    """这个事件是不是「答案已经完整」。
-
-    收不到完结信号就说明流是断的——调用方据此拒绝返回半截答案。Chat 线用 ``[DONE]``
-    哨兵（不是 JSON 事件，在 SSE 解析层判），Responses 线用 ``response.completed``。
-    """
-    return endpoint.speaks_responses and chunk.get("type") == "response.completed"
-
-
 def _responses_item(message: Mapping[str, Any]) -> dict[str, Any]:
     """Responses 线的输入项；生产在用的 vLLM 严格校验，必须是完整的 content 块。"""
     role = str(message.get("role") or "user")

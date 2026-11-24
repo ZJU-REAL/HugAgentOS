@@ -59,9 +59,9 @@ def destination(db, agent, *, selected=None, task=None, reply_to=None):
 def latest_origin(db, agent, chat_id):
     session = require_session(db, agent, chat_id)
     if session.chat_id == agent.chat_id: return None
+    from personal_agent.channels.channel_bridge import connected
     conn = db.get(ChannelConnection, session.channel_id)
-    if (not conn or conn.owner_user_id != agent.user_id or not conn.enabled
-            or conn.channel_id not in (agent.config or {}).get("channel_ids", [])):
+    if not conn or not conn.enabled or not connected(conn, agent.user_id):
         raise ValueError("Channel is no longer connected to Hugo")
     if origin := (session.extra_data or {}).get("channel_origin"): return origin
     origins = db.scalars(select(ChatMessage.extra_data).where(
@@ -77,7 +77,7 @@ def listing(svc):
     if agent is None: return []
     # Materialize known legacy routes without moving or rewriting their messages.
     # Historical mixed transcripts are retained; each route starts an isolated history.
-    from personal_agent.channels.channel_bridge import unpack
+    from personal_agent.channels.channel_bridge import connected, unpack
     from personal_agent.identity.config import locked_agent
     agent = locked_agent(svc.db, svc.user_id)
     if not (agent.config or {}).get("channel_sessions_seeded"):
@@ -93,7 +93,7 @@ def listing(svc):
             if key in known or not key[0] or not key[2]: continue
             known.add(key)
             conn = svc.db.get(ChannelConnection, key[0])
-            if conn and conn.owner_user_id == svc.user_id and conn.channel_id in (agent.config or {}).get("channel_ids", []):
+            if connected(conn, svc.user_id):
                 channel_session(svc.db, agent, conn, unpack(msg))
         agent.config = {**(agent.config or {}), "channel_sessions_seeded": True}
     svc.db.commit()

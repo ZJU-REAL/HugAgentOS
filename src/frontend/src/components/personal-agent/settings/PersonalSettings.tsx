@@ -69,7 +69,7 @@ export function PersonalSettings({ open, monitor, name, onClose, onProfile, onCh
 
       <SettingGroup title={t('连接器')}>
         <SettingRow icon={<FolderOpenOutlined />} label={t('我的空间')} description={t('可以搜索和读取“我的空间”中的文件，并把结果保存回去。')}
-          control={<Tag bordered={false} color="green">{t('已接入')}</Tag>} />
+          control={<Tag variant="filled" color="green">{t('已接入')}</Tag>} />
         <SettingRow stacked icon={<MailOutlined />} label={t('邮箱')}
           description={t('收信和读信直接执行；发送前是否需要你批准，由输入框里的操作权限决定。凭据只保存在服务端。')}
           control={<EmailConnect compact target="cloud" onChange={() => void onChange()} />} />

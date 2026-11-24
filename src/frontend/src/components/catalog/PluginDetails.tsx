@@ -4,12 +4,13 @@ import { motion } from 'motion/react';
 import { Switch, Tag, Typography, Button, Popconfirm, Alert } from 'antd';
 import { LeftOutlined, DeleteOutlined, BulbOutlined, ApiOutlined } from '@ant-design/icons';
 import { t } from '../../i18n';
-import { stripMarkdown, mdToHtml } from '../../utils/markdown';
+import { stripMarkdown } from '../../utils/markdown';
 import { staggerStyle } from '../../utils/motionTokens';
 import { DRILL_IN_DETAIL } from '../../utils/motionVariants';
 import { PluginAccountConnection } from './PluginAccountConnection';
 import { PluginAvatar } from './PluginIconPicker';
 import type { InstalledPluginDetail, PluginSkillComponent, PluginMcpComponent } from '../../types';
+import { MarkdownHtml } from '../common/MarkdownHtml';
 export type SelectedComponent = { kind: 'skill'; data: PluginSkillComponent } | { kind: 'mcp'; data: PluginMcpComponent };
 type NavDir = 'detail' | 'list' | null;
 
@@ -53,8 +54,7 @@ export function PluginComponentDetail({component, navDir, backToPlugin, setToolD
               return (
                 <div className="jx-mcp-detailBody">
                   {sk.instructions ? (
-                    <div className="jx-md jx-mcp-detailMarkdown"
-                      dangerouslySetInnerHTML={{ __html: mdToHtml(sk.instructions) }} />
+                    <MarkdownHtml className="jx-md jx-mcp-detailMarkdown" markdown={sk.instructions} />
                   ) : <Typography.Text type="secondary">{t('暂无指令内容')}</Typography.Text>}
                   {sk.files.length > 0 && (
                     <div style={{ marginTop: 16 }}>
@@ -164,10 +164,10 @@ export function PluginDetailView({pluginDetail, navDir, backToList, isCE, handle
               <h4 className="jx-sectionTitle">{t('管理员配置')}</h4>
               {d.admin_config.configured ? (
                 <Alert type="success" showIcon
-                  message={t('该插件已由管理员配置，可直接使用。')} />
+                  title={t('该插件已由管理员配置，可直接使用。')} />
               ) : (
                 <Alert type="warning" showIcon
-                  message={t('该插件需要管理员配置后才能使用')}
+                  title={t('该插件需要管理员配置后才能使用')}
                   description={t('请联系管理员在「插件」中为本插件开通相关配置（{items}）。', {
                     items: d.admin_config.fields.map((f) => f.label).join('、'),
                   })} />
@@ -215,7 +215,7 @@ export function PluginDetailView({pluginDetail, navDir, backToList, isCE, handle
                     desc={isInstalled ? t('{n} 个工具', { n: m.tools?.length ?? 0 }) : (m.note || t('点击查看详情'))}
                     onClick={() => openComponent({ kind: 'mcp', data: m })}
                     tags={<>
-                      <Tag style={{ marginLeft: 8 }}>{m.transport === 'stdio' ? 'stdio' : '远程'}</Tag>
+                      <Tag style={{ marginLeft: 8 }}>{m.transport === 'stdio' ? 'stdio' : t('远程')}</Tag>
                       {m.needs_runtime && <Tag color="orange" style={{ marginLeft: 4 }}>{t('需运行时')}</Tag>}
                     </>}
                   />

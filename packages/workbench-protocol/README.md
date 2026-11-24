@@ -12,7 +12,7 @@ npm pack
 Install the resulting tarball in an independent project. Import `validateApplication`,
 `validateContributions`, `ApplicationDeclaration`, `ApplicationTarget`,
 `PROTOCOL_VERSION`, `UI_VERSION`, and `HOST_CAPABILITIES` from
-`@hugagent/workbench-protocol`. Existing UI types are exported from `/legacy`.
+`@hugagent/workbench-protocol`. Plugin UI v1/v2 contract types are exported from `/plugin-ui` (`/legacy` is kept as an alias). JSON message bounds (`validateMessage`) are exported from `/message-bounds`.
 Versioned Schema files and positive/negative fixtures are exported from `/schemas/*` and `/fixtures/*`.
 The built runtime bundles its validator; consumers need no host source, React, CDN, or validation service.
 

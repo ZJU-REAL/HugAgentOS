@@ -42,7 +42,7 @@ export function SkillEditorDialogs({ editor }: { editor: ReturnType<typeof useSk
               { pattern: /^[a-z0-9_-]{1,63}$/, message: t('仅小写字母、数字、- 和 _，最长 63 位') },
             ]}
           >
-            <Input placeholder="如 my-weather-helper" disabled={!!editingSkillId} />
+            <Input placeholder={t('如 my-weather-helper')} disabled={!!editingSkillId} />
           </Form.Item>
           <Form.Item name="display_name" label={t('名称')} rules={[{ required: true, message: t('请输入名称') }]}>
             <Input placeholder={t('名称')} maxLength={255} />

@@ -13,15 +13,15 @@ from core.db.engine import Base
 from core.db.models import ChatRun, ChatSession, TaskNumberCounter
 from core.runs.api_recovery import validate_recovery_context
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from tests.db_support import session_factory, share_factory
 
 
 @pytest.fixture
 def recovery(tmp_path, monkeypatch):
     engine = create_engine(f"sqlite:///{tmp_path / 'project-recovery.db'}")
     Base.metadata.create_all(engine, tables=[ChatSession.__table__, ChatRun.__table__, TaskNumberCounter.__table__])
-    sessions = sessionmaker(bind=engine, expire_on_commit=False)
-    monkeypatch.setattr(db_engine, "SessionLocal", sessions)
+    sessions = session_factory(engine)
+    share_factory(monkeypatch, sessions)
     scope = {
         "version": 1,
         "owner_user_id": "owner",
@@ -154,7 +154,9 @@ def test_worker_restore_rejects_drift_before_starting_worker(recovery, monkeypat
     monkeypatch.setattr(
         runtime, 'register_run_task', lambda *a, **k: pytest.fail("must not start")
     )
-    assert runtime_recovery._register_recovered_chat(decision(context)) is False
+    damaged = decision(context)
+    restored = runtime_recovery._restore_recovered_chat(damaged)
+    assert runtime_recovery._register_recovered_chat(damaged, restored) is False
 
 
 @pytest.mark.asyncio

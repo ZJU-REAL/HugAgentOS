@@ -7,9 +7,10 @@ import json
 import math
 import re
 
-from features.desktop.models import DesktopRecord, DesktopSyncDevice, utcnow
+from features.desktop.models import DesktopRecord, DesktopSyncDevice, utc_now_iso
 from features.desktop.observability.fields import counterpart_identity, desktop_counterpart, gateway_counterpart
 from sqlalchemy import func, or_, select
+from core.db.paging import apply_page
 
 KINDS = {"session", "message", "run", "tool", "skill", "agent", "usage", "model"}
 MAX_BATCH_BYTES = 2 * 1024 * 1024
@@ -193,7 +194,7 @@ def ingest(db, user_id, device_id, batch, *, observation="desktop"):
             run_id=str(payload.get("run_id") or "")[:128],
             observation=observation,
             payload=payload,
-            received_at=utcnow(),
+            received_at=utc_now_iso(),
         )
         stmt = insert_for(db, DesktopRecord).values(**values)
         db.execute(
@@ -208,7 +209,7 @@ def ingest(db, user_id, device_id, batch, *, observation="desktop"):
             id=key(user_id, device_id),
             user_id=user_id,
             device_id=device_id,
-            last_seen=utcnow(),
+            last_seen=utc_now_iso(),
             pending=max(0, min(int(batch.get("pending", 0)), 10**9)),
             capture_errors=max(0, min(int(batch.get("capture_errors", 0)), 10**9)),
             reconciling=bool(batch.get("reconciling", False)),
@@ -261,7 +262,7 @@ def list_records(
         if kind == "message" and chat_id
         else (DesktopRecord.received_at.desc(), DesktopRecord.id)
     )
-    rows = db.scalars(q.order_by(*ordering).offset((page - 1) * page_size).limit(page_size)).all()
+    rows = db.scalars(apply_page(q.order_by(*ordering), page=page, page_size=page_size)).all()
     return serialize_records(db, rows), total
 
 

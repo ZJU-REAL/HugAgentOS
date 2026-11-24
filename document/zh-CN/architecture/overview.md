@@ -80,11 +80,10 @@ HugAgentOS 是一个开源、可自托管的 Agent Harness，提供 HugAgentOS C
 `core/agent_runtime/runner.py::astream_chat_workflow` 驱动单轮执行：
 
 1. **记忆检索**——`core/agent_runtime/integrations/memory.py` 读取 L1 画像 / L2 向量记忆（开启时），注入系统消息；
-2. **路由决策**——`core/agent_runtime/strategy.py`，`ROUTER_STRATEGY=main_only`（默认）恒路由到主智能体；
-3. **构建智能体**——`core/llm/factory/build.py::create_agent_executor`：装配提示词（`prompts/prompt_runtime.py`，DB 版本池优先）、按 catalog 与用户能力位筛选 MCP 服务器、注册自研工具（Read/Write/Edit/Glob/Grep/bash/技能加载等，见 `core/llm/tools/`）、最终一次性构造 AgentScope Toolkit；
-4. **流式执行**——`core/llm/runtime/streaming.py::StreamingAgent` 包装 ReActAgent，把推理增量、工具调用、工具结果逐条产出；
-5. **引用提取**——`core/llm/citations/` 从工具结果中解析 `[ref:tool_name-N]` 标记生成引用项；
-6. **收尾**——落库助手消息与工具调用日志，`core/memory/pipeline.py` 在后台异步抽取记忆（不阻塞 SSE 主链路），独立接口生成追问问题（`core/chat/followups.py`）。
+2. **构建智能体**——`core/llm/factory/build.py::create_agent_executor`：装配提示词（`prompts/prompt_runtime.py`，DB 版本池优先）、按 catalog 与用户能力位筛选 MCP 服务器、注册自研工具（Read/Write/Edit/Glob/Grep/bash/技能加载等，见 `core/llm/tools/`）、最终一次性构造 AgentScope Toolkit；
+3. **流式执行**——`core/llm/runtime/streaming.py::StreamingAgent` 包装 ReActAgent，把推理增量、工具调用、工具结果逐条产出；
+4. **引用提取**——`core/llm/citations/` 从工具结果中解析 `[ref:tool_name-N]` 标记生成引用项；
+5. **收尾**——落库助手消息与工具调用日志，`core/memory/pipeline.py` 在后台异步抽取记忆（不阻塞 SSE 主链路），独立接口生成追问问题（`core/chat/followups.py`）。
 
 ### 4. SSE 事件流
 

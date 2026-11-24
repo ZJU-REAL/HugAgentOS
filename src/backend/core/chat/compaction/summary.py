@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 from core.llm.context import compaction as C
 from core.models.context_window import resolve_model_context_window, usable_context_window
+from core.db.threads import run_db
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +115,7 @@ async def _summarize(history: List[Dict[str, Any]], *, timeout: int) -> Optional
     provider = endpoint.provider
 
     messages = _flatten_for_summary(history)
-    base_prompt = _load_base_system_prompt()
+    base_prompt = await run_db(_load_base_system_prompt)
     if base_prompt:
         # Qwen-family models require system to be only at index 0; the flattened history contains no system rows
         messages.insert(0, {"role": "system", "content": base_prompt})

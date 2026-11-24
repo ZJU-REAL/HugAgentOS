@@ -153,7 +153,6 @@
 | 接口 | 说明 |
 |---|---|
 | `GET /v1/marketplace/skills` | 市场列表（预置清单 + 已通过审核的社区技能，标注当前用户是否已装） |
-| `GET /v1/marketplace/categories` | 8 个固定分类：写作助手 / 文档处理 / 数据分析 / 政策产业 / 营销创意 / 法务合规 / 办公效率 / 研发效率 |
 | `GET /v1/marketplace/skills/{slug}` | 详情（SKILL.md 预览、required_secrets 声明） |
 | `POST /v1/marketplace/install` | 用户安装 → **私有技能** |
 | `POST /v1/admin/marketplace/install` | 管理员安装 → **全局技能** |

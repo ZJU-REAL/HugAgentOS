@@ -133,7 +133,6 @@ def negative_transfer_findings(
     *,
     asset_id: str = "",
     related_task_types: Sequence[str] = (),
-    before_key: str = "before",
     after_key: str = "after",
 ) -> List[Dict[str, Any]]:
     """Task types that got worse after some activation, unrelated to it.

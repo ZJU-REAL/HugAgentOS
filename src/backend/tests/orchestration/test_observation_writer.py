@@ -15,7 +15,7 @@ from core.harness.ledger import DurableEventStore
 from core.harness.observation_writer import ObservationWriter, flush_observations
 from core.harness.usage import MemoryUsageRecorder
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from tests.db_support import session_factory
 
 
 def _stage(run_id: str = "run-bg") -> Invocation:
@@ -122,7 +122,7 @@ def test_queued_records_are_batched_per_sink_and_run():
 async def test_published_events_reach_the_durable_store_in_order(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'events.sqlite'}")
     Base.metadata.create_all(engine)
-    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+    sessions = session_factory(engine)
     store = DurableEventStore(sessions)
     sink = EventSink(store)
     for index in range(4):

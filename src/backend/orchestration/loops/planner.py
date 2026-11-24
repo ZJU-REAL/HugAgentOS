@@ -21,7 +21,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any, Dict, List, Optional
 
 from core.harness.registry.capability_runtime import child_scope
@@ -305,10 +304,3 @@ async def replan_remaining(
     except Exception as exc:  # noqa: BLE001
         logger.warning("[loop-plan] replan failed: %s", exc)
         return None
-
-
-def summarize_plan_for_log(reqs: List[Dict[str, Any]]) -> str:
-    return json.dumps(
-        [{"id": r["id"], "check": bool(r.get("check_cmd"))} for r in reqs],
-        ensure_ascii=False,
-    )

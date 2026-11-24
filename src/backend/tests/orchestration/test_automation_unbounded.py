@@ -158,7 +158,6 @@ async def test_direct_execution_on_same_scheduler_cannot_share_ownership(live_en
 @pytest.mark.asyncio
 async def test_orphan_recovery_observes_child_without_creating_duplicate(live_env, monkeypatch):
     factory, _, task_id = live_env
-    pass
     from features.automation.capabilities import TaskCapabilities
     from orchestration.automations.automation_conversation import execute_prompt
 
@@ -216,7 +215,6 @@ async def test_orphan_recovery_observes_child_without_creating_duplicate(live_en
 async def test_recovery_delivers_original_result_before_later_user_message(live_env, monkeypatch):
     factory, _, task_id = live_env
     from core.db.models import ChatMessage, ChatRun
-    pass
     from features.automation.capabilities import TaskCapabilities
     from orchestration.automations.automation_conversation import execute_prompt
 

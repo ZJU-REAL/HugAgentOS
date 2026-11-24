@@ -1,4 +1,4 @@
-"""mcp catalog responsibilities."""
+"""MCP marketplace listing: market items with installed state, list and detail."""
 from __future__ import annotations
 from features.marketplace import managed_items
 from typing import Any, Dict, Optional

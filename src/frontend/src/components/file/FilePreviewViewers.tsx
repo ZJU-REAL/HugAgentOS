@@ -10,7 +10,6 @@ import {
 import type { ResourceItem } from '../../types';
 import { authFetch } from '../../api';
 import { ArtifactFileAction } from './ArtifactFileAction';
-import { mdToHtml } from '../../utils/markdown';
 import {
   PreviewFileTooLargeError,
   formatPreviewBytes,
@@ -21,6 +20,7 @@ import {
 
 import { buildRawUrl } from './filePreviewUrls';
 import { fileExtension } from '../../utils/filePreviewKind';
+import { MarkdownHtml } from '../common/MarkdownHtml';
 
 // ─── small async-text hook ─────────────────────────────────────────
 
@@ -125,9 +125,9 @@ export function MarkdownViewer({ item, maxBytes }: { item: ResourceItem; maxByte
   if (loading) return <PreviewLoading />;
   if (err) return <PreviewError msg={err} />;
   return (
-    <div
+    <MarkdownHtml
       className="jx-spaceImportPreview-md"
-      dangerouslySetInnerHTML={{ __html: mdToHtml(text || '') }}
+      markdown={text || ''}
     />
   );
 }

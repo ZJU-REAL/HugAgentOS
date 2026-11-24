@@ -136,7 +136,7 @@ async def _stream_turn(turn: MainTurn):
     _mem0_chat_id = turn.context.get("chat_id") or turn.context.get("conversation_id")
     turn.memory_enabled = bool(turn.context.get("memory_enabled", False))
     _mem0_write_enabled = bool(turn.context.get("memory_write_enabled", False))
-    # Under a team project chats.py passes "team:<tid>"; personal/default spaces don't pass it and fall back to the real user_id
+    # A team project's scope sets "team:<tid>" (see request_context.py); personal/default spaces leave it unset and fall back to the real user_id
     _mem0_scope_user_id = str(turn.context.get("memory_scope_user_id", "") or turn.memory_user_id)
     logger.info(
         "[memory] user=%s scope=%s ws=%s chat=%s enabled=%s write=%s",
@@ -185,10 +185,10 @@ async def _stream_turn(turn: MainTurn):
             async for event in phase:
                 yield event
 
-        # Project scope is no longer passed via ContextVar — see the comment at
-        # the same spot in _astream_subagent_direct above. All scope-dependent
-        # tools captured it by closure when registered in agent_factory; the
-        # finishing _persist_artifacts gets the scope explicitly from chats.py.
+        # Project scope travels explicitly, never via ContextVar: every
+        # scope-dependent tool captured it by closure when the factory
+        # registered it, and the worker's final _persist_artifacts rebuilds it
+        # from the run context.
 
         async with _aclosing(stream_main.stream_main(turn)) as phase:
             async for event in phase:

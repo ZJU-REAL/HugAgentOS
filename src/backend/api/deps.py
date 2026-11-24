@@ -1,5 +1,6 @@
 """Shared authentication dependencies."""
 
+import hmac
 import os
 from typing import Optional
 
@@ -10,6 +11,18 @@ from core.db.repository import AuditLogRepository
 from core.db.threads import run_in_session
 from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
+
+
+def _static_token(env_var: str, settings_attr: str) -> str:
+    """The configured console token: the environment variable wins over settings."""
+    return os.getenv(env_var) or getattr(settings.auth, settings_attr, "")
+
+
+def _bearer_matches(authorization: Optional[str], token: str) -> bool:
+    """Whether ``authorization`` is exactly ``Bearer <token>`` (constant-time compare)."""
+    if not token or not authorization:
+        return False
+    return hmac.compare_digest(authorization.encode(), f"Bearer {token}".encode())
 
 
 def _require_token_or_flag(
@@ -40,9 +53,9 @@ def _require_token_or_flag(
     def authorize(
         db: Session, request: Request, authorization: Optional[str], user_id: Optional[str]
     ) -> None:
-        token = os.getenv(env_var) or getattr(settings.auth, settings_attr, "")
+        token = _static_token(env_var, settings_attr)
         # ① Static token match
-        if token and authorization == f"Bearer {token}":
+        if _bearer_matches(authorization, token):
             _audit_grant(db, request, granted_action, user_id=None, via="token")
             return
         # ② Session user carries the corresponding capability flag (or super_admin)
@@ -84,9 +97,8 @@ def _require_token_or_flag(
         request: Request,
         authorization: Optional[str] = Header(None),
     ) -> None:
-        token = os.getenv(env_var) or getattr(settings.auth, settings_attr, "")
         user_id = None
-        if not (token and authorization == f"Bearer {token}"):
+        if not _bearer_matches(authorization, _static_token(env_var, settings_attr)):
             user_id = await _resolve_session_user_id(request)
         await run_in_session(authorize, request, authorization, user_id)
 
@@ -143,23 +155,24 @@ async def require_admin_or_config(
     request: Request,
     authorization: Optional[str] = Header(None),
 ) -> None:
-    """Accept either ADMIN_TOKEN or CONFIG_TOKEN.
+    """Accept either ADMIN_TOKEN or CONFIG_TOKEN (static tokens only, no session users).
 
-    Used by the prompt snapshot import/export endpoints: the CLI migration
-    script sends ADMIN_TOKEN, while the Config console "prompt management" page
-    sends CONFIG_TOKEN — both should be allowed through.
+    Guards the prompt snapshot export/import endpoints (``/v1/content/prompts/*``,
+    used for cross-environment migration with either token) and the official
+    chat-mode endpoints in ``chat_modes.py``. Denials from every caller are
+    audited under the same ``prompt_snapshot.access_denied`` action.
     """
-    admin_token = os.getenv("ADMIN_TOKEN") or getattr(settings.auth, "admin_token", "")
-    config_token = os.getenv("CONFIG_TOKEN") or getattr(settings.auth, "config_token", "")
+    admin_token = _static_token("ADMIN_TOKEN", "admin_token")
+    config_token = _static_token("CONFIG_TOKEN", "config_token")
     if not admin_token and not config_token:
         raise HTTPException(
             status_code=503,
             detail="Admin/Config access not configured (ADMIN_TOKEN / CONFIG_TOKEN not set)",
         )
     if authorization:
-        if admin_token and authorization == f"Bearer {admin_token}":
+        if _bearer_matches(authorization, admin_token):
             return
-        if config_token and authorization == f"Bearer {config_token}":
+        if _bearer_matches(authorization, config_token):
             return
         await run_in_session(
             lambda db: AuditLogRepository(db).log_denial(
@@ -273,7 +286,7 @@ def _authorize_delegated(
     credential or user was presented.
     """
     authorization = request.headers.get("authorization")
-    if token and authorization == f"Bearer {token}":
+    if _bearer_matches(authorization, token):
         _audit_grant(db, request, f"{action}.access_granted", user_id=None, via="token")
         return token_grant
     if user is not None and allowed(db, user.user_id):
@@ -314,44 +327,10 @@ async def require_system_settings(
         _authorize_delegated,
         request,
         user,
-        token=os.getenv("CONFIG_TOKEN") or getattr(settings.auth, "config_token", ""),
+        token=_static_token("CONFIG_TOKEN", "config_token"),
         token_grant="config_token",
         allowed=user_can_manage_system_settings,
         action="system_settings",
         required="can_system_config",
         forbidden="需要系统配置权限",
     )
-
-
-def _authorize_super_admin(db: Session, request: Request) -> str:
-    user_id = _resolve_current_user_id(request)
-    if not user_id:
-        AuditLogRepository(db).log_denial(
-            user_id=None,
-            action="super_admin.access_denied",
-            reason="not_logged_in",
-            required="super_admin",
-            actual="anonymous",
-            request=request,
-        )
-        raise HTTPException(status_code=401, detail="未登录")
-    if not _is_super_admin(db, user_id):
-        AuditLogRepository(db).log_denial(
-            user_id=user_id,
-            action="super_admin.access_denied",
-            reason="not_super_admin",
-            required="super_admin",
-            actual="regular_user",
-            request=request,
-        )
-        raise HTTPException(status_code=403, detail="需要 super_admin 权限")
-    return user_id
-
-
-async def require_super_admin(request: Request) -> str:
-    """Require the current session user to be super_admin; a valid ADMIN_TOKEN serves as fallback."""
-    admin_token = os.getenv("ADMIN_TOKEN") or settings.auth.admin_token
-    authorization = request.headers.get("authorization")
-    if admin_token and authorization == f"Bearer {admin_token}":
-        return "admin_token"
-    return await run_in_session(_authorize_super_admin, request)

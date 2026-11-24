@@ -12,10 +12,11 @@ import hmac
 import logging
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import timezone
 from typing import Any, Dict, List, Optional
 
 from core.db.models import Job, JobCall, JobItem
+from core.infra.time import utc_now as _utcnow
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
@@ -31,10 +32,6 @@ DEFAULT_BUDGET: Dict[str, int] = {
     "max_seconds": 7200,
     "concurrency": 8,
 }
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def new_job_id() -> str:
@@ -177,18 +174,6 @@ class JobService:
         flag_modified(job, "extra_data")
         self._commit()
 
-    def rotate_token(self, job_id: str) -> Optional[str]:
-        """resume 时换发新 token（旧 token 已在 finish 时销毁）。"""
-        job = self.get(job_id, lock=True)
-        if job is None:
-            return None
-        token = mint_token()
-        meta = dict(job.extra_data or {})
-        meta["token"] = token
-        job.extra_data = meta
-        flag_modified(job, "extra_data")
-        self._commit()
-        return token
 
     # ── 台账 ─────────────────────────────────────────────────────────
 

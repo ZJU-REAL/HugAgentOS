@@ -16,7 +16,6 @@ def load_payload(db: Optional[Session] = None) -> Dict[str, Any]:
     Query columns directly so an existing ORM identity-map entry cannot hide a
     newer payload. The payload and its revision are loaded in the same query.
     """
-    pass  # State is owned by its responsibility module.
     own_session = db is None
     if own_session:
         db = SessionLocal()
@@ -87,7 +86,6 @@ def save_payload(
 
 def invalidate_cache() -> None:
     """Drop this worker's cache; other workers detect the DB revision on read."""
-    pass  # State is owned by its responsibility module.
     with prompt_versions_state.process_state().payload_cache_lock:
         prompt_versions_state.process_state().payload_cache = None
         prompt_versions_state.process_state().payload_cache_key = None

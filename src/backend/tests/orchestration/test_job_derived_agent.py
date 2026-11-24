@@ -10,6 +10,7 @@ import core.jobs.files as files
 import core.jobs.runtime as jobs_runtime
 import pytest
 from core.llm.factory.request import AgentRequest
+from tests.db_support import memory_engine
 
 
 def test_snapshot_keeps_parent_and_deferred_capabilities_without_run_identity():
@@ -313,10 +314,7 @@ def submitted_job(monkeypatch):
     from sqlalchemy.orm import sessionmaker
     from sqlalchemy.pool import StaticPool
 
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
+    engine = memory_engine()
     sessions = sessionmaker(bind=engine)
     for module in (db_engine, internal_jobs, job_callback_session):
         monkeypatch.setattr(module, "SessionLocal", sessions)

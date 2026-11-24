@@ -15,6 +15,7 @@ import {HostNotice} from './ui';
 import './workspace.css';
 import {applicationText} from './externalApi';
 import {packageAssetPath,sourceLabel,type WorkbenchOrigin,type WorkbenchSource} from './sourceIdentity';
+import { API_BASE } from '../utils/apiBase';
 export interface WorkspaceLaunch {
  applicationKey:string;revision:string;target:{kind:'plugin';moduleId:string};
  binding:{installId:string;packageRevision:string;slug:string;origin:WorkbenchOrigin;executionScope:WorkbenchSource};
@@ -84,8 +85,7 @@ export function PluginWorkspaceFrame({launch,theme,locale,onRetry,extension,onRe
  useEffect(()=>bridge.current?.updateExtension(guarded),[guarded]);
  useEffect(()=>bridge.current?.update(info),[info]);
  useEffect(()=>{if(lease.status==='recovering')bridge.current?.suspend();},[lease.status]);
- const prefix=(import.meta.env.VITE_API_BASE_URL||'/api').replace(/\/$/,'');
- const src=prefix+packageAssetPath(launch.assetPath,launch.applicationKey)+'&instanceId='+encodeURIComponent(instanceId);
+ const src=API_BASE+packageAssetPath(launch.assetPath,launch.applicationKey)+'&instanceId='+encodeURIComponent(instanceId);
  if(status==='failed')return <DiagnosticFailure applicationKey={launch.applicationKey} code={failureCode} onRetry={onRetry}/>;
  return <section aria-label={t('插件工作区')} className="jx-workspacePlugin">
   {dialog}{platform.dialog}

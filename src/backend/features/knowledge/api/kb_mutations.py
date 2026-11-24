@@ -1,20 +1,24 @@
-"""kb mutations responsibilities."""
+"""KB write routes: delete a space or document, reindex a document."""
 from __future__ import annotations
-from fastapi import APIRouter
-router = APIRouter()
+
+import logging
 from typing import Optional
-from features.knowledge.request_models import ReindexRequest
+
+from fastapi import APIRouter, Depends, Path
+from sqlalchemy.orm import Session
+
 from core.auth.backend import UserContext, get_current_user
-from features.knowledge.wiki.config import index_modes_of
 from core.db.engine import get_db
 from core.infra.exceptions import ResourceNotFoundError
 from core.infra.responses import success_response
-from features.knowledge.service import KBService
-from fastapi import Depends, Path
-from sqlalchemy.orm import Session
-import logging
-logger = logging.getLogger(__name__)
 from features.knowledge.api import kb_helpers
+from features.knowledge.request_models import ReindexRequest
+from features.knowledge.service import KBService
+from features.knowledge.wiki.config import index_modes_of
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
 
 @router.delete("/{kb_id}", summary="删除知识库空间")
 def delete_kb_space(
@@ -22,7 +26,7 @@ def delete_kb_space(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """删除指定知识库空间及其下属文档、分块与向量数据。仅空间所有者可操作；空间不存在或无权访问时返回 404。此操作不可恢复。"""
+    """删除指定知识库空间（软删除）：空间标记为已删除，之后不再出现在列表和检索中；其文档与分块保留不动，向量数据随即清除，目前没有恢复接口。需要空间的管理权限；系统托管空间不能删除；空间不存在或无权访问时返回 404。"""
     kb_service = KBService(db)
     deleted = kb_service.delete_space(kb_id, user.user_id)
     if not deleted:
@@ -80,9 +84,9 @@ def reindex_document(
         logger.warning("Asset cleanup failed for reindex of %s: %s", document_id, exc)
 
     try:
-        from features.knowledge.vector_indexing import delete_by_document
+        from features.knowledge.vector_indexing import delete_document_vectors
 
-        delete_by_document(document_id, user.user_id)
+        delete_document_vectors(document_id, kb_id)
     except Exception as exc:
         logger.warning("Milvus cleanup failed for reindex of %s: %s", document_id, exc)
 

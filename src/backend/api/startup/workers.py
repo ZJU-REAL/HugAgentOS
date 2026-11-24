@@ -1,9 +1,7 @@
 """Application lifecycle operations."""
 import os
-import sys
 from typing import Callable
 
-from core.config.settings import settings
 from core.infra.logging import get_logger
 
 logger = get_logger(__name__)
@@ -205,7 +203,9 @@ async def _startup_preload():
         elapsed = time.monotonic() - start
         logger.info("[startup] Preload complete in %.2fs", elapsed)
 
-    asyncio.create_task(_run())
+    from core.infra.background import spawn
+
+    spawn(_run(), name="startup.preload")
 
 async def _startup_automation_scheduler():
     """Start the automation scheduler for timed task execution."""

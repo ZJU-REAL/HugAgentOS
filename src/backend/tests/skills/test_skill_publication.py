@@ -403,7 +403,6 @@ async def test_prewarmed_session_delivery_reconciles_before_pool_hit(cloud, monk
     module_class = sessions._OpenSandboxLifecycleMixin
     fake = SimpleNamespace(
         _lookup_snapshot=AsyncMock(return_value=None),
-        _jupyter_user_pool=SimpleNamespace(has_idle=lambda user: True),
         _create_session=AsyncMock(
             return_value=SimpleNamespace(sandbox=SimpleNamespace(id="pooled"))
         ),

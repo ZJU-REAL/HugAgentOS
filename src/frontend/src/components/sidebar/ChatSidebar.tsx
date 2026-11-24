@@ -76,11 +76,11 @@ export function ChatSidebar({ actions, children, navigation }: { actions: Sideba
   );
   const renderHeaderActions = (key: string) => key === 'projects'
     ? <div className="jx-historyGroupActions">
-        <Dropdown menu={{ items: projectMenu }} trigger={['click']} placement="bottomRight" overlayClassName="jx-chatItemMenu jx-historyGroupMenu">
+        <Dropdown menu={{ items: projectMenu }} trigger={['click']} placement="bottomRight" classNames={{ root: "jx-chatItemMenu jx-historyGroupMenu" }}>
           <button type="button" className="jx-projectRowActionBtn" aria-label={t('项目列表更多操作')}><EllipsisOutlined /></button>
         </Dropdown>
         {isDesktop && canCreateCloudProject && canCreateLocalProject
-          ? <Dropdown trigger={['click']} placement="bottomRight" overlayClassName="jx-chatItemMenu" menu={{ items: [
+          ? <Dropdown trigger={['click']} placement="bottomRight" classNames={{ root: "jx-chatItemMenu" }} menu={{ items: [
               { key: 'new-cloud-project', icon: <FolderAddOutlined />, label: t('新建云端项目'), onClick: () => setCreateProjectOpen(true) },
               { key: 'new-local-project', icon: <LaptopOutlined />, label: t('新建本地项目'), onClick: pickLocalProjectFolder },
             ] }}>{newProjectButton()}</Dropdown>
@@ -89,7 +89,7 @@ export function ChatSidebar({ actions, children, navigation }: { actions: Sideba
             </Tooltip>}
       </div>
     : <div className="jx-historyGroupActions">
-        <Dropdown menu={{ items: historyMenu }} trigger={['click']} placement="bottomRight" overlayClassName="jx-chatItemMenu jx-historyGroupMenu">
+        <Dropdown menu={{ items: historyMenu }} trigger={['click']} placement="bottomRight" classNames={{ root: "jx-chatItemMenu jx-historyGroupMenu" }}>
           <button type="button" className="jx-projectRowActionBtn" aria-label={t('历史对话更多操作')}><EllipsisOutlined /></button>
         </Dropdown>
         <Tooltip title={t('新建对话')}>

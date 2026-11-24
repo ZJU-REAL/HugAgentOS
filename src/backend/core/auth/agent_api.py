@@ -6,13 +6,14 @@ import hashlib
 import re
 import uuid
 from contextvars import ContextVar
-from datetime import datetime, timezone
+from datetime import timezone
 
 from fastapi import HTTPException
 from sqlalchemy import case
 from sqlalchemy.exc import IntegrityError
 
 from core.db.models import AgentApiCallLog, Artifact, ChatRun, ChatSession, UserAgent, UserApiKey
+from core.infra.time import utc_now as _now
 
 # The mutable tracker is intentionally shared with the request's ASGI boundary
 # across worker-thread contexts; it prevents duplicate rejection records.
@@ -40,10 +41,6 @@ _FORBIDDEN_INPUTS = (
     "quoted_follow_up",
     "model_provider_id",
 )
-
-
-def _now():
-    return datetime.now(timezone.utc)
 
 
 def require_agent_manager(db, user_id: str, agent_id: str):

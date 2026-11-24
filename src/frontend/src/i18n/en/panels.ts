@@ -378,7 +378,6 @@ export const PANELS_DICT: Record<string, string> = {
   '当前会话仍可继续使用，请稍后重新打开结果。': 'You can continue using this chat and reopen the result later.',
 
   // ── AppCenterPanel ───────────────────────────────────────────────────
-  '更多应用': 'More apps',
   '可用': 'Available',
   '即将上线': 'Coming soon',
 

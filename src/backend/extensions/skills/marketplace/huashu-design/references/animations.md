@@ -1,5 +1,7 @@
 # Animations：时间轴动画引擎
 
+> **HugAgentOS 版本说明**：本版本只做 HTML 动画，视频与音频管线没有随技能分发。文中提到的 `scripts/render-video*.js`、`verify-video.sh`、`add-music.sh`、`mix-voiceover.sh`、`sfx-cues.sh`，以及 `hyperframes-backend.md`、`video-export.md`、`audio-design-rules.md` 等文档在本版本不可用，相关步骤一律跳过（见 `references/modules/motion.md` 开头的说明）。
+
 做动画/motion design HTML时读这个。原理、用法、典型模式。
 
 ## 核心模式：Stage + Sprite

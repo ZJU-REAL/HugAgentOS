@@ -1,6 +1,8 @@
 """Install trusted CLI assets in existing permanent computers without rebuilding them."""
 
+import asyncio
 import base64
+import functools
 import hashlib
 import json
 from pathlib import Path
@@ -25,7 +27,9 @@ os.chmod(launcher,0o755);os.replace(launcher,'/usr/local/bin/hugagent')
 print('CLI ready')
 """
 
-async def ensure_cli(provider, box, uid):
+@functools.lru_cache(maxsize=1)
+def _cli_install() -> tuple[str, str]:
+    """(install command, digest) for the packaged CLI; its sources don't change while the process runs."""
     import hugagent_cli
 
     sources = {
@@ -42,4 +46,9 @@ async def ensure_cli(provider, box, uid):
         + " "
         + digest
     )
+    return command, digest
+
+
+async def ensure_cli(provider, box, uid):
+    command, digest = await asyncio.to_thread(_cli_install)
     await install_once(provider, box, uid, "cli", digest, command)

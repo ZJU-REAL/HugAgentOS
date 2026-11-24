@@ -6,15 +6,15 @@ import XxxRepository`` keeps working unchanged.
 """
 from core.infra.time import utc_now
 
-import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import sqlalchemy as sa
 from features.knowledge.models import KBChunk, KBDocument, KBSpace
 from features.knowledge.document_status import classify_document_status, empty_document_status_counts
-from sqlalchemy import and_, desc, func, or_, select
+from sqlalchemy import desc, func, or_
 from sqlalchemy.orm import Session
+from core.db.paging import apply_page
 
 
 class KBRepository:
@@ -131,10 +131,7 @@ class KBRepository:
 
         total = query.count()
         documents = (
-            query.order_by(desc(KBDocument.uploaded_at))
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-            .all()
+            apply_page(query.order_by(desc(KBDocument.uploaded_at)), page=page, page_size=page_size).all()
         )
 
         return documents, total

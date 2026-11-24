@@ -15,6 +15,7 @@ import time
 import fakeredis.aioredis
 import pytest
 from core.runs.events.store import START, LocalRunEventStream, RedisRunEventStream
+from tests.clock_support import FAKEREDIS_CLOCK_MODULE, FakeClock
 
 
 @pytest.fixture(params=["local", "redis"])
@@ -107,11 +108,12 @@ async def test_clear_drops_a_crashed_runs_projection(stream):
 
 
 @pytest.mark.asyncio
-async def test_expire_eventually_removes_the_log(stream):
+async def test_expire_eventually_removes_the_log(stream, monkeypatch):
+    clock = FakeClock().install(monkeypatch, "core.runs.events.store", FAKEREDIS_CLOCK_MODULE)
     await _seed(stream, "run", 1)
     await stream.expire("run", 1)
     assert await stream.read("run") != []
-    await asyncio.sleep(1.1)
+    clock.advance(1.1)
     assert await stream.read("run") == []
 
 

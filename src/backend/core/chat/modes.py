@@ -57,17 +57,6 @@ class ChatModeService:
             .all()
         )
 
-    def get_visible(self, mode_id: str, user_id: Optional[str]) -> Optional[ChatMode]:
-        row = (
-            self.db.query(ChatMode)
-            .filter(ChatMode.id == mode_id, ChatMode.deleted_at.is_(None))
-            .first()
-        )
-        if row is None:
-            return None
-        if row.owner_user_id is not None and row.owner_user_id != user_id:
-            return None
-        return row
 
     # ── 运行时解析 ──────────────────────────────────────────────────────
 
@@ -301,8 +290,6 @@ class ChatModeService:
         kinds: List[Dict[str, Any]] = []
         if owner_user_id is None:
             try:
-                from core.llm import prompt_versions as _pvs
-
                 kinds = prompt_kinds.all_kinds(self.db)
             except Exception:  # noqa: BLE001
                 logger.debug("[chat_mode] 提示词 kind 清单读取失败", exc_info=True)

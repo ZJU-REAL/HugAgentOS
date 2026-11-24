@@ -118,7 +118,7 @@ export function AddPrivateMcpModal({ open, onClose, onAdded }: AddPrivateMcpModa
       )}
       <Form form={form} layout="vertical" initialValues={{ transport: 'streamable_http', auth: 'none' }}>
         <Form.Item name="display_name" label={t('名称')} rules={[{ required: true, message: t('请输入名称') }]}>
-          <Input placeholder="如「我的天气服务」" maxLength={255} />
+          <Input placeholder={t('如「我的天气服务」')} maxLength={255} />
         </Form.Item>
         <Form.Item name="transport" label={t('类型')} rules={[{ required: true }]}>
           <Select
@@ -129,7 +129,7 @@ export function AddPrivateMcpModal({ open, onClose, onAdded }: AddPrivateMcpModa
           />
         </Form.Item>
         <Form.Item name="url" label={t('服务地址 URL')} rules={[{ required: true, message: t('请输入 URL') }]}>
-          <Input placeholder="http://example.com:8080/mcp 或 https://example.com/mcp" />
+          <Input placeholder={t('http://example.com:8080/mcp 或 https://example.com/mcp')} />
         </Form.Item>
         <Form.Item name="description" label={t('描述（可选）')}>
           <Input.TextArea rows={2} maxLength={2000} placeholder={t('简单说明这个工具的用途')} />

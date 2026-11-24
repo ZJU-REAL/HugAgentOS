@@ -26,9 +26,9 @@ the caller's directory layout."""
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Iterable, Mapping, Optional
+from typing import Any, Mapping, Optional
 
 from core.sandbox.oslayer.errors import SandboxPolicyError
 from core.sandbox.oslayer.paths import filesystem_root, is_within, normalize_logical, path_depth
@@ -393,8 +393,6 @@ class FileSystemPolicy:
             include_platform_defaults=wants_baseline and self.kind is FileSystemKind.RESTRICTED,
         )
 
-    def with_entries(self, entries: Iterable[FileSystemEntry]) -> "FileSystemPolicy":
-        return replace(self, entries=tuple(self.entries) + tuple(entries))
 
     def to_json(self) -> dict[str, Any]:
         return {

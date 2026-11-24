@@ -1,4 +1,4 @@
-"""client responsibilities."""
+"""Desktop bridge cloud client: holds the bridge state and syncs/caches the cloud tool and capability manifests."""
 from __future__ import annotations
 from features.desktop.capabilities import skills
 import threading
@@ -24,7 +24,6 @@ def set_state(
     authorization_epoch: Optional[int] = None,
 ) -> None:
     """壳侧推送桥配置（幂等）。立即触发一次后台 manifest 刷新。"""
-    pass  # State is owned by its responsibility module.
     payload = {
         "cloud_base": cloud_base.strip().rstrip("/"),
         "token": token.strip(),
@@ -105,7 +104,6 @@ def sync_tool_manifest_blocking(st: Dict[str, Any]) -> None:
 
 
 def sync_tool_manifest(st: Dict[str, Any]) -> None:
-    pass  # State is owned by its responsibility module.
     from core.harness.capability_errors import CloudUnavailable
 
     bridge_identity.require_current_account(st)
@@ -151,7 +149,6 @@ def sync_tool_manifest(st: Dict[str, Any]) -> None:
 
 
 def fetch_manifest_blocking(st: Dict[str, Any]) -> None:
-    pass  # State is owned by its responsibility module.
     from features.desktop.bridge import cloud_http
 
     refresh_replacement = False
@@ -200,7 +197,6 @@ def refresh_manifest_async(force: bool = False) -> None:
     """后台同步一次云端清单。没有定时器：``force`` 由登录 / 变更通知触发，非
     ``force`` 只是「还没有可用清单」时的有界重试（离线登录后的自愈），一旦拿到
     清单就不再有任何后台请求。"""
-    pass  # State is owned by its responsibility module.
     st = bridge_identity.get_state()
     if not st:
         return

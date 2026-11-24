@@ -17,6 +17,7 @@ from core.llm import prompt_storage as pvs
 from features.knowledge.models import KBSpace
 from prompts import kb_lite_section, prompt_runtime
 from prompts.prompt_config import PromptConfig, SystemPromptConfig
+from tests.db_support import share_factory
 
 _EXT = "92f92c25-443f-459c-a832-0f9f5ea1d572"
 
@@ -41,7 +42,7 @@ def local_db(monkeypatch):
     ContentBlock.__table__.create(engine)
     AdminPromptPart.__table__.create(engine)
     sessions = sessionmaker(bind=engine)
-    monkeypatch.setattr(db_engine, "SessionLocal", sessions)
+    share_factory(monkeypatch, sessions)
     monkeypatch.setattr(pvs, "SessionLocal", sessions)
     with sessions() as db:
         db.add(KBSpace(kb_id="kb_mine", user_id="u1", name="我的库", description="私有简介", visibility="private"))

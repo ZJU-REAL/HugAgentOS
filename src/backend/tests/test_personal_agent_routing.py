@@ -8,20 +8,18 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import create_engine, select, func
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-from core.db.engine import Base
 from core.db.models import UserShadow, ChatMessage, Artifact
 from personal_agent.models import PersonalFrontTurn, PersonalMessageInbox, PersonalMessageTask, PersonalWorkItem
 from personal_agent.context import AgentContext
 from personal_agent.conversation.message_routing import admit, pending
 from personal_agent.conversation.associations import instructions
 from tests.test_personal_agent import personal_agent_on  # noqa: F401  (module on, user permitted)
+from tests.db_support import memory_engine, share_factory
 
 
 @pytest.fixture
 def sessions(monkeypatch):
-    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-    Base.metadata.create_all(engine)
+    engine = memory_engine()
     # Expire on commit like production: a tool that reads a row after its session closed must fail here.
     factory = sessionmaker(bind=engine)
     with factory() as db:
@@ -30,7 +28,7 @@ def sessions(monkeypatch):
     from personal_agent.tools import front_tools
     for module in (context, reply, scheduler, steering, router_turn, front_tools): monkeypatch.setattr(module, "SessionLocal", factory)
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", factory)
-    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
+    share_factory(monkeypatch, factory)
     from core.runs import journal as run_journal
 
     @asynccontextmanager
@@ -338,7 +336,7 @@ def test_turn_context_has_rules_tasks_and_the_conversation(sessions, monkeypatch
     from core.db import engine as db_engine
     from personal_agent.conversation.router import context as front
     # Workspace seeding reads the agent through the default session factory.
-    monkeypatch.setattr(db_engine, "SessionLocal", sessions)
+    share_factory(monkeypatch, sessions)
     monkeypatch.setattr("personal_agent.tasks.guards.SessionLocal", sessions)
     with sessions() as db:
         svc = AgentContext(db, "owner"); a = svc.tasks.submit("部署服务器 Alpha", "a")["id"]

@@ -1,14 +1,8 @@
 """Skill dependency request lifecycle (strict verification version).
 
-Flow: user imports an external skill -> ``detect_dependencies`` identifies declared
-dependencies -> **actually probe them in the sandbox** (``skill_deps_prober``) to
-confirm which packages are **truly missing**:
-
-- All already present in the sandbox -> set ``dep_status='ready'`` directly, do not
-  bother the admin;
-- Packages truly missing -> skill ``dep_status='installing'`` (soft-disabled, excluded
-  from runtime loading) + create a pending request (visible to admins on the
-  "Sandbox Dependencies" admin page).
+A skill whose declared dependencies are missing in the sandbox is soft-disabled
+(``dep_status='installing'``, excluded from runtime loading) with a pending
+request visible to admins on the "Sandbox Dependencies" admin page.
 
 Two admin outcomes:
 1. Rebuild the sandbox -> after the rebuild finishes, **probe again** package by
@@ -23,15 +17,13 @@ from __future__ import annotations
 from core.infra.time import utc_now
 
 import logging
-import uuid
-from datetime import datetime
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
 from core.db.models import AdminSkill, SkillDependencyRequest
 from core.db.threads import run_in_session
-from core.capabilities.skills.deps.prober import names_of, probe_still_missing
+from core.capabilities.skills.deps.prober import probe_still_missing
 
 logger = logging.getLogger(__name__)
 
@@ -44,90 +36,13 @@ def _extract_declared(dependencies: Optional[dict]) -> dict:
     return {k: deps.get(k) or [] for k in _DEP_KINDS if deps.get(k)}
 
 
-def _mark_ready(db: Session, skill: AdminSkill) -> None:
-    """Skill dependencies satisfied: restore ready, and close out any leftover pending requests for it as satisfied."""
-    if skill.dep_status != "ready":
-        skill.dep_status = "ready"
-    db.query(SkillDependencyRequest).filter(
-        SkillDependencyRequest.skill_id == skill.skill_id,
-        SkillDependencyRequest.status == "pending",
-    ).update(
-        {"status": "satisfied", "satisfied_at": utc_now()},
-        synchronize_session=False,
-    )
-
-
-def _upsert_pending(db: Session, skill_id: str, *, user_id: Optional[str], missing: dict) -> None:
-    req = (
-        db.query(SkillDependencyRequest)
-        .filter(
-            SkillDependencyRequest.skill_id == skill_id,
-            SkillDependencyRequest.status == "pending",
-        )
-        .first()
-    )
-    if req is None:
-        req = SkillDependencyRequest(request_id=f"sdr_{uuid.uuid4().hex[:16]}", skill_id=skill_id)
-        db.add(req)
-    req.user_id = user_id
-    req.missing = missing
-    req.status = "pending"
-    req.reason = None
-
-
-def _skill_exists(db: Session, skill_id: str) -> bool:
-    return db.query(AdminSkill.skill_id).filter(AdminSkill.skill_id == skill_id).first() is not None
-
-
-def _record_verdict(
-    db: Session, skill_id: str, owner_user_id: Optional[str], missing: dict
-) -> bool:
-    skill = db.query(AdminSkill).filter(AdminSkill.skill_id == skill_id).first()
-    if skill is None:
-        return False
-    if not missing:
-        _mark_ready(db, skill)
-        db.commit()
-        return False
-    skill.dep_status = "installing"
-    _upsert_pending(db, skill_id, user_id=owner_user_id, missing=missing)
-    db.commit()
-    return True
-
-
-async def gate_skill_deps(
-    skill_id: str,
-    *,
-    owner_user_id: Optional[str],
-    dependencies: Optional[dict],
-) -> bool:
-    """Decide skill readiness based on **actual sandbox probing**. **Only applies to personally imported skills (owner_user_id non-empty)**.
-
-    - No declared dependencies / global skill -> ``ready``, return False;
-    - All already present in the sandbox -> ``ready``, return False (do not bother the admin);
-    - Packages truly missing (or probe inconclusive, conservatively treated as missing) -> ``installing`` + pending, return True.
-    """
-    declared = _extract_declared(dependencies)
-    if not owner_user_id or not declared:
-        await run_in_session(_record_verdict, skill_id, owner_user_id, {})
-        return False
-    if not await run_in_session(_skill_exists, skill_id):
-        return False
-
-    probed = await probe_still_missing(declared)
-    if probed is None:
-        # Probe inconclusive (sandbox unreachable / error) -> conservative: treat all declared deps as missing, hold pending for admin.
-        missing = {k: names_of(v) for k, v in declared.items()}
-        logger.warning("[skill-deps] %s probe inconclusive; conservatively flagging", skill_id)
-    else:
-        missing = {k: v for k, v in probed.items() if v}
-
-    pending = await run_in_session(_record_verdict, skill_id, owner_user_id, missing)
-    if pending:
-        logger.info("[skill-deps] %s flagged installing; missing=%s", skill_id, missing)
-    else:
-        logger.info("[skill-deps] %s deps already satisfied in sandbox; ready", skill_id)
-    return pending
+def _skills_by_id(db: Session, skill_ids: set[str]) -> dict[str, AdminSkill]:
+    if not skill_ids:
+        return {}
+    return {
+        skill.skill_id: skill
+        for skill in db.query(AdminSkill).filter(AdminSkill.skill_id.in_(skill_ids)).all()
+    }
 
 
 def list_pending(db: Session) -> list[dict[str, Any]]:
@@ -138,9 +53,10 @@ def list_pending(db: Session) -> list[dict[str, Any]]:
         .order_by(SkillDependencyRequest.created_at)
         .all()
     )
+    skills = _skills_by_id(db, {r.skill_id for r in rows})
     out: list[dict[str, Any]] = []
     for r in rows:
-        sk = db.query(AdminSkill).filter(AdminSkill.skill_id == r.skill_id).first()
+        sk = skills.get(r.skill_id)
         out.append({
             "request_id": r.request_id,
             "skill_id": r.skill_id,
@@ -205,9 +121,10 @@ def _pending_declarations(db: Session) -> list[tuple[str, dict]]:
         .filter(SkillDependencyRequest.status == "pending")
         .all()
     )
+    skills = _skills_by_id(db, {r.skill_id for r in rows})
     out = []
     for r in rows:
-        skill = db.query(AdminSkill).filter(AdminSkill.skill_id == r.skill_id).first()
+        skill = skills.get(r.skill_id)
         out.append((r.request_id, _extract_declared(skill.dependencies if skill else None)))
     return out
 

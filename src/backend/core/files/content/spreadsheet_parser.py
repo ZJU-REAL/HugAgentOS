@@ -5,26 +5,9 @@ import io
 import os
 import subprocess
 import tempfile
-from typing import Optional
 from core.files.content.office import find_libreoffice_binary
 from core.infra.proc import no_window_kwargs
 from core.files.content import text_parser
-
-def deduplicate_headers(header_raw: list[str]) -> list[str]:
-    """Disambiguate empty/duplicate header names so {placeholder} rendering
-    downstream is unambiguous (e.g., two ``""`` columns become ``col``/``col_1``).
-    """
-    seen: dict[str, int] = {}
-    cleaned: list[str] = []
-    for h in header_raw:
-        base = h if h else "col"
-        if base in seen:
-            seen[base] += 1
-            cleaned.append(f"{base}_{seen[base]}")
-        else:
-            seen[base] = 0
-            cleaned.append(base)
-    return cleaned
 
 
 def rows_to_markdown(header: list[str], data_rows: list[list[str]],
@@ -102,132 +85,6 @@ def parse_xlsx_single_sheet(file_bytes: bytes, sheet_name: str) -> str:
         if md is None:
             raise RuntimeError(f"sheet '{sheet_name}' 无数据")
         return md
-    finally:
-        wb.close()
-
-
-def default_xlsx_max_cell_chars() -> int:
-    """Bound spreadsheet preview cells; the default remains 2000 characters."""
-    try:
-        return max(50, int(os.getenv("XLSX_PREVIEW_MAX_CELL_CHARS", "2000")))
-    except ValueError:
-        return 2000
-
-
-def parse_xlsx_preview(
-    file_bytes: bytes,
-    *,
-    char_budget: int = 4000,
-    max_columns: int = 40,
-    max_cell_chars: Optional[int] = None,
-) -> dict:
-    """Parse XLSX into a bounded markdown preview + accurate total counts.
-
-    Produces what the main agent's file_context hook should inject for an
-    uploaded spreadsheet: a markdown table containing as many rows as fit
-    within ``char_budget``, plus the *real* total_rows / total_columns so
-    the agent knows the full size without seeing every row.
-
-    The total_rows count walks the entire sheet (cheap — read_only mode
-    streams the first column only). The preview stops as soon as the
-    cumulative markdown length exceeds ``char_budget``.
-
-    Returns:
-        ``{
-            "header": list[str],          # column names (post-dedup)
-            "preview_md": str,            # markdown table, ≤ char_budget chars
-            "total_rows": int,            # all data rows in sheet 1
-            "total_columns": int,         # raw column count (before max_columns)
-            "preview_rows": int,          # rows actually included in preview_md
-            "truncated_columns": int,     # cols dropped to fit max_columns
-            "truncated_cells": int,       # cells truncated to max_cell_chars
-        }``
-
-    Reads only the first sheet.
-    """
-    if max_cell_chars is None:
-        max_cell_chars = default_xlsx_max_cell_chars()
-
-    try:
-        import openpyxl
-    except ImportError:
-        raise RuntimeError("openpyxl 未安装，无法解析 XLSX 文件（pip install openpyxl）")
-
-    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
-    try:
-        sheet = wb.worksheets[0] if wb.worksheets else None
-        if sheet is None:
-            raise RuntimeError("XLSX 文件无 sheet")
-
-        rows_iter = sheet.iter_rows(values_only=True)
-        try:
-            header_row = next(rows_iter)
-        except StopIteration:
-            raise RuntimeError("XLSX 文件无数据行") from None
-
-        total_columns = len(header_row)
-        truncated_columns = max(0, total_columns - max_columns)
-        usable_cols = min(total_columns, max_columns)
-
-        header = deduplicate_headers([
-            str(c).strip() if c is not None else f"col{idx + 1}"
-            for idx, c in enumerate(header_row[:usable_cols])
-        ])
-
-        # Markdown header + separator (always present, counts toward budget)
-        md_lines: list[str] = [
-            "| " + " | ".join(header) + " |",
-            "|" + "|".join("---" for _ in header) + "|",
-        ]
-        running_chars = sum(len(ln) + 1 for ln in md_lines)  # +1 for newline
-
-        preview_rows = 0
-        truncated_cells = 0
-        total_rows_seen = 0
-        budget_reached = False
-
-        for row in rows_iter:
-            total_rows_seen += 1
-            if all(c is None for c in row):
-                continue
-
-            if budget_reached:
-                continue  # keep counting total_rows accurately
-
-            cells: list[str] = []
-            for val in row[:usable_cols]:
-                if val is None:
-                    cells.append("")
-                    continue
-                s = str(val).replace("|", "\\|").replace("\n", " ")
-                if len(s) > max_cell_chars:
-                    s = s[:max_cell_chars] + "…"
-                    truncated_cells += 1
-                cells.append(s)
-
-            # Pad short rows so the markdown table stays well-formed
-            while len(cells) < len(header):
-                cells.append("")
-
-            line = "| " + " | ".join(cells) + " |"
-            line_cost = len(line) + 1
-            if running_chars + line_cost > char_budget and preview_rows > 0:
-                # We have at least one row already; respect the budget.
-                budget_reached = True
-                continue
-            md_lines.append(line)
-            running_chars += line_cost
-            preview_rows += 1
-
-        return {
-            "header": header,
-            "preview_md": "\n".join(md_lines),
-            "total_rows": total_rows_seen,
-            "total_columns": total_columns,
-            "preview_rows": preview_rows,
-            "truncated_columns": truncated_columns,
-            "truncated_cells": truncated_cells,
-        }
     finally:
         wb.close()
 

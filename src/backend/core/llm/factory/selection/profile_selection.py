@@ -14,6 +14,7 @@ from core.evolution.profiles.agent_profile import builtin_profile
 from core.evolution.profiles.profile_selection import load_active_profile
 from core.harness.execution_manifest import PromptManifestBuilder
 from core.llm.factory.request import AgentRequest
+from core.db.threads import run_db
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ async def profile_selection(
                 load_active_profile,
                 task_type=str(request.chat_mode or "chat"),
                 user_id=request.current_user_id or "",
-                tenant_id=tenant_of(request.current_user_id),
+                tenant_id=await run_db(tenant_of, request.current_user_id),
             )
         except Exception as exc:  # noqa: BLE001
             _log.warning("[factory] profile load failed, using built-in: %s", exc)

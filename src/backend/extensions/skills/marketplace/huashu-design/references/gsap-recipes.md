@@ -1,5 +1,7 @@
 # GSAP Recipes · 设计语言到 GSAP Timeline 的翻译层
 
+> **HugAgentOS 版本说明**：本版本只做 HTML 动画，视频与音频管线没有随技能分发。文中提到的 `scripts/render-video*.js`、`verify-video.sh`、`add-music.sh`、`mix-voiceover.sh`、`sfx-cues.sh`，以及 `hyperframes-backend.md`、`video-export.md`、`audio-design-rules.md` 等文档在本版本不可用，相关步骤一律跳过（见 `references/modules/motion.md` 开头的说明）。
+
 > 本文件只做一件事：把 huashu-design 已沉淀的动画设计语言
 > （`animation-best-practices.md` 的五段叙事、easing 体系、运动语言 8 条、场景配方，
 > 以及 `cinematic-patterns.md` 的 22 秒 5-scene 模板）翻译成可直接粘贴的

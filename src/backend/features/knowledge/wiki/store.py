@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from core.infra.time import utc_now
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from features.knowledge.models import KBWikiFolder, KBWikiPage
@@ -29,8 +29,6 @@ _TYPE_LABELS = {
 }
 
 
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _new_id(prefix: str) -> str:
@@ -125,19 +123,6 @@ def ensure_folder_path(db: Session, kb_id: str, path: Sequence[str]) -> tuple[st
     return folder_id or "", labels, materialized
 
 
-def list_child_folders(db: Session, kb_id: str, parent_id: str = "") -> List[KBWikiFolder]:
-    return (
-        db.query(KBWikiFolder)
-        .filter(
-            KBWikiFolder.kb_id == kb_id,
-            KBWikiFolder.parent_id == (parent_id or ""),
-            KBWikiFolder.deleted_at.is_(None),
-        )
-        .order_by(KBWikiFolder.sort_order, KBWikiFolder.name)
-        .all()
-    )
-
-
 def descendant_folder_ids(db: Session, kb_id: str, folder_id: str) -> List[str]:
     """某目录及其全部后代的 ID（含自身）。层级最多 3 级，逐层展开即可。"""
     if not folder_id:
@@ -159,21 +144,6 @@ def descendant_folder_ids(db: Session, kb_id: str, folder_id: str) -> List[str]:
         frontier = [r.folder_id for r in rows]
         collected.extend(frontier)
     return collected
-
-
-def count_pages_in_folders(
-    db: Session, kb_id: str, folder_ids: Sequence[str], page_types: Optional[Sequence[str]] = None
-) -> int:
-    if not folder_ids:
-        return 0
-    query = db.query(func.count(KBWikiPage.page_id)).filter(
-        KBWikiPage.kb_id == kb_id,
-        KBWikiPage.folder_id.in_(list(folder_ids)),
-        KBWikiPage.deleted_at.is_(None),
-    )
-    if page_types:
-        query = query.filter(KBWikiPage.page_type.in_(list(page_types)))
-    return int(query.scalar() or 0)
 
 
 def load_folder_tree(db: Session, kb_id: str) -> List[KBWikiFolder]:
@@ -246,7 +216,7 @@ def prune_empty_folders(db: Session, kb_id: str) -> int:
     removed = 0
     for folder in folders:
         if totals.get(folder.folder_id, 0) == 0:
-            folder.deleted_at = _now()
+            folder.deleted_at = utc_now()
             removed += 1
     if removed:
         db.flush()
@@ -336,7 +306,7 @@ def upsert_page(
     page.last_edit_source = edit_source
     page.last_editor_id = editor_id or ""
     page.version = int(page.version or 0) + 1
-    page.updated_at = _now()
+    page.updated_at = utc_now()
 
     if category_path is not None:
         folder_id, labels, materialized = ensure_folder_path(db, kb_id, category_path)
@@ -352,7 +322,7 @@ def upsert_page(
 def archive_page(db: Session, page: KBWikiPage) -> None:
     """归档（软删）一个页面。反向链接由 finalize 阶段统一清理。"""
     page.status = "archived"
-    page.deleted_at = _now()
+    page.deleted_at = utc_now()
     db.flush()
 
 

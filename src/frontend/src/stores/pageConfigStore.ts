@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import { mergePageConfig, type PageConfig } from '../utils/pageConfigDefaults';
 import { loadJsonPref, removeLocal, saveJsonPref } from '../storage';
+import { API_BASE } from '../utils/apiBase';
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || '/api';
 
 export interface AppItem {
   id: string;
@@ -121,7 +121,23 @@ interface DocsResponse {
     app_config?: unknown;
     page_config_updated_at?: string | null;
     app_config_updated_at?: string | null;
+    prompt_hub?: unknown;
   };
+}
+
+/** One entry of the prompt template library shown by the composer's Prompt Hub. */
+export interface PromptHubItem {
+  title: string;
+  content: string;
+  sort_order?: number;
+}
+
+function normalizePromptHub(raw: unknown): PromptHubItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item): item is PromptHubItem => !!item && typeof item === 'object'
+      && typeof (item as PromptHubItem).title === 'string' && typeof (item as PromptHubItem).content === 'string')
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 }
 
 async function requestDocs(): Promise<DocsResponse | null> {
@@ -136,6 +152,8 @@ interface PageConfigState {
   appConfig: AppConfig;
   updatedAt: string | null;
   appConfigUpdatedAt: string | null;
+  /** `/content/docs` also carries the prompt library; cached here so the Prompt Hub needs no request of its own. */
+  promptHub: PromptHubItem[];
   loaded: boolean;
   fetching: boolean;
   fetchConfig: () => Promise<void>;
@@ -149,6 +167,7 @@ export const usePageConfigStore = create<PageConfigState>((set, get) => ({
   appConfig: DEFAULT_APP_CONFIG,
   updatedAt: null,
   appConfigUpdatedAt: null,
+  promptHub: [],
   loaded: false,
   fetching: false,
 
@@ -167,6 +186,7 @@ export const usePageConfigStore = create<PageConfigState>((set, get) => ({
         appConfig: mergeAppConfig(remoteApp),
         updatedAt: data.page_config_updated_at || null,
         appConfigUpdatedAt: data.app_config_updated_at || null,
+        promptHub: normalizePromptHub(data.prompt_hub),
         loaded: true,
       });
     } catch {

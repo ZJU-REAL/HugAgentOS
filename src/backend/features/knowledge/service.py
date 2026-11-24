@@ -2,15 +2,12 @@
 from core.infra.time import utc_now
 
 import logging
-import os
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
-from features.knowledge.processing import vectorise_document_background
-from features.knowledge.models import KBChunk, KBDocument
+from features.knowledge.models import KBDocument
 from core.db.models import UserShadow
-from features.knowledge.wiki.config import index_modes_of
 from core.db.repository import ArtifactRepository, AuditLogRepository
 from features.knowledge.repository import KBRepository
 from core.files.edition import can_access_artifact
@@ -96,7 +93,13 @@ class KBService:
 
 
     def delete_space(self, kb_id: str, user_id: str) -> bool:
-        """Delete a KB space (soft delete)."""
+        """Soft-delete a KB space and purge its Milvus vectors.
+
+        The space, documents and chunks stay in PostgreSQL with ``deleted_at`` set
+        on the space. Its vectors are deleted best-effort; listing and retrieval
+        skip the space anyway because every access set filters
+        ``KBSpace.deleted_at IS NULL``.
+        """
         space = self.repo.get_space(kb_id)
         if space and self._is_system_managed_space(space):
             self.audit_repo.create(
@@ -105,7 +108,7 @@ class KBService:
                     "action": "kb.space.delete.failed",
                     "resource_type": "kb_space",
                     "resource_id": kb_id,
-                    "status": "failed",
+                    "status": "failure",
                     "details": {"reason": "system_managed"},
                 }
             )
@@ -118,7 +121,7 @@ class KBService:
                     "action": "kb.space.delete.failed",
                     "resource_type": "kb_space",
                     "resource_id": kb_id,
-                    "status": "failed",
+                    "status": "failure",
                     "details": {"reason": "not_found_or_unauthorized"},
                 }
             )
@@ -139,6 +142,7 @@ class KBService:
             }
         )
 
+        self._purge_vectors("delete_space_vectors", kb_id)
         return True
 
     def delete_document(self, document_id: str, user_id: str) -> bool:
@@ -157,7 +161,7 @@ class KBService:
                     "action": "kb.document.delete.failed",
                     "resource_type": "kb_document",
                     "resource_id": document_id,
-                    "status": "failed",
+                    "status": "failure",
                     "details": {"reason": "not_found_or_unauthorized"},
                 }
             )
@@ -185,7 +189,23 @@ class KBService:
         )
 
         self._enqueue_wiki_retract(space, document_id)
+        self._purge_vectors("delete_document_vectors", document_id, document.kb_id)
         return True
+
+    @staticmethod
+    def _purge_vectors(deleter: str, *args: str) -> None:
+        """Best-effort removal of a deleted document's or space's Milvus rows.
+
+        Retrieval also skips deleted documents and spaces, so a failure here (Milvus
+        down) leaves storage behind but never surfaces deleted content;
+        ``vector_maintenance purge-orphans`` reclaims it later.
+        """
+        try:
+            from features.knowledge import vector_indexing
+
+            getattr(vector_indexing, deleter)(*args)
+        except Exception as exc:
+            logger.warning("Milvus cleanup failed (%s%s): %s", deleter, args, exc)
 
     def _enqueue_wiki_retract(self, space: Any, document_id: str) -> None:
         """文档被删后，把它从 Wiki 血缘里摘掉。
@@ -289,7 +309,7 @@ class KBService:
                     "action": "kb.space.update.failed",
                     "resource_type": "kb_space",
                     "resource_id": kb_id,
-                    "status": "failed",
+                    "status": "failure",
                     "details": {"reason": "system_managed"},
                 }
             )
@@ -301,7 +321,7 @@ class KBService:
                     "action": "kb.space.update.failed",
                     "resource_type": "kb_space",
                     "resource_id": kb_id,
-                    "status": "failed",
+                    "status": "failure",
                     "details": {"reason": "not_found_or_unauthorized"},
                 }
             )

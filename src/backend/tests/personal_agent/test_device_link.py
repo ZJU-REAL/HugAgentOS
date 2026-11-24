@@ -8,6 +8,7 @@ import pytest
 
 from personal_agent.device_link import runner as link_runner
 from personal_agent.device_link import store
+from tests.db_support import share_factory
 
 # The real one: the autouse fixture replaces it.
 REAL_BRIDGE_HEADERS = link_runner._bridge_headers
@@ -943,7 +944,7 @@ async def test_an_account_missing_on_this_computer_is_named(monkeypatch):
             return None
 
     monkeypatch.setattr(link_runner, "_bridge_headers", REAL_BRIDGE_HEADERS)
-    monkeypatch.setattr(engine, "SessionLocal", NoShadow)
+    share_factory(monkeypatch, NoShadow)
     receipt, _ = await run_operation("chat.delete", {"chat_id": "c1"})
     assert receipt["not_executed"] and receipt["error"] == "account_not_on_this_computer"
     assert "sign in" in receipt["detail"]

@@ -1,5 +1,7 @@
 # Axonometric plan
 
+> **HugAgentOS 版本说明**：上游的 `verify-*.py` / `test-verify-*.py` / `lint-*.py` / `build-*-examples.py` 等维护脚本没有随技能导入，文中要求运行它们的步骤在本版本不可用；安装版只提供 `{baseDir}/scripts/self_check.py`、`export_*.py` 与 `*_extract.py`，需要自检时改用 `self_check.py` 并按文中的检查项人工核对。
+
 **Best for:** one floor or one site seen from above at an angle, with what stands on it. An office floor with its rooms and furniture, a campus with its buildings and roads, a warehouse with its zones, a store layout. Use it when the reader needs to see rooms or buildings in relation to each other and how they are used, in a single view.
 
 **Not this type:**

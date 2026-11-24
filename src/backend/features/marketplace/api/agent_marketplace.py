@@ -1,7 +1,6 @@
 """Sub-agent marketplace (user side) — browse preset/community sub-agents and install them as private sub-agents.
 
 GET    /v1/agent-marketplace/agents             List marketplace sub-agents (preset + community, including "already installed")
-GET    /v1/agent-marketplace/categories         Category list
 GET    /v1/agent-marketplace/agents/{slug}      A single marketplace sub-agent's detail (prompt + capability-binding preview)
 POST   /v1/agent-marketplace/install            Install as a private sub-agent (clone + dependencies installed along with it)
 POST   /v1/agent-marketplace/submissions        Submit a self-built sub-agent for marketplace listing (pending admin review)
@@ -60,14 +59,6 @@ def list_agents(
     items = market_owner_agent_catalog.list_marketplace_agents(db, viewer_user_id=str(user.user_id))
     items = market_owner_agent_installation.annotate_installed(items, db, owner_user_id=str(user.user_id))
     return success_response(data={"items": items, "categories": market_owner_agent_catalog.categories_from_items(items)})
-
-
-@router.get("/categories", summary="子智能体市场分类")
-def list_categories(
-    user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    return success_response(data=market_owner_agent_catalog.list_categories(db, viewer_user_id=str(user.user_id)))
 
 
 @router.get("/agents/{slug}", summary="子智能体市场详情")

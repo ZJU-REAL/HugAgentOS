@@ -38,8 +38,8 @@ export default function LabPanel() {
   }, []);
   const labEnabled = useAuthStore((s) => s.authUser?.lab_enabled);
   const { title: labTitle, subtitle: labSubtitle } = usePanelHeader('lab', {
-    title: '实验室',
-    subtitle: 'AI 能力实验性应用',
+    title: t('实验室'),
+    subtitle: t('AI 能力实验性应用'),
   });
 
   // Defensive permission check: if the admin has disabled this user's lab permission, show a no-permission notice inside the panel.

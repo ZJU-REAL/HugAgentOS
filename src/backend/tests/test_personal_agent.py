@@ -332,8 +332,18 @@ async def test_ordinary_pool_never_adopts_or_kills_personal_computer():
     from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
     provider = OpenSandboxProvider.__new__(OpenSandboxProvider)
     # Even a stopped personal computer must bypass the ordinary dead-container cleanup.
-    info = SimpleNamespace(status=SimpleNamespace(state="STOPPED"), metadata={"hugagent-owner": "personal-agent"})
-    await provider._classify_and_adopt(None, info, {})
+    info = SimpleNamespace(id="pa-box", status=SimpleNamespace(state="STOPPED"), metadata={"hugagent-owner": "personal-agent"})
+    killed = []
+
+    async def kill_by_id(mgr, sandbox_id, **kwargs):
+        killed.append(sandbox_id)
+        return True
+
+    # _classify_and_adopt swallows errors, so a kill attempt must be recorded, not left to raise.
+    provider._kill_by_id = kill_by_id
+    stats = {}
+    await provider._classify_and_adopt(SimpleNamespace(), info, stats)
+    assert killed == [] and stats == {}
 
 
 def test_approval_preserves_exact_payload_and_steering_revokes_it(sessions):

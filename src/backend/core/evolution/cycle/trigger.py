@@ -32,10 +32,11 @@ import logging
 import os
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
 from core.db.engine import SessionLocal
+from core.infra.time import utc_now as _now
 
 logger = logging.getLogger(__name__)
 
@@ -66,10 +67,6 @@ DEBOUNCE_SECONDS = _env_int("EVOLUTION_TRIGGER_DEBOUNCE_S", 600)
 
 
 # Per-user debounce, so a busy person cannot crowd out everyone else's cycle.
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _episode_count() -> int:
@@ -126,7 +123,6 @@ def _mark_started(total: int, *, now: Optional[datetime] = None) -> None:
     sleeping — a debounce tested only against the real clock is a debounce
     nobody tests.
     """
-    pass
     with process_state().state_lock:
         process_state().running = True
         process_state().last_cycle_at = now or _now()
@@ -134,7 +130,6 @@ def _mark_started(total: int, *, now: Optional[datetime] = None) -> None:
 
 
 def _mark_finished() -> None:
-    pass
     with process_state().state_lock:
         process_state().running = False
 
@@ -256,7 +251,6 @@ def status() -> Dict[str, Any]:
 
 
 def reset_for_tests() -> None:
-    pass
     with process_state().state_lock:
         process_state().last_cycle_at = None
         process_state().last_cycle_episode_count = 0

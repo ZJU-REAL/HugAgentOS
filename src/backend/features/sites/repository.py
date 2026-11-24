@@ -7,6 +7,7 @@ from features.sites.models import Site
 from core.infra.time import utc_now
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
+from core.db.paging import apply_page
 
 
 class SiteRepository:
@@ -27,10 +28,7 @@ class SiteRepository:
         query = self.db.query(Site).filter(Site.user_id == user_id, Site.deleted_at.is_(None))
         total = query.count()
         items = (
-            query.order_by(desc(Site.updated_at))
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-            .all()
+            apply_page(query.order_by(desc(Site.updated_at)), page=page, page_size=page_size).all()
         )
         return items, total
 

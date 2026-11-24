@@ -3,11 +3,11 @@ import { Empty, Modal, Skeleton, Tabs } from 'antd';
 import { motion } from 'motion/react';
 import { useSettingsStore } from '../../stores';
 import { EASE } from '../../utils/motionTokens';
-import { mdToHtml } from '../../utils/markdown';
 import type { MemoryItem, MemoryProfile } from '../../types';
 import { FactsList } from './FactsList';
 import { MemoryGraphView } from './MemoryGraphView';
 import { t } from '../../i18n';
+import { MarkdownHtml } from '../common/MarkdownHtml';
 
 interface MemoryManagerModalProps {
   open: boolean;
@@ -114,12 +114,12 @@ function renderProfileTab(profile: MemoryProfile | null) {
           transition={{ duration: 0.5, ease: 'easeOut' }}
         />
       </div>
-      <div
+      <MarkdownHtml
         style={{
           padding: 12, background: 'var(--color-bg-gray)', borderRadius: 6,
           maxHeight: 400, overflow: 'auto', fontSize: 13, lineHeight: 1.7,
         }}
-        dangerouslySetInnerHTML={{ __html: mdToHtml(profile.content_md) }}
+        markdown={profile.content_md}
       />
     </div>
   );

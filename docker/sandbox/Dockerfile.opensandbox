@@ -27,22 +27,30 @@ ENV PY_BIN=/opt/python/current/bin/python3 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     NODE_PATH=/opt/node/v22.2.0/lib/node_modules
 
-# ─── 系统依赖：字体 / 文档工具 ──────────────────────────────────────
+# ─── 系统依赖：字体 / 文档工具 / LibreOffice ─────────────────────────
 # 镜像基于 Ubuntu 24.04 (noble)，sources 用 deb822 格式（ubuntu.sources）
+# LibreOffice 转 PDF：writer 负责 .docx；.xlsx / .pptx 还需要 calc / impress，
+# 以及 libreoffice-java-common（提供 javaldx 让 LO 把已有 JRE 接进 UNO；否则 LO 报
+# "failed to launch javaldx" + "source file could not be loaded"）。基础镜像已自带
+# OpenJDK 21，不必再装 default-jre。unopkg sync 在构建时注册 JRE，沙盒首次转换无延迟。
 RUN sed -i 's|http://archive.ubuntu.com/ubuntu|https://mirrors.huaweicloud.com/ubuntu|g; s|http://security.ubuntu.com/ubuntu|https://mirrors.huaweicloud.com/ubuntu|g; s|http://ports.ubuntu.com/ubuntu-ports|https://mirrors.huaweicloud.com/ubuntu-ports|g' /etc/apt/sources.list.d/ubuntu.sources \
     && apt-get update && apt-get install -y --no-install-recommends \
         fonts-wqy-zenhei fontconfig curl gnupg ca-certificates \
         pandoc zip unzip libreoffice-writer \
+        libreoffice-calc libreoffice-impress libreoffice-java-common \
         qpdf \
         jq \
     && fc-cache -f \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && (unopkg sync || true)
 
 # ─── Node.js 全局工具 + Playwright Chromium ─────────────────────────
 # Node.js 22.2.0 已在镜像里
+# Canonical value: docker/tool-versions.env (scripts/check_tool_versions.py).
+ARG PLAYWRIGHT_VERSION=1.59.0
 RUN mkdir -p /ms-playwright \
     && /opt/node/v22.2.0/bin/npm config set registry https://repo.huaweicloud.com/repository/npm/ \
-    && /opt/node/v22.2.0/bin/npm install -g playwright@1.59.0 \
+    && /opt/node/v22.2.0/bin/npm install -g playwright@${PLAYWRIGHT_VERSION} \
     && PLAYWRIGHT_BROWSERS_PATH=/ms-playwright /opt/node/v22.2.0/bin/npx playwright install --with-deps chromium \
     && chmod -R a+rX /ms-playwright
 
@@ -56,10 +64,12 @@ RUN /opt/node/v22.2.0/bin/npm install -g firecrawl-cli
 # 预烤进镜像后离线/不可变沙箱可直接命中全局缓存、无需联网重拉。
 # 复用上面华为云 registry；应用配置与用户登录凭据都不烤进镜像（后端 config init 写入 +
 # auth login 设备流落盘后 bind-mount 进沙盒），均跨会话持久化。
-# ⚠️ 版本必须与后端镜像 docker/Dockerfile 的 LARK_CLI_VERSION 保持一致：两侧共用同一份
+# ⚠️ 版本与后端镜像 docker/Dockerfile 共用 docker/tool-versions.env 的 LARK_CLI_VERSION：两侧共用同一份
 # 凭据文件（后端写 config/token，沙箱读），且后端解析 `auth status` 的输出。此前这里不锁
 # 版本、浮动到 latest，与后端固定的旧版拉开了几十个小版本，是一类静默故障源。
-RUN /opt/node/v22.2.0/bin/npm install -g @larksuite/cli@1.0.78 @larksuite/whiteboard-cli@^0.2.11
+# Canonical value: docker/tool-versions.env (scripts/check_tool_versions.py).
+ARG LARK_CLI_VERSION=1.0.78
+RUN /opt/node/v22.2.0/bin/npm install -g @larksuite/cli@${LARK_CLI_VERSION} @larksuite/whiteboard-cli@^0.2.11
 
 # openyida（宜搭低代码平台官方 CLI）——yida 插件技能靠它运行（Bash(openyida *)）。
 # 登录态不烤进镜像：cookie 落在工作目录 .cache/ 下，由后端 per-user 持久卷把
@@ -87,19 +97,6 @@ RUN $PY_BIN -m pip install --no-cache-dir -r /opt/skill-deps/requirements-skills
 
 # 健康检查：能 import 关键包就算 OK（构建时执行，build 失败立即暴露）
 RUN $PY_BIN -c "import pandas, numpy, matplotlib, openpyxl, docx, pptx, PIL, pdfplumber, reportlab, pikepdf, markitdown, requests, lxml, tabulate, tqdm; print('all script-runner deps OK')"
-
-# ─── LibreOffice 转 PDF 完整支持 ────────────────────────────────────
-# 上方只装了 libreoffice-writer (.docx → .pdf 不需要 Java)。.xlsx / .pptx
-# 转 PDF 需要：
-#   - libreoffice-calc / libreoffice-impress：对应文件类型转换器
-#   - libreoffice-java-common：提供 javaldx 让 LO 把已有 JRE 接进 UNO；
-#     否则 LO 报 "failed to launch javaldx" + "source file could not be loaded"
-# 基础镜像已自带 OpenJDK 21，不必再装 default-jre
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        libreoffice-calc libreoffice-impress libreoffice-java-common \
-    && rm -rf /var/lib/apt/lists/* \
-    # unopkg sync 注册 JRE 到 LibreOffice，构建时一次完成，沙盒首次转换无延迟
-    && unopkg sync || true
 
 # ─── pdf-cli 全局 shim（pdf-editing skill 的对应） ───────────────────
 # 让智能体在 bash 里直接 `pdf-cli read …` / `pdf-cli create …` 等。shim

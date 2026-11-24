@@ -1,28 +1,24 @@
-"""Skill-loading agent tools.
+"""Skill-loading agent tool.
 
-Tools that let the model discover and load Agent Skills from the sandboxed
-skill directories: a path-guarded ``view_text_file`` (which also injects the
-runtime hint when a ``SKILL.md`` is read) and a deprecated ``use_skill`` stub
-that redirects the model back to ``view_text_file``.
-
-Relocated from the former ``core.llm.tool`` module so the singular ``tool.py``
-no longer coexists with this ``tools/`` package.
+A path-guarded ``view_text_file`` that lets the model read Agent Skills from
+the sandboxed skill directories, and injects the runtime hint when a
+``SKILL.md`` is read.
 """
 
 from __future__ import annotations
 from core.llm.factory.tools.definitions import function_tool
 from core.harness import log_writer
 
+import asyncio
 import json
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
 from agentscope.message import TextBlock
 from agentscope.tool import Toolkit
 
-# AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolChunk).
+# AgentScope 2.0: tool functions must return ToolChunk.
 from agentscope.tool._response import ToolChunk
 
 from core.capabilities.skills.loader_factory import get_skill_loader
@@ -100,6 +96,11 @@ def _build_skill_bash_hint(
     return "\n".join(lines)
 
 
+def _read_lines(path: str) -> list[str]:
+    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+        return handle.readlines()
+
+
 def register_sandboxed_view_text_file(
     toolkit: Toolkit,
     allowed_dirs: list[str],
@@ -120,7 +121,6 @@ def register_sandboxed_view_text_file(
         prepared = getattr(loader, "capability_run", None)
         if prepared is not None:
             from core.harness.registry.capability_runtime import validate
-            import asyncio
             from core.harness.capability_errors import CapabilityError
 
             try:
@@ -170,8 +170,7 @@ def register_sandboxed_view_text_file(
         # AgentScope 2.0: the private agentscope.tool._text_file subpackage has been removed. Inline an
         # equivalent text-file read (optional [start, end] 1-indexed line range).
         try:
-            with open(real, "r", encoding="utf-8", errors="replace") as _f:
-                _lines = _f.readlines()
+            _lines = await asyncio.to_thread(_read_lines, real)
             if ranges and isinstance(ranges, list) and len(ranges) >= 2:
                 _start = max(1, int(ranges[0]))
                 _end = min(len(_lines), int(ranges[1]))

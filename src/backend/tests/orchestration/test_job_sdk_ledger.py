@@ -20,6 +20,7 @@ import re
 
 import pytest
 from core.jobs.sdk import SDK_SOURCE
+from tests.orchestration.job_sdk_test_support import _logs, _updates
 
 
 @pytest.fixture()
@@ -42,14 +43,6 @@ def sdk():
     ns["_post"] = fake_post
     ns["_calls"] = calls
     return ns
-
-
-def _updates(ns):
-    return [p for path, p in ns["_calls"] if path == "ledger" and p.get("op") == "update"]
-
-
-def _logs(ns):
-    return [str(p.get("message") or "") for path, p in ns["_calls"] if path == "log"]
 
 
 @pytest.mark.parametrize(

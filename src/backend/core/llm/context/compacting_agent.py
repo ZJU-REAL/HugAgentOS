@@ -16,15 +16,15 @@ from agentscope.message import DataBlock, TextBlock, ToolResultBlock
 from agentscope.model import ChatUsage
 from agentscope.workspace import Offloader
 from core.llm.context.safety import enforce_context_budget
+from core.harness.context_items import wrap_reminder
 from core.harness.execution_manifest import stable_hash
 from core.llm.runtime.manifest_agent import ManifestBoundAgent
 
 logger = logging.getLogger(__name__)
 
 # Appended when dropped context is available from the sandbox offloader.
-_OFFLOAD_REMINDER = (
-    "\n<system-reminder>The compressed context is offloaded to '{path}', "
-    "you can refer to it when needed.</system-reminder>"
+_OFFLOAD_REMINDER = "\n" + wrap_reminder(
+    "The compressed context is offloaded to '{path}', you can refer to it when needed."
 )
 
 
@@ -62,7 +62,7 @@ def _fingerprint_media(block: Any) -> Any:
 def frozen_prompt_surface(agent: Any) -> tuple[str, Any]:
     """The system prompt and tool schemas of the agent's latest model request.
 
-    ``agent_factory.cache_compaction_execution_surface`` is the only writer; every
+    ``core.llm.factory.runtime.evidence.cache_compaction_execution_surface`` is the only writer; every
     consumer reads through here so the pre-turn budget and the mid-turn trigger
     cannot drift onto different surfaces.
     """
@@ -111,7 +111,7 @@ class CompactingAgent(ManifestBoundAgent):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._jx_observation: Optional[_ContextObservation] = None
-        # Resolved once by agent_factory to avoid a config DB read per ReAct step.
+        # Resolved once by the agent factory to avoid a config DB read per ReAct step.
         self._jx_trigger_ratio: Optional[float] = None
         # Prevent repeated compaction when an oversized context cannot shrink.
         self._jx_compacted_cursor: Optional[tuple[_MessageCursor, ...]] = None
@@ -152,7 +152,7 @@ class CompactingAgent(ManifestBoundAgent):
                     )
             except Exception as exc:
                 logger.warning("[offloader] tool result unavailable kind=%s", type(exc).__name__)
-        reminder = "\n<<<TRUNCATED>>>\n<system-reminder>" + notice + "</system-reminder>"
+        reminder = "\n<<<TRUNCATED>>>\n" + wrap_reminder(notice)
         blocks = kept.output
         if isinstance(blocks, str):
             blocks = [TextBlock(text=blocks)]
@@ -357,10 +357,9 @@ class CompactingAgent(ManifestBoundAgent):
                 return _OFFLOAD_REMINDER.format(path=path)
         except Exception as exc:
             logger.warning("[compaction] offload unavailable kind=%s", type(exc).__name__)
-        return (
-            "\n<system-reminder>压缩前的完整历史未保存，没有可读取的历史文件。"
+        return "\n" + wrap_reminder(
+            "压缩前的完整历史未保存，没有可读取的历史文件。"
             "请使用现有摘要与保留的消息继续，勿尝试读取不存在的文件。"
-            "</system-reminder>"
         )
 
     async def _should_compact(self) -> tuple[Optional[int], int]:
@@ -389,6 +388,7 @@ class CompactingAgent(ManifestBoundAgent):
         session that owns that path need not outlive this turn, and a checkpoint
         that points at a vanished file is worse than one that never mentions it.
         """
+        from core.db.threads import run_db
         from core.llm.runtime.message_compat import session_to_msgs
 
         dropped = list(self.state.context)
@@ -404,7 +404,7 @@ class CompactingAgent(ManifestBoundAgent):
 
         # Summary first, recent steps after it, matching checkpoint replay order.
         self.state.summary = ""
-        self.state.context = session_to_msgs(replacement)
+        self.state.context = await run_db(session_to_msgs, replacement)
         self._jx_observation = None
         self._jx_compacted_cursor = _history_cursor(self._history_for_summary())
         logger.info(

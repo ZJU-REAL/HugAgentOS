@@ -39,6 +39,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from core.db.threads import run_db
 from core.infra.logging import get_logger
 from orchestration.loops.planner import plan_requirements, replan_remaining, scout_workspace
 from orchestration.loops.requirements import (
@@ -56,6 +57,14 @@ logger = get_logger(__name__)
 EmitFn = Callable[[Dict[str, Any]], Awaitable[None]]
 CancelFn = Callable[[], bool]
 SteeringFn = Callable[[], List[str]]
+
+# How often the worker stream re-checks cancellation; the check reads the database.
+_STREAM_CANCEL_POLL_SEC = 0.25
+
+
+async def _cancel_requested(is_cancelled: Optional[CancelFn]) -> bool:
+    """Run the (blocking) cancellation probe in a worker thread."""
+    return bool(is_cancelled) and bool(await run_db(is_cancelled))
 
 
 def _loop_scope(loop_id: str, phase: str, iteration: int = 0, requirement_id: str = "-") -> str:
@@ -351,10 +360,6 @@ def _has_blocked(ledger: Dict[str, Any]) -> bool:
     return any(r.get("blocked") and not r.get("passes") for r in ledger["requirements"])
 
 
-def _all_pass(ledger: Dict[str, Any]) -> bool:
-    return all(r.get("passes") for r in ledger["requirements"])
-
-
 def _pick_fresher_ledger(
     db_led: Optional[Dict[str, Any]], sbx_led: Optional[Dict[str, Any]]
 ) -> Optional[Dict[str, Any]]:
@@ -454,6 +459,7 @@ async def _run_worker_iteration(
     from core.sandbox.sessions.keepalive import start_session_keepalive
 
     _keepalive_task = start_session_keepalive(session_id)
+    next_cancel_poll = 0.0
     try:
         async for et, payload in sa.stream(
             [{"role": "user", "content": prompt}],
@@ -469,8 +475,11 @@ async def _run_worker_iteration(
                 "ontology_runtime": runtime,
             },
         ):
-            if is_cancelled and is_cancelled():
-                break
+            now = time.monotonic()
+            if is_cancelled and now >= next_cancel_poll:
+                next_cancel_poll = now + _STREAM_CANCEL_POLL_SEC
+                if await _cancel_requested(is_cancelled):
+                    break
             # Forward the worker's per-iteration streaming events in the **same SSE format as the
             # main conversation**, so the frontend renders them through the same pipeline as a normal
             # chat (content/tool_call/tool_result) rather than as an "iteration N" block.
@@ -725,7 +734,7 @@ async def run_autonomous_loop(
     """Drive an autonomous loop until "all requirements in the ledger pass" / budget exhausted / cancelled.
 
     Callable directly (tests/CLI), or wrapped into a ChatRun background run by
-    chat_run_executor's _run_autonomous_loop_workflow. ``emit`` posts events to the SSE stream;
+    ``orchestration.loops.run._run_autonomous_loop_workflow``. ``emit`` posts events to the SSE stream;
     ``is_cancelled`` is a cooperative polling terminator.
 
     ``load_ledger`` / ``save_ledger``: optional DB-mirror callbacks for the requirement ledger.
@@ -759,7 +768,7 @@ async def run_autonomous_loop(
         policy.budget_multiplier,
     )
 
-    ontology_enabled, ontology_runtime = build_user_ontology_runtime(
+    ontology_enabled, ontology_runtime = await run_db(build_user_ontology_runtime,
         user_id=user_id,
         task=goal_spec.objective,
     )
@@ -783,7 +792,7 @@ async def run_autonomous_loop(
         await _write_ledger(led, session_id=session, user_id=user_id)
         if save_ledger:
             try:
-                save_ledger(led)
+                await run_db(save_ledger, led)
             except (
                 Exception
             ) as exc:  # noqa: BLE001 - a DB mirror failure must not take down the loop
@@ -806,7 +815,7 @@ async def run_autonomous_loop(
     db_ledger: Optional[Dict[str, Any]] = None
     if load_ledger:
         try:
-            db_ledger = load_ledger()
+            db_ledger = await run_db(load_ledger)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[loop %s] DB ledger load failed: %s", loop_id, exc)
     sbx_ledger = await _read_ledger(session_id=session, user_id=user_id, loop_id=loop_id)
@@ -943,7 +952,7 @@ async def run_autonomous_loop(
     reason = ""
 
     while True:
-        if is_cancelled and is_cancelled():
+        if await _cancel_requested(is_cancelled):
             status, reason = "cancelled", "外部取消"
             break
 
@@ -973,7 +982,7 @@ async def run_autonomous_loop(
         steering: List[str] = []
         if poll_steering:
             try:
-                steering = [s for s in (poll_steering() or []) if str(s).strip()]
+                steering = [s for s in (await run_db(poll_steering) or []) if str(s).strip()]
             except Exception as exc:  # noqa: BLE001 - steering 读取失败不拖垮循环
                 logger.warning("[loop %s] poll_steering failed: %s", loop_id, exc)
         if steering:
@@ -1042,7 +1051,7 @@ async def run_autonomous_loop(
             logger.warning("[loop %s] iter %d worker raised: %s", loop_id, seq, exc, exc_info=True)
             work = {"text": "", "tokens": 0, "tool_calls": 0, "_infra_error": str(exc)[:200]}
         tokens_spent += work["tokens"]
-        if is_cancelled and is_cancelled():
+        if await _cancel_requested(is_cancelled):
             status, reason = "cancelled", "外部取消"
             break
 
@@ -1371,7 +1380,7 @@ async def run_autonomous_loop(
     # 甩给用户。取消/失败/等待人工不做（前两者用户要么不想要、要么环境坏了）。
     if status == "budget_exhausted" and _wrapup_enabled():
         _done_n = sum(1 for r in ledger["requirements"] if r.get("passes"))
-        if _done_n and not (is_cancelled and is_cancelled()):
+        if _done_n and not await _cancel_requested(is_cancelled):
             await _emit(emit, {"type": "loop_wrapup_started", "progress": _progress_frac(ledger)})
             try:
                 wrap = await _run_worker_iteration(

@@ -1,8 +1,7 @@
 """read_artifact tool — on-demand reading of uploaded artifacts (xlsx/pptx/text).
 
-Extracted from the oversized ``core/llm/tool.py``. Self-contained: all heavy
-deps (content parsers, hooks) are imported lazily inside the functions.
-``core.llm.tool`` re-exports the public names for backward compatibility.
+Self-contained: all heavy deps (content parsers, hooks) are imported lazily
+inside the functions.
 """
 from core.llm.factory.tools.definitions import function_tool
 

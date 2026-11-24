@@ -13,7 +13,7 @@ This module provides:
     * DATA_SCHEMAS    — (METHOD, PATH) → JSON Schema mapping for the data field.
 
 Integration point:
-    The _custom_openapi() hook in api/app.py reads this module; for endpoints matched in
+    _build_custom_openapi() in api/openapi.py imports this module; for endpoints matched in
     DATA_SCHEMAS, it replaces the response schema from `$ref ApiResponseEnvelope` to
     `allOf: [ApiResponseEnvelope, {properties: {data: <specific>}}]`,
     keeping the envelope structure while typing the business data.

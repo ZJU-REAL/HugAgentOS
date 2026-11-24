@@ -243,7 +243,7 @@ export function MyLogsPanel() {
   };
 
   const renderToolDetail = (item: MyToolLogItem) => (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <Space orientation="vertical" size={16} style={{ width: '100%' }}>
       <Descriptions size="small" column={2} bordered>
         <Descriptions.Item label={t('工具名')}>{item.tool_name}</Descriptions.Item>
         <Descriptions.Item label="MCP Server">{item.mcp_server || '—'}</Descriptions.Item>
@@ -310,7 +310,7 @@ export function MyLogsPanel() {
         key: 'io',
         label: t('入参 / 输出'),
         children: (
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Space orientation="vertical" size={16} style={{ width: '100%' }}>
             <DetailCard title="script_args" value={item.script_args} maxHeight={200} />
             {item.script_stdin && <DetailCard title="stdin" value={item.script_stdin} />}
             <DetailCard
@@ -330,7 +330,7 @@ export function MyLogsPanel() {
         key: 'overview',
         label: t('概览'),
         children: (
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Space orientation="vertical" size={16} style={{ width: '100%' }}>
             <Descriptions size="small" column={2} bordered>
               <Descriptions.Item label={t('名称')}>{item.subagent_name}</Descriptions.Item>
               <Descriptions.Item label={t('类型')}>{item.subagent_type || '—'}</Descriptions.Item>
@@ -370,7 +370,7 @@ export function MyLogsPanel() {
           <Timeline items={item.child_steps.map((stepItem) => ({
             color: stepItem.status === 'success' ? 'green' : stepItem.status === 'failed' ? 'red' : 'blue',
             children: (
-              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+              <Space orientation="vertical" size={4} style={{ width: '100%' }}>
                 <Text strong>
                   {stepItem.step_index != null ? t('步骤 {n}：', { n: stepItem.step_index }) : ''}
                   {stepItem.step_title || stepItem.subagent_name}

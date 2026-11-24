@@ -32,7 +32,7 @@ function SourceChip({ id, kind, asOf, onSource }: { id: string; kind: string | n
 }
 
 /** One line of page text with its marks: source chips, links, superseded values, observations. */
-export function InlineText({ text, handlers }: { text: string; handlers: InlineHandlers }) {
+function InlineText({ text, handlers }: { text: string; handlers: InlineHandlers }) {
   return <>{inline(text).map((part: Inline, index) => {
     switch (part.kind) {
       case 'source': return <SourceChip key={index} id={part.id} kind={part.sourceKind} asOf={part.asOf} onSource={handlers.onSource} />;

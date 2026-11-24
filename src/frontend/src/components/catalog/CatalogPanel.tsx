@@ -44,6 +44,7 @@ uploadKBDocument,
 import { useChunkChildrenExpander } from '../../hooks/useChunkChildrenExpander';
 import { useIsMobileViewport } from '../../hooks/useIsMobileViewport';
 import { useStatusFlash } from '../../hooks/useFlash';
+import { usePolling } from '../../hooks/usePolling';
 import { t } from '../../i18n';
 import { useKbTab } from '../../routing/subPages';
 import { useCatalogStore,useEditionStore,useKbStore } from '../../stores';
@@ -51,7 +52,6 @@ import { useAuthStore } from '../../stores/authStore';
 import type { KBDocument,KBIndexMode,KBItem,WikiGranularity } from '../../types';
 import { formatDateTime } from '../../utils/date';
 import { getFileIconSrc,getFolderIconSrc } from '../../utils/fileIcon';
-import { mdToHtml } from '../../utils/markdown';
 import { EASE,staggerStyle } from '../../utils/motionTokens';
 import { parseSeparators } from '../../utils/separators';
 import { KBChunkImages,WikiPanel } from '../kb';
@@ -59,6 +59,7 @@ import IndexModePicker from '../kb/IndexModePicker';
 import { ContinuousLoadSentinel } from '../common';
 import { kbOriginalKindOf } from './kbOriginal';
 import { KbOriginalDownloadButton, KbOriginalPreview } from './KbOriginalPreview';
+import { MarkdownHtml } from '../common/MarkdownHtml';
 
 type KBTabKey = 'public' | 'private';
 
@@ -195,7 +196,7 @@ function formatBytes(bytes: number) {
 /** 字数优先；后端只给文件字节数、不给字数时，退而显示大小，不编 0 出来 */
 function formatDocWordCount(doc: KBDocument) {
   if (typeof doc.word_count === 'number' && !Number.isNaN(doc.word_count)) {
-    return formatCount(doc.word_count, '字');
+    return t('{n}字', { n: doc.word_count });
   }
   if (typeof doc.size_bytes === 'number' && doc.size_bytes > 0) {
     return formatBytes(doc.size_bytes);
@@ -457,20 +458,17 @@ export function CatalogPanel() {
     };
   }, [selectedItem?.id, selectedItem?.capabilities?.wiki, selectedItem?.source, wikiBackendReady]);
 
-  // 生成期间轮询：页数会随生成推进增长，Tab 上的计数要跟着动
-  useEffect(() => {
-    const kbId = selectedItem?.id;
-    if (!wikiGenerating || !kbId || selectedItem?.source !== 'local') return;
-    const timer = window.setInterval(() => {
-      void getKBWikiStatus(kbId).then((status) => {
-        setWikiGenerating(Boolean(status.generating));
-      });
-      void getWikiStats(kbId)
-        .then((stats) => setWikiPageCount(stats.total_pages || 0))
-        .catch(() => undefined);
-    }, 10000);
-    return () => window.clearInterval(timer);
-  }, [wikiGenerating, selectedItem?.id, selectedItem?.source]);
+  // While the wiki is generating, poll: the page count on the tab grows as generation proceeds
+  const wikiPollKbId = selectedItem?.source === 'local' ? selectedItem?.id : undefined;
+  usePolling(() => {
+    if (!wikiPollKbId) return;
+    void getKBWikiStatus(wikiPollKbId).then((status) => {
+      setWikiGenerating(Boolean(status.generating));
+    });
+    void getWikiStats(wikiPollKbId)
+      .then((stats) => setWikiPageCount(stats.total_pages || 0))
+      .catch(() => undefined);
+  }, { interval: 10000, enabled: wikiGenerating && !!wikiPollKbId });
 
 
   useEffect(() => {
@@ -584,20 +582,16 @@ export function CatalogPanel() {
     [documents],
   );
 
-  useEffect(() => {
-    if (!selectedId || !hasProcessingDoc) return;
+  usePolling(async () => {
+    if (!selectedId) return;
     const kbId = selectedId;
-    const currentPage = kbDocPage;
-    const timer = window.setInterval(async () => {
-      try {
-        const result = await fetchKbDocuments(kbId, currentPage, kbDocSearch);
-        applyDocumentsResult(kbId, result.items, result.total, result.status_counts);
-      } catch (err) {
-        console.warn('KB 文档轮询失败', err);
-      }
-    }, 5000);
-    return () => window.clearInterval(timer);
-  }, [selectedId, kbDocPage, kbDocSearch, hasProcessingDoc, applyDocumentsResult, fetchKbDocuments]);
+    try {
+      const result = await fetchKbDocuments(kbId, kbDocPage, kbDocSearch);
+      applyDocumentsResult(kbId, result.items, result.total, result.status_counts);
+    } catch (err) {
+      console.warn('KB document poll failed', err);
+    }
+  }, { interval: 5000, enabled: !!selectedId && hasProcessingDoc });
 
   const filteredDocuments = useMemo(() => {
     const query = kbDocQuery.trim().toLowerCase();
@@ -889,7 +883,7 @@ export function CatalogPanel() {
         } catch (err) {
           // 一个文件失败不该连累后面的：继续传完，最后一次性报出来
           failed.push(file.name);
-          console.warn('KB 文档上传失败', file.name, err);
+          console.warn('KB document upload failed', file.name, err);
         }
         // 每传完一个就刷新一次列表，用户能看着行一条条冒出来（状态是「索引中」）
         try {
@@ -1103,7 +1097,7 @@ export function CatalogPanel() {
                         className="jx-kbDetailDescToggle"
                         onClick={() => setDetailDescExpanded((prev) => !prev)}
                       >
-                        {detailDescExpanded ? '收起' : '展开'}
+                        {detailDescExpanded ? t('收起') : t('展开')}
                       </Button>
                     )}
                   </div>
@@ -1420,7 +1414,7 @@ export function CatalogPanel() {
         title={kbEditorMode === 'create' ? t('创建私有知识库') : t('编辑私有知识库')}
         open={kbEditorOpen}
         onCancel={closeKbEditor}
-        maskClosable={false}
+        mask={{ closable: false }}
         width={520}
         className="jx-kbEditorModal"
         footer={(
@@ -1573,7 +1567,7 @@ export function CatalogPanel() {
                 {kbDocDetailLoadingId === activeKbDoc.id ? (
                   <div className="jx-kbDocLoading"><LoadingOutlined /> {t('正在加载文档正文…')}</div>
                 ) : activeKbDoc.content ? (
-                  <div className="jx-md jx-kbDocModalMarkdown" dangerouslySetInnerHTML={{ __html: mdToHtml(activeKbDoc.content) }} />
+                  <MarkdownHtml className="jx-md jx-kbDocModalMarkdown" markdown={activeKbDoc.content} />
                 ) : (
                   <Typography.Text type="secondary">{t('当前文档暂无正文内容。')}</Typography.Text>
                 )}
@@ -1597,7 +1591,7 @@ export function CatalogPanel() {
                         <div className="jx-chunkHeader">
                           <div className="jx-chunkIndex"><span className="jx-chunkIndexNum">{chunk.chunk_index + 1}</span></div>
                           <div className="jx-chunkHeaderRight">
-                            <span className="jx-chunkContentLen">{chunk.content.length} 字</span>
+                            <span className="jx-chunkContentLen">{t('{n} 字', { n: chunk.content.length })}</span>
                             {selectedItem?.source === 'local' && (
                             <Button
                               size="small"
@@ -1842,7 +1836,7 @@ export function CatalogPanel() {
         title={t('上传文档到「{name}」', { name: selectedItem?.name || '' })}
         open={uploadDocModalOpen}
         onCancel={() => closeUploadDocModal()}
-        maskClosable={false}
+        mask={{ closable: false }}
         width={uploadStep === 'preview' ? 720 : 520}
         className="jx-kbUploadModal"
         footer={uploadStep === 'config' ? (
@@ -1887,7 +1881,7 @@ export function CatalogPanel() {
                 value={uploadChunkMethod}
                 onChange={setUploadChunkMethod}
                 className="jx-kbUploadSelect"
-                popupClassName="jx-kbUploadSelectDropdown"
+                classNames={{ popup: { root: "jx-kbUploadSelectDropdown" } }}
                 options={UPLOAD_CHUNK_METHOD_OPTIONS.map((option) => ({
                   value: option.value,
                   label: option.label,
@@ -2022,7 +2016,7 @@ export function CatalogPanel() {
                     onClick={() => setExpandedChunkIndex(expandedChunkIndex === chunk.index ? null : chunk.index)}
                   >
                     <span>{t('分块 {n}', { n: chunk.index + 1 })}</span>
-                    <span>{chunk.token_count} tokens / {chunk.children_count} 子块</span>
+                    <span>{t('{tokens} tokens / {n} 子块', { tokens: chunk.token_count, n: chunk.children_count })}</span>
                   </button>
                   <div className="jx-kbChunkPreviewBody">{chunk.content}</div>
                   {expandedChunkIndex === chunk.index && chunk.children_preview.length > 0 && (

@@ -126,6 +126,36 @@ def enqueue_profile_compaction(ctx: MemoryContext) -> str:
     )
 
 
+def _enqueue_edit(
+    ctx: MemoryContext,
+    *,
+    job_kind: str,
+    layer: str,
+    target_field: str,
+    target: str,
+    text: str,
+    operation_id: Optional[str],
+) -> str:
+    operation_id = operation_id or f"edit_{uuid.uuid4().hex}"
+    payload = {
+        "ctx": common._context_payload(ctx),
+        target_field: target,
+        "text": text,
+        "operation_id": operation_id,
+    }
+    candidate_hash = common._stable_hash(
+        {"operation_id": operation_id, target_field: target, "text": text}
+    )
+    return _enqueue(
+        message_id=common._effective_message_id(ctx, candidate_hash),
+        job_kind=job_kind,
+        layer=layer,
+        candidate_hash=candidate_hash,
+        payload=payload,
+        scope_key=common._scope_key(ctx),
+    )
+
+
 def enqueue_profile_edit_job(
     ctx: MemoryContext,
     key: str,
@@ -133,21 +163,14 @@ def enqueue_profile_edit_job(
     *,
     operation_id: Optional[str] = None,
 ) -> str:
-    operation_id = operation_id or f"edit_{uuid.uuid4().hex}"
-    payload = {
-        "ctx": common._context_payload(ctx),
-        "key": key,
-        "text": text,
-        "operation_id": operation_id,
-    }
-    candidate_hash = common._stable_hash({"operation_id": operation_id, "key": key, "text": text})
-    return _enqueue(
-        message_id=common._effective_message_id(ctx, candidate_hash),
+    return _enqueue_edit(
+        ctx,
         job_kind="profile_edit",
         layer="L1:profile_edit",
-        candidate_hash=candidate_hash,
-        payload=payload,
-        scope_key=common._scope_key(ctx),
+        target_field="key",
+        target=key,
+        text=text,
+        operation_id=operation_id,
     )
 
 
@@ -158,21 +181,12 @@ def enqueue_memory_edit_job(
     *,
     operation_id: Optional[str] = None,
 ) -> str:
-    operation_id = operation_id or f"edit_{uuid.uuid4().hex}"
-    payload = {
-        "ctx": common._context_payload(ctx),
-        "memory_id": memory_id,
-        "text": text,
-        "operation_id": operation_id,
-    }
-    candidate_hash = common._stable_hash(
-        {"operation_id": operation_id, "memory_id": memory_id, "text": text}
-    )
-    return _enqueue(
-        message_id=common._effective_message_id(ctx, candidate_hash),
+    return _enqueue_edit(
+        ctx,
         job_kind="memory_edit",
         layer="L2:memory_edit",
-        candidate_hash=candidate_hash,
-        payload=payload,
-        scope_key=common._scope_key(ctx),
+        target_field="memory_id",
+        target=memory_id,
+        text=text,
+        operation_id=operation_id,
     )

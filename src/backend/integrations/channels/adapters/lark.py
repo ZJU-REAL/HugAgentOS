@@ -23,18 +23,15 @@ from integrations.channels.adapters.lark_messages import LarkMessages
 from integrations.channels.adapters.lark_delivery import LarkDelivery
 
 import asyncio
-import base64
-import hashlib
 import json
 import logging
-import os
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict
 
 import httpx
 
-from integrations.channels.protocol import ChannelCaps, HistoryItem, InboundMsg, SendResult
+from integrations.channels.protocol import ChannelCaps, InboundMsg
 from core.infra.crypto import decrypt_secret
 
 logger = logging.getLogger(__name__)

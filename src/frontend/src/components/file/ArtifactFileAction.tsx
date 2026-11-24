@@ -6,6 +6,7 @@ import { DownOutlined, DownloadOutlined, ExportOutlined, FolderOpenOutlined, Loa
 import { artifactOrigin, artifactUrl, isArchiveMember, openLocalArtifact, type ArtifactLocation } from '../../utils/artifactAccess';
 import { t } from '../../i18n';
 import './ArtifactFileAction.css';
+import { saveBlob } from '../../utils/download';
 
 /** Same file action in output cards and preview panes. Native paths never come from model output. */
 export function ArtifactFileAction({ file, className, onDownload, disabled = false, iconOnly = false }: {
@@ -35,10 +36,7 @@ export function ArtifactFileAction({ file, className, onDownload, disabled = fal
           setBusy(true);
           void authFetch(artifactUrl(file)).then(async response => {
             if (!response.ok) throw new Error('HTTP ' + response.status);
-            const blobUrl = URL.createObjectURL(await response.blob());
-            const link = document.createElement('a');
-            link.href = blobUrl; link.download = file.name || 'download'; link.click();
-            window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+            saveBlob(await response.blob(), file.name || 'download');
           }).catch(error => { message.error(String(error)); }).finally(() => setBusy(false));
         }
       }}><DownloadOutlined /> {!iconOnly && t('下载')}</a>;

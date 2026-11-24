@@ -10,7 +10,7 @@ export default function AuthExpiredModal() {
       title={t('登录已失效')}
       open={!!authExpiredUrl}
       closable={false}
-      maskClosable={false}
+      mask={{ closable: false }}
       keyboard={false}
       cancelButtonProps={{ style: { display: 'none' } }}
       okText={t('重新登录')}

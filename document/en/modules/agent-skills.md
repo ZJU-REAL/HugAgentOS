@@ -160,7 +160,6 @@ The marketplace is an installable skill library with two sources — curated pre
 | Endpoint | Description |
 |---|---|
 | `GET /v1/marketplace/skills` | Marketplace listing (preset manifest + approved community skills, annotated with the current user's install state) |
-| `GET /v1/marketplace/categories` | The 8 fixed categories: writing, document processing, data analysis, policy & industry, marketing, legal & compliance, office productivity, engineering productivity |
 | `GET /v1/marketplace/skills/{slug}` | Details (SKILL.md preview, declared required_secrets) |
 | `POST /v1/marketplace/install` | User install → **private skill** |
 | `POST /v1/admin/marketplace/install` | Admin install → **global skill** |

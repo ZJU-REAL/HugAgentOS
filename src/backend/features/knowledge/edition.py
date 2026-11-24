@@ -24,7 +24,7 @@ def __getattr__(name):
     if name in ('CollectionDirectoryUnavailable', 'collection_snapshot', 'get_allowed_collection_ids', 'get_collections', 'get_collections_async', 'get_document_detail', 'get_provider_cache_identity', 'get_provider_name', 'is_enabled', 'list_document_chunks', 'list_documents', 'open_original_document', 'runtime_request_context', 'supports_wiki', 'warm_collections', 'wiki_module'):
         import features.knowledge.disabled_provider as provider
         return getattr(provider, name)
-    if name in ('DatasetRetrievalTimeoutError', 'DatasetRetrievalUnavailableError', 'MAX_RETRIEVE_TOKENS', 'RETRIEVE_MAX_CONCURRENCY', 'RETRIEVE_REQUEST_TIMEOUT_SECONDS', 'RETRIEVE_TOTAL_TIMEOUT_SECONDS', 'list_external_datasets', 'retrieve_dataset_content', 'retrieve_dataset_content_async'):
+    if name in ('DatasetRetrievalTimeoutError', 'DatasetRetrievalUnavailableError', 'MAX_RETRIEVE_TOKENS', 'RETRIEVE_MAX_CONCURRENCY', 'RETRIEVE_REQUEST_TIMEOUT_SECONDS', 'RETRIEVE_TOTAL_TIMEOUT_SECONDS', 'list_external_datasets', 'retrieve_dataset_content_async'):
         import features.knowledge.disabled_retrieval as provider
         return getattr(provider, name)
     raise AttributeError(name)

@@ -57,7 +57,6 @@ This reference is sourced from `.env.example` and `src/backend/core/config/setti
 | `ENABLE_SUMMARY` | `true` | When off, titles fall back to message truncation | CE |
 | `SUMMARY_MAX_ROUNDS` | `3` | Titles stop updating after this many rounds | CE |
 | `OPENAI_API_KEY` / `OPENAI_API_BASE` | (empty) / `https://api.openai.com/v1` | Alternate direct OpenAI configuration (passed through by compose) | CE |
-| `ROUTER_STRATEGY` | `main_only` (code default) | Routing strategy (`core/agent_runtime/strategy.py`) | CE |
 | `FOLLOWUP_ENABLED` | `true` (code default) | Follow-up suggestion generation | CE |
 
 ## Authentication and login
@@ -274,8 +273,6 @@ the database has no value.
 | `MEMORY_OUTBOX_POLL_SECONDS` | `1` | Idle Outbox worker poll interval (s) | CE |
 | `MEMORY_EXTRACT_TIMEOUT_S` | `30` | Per-extraction LLM call timeout (s) | CE |
 | `MEMORY_PROFILE_MAX_CHARS` | `1500` | L1 Profile character cap (compression beyond) | CE |
-| `MEMORY_FACT_DEFAULT_TTL_DAYS` | `180` | Legacy L2 Fact TTL compatibility; new procedures use dedicated TTLs | CE |
-| `MEMORY_FROZEN_TOPK` | `5` | Procedure top-K injected into the frozen block | CE |
 | `MEMORY_BREAKER_THRESHOLD` / `MEMORY_BREAKER_COOLDOWN_S` | `3` / `60` | Milvus circuit-breaker threshold / cooldown (s) | CE |
 | `MEMORY_LLM_GATE_ENABLED` | `true` | Narrow-only write gate; explicit remember/verified correction bypass it, while timeout or malformed output retries/quarantines | CE |
 | `MEMORY_GATE_TIMEOUT_S` | `10` | Write-gate LLM call timeout (s) | CE |
@@ -315,7 +312,6 @@ estimate only when it is not.
 | `JX_EDITION` | `ee` (main repo default; `ce` in the CE-derived tree) | Edition facade: `ce` / `ee` | — |
 | `BRAND_PRODUCT_NAME` | deployment brand in `.env.example`; code fallback `智能体平台` | Product display name | CE (changeable) |
 | `BRAND_ORG_NAME` | (sample value) | Organization name | CE (changeable) |
-| `BRAND_POWERED_BY` | `true` (code default) | "Powered by" attribution; removing it requires a commercial license | EE |
 | `LICENSE_KEY_PATH` | (empty) | License file path inside the container (Ed25519-signed, verified offline in-process); empty + non-enforcing = internal deployment with full features | EE |
 | `JX_LICENSE_REQUIRED` | `false` | `true` = private-delivery mode: without a valid license all EE capability bits are off | EE |
 | `LICENSE_GRACE_DAYS` | `14` | Post-expiry grace period (days); features stay on, probes alert | EE |

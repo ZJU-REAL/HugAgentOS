@@ -3,9 +3,7 @@
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 import core.db.models  # noqa: F401  (register every table on Base.metadata)
 from api.routes.v1.users import router as users_router
@@ -15,17 +13,15 @@ from core.auth.capabilities import (
     PAGE_ADMIN_FLAGS,
     account_capability_payload,
 )
-from core.db.engine import Base, get_db
+from core.db.engine import get_db
 from core.db.models import LocalUser, UserShadow
 from tests.db_support import share_session
+from tests.db_support import memory_engine
 
 
 @pytest.fixture
 def db():
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
+    engine = memory_engine()
     session = sessionmaker(bind=engine)()
     session.add(
         UserShadow(

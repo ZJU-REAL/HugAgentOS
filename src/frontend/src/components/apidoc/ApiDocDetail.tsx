@@ -97,7 +97,7 @@ export function ApiDocDetail({ endpoint, components }: { endpoint: Endpoint; com
             children: endpoint.parameters.length === 0 ? (
               <Empty description={t('无参数')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
             ) : (
-              <Space direction="vertical" style={{ width: '100%' }} size="middle">
+              <Space orientation="vertical" style={{ width: '100%' }} size="middle">
                 {pathParams.length > 0 && <ParamGroup title={t('Path 参数')} params={pathParams} />}
                 {queryParams.length > 0 && <ParamGroup title={t('Query 参数')} params={queryParams} />}
                 {headerParams.length > 0 && <ParamGroup title={t('Header 参数')} params={headerParams} />}
@@ -147,7 +147,7 @@ export function ApiDocDetail({ endpoint, components }: { endpoint: Endpoint; com
             key: 'sample',
             label: t('示例'),
             children: (
-              <Space direction="vertical" style={{ width: '100%' }} size="large">
+              <Space orientation="vertical" style={{ width: '100%' }} size="large">
                 {sample !== null && sample !== undefined && (
                   <div>
                     <div style={{ marginBottom: 8 }}>
