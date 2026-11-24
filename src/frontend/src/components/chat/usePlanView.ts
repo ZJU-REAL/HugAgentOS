@@ -9,7 +9,7 @@ import type { PlanProgressState } from '../../types';
  * job that updates the plan in a later turn, so theirs stays open until the
  * server settles it.
  */
-export function derivePlanView(
+function derivePlanView(
   progress: PlanProgressState | null | undefined,
   { running, workflowChat }: { running: boolean; workflowChat: boolean },
 ) {

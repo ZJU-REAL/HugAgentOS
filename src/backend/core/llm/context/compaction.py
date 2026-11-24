@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from core.llm.context.ir_constants import KIND_COMPACTION, SESSION_CONTEXT_META_KEY
 from core.llm.context.items import make_text_context_item
@@ -58,106 +58,13 @@ SUMMARY_PREFIX = (
 )
 
 
-# ── Token estimation / middle truncation ─────────────────────────────────────
+# ── Token estimation ─────────────────────────────────────────────────────────
 
 
 def approx_token_count(text: str) -> int:
     """Approximate token count = ceil(utf-8 byte count / 4)."""
     n = len(text.encode("utf-8"))
     return (n + APPROX_BYTES_PER_TOKEN - 1) // APPROX_BYTES_PER_TOKEN
-
-
-def approx_bytes_for_tokens(tokens: int) -> int:
-    """Convert a token count into a rough byte budget: tokens * 4."""
-    return tokens * APPROX_BYTES_PER_TOKEN
-
-
-def approx_tokens_from_byte_count(nbytes: int) -> int:
-    """Convert a byte count into an approximate token count: ceil(bytes / 4); returns 0 for non-positive values."""
-    if nbytes <= 0:
-        return 0
-    return (nbytes + APPROX_BYTES_PER_TOKEN - 1) // APPROX_BYTES_PER_TOKEN
-
-
-def _format_truncation_marker(use_tokens: bool, removed_count: int) -> str:
-    if use_tokens:
-        return f"…{removed_count} tokens truncated…"
-    return f"…{removed_count} chars truncated…"
-
-
-def _removed_units(use_tokens: bool, removed_bytes: int, removed_chars: int) -> int:
-    return approx_tokens_from_byte_count(removed_bytes) if use_tokens else removed_chars
-
-
-def _split_budget(budget: int) -> Tuple[int, int]:
-    left = budget // 2
-    return left, budget - left
-
-
-def _split_string(s: str, beginning_bytes: int, end_bytes: int) -> Tuple[int, str, str]:
-    """Keep head/tail within a utf-8 byte budget (char boundaries); returns ``(removed_chars, before, after)``."""
-    if not s:
-        return 0, "", ""
-    b = s.encode("utf-8")
-    total = len(b)
-    tail_start_target = total - end_bytes if total > end_bytes else 0
-    prefix_end = 0
-    suffix_start = total
-    removed_chars = 0
-    suffix_started = False
-    idx = 0
-    for ch in s:
-        char_end = idx + len(ch.encode("utf-8"))
-        if char_end <= beginning_bytes:
-            prefix_end = char_end
-        elif idx >= tail_start_target:
-            if not suffix_started:
-                suffix_start = idx
-                suffix_started = True
-        else:
-            removed_chars += 1
-        idx = char_end
-    if suffix_start < prefix_end:
-        suffix_start = prefix_end
-    before = b[:prefix_end].decode("utf-8", errors="ignore")
-    after = b[suffix_start:].decode("utf-8", errors="ignore")
-    return removed_chars, before, after
-
-
-def _truncate_with_byte_estimate(s: str, max_bytes: int, use_tokens: bool) -> str:
-    if not s:
-        return ""
-    total_chars = len(s)
-    total_bytes = len(s.encode("utf-8"))
-    if max_bytes == 0:
-        return _format_truncation_marker(
-            use_tokens, _removed_units(use_tokens, total_bytes, total_chars)
-        )
-    if total_bytes <= max_bytes:
-        return s
-    left_budget, right_budget = _split_budget(max_bytes)
-    removed_chars, left, right = _split_string(s, left_budget, right_budget)
-    marker = _format_truncation_marker(
-        use_tokens, _removed_units(use_tokens, total_bytes - max_bytes, removed_chars)
-    )
-    return f"{left}{marker}{right}"
-
-
-def truncate_middle_with_token_budget(s: str, max_tokens: int) -> Tuple[str, Optional[int]]:
-    """Middle-truncate to ``max_tokens``, keeping head and tail. Returns (possibly truncated string, original token count or None)."""
-    if not s:
-        return "", None
-    if max_tokens > 0 and len(s.encode("utf-8")) <= approx_bytes_for_tokens(max_tokens):
-        return s, None
-    truncated = _truncate_with_byte_estimate(s, approx_bytes_for_tokens(max_tokens), True)
-    if truncated == s:
-        return truncated, None
-    return truncated, approx_token_count(s)
-
-
-def truncate_text_tokens(content: str, max_tokens: int) -> str:
-    """Middle-truncate within a token budget; returns only the truncated text."""
-    return truncate_middle_with_token_budget(content, max_tokens)[0]
 
 
 # ── Message text extraction ──────────────────────────────────────────────────

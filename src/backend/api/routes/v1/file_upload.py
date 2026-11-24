@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -11,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
+from core.infra.time import utc_now
 from core.db.models import Artifact, ChatSession, UserFolder, UserShadow
 from core.files.artifacts.service import store_bytes_as_artifact
 from core.files.storage import get_storage
@@ -208,7 +208,7 @@ def overwrite_file(
     artifact.size_bytes = len(file_bytes)
     artifact.storage_url = storage_url
     artifact.mime_type = file.content_type or artifact.mime_type
-    artifact.updated_at = datetime.now(timezone.utc)
+    artifact.updated_at = utc_now()
     db.commit()
 
     return {

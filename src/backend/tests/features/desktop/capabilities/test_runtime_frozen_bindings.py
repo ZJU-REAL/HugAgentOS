@@ -20,6 +20,7 @@ from core.capabilities.manifest_protocol import build_skill_manifest
 
 
 from tests.features.desktop.capabilities.runtime_recovery_support import _ordered_skill_manifest, state, _zip, _intent, durable_index
+from tests.db_support import share_factory
 
 
 def test_prepared_run_keeps_old_bytes_after_update_and_rebuild(
@@ -213,7 +214,7 @@ def test_bridge_token_is_memory_only_and_session_bound(durable_index, caps_root,
 
     monkeypatch.setattr(bridge_client, 'refresh_manifest_async', lambda **_: None)
     monkeypatch.setattr(bridge_identity, 'rebuild_identity_views', lambda: None)
-    monkeypatch.setattr("core.db.engine.SessionLocal", durable_index)
+    share_factory(monkeypatch, durable_index)
     monkeypatch.setattr('features.desktop.bridge.model_credentials.scrub_legacy_rows', lambda: None)
     with durable_index() as db:
         db.add(ContentBlock(id=bridge_client_state.BRIDGE_BLOCK_ID, payload={"token": "old-secret"}))

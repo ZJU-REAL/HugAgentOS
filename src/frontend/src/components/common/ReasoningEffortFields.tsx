@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Button, Form, Input, Select, Alert, message } from 'antd';
 import { apiRequest } from '../../api';
 import { t } from '../../i18n';
+import { FormGrid } from './FormLayout';
 import { REASONING_KEYS, type ReasoningKey, type ReasoningProbeResult, reasoningFormValues, effortLabels } from '../../utils/reasoningEffort';
 
 
@@ -58,40 +59,43 @@ export function ReasoningEffortFields({ providerId, detect }: {
   const keys = (Form.useWatch('reasoning_effort_keys', form) ?? []) as ReasoningKey[];
   if (!enabled) return null;
   return (
-    <>
-      <Form.Item extra={t('探测可能产生少量模型用量；只回填表单，不自动保存。')}>
-        <Button loading={probing} onClick={() => void runProbe()}>{t('自动探测思考档位')}</Button>
-      </Form.Item>
-      {hint && <Alert type="info" showIcon message={hint} style={{ marginBottom: 12 }} />}
-      <Form.Item name="reasoning_effort_keys" label={t('支持的思考档位')}
-        rules={[{ required: true, type: 'array', min: 1, message: t('请至少选择一个思考档位') }]}>
-        <Select mode="multiple" options={REASONING_KEYS.map((key) => ({ value: key, label: t(effortLabels[key]) }))}
-          onChange={(next: ReasoningKey[]) => {
-            const values = form.getFieldValue('reasoning_effort_values') ?? {};
-            next.forEach((key) => { if (values[key] == null) values[key] = key; });
-            const current = form.getFieldValue('default_reasoning_effort');
-            form.setFieldsValue({
-              reasoning_effort_values: { ...values },
-              default_reasoning_effort: next.includes(current) ? current : next[0],
-            });
-          }} />
-      </Form.Item>
-      {keys.map((key) => (
-        <Form.Item key={key} name={['reasoning_effort_values', key]}
-          label={t('思考参数：{level}', { level: t(effortLabels[key]) })}
-          rules={[{ required: true, whitespace: true, message: t('请填写上游支持的参数值') }]}
-          extra={t('填写上游接受的字符串或正整数；整数将作为数值发送。')}>
-          <Input placeholder="low / high / xhigh / max / 50" maxLength={64} />
+    <div className="jx-reasoningFields">
+      <div className="jx-reasoningFields-probe">
+        <Button size="small" loading={probing} onClick={() => void runProbe()}>{t('自动探测思考档位')}</Button>
+        <span className="jx-reasoningFields-note">{t('探测可能产生少量模型用量；只回填表单，不自动保存。')}</span>
+      </div>
+      {hint && <Alert type="info" showIcon title={hint} style={{ marginBottom: 12 }} />}
+      <FormGrid cols={3}>
+        <Form.Item name="reasoning_effort_keys" label={t('支持的思考档位')} className="jx-formGrid-span2"
+          rules={[{ required: true, type: 'array', min: 1, message: t('请至少选择一个思考档位') }]}>
+          <Select mode="multiple" options={REASONING_KEYS.map((key) => ({ value: key, label: t(effortLabels[key]) }))}
+            onChange={(next: ReasoningKey[]) => {
+              const values = form.getFieldValue('reasoning_effort_values') ?? {};
+              next.forEach((key) => { if (values[key] == null) values[key] = key; });
+              const current = form.getFieldValue('default_reasoning_effort');
+              form.setFieldsValue({
+                reasoning_effort_values: { ...values },
+                default_reasoning_effort: next.includes(current) ? current : next[0],
+              });
+            }} />
         </Form.Item>
-      ))}
-      <Form.Item name="default_reasoning_effort" label={t('默认思考档位')}
-        dependencies={['reasoning_effort_keys']}
-        rules={[{ required: true }, {
-          validator: (_, value) => keys.includes(value)
-            ? Promise.resolve() : Promise.reject(new Error(t('默认档位必须属于已启用的档位'))),
-        }]}>
-        <Select options={keys.map((key) => ({ value: key, label: t(effortLabels[key]) }))} />
-      </Form.Item>
-    </>
+        <Form.Item name="default_reasoning_effort" label={t('默认思考档位')}
+          dependencies={['reasoning_effort_keys']}
+          rules={[{ required: true }, {
+            validator: (_, value) => keys.includes(value)
+              ? Promise.resolve() : Promise.reject(new Error(t('默认档位必须属于已启用的档位'))),
+          }]}>
+          <Select options={keys.map((key) => ({ value: key, label: t(effortLabels[key]) }))} />
+        </Form.Item>
+        {keys.map((key) => (
+          <Form.Item key={key} name={['reasoning_effort_values', key]}
+            label={t('思考参数：{level}', { level: t(effortLabels[key]) })}
+            tooltip={t('填写上游接受的字符串或正整数；整数将作为数值发送。')}
+            rules={[{ required: true, whitespace: true, message: t('请填写上游支持的参数值') }]}>
+            <Input placeholder="low / high / 50" maxLength={64} />
+          </Form.Item>
+        ))}
+      </FormGrid>
+    </div>
   );
 }

@@ -22,7 +22,6 @@ export const APPLICATION_HOSTING_DICT: Record<string, string> = {
   '凭据仅显示本次；请保存到客户端，勿写入网页或分享给访客': "This credential is shown once. Save it in your client; do not embed it in webpages or share it with visitors.",
   'MCP 访问凭据': "MCP credential",
   '数据与 MCP': "Data and MCP",
-  '应用数据库与 MCP 服务': "Application databases and MCP services",
   '键': 'Key',
   '值': 'Value',
   '数据库与 MCP 托管尚未启用': 'Database and MCP hosting is not enabled',

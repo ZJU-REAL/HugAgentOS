@@ -115,7 +115,7 @@
 .jx-spaceImportLayout {
   display: flex;
   gap: 16px;
-  height: 560px;
+  height: min(560px, calc(100vh - 300px));
 }
 
 .jx-spaceImportControls {

@@ -163,7 +163,6 @@ class FailoverChatModel(ToolCallIdentityMixin, ImageTokenCountingMixin, ChatMode
         self._fallback_specs = list(fallback_specs)
         self._builder = builder
         self._built: dict[int, ChatModelBase] = {}
-        self._listener: Any = None
         self._candidate_listener = ContextVar("candidate_context_listener", default=None)
         self.max_retries = 0
 
@@ -215,17 +214,6 @@ class FailoverChatModel(ToolCallIdentityMixin, ImageTokenCountingMixin, ChatMode
     def set_candidate_context_listener(self, listener: Any) -> None:
         self._candidate_listener.set(listener)
 
-    def set_context_rewrite_listener(self, listener: Any) -> None:
-        self._listener = listener
-        self._install_listener(self._primary)
-        for model in self._built.values():
-            self._install_listener(model)
-
-    def _install_listener(self, model: ChatModelBase) -> None:
-        setter = getattr(model, "set_context_rewrite_listener", None)
-        if callable(setter) and self._listener is not None:
-            setter(self._listener)
-
     def _candidate(self, index: int) -> Optional[ChatModelBase]:
         if index == 0:
             return self._primary
@@ -236,7 +224,6 @@ class FailoverChatModel(ToolCallIdentityMixin, ImageTokenCountingMixin, ChatMode
         except Exception as exc:  # noqa: BLE001 - a candidate that cannot be built is skipped
             logger.warning("[failover] candidate %d could not be built: %s", index, exc)
             return None
-        self._install_listener(model)
         self._built[index] = model
         return model
 

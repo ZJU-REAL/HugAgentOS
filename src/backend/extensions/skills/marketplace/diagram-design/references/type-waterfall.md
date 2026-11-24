@@ -1,5 +1,7 @@
 # Waterfall Chart
 
+> **HugAgentOS 版本说明**：上游的 `verify-*.py` / `test-verify-*.py` / `lint-*.py` / `build-*-examples.py` 等维护脚本没有随技能导入，文中要求运行它们的步骤在本版本不可用；安装版只提供 `{baseDir}/scripts/self_check.py`、`export_*.py` 与 `*_extract.py`，需要自检时改用 `self_check.py` 并按文中的检查项人工核对。
+
 **Best for:** showing how a start total becomes an end total through signed contributions — a budget bridge (FY25 baseline → FY26 plan), headcount deltas (starting roster ± hires ± attrition), conversion leak/gain, P&L walk. Use when the running total is the story: every bar either anchors the total or bridges one running level to the next, and the reader traces the path from start to end.
 
 **Not this type:**

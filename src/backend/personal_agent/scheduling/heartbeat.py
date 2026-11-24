@@ -183,8 +183,9 @@ def settings(config):
     if not _usable_hours(hb["active_hours"]): hb["active_hours"] = dict(DEFAULT_HOURS)
     return hb
 
-def validate(patch, config, now=None):
-    """Merge a settings patch into config["heartbeat"] and return the new object."""
+def validate(patch, config, now=None, channels=()):
+    """Merge a settings patch into config["heartbeat"] and return the new object.
+    channels: the bots Hugo answers, which a chosen bot must be one of."""
     now = now or time.time()
     if not isinstance(patch, dict): raise ValueError("Proactive settings must be an object")
     if set(patch) - SETTINGS: raise ValueError("Unknown proactive setting")
@@ -196,7 +197,7 @@ def validate(patch, config, now=None):
         if _minutes_of_day(hours["start"]) == _minutes_of_day(hours["end"]): raise ValueError("The morning and evening times must differ")
     if "channel_id" in patch:
         channel = patch["channel_id"] or None
-        if channel not in (None, WEB_ONLY) and channel not in (config or {}).get("channel_ids", []):
+        if channel not in (None, WEB_ONLY) and channel not in channels:
             raise ValueError("The bot is not connected to Personal Agent")
         patch = {**patch, "channel_id": channel}
     merged = {**current, **patch}

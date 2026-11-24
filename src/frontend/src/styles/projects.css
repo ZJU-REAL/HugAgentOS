@@ -25,13 +25,6 @@
   gap: 12px;
 }
 
-.jx-projects-title {
-  font-size: 28px;
-  font-weight: 700;
-  margin: 0;
-  color: var(--color-text);
-}
-
 .jx-projects-actions {
   display: flex;
   align-items: center;
@@ -141,35 +134,6 @@
 .jx-mainRow--project .jx-emptyCenter { justify-content:flex-start; padding-top:0; }
 
 /* Reference modal rows */
-.jx-projects-refRow {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 8px;
-  cursor: pointer;
-  border-radius: 6px;
-}
-
-.jx-projects-refRow:hover {
-  background: var(--color-fill-hover);
-}
-
-.jx-projects-refName {
-  font-size: 14px;
-  color: var(--color-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.jx-projects-refMeta {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  font-size: 12px;
-  color: var(--color-text-tertiary);
-}
-
 
 .jx-projectConversationHistory { width:100%; margin-top:28px; }
 .jx-projectConversationHistory-header { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding-bottom:12px; }
@@ -351,3 +315,35 @@
     font-size:12px;
   }
 }
+
+/* ── Compact project dialogs (create project / bind environment) ──
+   Mode cards side by side, resource pickers in a 2-column grid, folder
+   choice on one row, so the dialog fits one screen. */
+.jx-projectEnvironment{ container-type:inline-size; gap:12px; }
+.jx-projectEnvironment-modes{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.jx-projectEnvironment-modes .ant-radio-wrapper{ padding:8px 12px; }
+.jx-projectEnvironment-pickers{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:12px 16px;
+}
+@container (max-width:480px){
+  .jx-projectEnvironment-modes,
+  .jx-projectEnvironment-pickers{ grid-template-columns:minmax(0,1fr); }
+}
+.jx-projectEnvironment-intro{ margin:0 0 12px; color:var(--color-text-secondary); }
+
+.jx-createProject{ display:flex; flex-direction:column; gap:16px; padding-top:8px; }
+.jx-createProject-row{ display:flex; flex-wrap:wrap; gap:12px 24px; }
+.jx-createProject-row > .jx-createProject-field{ flex:1 1 240px; min-width:0; }
+.jx-createProject-label{
+  display:flex; align-items:center; gap:6px;
+  margin-bottom:6px; font-weight:600; font-size:13px;
+}
+.jx-createProject-label--split{ justify-content:space-between; }
+.jx-createProject-required{ color:var(--color-error); }
+.jx-createProject-count{ color:var(--color-text-tertiary); font-size:12px; font-weight:400; }
+.jx-createProject-help{ color:var(--color-text-tertiary); font-weight:400; cursor:help; }
+.jx-createProject-folderRow{ display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; }
+.jx-createProject-folderRow > .ant-radio-group{ flex:none; }
+.jx-createProject-folderPicker{ flex:1 1 240px; min-width:0; }

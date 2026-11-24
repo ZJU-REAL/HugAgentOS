@@ -1,4 +1,4 @@
-"""agent catalog responsibilities."""
+"""Sub-agent marketplace catalog: bundled and approved community agents, categories and detail."""
 from __future__ import annotations
 import json
 from typing import Any, Dict, List, Optional
@@ -82,17 +82,6 @@ def categories_from_items(items: List[Dict[str, Any]]) -> List[str]:
         if it["category"] not in seen:
             seen.append(it["category"])
     return seen
-
-
-def list_categories(
-    db: Session, *, include_disabled: bool = False, viewer_user_id: Optional[str] = None
-) -> List[str]:
-    """Marketplace category list (standalone entry point; the list endpoint should reuse categories_from_items to avoid a second scan)."""
-    return categories_from_items(
-        list_marketplace_agents(
-            db, include_disabled=include_disabled, viewer_user_id=viewer_user_id
-        )
-    )
 
 
 def get_agent_detail(db: Session, slug: str) -> Dict[str, Any]:

@@ -525,4 +525,10 @@ export const CATALOG_DICT: Record<string, string> = {
   '修复': "Repair",
   '传输方式': 'Transport',
   '工作目录': "Working directory",
+  // ── Compact catalog dialogs (2026-11) ─────────────────────────────
+  '添加公网远程 HTTP/SSE MCP，仅你自己可见可用，之后可申请上架市场。':
+    'Add a public remote HTTP/SSE MCP. Only you can see and use it; you can apply to list it in the marketplace later.',
+  '上架快照不含你的凭据，审核通过后其他用户须各自填写凭据或完成授权。':
+    'The listing snapshot excludes your credentials. Once approved, other users enter their own credentials or complete their own authorization.',
+  '基本信息': 'Basics',
 };

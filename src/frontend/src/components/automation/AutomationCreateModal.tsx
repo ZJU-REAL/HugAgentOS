@@ -3,6 +3,7 @@ import { Alert, Form, Input, Modal, Radio, Select, message } from 'antd';
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { createAutomation, getPlanApi, listChannelConversations, listPlans, type ChannelConversation } from '../../api';
 import { t } from '../../i18n';
+import { AdvancedFields, FormGrid } from '../common/FormLayout';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import { useProjectStore } from '../../stores/projectStore';
 import type { AutomationScheduleType, Plan } from '../../types';
@@ -213,59 +214,62 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
       confirmLoading={loading}
       okText={t('创建')}
       cancelText={t('取消')}
-      width={620}
+      width={880}
       centered
-      destroyOnClose
-      maskClosable={false}
+      destroyOnHidden
+      mask={{ closable: false }}
       keyboard={false}
     >
       <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-        <Form.Item label={t('执行位置')} required={canChooseLocation}>
-          {canChooseLocation ? (
-            <Radio.Group value={location} onChange={e => {
-              resourceGeneration.current += 1;
-              setPlans([]); setPlanDetailLoading(false);
-              setLocation(e.target.value); setSelectedPlan(null); setPlansLoaded(false); setPlanCache({});
-              form.setFieldValue('plan_id', undefined);
-            }}>
-              <Radio.Button value="local">{t('本机')}</Radio.Button>
-              <Radio.Button value="cloud">{t('云端')}</Radio.Button>
+        <FormGrid>
+          <Form.Item label={t('执行位置')} required={canChooseLocation}>
+            <div className="jx-automation-locationRow">
+              {canChooseLocation ? (
+                <Radio.Group value={location} onChange={e => {
+                  resourceGeneration.current += 1;
+                  setPlans([]); setPlanDetailLoading(false);
+                  setLocation(e.target.value); setSelectedPlan(null); setPlansLoaded(false); setPlanCache({});
+                  form.setFieldValue('plan_id', undefined);
+                }}>
+                  <Radio.Button value="local">{t('本机')}</Radio.Button>
+                  <Radio.Button value="cloud">{t('云端')}</Radio.Button>
+                </Radio.Group>
+              ) : (
+                <span>{location === 'local' ? t('本机') : t('云端')}</span>
+              )}
+              <span className="jx-automation-locationHint">
+                {location === 'local'
+                  ? t('在当前电脑执行；执行时电脑需开机且本机服务运行')
+                  : t('电脑关闭后仍可执行；无法直接访问本机文件')}
+              </span>
+            </div>
+          </Form.Item>
+          <Form.Item label={t('任务类型')} required>
+            <Radio.Group value={taskType} onChange={(e) => setTaskType(e.target.value)}>
+              <Radio.Button value="prompt">{t('提示词')}</Radio.Button>
+              <Radio.Button value="plan">{t('执行计划')}</Radio.Button>
             </Radio.Group>
-          ) : (
-            <span>{location === 'local' ? t('本机') : t('云端')}</span>
-          )}
-          <div style={{ marginTop: 8, color: 'var(--text-secondary)' }}>
-            {location === 'local'
-              ? t('在当前电脑执行；执行时电脑需开机且本机服务运行')
-              : t('电脑关闭后仍可执行；无法直接访问本机文件')}
-          </div>
-        </Form.Item>
-        <Form.Item label={t('关联项目')} help={localPath}>
-          <Select allowClear value={projectId} onChange={setProjectId}
-            placeholder={t('选择任务需要访问的项目')}
-            options={projects.map(item => ({
-              value: item.project_id,
-              label: item.name + ((item.kind as string) === 'local' ? ' · ' + t('本机') : ' · ' + t('云端'))
-            }))} />
-        </Form.Item>
+          </Form.Item>
+          <Form.Item
+            label={t('任务名称')}
+            name="name"
+            rules={[
+              { required: true, message: t('请输入任务名称') },
+              { whitespace: true, message: t('任务名称不能只包含空格') },
+            ]}
+          >
+            <Input placeholder={t('为任务取一个名称，列表与搜索都按它展示')} maxLength={200} />
+          </Form.Item>
+          <Form.Item label={t('关联项目')} help={localPath}>
+            <Select allowClear value={projectId} onChange={setProjectId}
+              placeholder={t('选择任务需要访问的项目')}
+              options={projects.map(item => ({
+                value: item.project_id,
+                label: item.name + ((item.kind as string) === 'local' ? ' · ' + t('本机') : ' · ' + t('云端'))
+              }))} />
+          </Form.Item>
+        </FormGrid>
         {locationError && <Alert type="error" showIcon title={t(locationError)} style={{ marginBottom: 16 }} />}
-        <Form.Item label={t('任务类型')} required>
-          <Radio.Group value={taskType} onChange={(e) => setTaskType(e.target.value)}>
-            <Radio.Button value="prompt">{t('提示词')}</Radio.Button>
-            <Radio.Button value="plan">{t('执行计划')}</Radio.Button>
-          </Radio.Group>
-        </Form.Item>
-
-        <Form.Item
-          label={t('任务名称')}
-          name="name"
-          rules={[
-            { required: true, message: t('请输入任务名称') },
-            { whitespace: true, message: t('任务名称不能只包含空格') },
-          ]}
-        >
-          <Input placeholder={t('为任务取一个名称，列表与搜索都按它展示')} maxLength={200} />
-        </Form.Item>
 
         {taskType === 'prompt' && (
           <Form.Item
@@ -278,7 +282,7 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
           >
             <Input.TextArea
               placeholder={t('输入需要定时执行的提示词，如：帮我搜索今天的政策新闻并生成摘要')}
-              rows={4}
+              autoSize={{ minRows: 3, maxRows: 6 }}
               maxLength={5000}
               showCount
             />
@@ -320,33 +324,37 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
           </>
         )}
 
-        <Form.Item label={t('时区')} name="timezone" initialValue={defaultTimezone}
-          rules={[{ required: true, message: t('请选择时区') }]}>
-          <Select showSearch options={timezoneOptions} />
-        </Form.Item>
         <Form.Item label={t('调度方式')} required>
           <ScheduleSelector value={schedule} onChange={setSchedule} timezone={selectedTimezone} />
         </Form.Item>
 
-        <Form.Item label={t('描述')} name="description">
-          <Input.TextArea placeholder={t('任务描述（可选）')} rows={2} maxLength={500} />
-        </Form.Item>
+        <FormGrid>
+          <Form.Item label={t('时区')} name="timezone" initialValue={defaultTimezone}
+            rules={[{ required: true, message: t('请选择时区') }]}>
+            <Select showSearch options={timezoneOptions} />
+          </Form.Item>
+          <Form.Item label={t('投递目标')} tooltip={convs.length > 0
+            ? t('到点把结果发到哪：页面端=站内生成一条会话；选某个渠道会话=推送到对应的飞书/钉钉/微信群或私聊。')
+            : t('结果发到页面端（站内生成一条会话）。绑定渠道机器人并产生会话后，这里可选投递到对应渠道会话。')}>
+            <Select
+              value={channelTarget}
+              onChange={setChannelTarget}
+              options={[
+                { value: 'inapp', label: t('页面端（站内）') },
+                ...convs.map((c) => ({
+                  value: `${c.channel_id}|${c.conversation_id}`,
+                  label: channelConversationLabel(c),
+                })),
+              ]}
+            />
+          </Form.Item>
+        </FormGrid>
 
-        <Form.Item label={t('投递目标')} help={convs.length > 0
-          ? t('到点把结果发到哪：页面端=站内生成一条会话；选某个渠道会话=推送到对应的飞书/钉钉/微信群或私聊。')
-          : t('结果发到页面端（站内生成一条会话）。绑定渠道机器人并产生会话后，这里可选投递到对应渠道会话。')}>
-          <Select
-            value={channelTarget}
-            onChange={setChannelTarget}
-            options={[
-              { value: 'inapp', label: t('页面端（站内）') },
-              ...convs.map((c) => ({
-                value: `${c.channel_id}|${c.conversation_id}`,
-                label: channelConversationLabel(c),
-              })),
-            ]}
-          />
-        </Form.Item>
+        <AdvancedFields title={t('描述（可选）')}>
+          <Form.Item label={t('描述')} name="description">
+            <Input.TextArea placeholder={t('任务描述（可选）')} rows={2} maxLength={500} />
+          </Form.Item>
+        </AdvancedFields>
       </Form>
     </Modal>
   );

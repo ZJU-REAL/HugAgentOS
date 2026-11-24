@@ -151,53 +151,8 @@
   .jx-bubble{
     max-width:100%;
   }
-  .jx-manageDetailHeader{
-    padding:14px 16px;
-  }
-  .jx-manageDetailTitle{
-    font-size:17px;
-  }
-  .jx-manageDetailMetaText.ant-typography{
-    font-size:13px;
-    line-height:1.7;
-  }
-  .jx-manageDetailBody{
-    padding:16px;
-    font-size:14px;
-    gap:14px;
-  }
-  .jx-manageDetailBody .jx-md{
-    font-size:14px;
-  }
-  .jx-manageDetailBody .jx-md h1{font-size:21px}
-  .jx-manageDetailBody .jx-md h2{font-size:18px}
-  .jx-manageDetailBody .jx-md h3{font-size:16px}
-  .jx-mcpExplain{
-    padding:14px 16px;
-  }
-  .jx-mcpExplain > div{
-    flex-direction:column;
-    gap:4px;
-  }
-  .jx-mcpExplain strong{
-    min-width:0;
-  }
-  .jx-kv{
-    grid-template-columns:1fr;
-    gap:8px;
-    padding:14px 16px;
-  }
-  .jx-kv .k{
-    padding-top:4px;
-  }
-  .jx-updatesView, .jx-capsView{
+  .jx-updatesView{
     padding:0 12px 20px;
-  }
-}
-
-@media (max-width: 1180px){
-  .jx-manageGrid{
-    grid-template-columns:1fr;
   }
 }
 
@@ -318,13 +273,6 @@
 }
 
 /* 「站点」建站模式标识：蓝色胶囊 @站点（对标 Codex @Sites 蓝色 chip） */
-
-.jx-siteModeBtn.active,
-.jx-siteModeBtn.active:hover{
-  color:var(--color-primary);
-  background:var(--color-primary-light);
-  cursor:default;
-}
 
 @media (hover:none) {
   .jx-msg .jx-msgActionBtn { opacity:1; pointer-events:auto; }

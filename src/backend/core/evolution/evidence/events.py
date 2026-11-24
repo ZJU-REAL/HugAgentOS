@@ -185,8 +185,3 @@ class TraceSink:
 
 
 _NULL_SINK = TraceSink()
-
-
-def null_sink() -> TraceSink:
-    """A sink that collects nothing, for paths with no run context."""
-    return _NULL_SINK

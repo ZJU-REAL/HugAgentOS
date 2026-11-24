@@ -29,9 +29,9 @@ import threading
 from typing import Any, Dict, List, Optional
 
 from features.desktop.capabilities import registry, skills, store, manifest_order
-from core.harness.capability_errors import CloudUnavailable, IntegrityFailed, PackageMissing
+from core.harness.capability_errors import CloudUnavailable, PackageMissing
 from core.capabilities.identity_rules import KIND_SKILL
-from features.desktop.capabilities.paths import capabilities_enabled, revision_for_hash
+from features.desktop.capabilities.paths import capabilities_enabled
 from core.capabilities.reference import cloud_ref, profile_id
 
 logger = logging.getLogger(__name__)

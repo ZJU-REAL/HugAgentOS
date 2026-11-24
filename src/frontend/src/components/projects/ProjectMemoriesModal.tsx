@@ -55,7 +55,7 @@ export default function ProjectMemoriesModal({
       footer={null}
       width={720}
       title={projectName ? t('项目记忆 · {name}', { name: projectName }) : t('项目记忆')}
-      destroyOnClose
+      destroyOnHidden
     >
       {!enabled ? (
         <div style={{ padding: 24, textAlign: 'center', color: '#888' }}>

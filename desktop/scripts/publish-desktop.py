@@ -116,7 +116,9 @@ def select_installer(bundle, target, version):
     if bundle is None or not bundle.is_dir():
         raise ValueError("--installer-bundle must be an existing artifact directory")
     pattern = {"windows": "*-setup.exe", "darwin": "*.dmg"}.get(target.split("-")[0], "*.AppImage")
-    matches = sorted(bundle.glob(pattern))
+    if target.startswith("linux-") and list(bundle.glob("*.deb")):
+        pattern = "*.deb"  # UOS: the full offline .deb next to the slim *-update.deb
+    matches = sorted(item for item in bundle.glob(pattern) if not SLIM_PACKAGE.search(item.name))
     exact = [item for item in matches if version in item.name]
     choices = exact or matches
     if len(choices) != 1:

@@ -57,7 +57,6 @@
 | `ENABLE_SUMMARY` | `true` | 关闭则标题回退为消息截断 | CE |
 | `SUMMARY_MAX_ROUNDS` | `3` | 超过该轮数后标题不再更新 | CE |
 | `OPENAI_API_KEY` / `OPENAI_API_BASE` | （空）/ `https://api.openai.com/v1` | 备用 OpenAI 直连配置（compose 透传） | CE |
-| `ROUTER_STRATEGY` | `main_only`（代码默认） | 路由策略（`core/agent_runtime/strategy.py`） | CE |
 | `FOLLOWUP_ENABLED` | `true`（代码默认） | 追问建议生成开关 | CE |
 
 ## 鉴权与登录
@@ -272,8 +271,6 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 | `MEMORY_OUTBOX_POLL_SECONDS` | `1` | Outbox worker 空闲轮询间隔（秒） | CE |
 | `MEMORY_EXTRACT_TIMEOUT_S` | `30` | 单次抽取 LLM 调用超时（秒） | CE |
 | `MEMORY_PROFILE_MAX_CHARS` | `1500` | L1 Profile 字符上限（超出触发压缩） | CE |
-| `MEMORY_FACT_DEFAULT_TTL_DAYS` | `180` | 旧版 L2 Fact TTL 兼容项；新做法记忆使用专用 TTL | CE |
-| `MEMORY_FROZEN_TOPK` | `5` | 注入冻结块的 Procedure top-K | CE |
 | `MEMORY_BREAKER_THRESHOLD` / `MEMORY_BREAKER_COOLDOWN_S` | `3` / `60` | Milvus 熔断阈值 / 冷却（秒） | CE |
 | `MEMORY_LLM_GATE_ENABLED` | `true` | 写入门卫：只收窄；明确记住/验证纠正确定性放行，超时或乱码进入重试/隔离 | CE |
 | `MEMORY_GATE_TIMEOUT_S` | `10` | 写入门卫 LLM 调用超时（秒） | CE |
@@ -309,7 +306,6 @@ Config 管理台会分别保存 Dify、FastGPT、WeKnora 的 URL、API Key 与�
 | `JX_EDITION` | `ee`（主仓默认；CE 派生树为 `ce`） | 版本门面：`ce` / `ee` | — |
 | `BRAND_PRODUCT_NAME` | `.env.example` 示例为部署品牌；代码兜底 `智能体平台` | 产品显示名 | CE 可改 |
 | `BRAND_ORG_NAME` | （示例值） | 组织名 | CE 可改 |
-| `BRAND_POWERED_BY` | `true`（代码默认） | “Powered by” 署名显示；去署名需商业授权 | EE |
 | `LICENSE_KEY_PATH` | （空） | license 文件容器内路径（Ed25519 签名，离线验签）；空且非强制模式 = 内部部署全功能 | EE |
 | `JX_LICENSE_REQUIRED` | `false` | `true` = 私有化交付模式：无有效 license 即关闭全部 EE 能力位 | EE |
 | `LICENSE_GRACE_DAYS` | `14` | 到期宽限期（天），宽限期内功能保留、探针报警 | EE |

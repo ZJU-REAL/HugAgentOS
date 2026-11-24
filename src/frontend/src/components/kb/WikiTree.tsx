@@ -3,6 +3,7 @@ import { DownOutlined, FileTextOutlined, FolderOutlined, RightOutlined } from '@
 import { Spin } from 'antd';
 import { getWikiFolders, getWikiPages } from '../../api';
 import type { WikiFolder, WikiPageBrief } from '../../types';
+import { t } from '../../i18n';
 
 /**
  * Wiki 目录树：逐层懒加载。
@@ -177,12 +178,12 @@ export function WikiTree({ kbId, pageTypes, activeSlug, onSelectPage }: WikiTree
                 ))}
                 {node?.loaded && !node.folders.length && !node.pages.length && (
                   <div className="jx-wikiTreeEmpty" style={{ paddingLeft: 22 + depth * 14 }}>
-                    该目录下暂无内容
+                    {t('该目录下暂无内容')}
                   </div>
                 )}
                 {node?.loaded && node.pageTotal > node.pages.length && (
                   <div className="jx-wikiTreeEmpty" style={{ paddingLeft: 22 + depth * 14 }}>
-                    仅显示前 {node.pages.length} / {node.pageTotal} 页，用搜索精确定位
+                    {t('仅显示前 {n} / {total} 页，用搜索精确定位', { n: node.pages.length, total: node.pageTotal })}
                   </div>
                 )}
               </>
@@ -204,7 +205,7 @@ export function WikiTree({ kbId, pageTypes, activeSlug, onSelectPage }: WikiTree
   if (!roots?.length) {
     return (
       <div className="jx-wikiTreeEmpty">
-        <FileTextOutlined /> 该分类下没有目录
+        <FileTextOutlined /> {t('该分类下没有目录')}
       </div>
     );
   }

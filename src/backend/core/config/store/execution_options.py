@@ -8,7 +8,7 @@ def code_capability_enabled() -> bool:
 
     Sole control source = the DB value of Config console "System config" (plan B, env fallback retired);
     seeded explicitly to "true". Saving in the console calls invalidate_cache; takes effect ≤30s without restart.
-    agent_factory and the admin_prompts preview call the same source, ensuring the console display matches runtime.
+    The agent factory and the prompt_management preview call the same source, ensuring the console display matches runtime.
     """
     try:
         val = system_config.SystemConfigService.get_instance().get("sandbox.code_capability_enable", "false")

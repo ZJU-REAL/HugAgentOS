@@ -290,3 +290,48 @@
     flex-wrap:wrap;
   }
 }
+
+/* ── Compact upload modal (2026-11): shorter dropzone, capped file list,
+   chunk method + parent-child toggle on one row, advanced settings folded ── */
+.jx-kbUploadModalBody{
+  gap:16px;
+}
+.jx-kbUploadDragger--compact.ant-upload-wrapper .ant-upload-drag{
+  min-height:0;
+  padding:12px 16px;
+}
+.jx-kbUploadDragger--compact .ant-upload-drag-icon{
+  margin-bottom:4px;
+  font-size:24px;
+}
+.jx-kbUploadDragger--compact .ant-upload-text{
+  margin-bottom:4px;
+}
+.jx-kbUploadDragger--compact .ant-upload-list{
+  max-height:120px;
+  overflow-y:auto;
+}
+.jx-kbUploadMainRow{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  gap:16px;
+  align-items:start;
+  padding-inline:4px;
+}
+.jx-kbUploadMainRow > .jx-kbUploadToggleRow{
+  padding-top:28px;
+}
+.jx-kbUploadModalBody > .jx-formAdvanced{
+  margin:0;
+  padding-inline:4px;
+}
+.jx-kbUploadFieldLabel .jx-formToggle-help{
+  margin-left:4px;
+}
+.jx-kbUploadAdvanced .jx-kbUploadAdvancedCol{
+  margin-bottom:12px;
+}
+@media (max-width:640px){
+  .jx-kbUploadMainRow{ grid-template-columns:minmax(0,1fr); }
+  .jx-kbUploadMainRow > .jx-kbUploadToggleRow{ padding-top:0; }
+}

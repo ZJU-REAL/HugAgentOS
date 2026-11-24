@@ -13,6 +13,7 @@ from core.memory import service as S
 from core.memory import backend as memory_backend
 from core.memory import effect_lane as E
 from core.memory import profile_store as PS
+from tests.db_support import share_factory
 
 
 def _configure_db(db_session, monkeypatch):
@@ -24,7 +25,7 @@ def _configure_db(db_session, monkeypatch):
     monkeypatch.setattr(outbox_common, "SessionLocal", factory)
     monkeypatch.setattr(E, "SessionLocal", factory)
     monkeypatch.setattr(PS, "SessionLocal", factory)
-    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
+    share_factory(monkeypatch, factory)
     return factory
 
 

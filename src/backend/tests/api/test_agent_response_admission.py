@@ -85,7 +85,6 @@ def _patch_common_chat_route(monkeypatch):
 @pytest.mark.parametrize("transports", [(True, True), (False, False), (True, False)])
 def test_concurrent_requests_have_one_durable_winner(monkeypatch, tmp_path, transports):
     from core.chat import plan_progress
-    pass
 
     engine = create_engine(
         f"sqlite:///{tmp_path / 'stream.db'}",
@@ -236,7 +235,6 @@ def test_non_stream_send_returns_busy_without_running_or_persisting(monkeypatch,
 
 
 def test_non_stream_send_uses_reserved_sequences_and_releases_writer(monkeypatch, tmp_path):
-    pass
 
     engine, Session = _route_database(tmp_path, "send-success.db")
     _patch_common_chat_route(monkeypatch)
@@ -305,9 +303,7 @@ def test_non_stream_send_uses_reserved_sequences_and_releases_writer(monkeypatch
 def test_both_transports_share_preferences_and_release_request_transaction(
     monkeypatch, tmp_path, stream
 ):
-    from api.routes.v1 import agent_responses
     from core.chat import plan_progress
-    pass
 
     engine, Session = _route_database(tmp_path, "preferences.db")
     _patch_common_chat_route(monkeypatch)
@@ -361,7 +357,6 @@ def test_both_transports_share_preferences_and_release_request_transaction(
 )
 def test_json_wait_preserves_non_success_terminal_state(monkeypatch, terminal, code):
     from api.routes.v1 import agent_responses
-    pass
 
     record = SimpleNamespace(status=terminal, error_message=None)
 

@@ -1,3 +1,5 @@
+import { t } from '../../i18n';
+
 export type ExecutionLocation = 'local' | 'cloud';
 
 export function defaultExecutionLocation(mode: string, projectKind?: string): ExecutionLocation {
@@ -5,11 +7,11 @@ export function defaultExecutionLocation(mode: string, projectKind?: string): Ex
 }
 export function executionLocationError(location: ExecutionLocation, projectKind?: string, prompt = ''): string | null {
   if (projectKind && (projectKind === 'local') !== (location === 'local')) {
-    return '项目与执行位置不匹配，本机目录必须在本机执行';
+    return t('项目与执行位置不匹配，本机目录必须在本机执行');
   }
   const hostPath = /(?:(?<![A-Za-z0-9])[A-Za-z]:[\\/]|\/Users\/|\/home\/|\/mnt\/)/.test(prompt);
-  if (hostPath && location === 'cloud') return '云端任务不能直接访问本机目录，请选择本机执行并绑定项目';
-  if (hostPath && !projectKind) return '读取本机目录的定时任务必须绑定本机项目';
+  if (hostPath && location === 'cloud') return t('云端任务不能直接访问本机目录，请选择本机执行并绑定项目');
+  if (hostPath && !projectKind) return t('读取本机目录的定时任务必须绑定本机项目');
   return null;
 }
 

@@ -77,7 +77,7 @@ def _download_base(request: Request) -> str:
 
 
 @router.get("/latest.json", summary="桌面客户端更新清单（公开，供 Tauri updater 拉取）")
-async def latest_manifest(request: Request) -> Response:
+def latest_manifest(request: Request) -> Response:
     """返回 Tauri v2 更新清单；带 target/arch 时选择该平台的最新可用版本。
 
     - 发布目录/清单不存在 → 204（updater 视为「无可用更新」，静默不打扰）。

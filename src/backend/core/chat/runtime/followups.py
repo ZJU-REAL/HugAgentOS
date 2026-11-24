@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 def _spawn_followup_task(
     *, run_id: str, chat_id: str, user_msg: str, response: str, msg_id: str
 ) -> None:
-    """Equivalent to the existing _generate_followups_bg in chats.py."""
+    """Generate follow-up suggestions for the finished turn in the background."""
     from core.chat.followups import get_followup_generator
 
     async def _bg() -> None:

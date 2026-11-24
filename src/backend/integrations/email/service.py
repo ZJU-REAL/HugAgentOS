@@ -24,7 +24,6 @@ encryption.type ∈ {tls, start-tls, none}; the app password goes in ``backend.a
 from __future__ import annotations
 from core.infra.time import utc_now
 
-import asyncio
 import base64
 import logging
 import os
@@ -35,7 +34,7 @@ from core.db.threads import AsyncRepository
 
 from integrations.email.repository import EmailConnectionRepository
 from core.infra.crypto import decrypt_secret, encrypt_secret
-from core.infra.proc import no_window_kwargs
+from integrations.cli_process import run_cli
 
 logger = logging.getLogger(__name__)
 
@@ -215,25 +214,10 @@ async def _run_himalaya(
     from integrations.email.storage import email_himalaya_config
 
     cfg = str(email_himalaya_config(user_id))
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            _HIMALAYA_BIN, "--config", cfg, *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=_email_env(user_id),
-            **no_window_kwargs(),
-        )
-    except FileNotFoundError:
-        return "", "himalaya binary not found on backend", 127
-    try:
-        out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        return out.decode("utf-8", "replace"), err.decode("utf-8", "replace"), proc.returncode or 0
-    except asyncio.TimeoutError:
-        try:
-            proc.kill()
-        except ProcessLookupError:
-            pass
-        return "", f"himalaya {' '.join(args[:2])} timeout", 124
+    return await run_cli(
+        _HIMALAYA_BIN, args, env=_email_env(user_id), timeout=timeout,
+        lead_args=("--config", cfg), label="himalaya",
+    )
 
 
 async def _verify(user_id: str) -> Tuple[bool, str]:

@@ -1,4 +1,4 @@
-"""capability dependencies responsibilities."""
+"""Shared helpers for the desktop capability routes: gateway HTTP client, capability-token user check, content/secret guards, manifest and bundle responses."""
 from __future__ import annotations
 from typing import Optional
 import httpx
@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 from features.desktop.api import desktop_capability_state
 
 def client() -> httpx.AsyncClient:
-    pass  # State is owned by its responsibility module.
     if desktop_capability_state.gateway_client is None:
         desktop_capability_state.gateway_client = httpx.AsyncClient(
             timeout=httpx.Timeout(600.0),

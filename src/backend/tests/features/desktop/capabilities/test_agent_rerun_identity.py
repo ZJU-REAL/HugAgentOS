@@ -113,7 +113,6 @@ def rerun(index_db, caps_root, monkeypatch):
     monkeypatch.setattr(chat_context, "resolve_enabled_capabilities", lambda *a: ([], [], []))
     monkeypatch.setattr(chat_session_context, 'load_session_messages', lambda *a: [])
     monkeypatch.setattr(responses, "sse_response", lambda value: value)
-    pass
 
     monkeypatch.setattr(run_sse, "follow_run_as_sse", lambda *a, **kw: None)
     captured = {}

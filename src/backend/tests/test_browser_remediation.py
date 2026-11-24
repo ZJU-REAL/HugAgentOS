@@ -5,6 +5,7 @@ from pathlib import Path
 import httpx
 import pytest
 from fastapi import HTTPException
+pytest.importorskip("playwright", reason="browser worker tests need playwright (desktop/requirements-desktop.txt)")
 sys.path.insert(0, str(Path(__file__).parents[1] / "extensions/plugins/marketplace/browser-automation/runtime"))
 from tests.test_browser_worker import browser
 

@@ -15,6 +15,7 @@ from core.db.engine import Base
 from core.db.models import ChatRun, ChatSession, SubAgentCallLog, TaskNumberCounter
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
+from tests.db_support import file_engine, session_factory
 
 NOON = datetime(2026, 10, 8, 4, 0, tzinfo=timezone.utc)
 
@@ -25,11 +26,8 @@ def _day(at: datetime) -> str:
 
 @pytest.fixture()
 def factory(tmp_path, monkeypatch):
-    engine = create_engine(
-        f"sqlite:///{tmp_path / 'task-numbers.sqlite'}", connect_args={"check_same_thread": False}
-    )
-    Base.metadata.create_all(engine)
-    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+    engine = file_engine(tmp_path / 'task-numbers.sqlite')
+    sessions = session_factory(engine)
     with sessions() as db:
         db.add(ChatSession(chat_id="chat-1", user_id="u1", title="t"))
         db.commit()

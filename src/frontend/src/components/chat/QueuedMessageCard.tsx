@@ -44,13 +44,13 @@ export function QueuedMessageCard({
 
   const waitsForNextTurn = running && hasChatInvocation(queued.invocation);
   let steerLabel = waitsForNextTurn ? t('本轮结束后发送') : t('立即开始');
-  if (queued.status === 'steering') steerLabel = t('等待执行节点…');
+  if (queued.status === 'steering') steerLabel = t('正在插入…');
   if (queued.status === 'applied') steerLabel = t('已发送，正在调整…');
   const steerDisabled = queued.status !== 'queued' || (running && !canSteer);
   const steerTitle = running && !canSteer
     ? t('带附件、技能、连接器、插件或智能体的消息将在当前任务结束后发送')
     : running
-      ? t('在本轮工具完成后、下一轮推理前发送给模型')
+      ? t('中止正在执行的工具，立即发送给模型')
       : t('立即开始');
   const invocation = queued.invocation;
 

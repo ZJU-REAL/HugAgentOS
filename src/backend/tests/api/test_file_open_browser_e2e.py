@@ -13,16 +13,16 @@ import sys
 import pytest
 
 from fastapi import FastAPI, Request
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 import uvicorn
 
 from api.routes.files import router
 from core.auth.backend import UserContext, get_current_user
 from core.config import settings as settings_module
-from core.db.engine import Base, get_db
+from core.db.engine import get_db
 from core.db.models import Artifact
 from tests.db_support import share_factory
+from tests.db_support import file_engine
 
 
 @pytest.mark.skipif(sys.platform != "linux" or not shutil.which("node"),
@@ -74,8 +74,7 @@ else:
     from core.files.storage.local import LocalStorageBackend
     monkeypatch.setattr("api.routes.files.get_storage", LocalStorageBackend)
 
-    engine = create_engine(f"sqlite:///{tmp_path / 'fixture.db'}", connect_args={"check_same_thread": False})
-    Base.metadata.create_all(engine)
+    engine = file_engine(tmp_path / 'fixture.db')
     sessions = sessionmaker(bind=engine)
     with sessions() as db:
         for identifier, owner, key in (("report", "owner", "report.md"), ("private", "other", "report.md"),

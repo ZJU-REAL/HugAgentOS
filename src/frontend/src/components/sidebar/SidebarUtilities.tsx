@@ -20,9 +20,9 @@ export function SidebarUtilities({ onSetPanel, expanded = false }: Pick<SidebarP
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [clientDownloadBusy, setClientDownloadBusy] = useState(false);
-  const cfgLogoutTitle = usePageConfig('texts.dialog_logout_confirm_title', '确认退出登录？');
-  const cfgLogoutContent = usePageConfig('texts.dialog_logout_confirm_content', '退出登录不会丢失任何数据，你仍可以登录此账号。');
-  const cfgLogoutOk = usePageConfig('texts.dialog_logout_confirm_ok', '退出登录');
+  const cfgLogoutTitle = usePageConfig('texts.dialog_logout_confirm_title', t('确认退出登录？'));
+  const cfgLogoutContent = usePageConfig('texts.dialog_logout_confirm_content', t('退出登录不会丢失任何数据，你仍可以登录此账号。'));
+  const cfgLogoutOk = usePageConfig('texts.dialog_logout_confirm_ok', t('退出登录'));
   const footerSettingsMenu: MenuProps = {
     items: [
       {
@@ -117,7 +117,7 @@ export function SidebarUtilities({ onSetPanel, expanded = false }: Pick<SidebarP
     <div className={expanded ? 'jx-classicFooter' : 'jx-miniRailFooter'}>
       <CapabilitySyncEntry className="jx-miniRailBtn" />
       <DesktopUpdateEntry status={desktopUpdateStatus} className="jx-miniRailBtn">
-        <Dropdown menu={helpMenu} trigger={['click']} placement="topRight" overlayClassName="jx-settingsMenu">
+        <Dropdown menu={helpMenu} trigger={['click']} placement="topRight" classNames={{ root: "jx-settingsMenu" }}>
           <Tooltip title={t(IS_COMMUNITY_EDITION_BUILD ? '官方文档' : '帮助 / 更新记录')} placement="right">
             <button type="button" className="jx-miniRailBtn" aria-label={t(IS_COMMUNITY_EDITION_BUILD ? '官方文档' : '帮助')}>
               <img src="/home/help.svg" alt="" className="jx-miniRailIcon" style={{ opacity: 0.55 }} />
@@ -125,7 +125,7 @@ export function SidebarUtilities({ onSetPanel, expanded = false }: Pick<SidebarP
           </Tooltip>
         </Dropdown>
       </DesktopUpdateEntry>
-      <Dropdown open={footerMenuOpen} onOpenChange={setFooterMenuOpen} menu={footerSettingsMenu} trigger={['click']} placement="topLeft" overlayClassName="jx-settingsMenu">
+      <Dropdown open={footerMenuOpen} onOpenChange={setFooterMenuOpen} menu={footerSettingsMenu} trigger={['click']} placement="topLeft" classNames={{ root: "jx-settingsMenu" }}>
         <Tooltip title={authUser?.nickname || authUser?.real_name || authUser?.username || t('用户')} placement="right">
           <button type="button" className={expanded ? 'jx-classicUser' : 'jx-miniRailBtn jx-miniRailAvatarBtn'} aria-label={t('用户菜单')}>
             <img src={resolveAvatarUrl(authUser?.avatar_url)} alt="" className="jx-miniRailAvatar" />
@@ -146,7 +146,7 @@ export function SidebarUtilities({ onSetPanel, expanded = false }: Pick<SidebarP
       cancelText={t('取消')}
       okButtonProps={{ danger: true }}
       confirmLoading={loggingOut}
-      maskClosable={!loggingOut}
+      mask={{ closable: !loggingOut }}
       closable={!loggingOut}
       onCancel={() => setLogoutConfirmOpen(false)}
       onOk={() => void doLogout()}

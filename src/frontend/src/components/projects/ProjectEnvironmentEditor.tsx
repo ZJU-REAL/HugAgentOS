@@ -42,19 +42,21 @@ export default function ProjectEnvironmentEditor({ value, onChange, projectId, o
     {value.mode === 'all' ? <div className="jx-projectEnvironment-hint">
       {t('主智能体保持现状。子智能体、插件、技能和连接器沿用当前账号的可用环境。')}
     </div> : <>
-      {error && <Alert type="error" message={error}
+      {error && <Alert type="error" title={error}
         action={<Button onClick={() => void load()}>{t('重试')}</Button>} />}
       <Spin spinning={loading}>
+        <div className="jx-projectEnvironment-pickers">
         {fields.map(field => <ProjectEnvironmentResourcePicker key={field}
           field={field} value={value[field]} options={options?.[field]}
           dependencies={dependencies}
           onChange={ids => onChange({ ...value, [field]: ids })}
           onMarket={canInstallFromMarket(authUser, field) ? () => setMarket(field) : undefined} />)}
+        </div>
       </Spin>
-      {previewError && <Alert type="error" message={previewError}
+      {previewError && <Alert type="error" title={previewError}
         action={<Button onClick={retryPreview}>{t('重试')}</Button>} />}
       {!!preview?.unavailable.length && <Alert type="warning"
-        message={t('部分依赖暂不可用，绑定不会授予额外权限。')}
+        title={t('部分依赖暂不可用，绑定不会授予额外权限。')}
         description={preview.unavailable.map(item => item.id).join('、')} />}
     </>}
     <ProjectEnvironmentMarkets kind={market} onClose={() => setMarket(null)}

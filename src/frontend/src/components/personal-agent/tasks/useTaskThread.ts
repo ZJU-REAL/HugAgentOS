@@ -15,7 +15,7 @@ interface Thread {
   chat_id: string; task_run_id?: string | null; task_status: string; terminal_message_id?: string | null;
   has_more: boolean; messages: HistoryRow[];
 }
-export type TaskThreadInfo = Omit<Thread, 'messages' | 'has_more'>;
+type TaskThreadInfo = Omit<Thread, 'messages' | 'has_more'>;
 
 const EMPTY: ChatMessage[] = [];
 

@@ -61,18 +61,14 @@ export interface ChatState {
   copiedMsg: string | null;
   /** Whether chats are loading from backend */
   chatsLoading: boolean;
-  /** Feedback map: 消息身份 → feedback type */
-  feedbackMap: Record<string, 'like' | 'dislike'>;
-  /** Message being disliked (for comment modal) */
-  dislikingUid: string | null;
-  /** Dislike comment text */
-  dislikeComment: string;
   /** Tool display names from backend */
   toolDisplayNames: Record<string, string>;
   /** Backend session IDs (tracks which chats exist on the server) */
   backendSessionIds: Set<string>;
   /** Chat IDs whose messages have been loaded from backend */
   loadedMsgIds: Set<string>;
+  /** 已加载会话的最近使用顺序（新的在后）。超出保留数的会话会被裁回未加载形态，见 chatMemoryEviction。 */
+  recentLoadedChats: string[];
   /** 每个会话的历史分页游标。
    *
    *  打开会话只拉最近一页（后端 order=desc 的第 1 页），用户往上滚到顶再续拉更早的。
@@ -161,9 +157,6 @@ export interface ChatState {
   setToolResultPanel: (panel: ChatState['toolResultPanel']) => void;
   setCopiedMsg: (uid: string | null) => void;
   setChatsLoading: (v: boolean) => void;
-  setFeedbackMap: (map: Record<string, 'like' | 'dislike'>) => void;
-  setDislikingUid: (uid: string | null) => void;
-  setDislikeComment: (comment: string) => void;
   setToolDisplayNames: (names: Record<string, string>) => void;
   addBackendSessionId: (id: string) => void;
   removeBackendSessionId: (id: string) => void;

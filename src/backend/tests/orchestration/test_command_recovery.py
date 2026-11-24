@@ -20,8 +20,6 @@ from tests.orchestration.test_background_commands import command_db, request
 
 def test_crash_before_context_injection_replays_durable_event(command_db, monkeypatch):
     from core.runs.journal import RecoveryDecision
-    pass
-    import core.runs.api_recovery as agent_api_recovery
     with command_db() as db:
         run = ChatSequencer(db).accept_main_run(chat_id="c", user_id="u",
             user_content="start", request_payload={}).run
@@ -50,12 +48,11 @@ def test_crash_before_context_injection_replays_durable_event(command_db, monkey
     monkeypatch.setattr(runs_runtime, 'register_run_task', lambda rid, task, **kw: task.close())
     monkeypatch.setattr(api_recovery, "validate_recovery_context",
         lambda db, run, context, **kw: context)
-    assert recovery._register_recovered_chat(decision)
+    assert recovery._register_recovered_chat(decision, recovery._restore_recovered_chat(decision))
     assert command["task_id"] in str(captured[0]["session_messages"])
     assert store.snapshot(command["task_id"])["notice_status"] == "delivered"
 
 async def test_delayed_stop_renews_lease_and_cannot_be_recovered_twice(command_db, monkeypatch):
-    import core.sandbox.commands.runtime as module
     monkeypatch.setattr(store, "LEASE_SECONDS", 1)
     stopping = False
     polls = 0
@@ -145,7 +142,6 @@ def test_list_never_hides_live_tasks_behind_display_limit(command_db):
     assert all(row["background"] is False for row in rows)
 
 async def test_slow_launch_keeps_lease_without_execution_deadline(command_db, monkeypatch):
-    import core.sandbox.commands.runtime as module
     monkeypatch.setattr(store, "LAUNCH_LEASE_SECONDS", 0.2)
     monkeypatch.setattr(commands_runtime, "LAUNCH_RENEW_SECONDS", 0.03)
     called = asyncio.Event()
@@ -174,7 +170,6 @@ def test_adoption_remains_idempotent_at_capacity(command_db):
     assert not repeated["created"]
 
 def test_steer_history_rebuild_preserves_command_sideband(command_db, monkeypatch):
-    pass
     from core.chat.service import ChatService
     from core.sandbox.commands.context import append_active_completions
     with command_db() as db:
@@ -204,7 +199,6 @@ def test_steer_history_rebuild_preserves_command_sideband(command_db, monkeypatc
                 "raw_user_message":"steer", "context":{"chat_mode":"medium","enable_thinking":True}}}
             db.commit()
         assert event_id in str(run.recovery_snapshot["worker_args"]["session_messages"])
-        import core.runs.api_recovery as agent_api_recovery
         from core.runs.journal import RecoveryDecision
         decision = RecoveryDecision(run_id=run_id, chat_id="c", user_id="u",
             message_id=run.message_id, action="resume", phase="running",
@@ -220,7 +214,7 @@ def test_steer_history_rebuild_preserves_command_sideband(command_db, monkeypatc
             lambda rid, task, **kw: task.close())
         monkeypatch.setattr(api_recovery, "validate_recovery_context",
             lambda db, run, context, **kw: context)
-        assert recovery._register_recovered_chat(decision)
+        assert recovery._register_recovered_chat(decision, recovery._restore_recovered_chat(decision))
         assert sum(m.get("message_id") == event_id
                    for m in recovered_args[0]["session_messages"]) == 1
         # Active events must not become trailing persisted user turns.

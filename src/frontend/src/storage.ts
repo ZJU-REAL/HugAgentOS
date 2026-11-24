@@ -32,9 +32,14 @@ export function userScopedKey(base: string, userId: string | null | undefined): 
   return `${base}:${userId}`;
 }
 
-/** One-time cleanup of the pre-userscoped global keys. Safe to call repeatedly. */
+/** Set once the legacy keys below are gone; current builds never write them again. */
+const LEGACY_KEYS_PURGED = 'hugagent_legacy_keys_purged_v1';
+
+/** One-time cleanup of the pre-userscoped global keys. Safe to call repeatedly: after the first
+ *  successful run a marker skips the full local/sessionStorage scan on every later hydrate. */
 export function purgeLegacyUnscopedKeys() {
   if (typeof window === 'undefined') return;
+  try { if (window.localStorage.getItem(LEGACY_KEYS_PURGED)) return; } catch { /* storage 不可用：照常清理 */ }
   const legacyKeys = [
     STORAGE_KEY,
     'hugagent_pending_scroll_message_ts',
@@ -50,6 +55,7 @@ export function purgeLegacyUnscopedKeys() {
   }
   // 「当前开着哪段会话 / 停在哪个面板」已经交给地址栏，这两个按用户分键的指针作废。
   purgeByPrefix(['hugagent_current_chat_id', 'hugagent_active_panel']);
+  try { window.localStorage.setItem(LEGACY_KEYS_PURGED, '1'); } catch { /* ignore */ }
 }
 
 /** 按前缀清理。这两个键是按用户分开存的（`<key>:<userId>`），同一浏览器上登录过的
@@ -414,6 +420,12 @@ export function writeLocal(key: string, value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** 读取一个 localStorage 项，永不抛（存储不可用时返回 null）。 */
+export function readLocal(key: string): string | null {
+  if (typeof window === 'undefined') return null;
+  try { return window.localStorage.getItem(key); } catch { return null; }
 }
 
 /** 删除一个 localStorage 项，永不抛。 */

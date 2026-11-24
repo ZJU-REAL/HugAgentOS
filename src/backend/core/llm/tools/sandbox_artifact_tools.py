@@ -4,9 +4,6 @@
 - ``sandbox_put_artifact``: copy an existing artifact's bytes into the sandbox.
 - ``sandbox_get_artifact``: read a sandbox file and register it as a
   downloadable artifact.
-
-Relocated from the former ``core.llm.tool`` module so the singular ``tool.py``
-no longer coexists with this ``tools/`` package.
 """
 
 from __future__ import annotations
@@ -25,11 +22,12 @@ if TYPE_CHECKING:
 
 from agentscope.tool import Toolkit
 
-# AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolChunk).
+# AgentScope 2.0: tool functions must return ToolChunk.
 from agentscope.tool._response import ToolChunk
 from core.llm.tools._common import resolve_sandbox_session
 from core.files.artifacts.generated import resolve_artifact_files as _resolve_artifact_files, store_generated_file_path as _store_generated_file_path
 from core.llm.tools._tool_helpers import resp_json as _resp_json, validate_workspace_path as _validate_workspace_path
+from core.db.threads import run_db
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +61,7 @@ def register_sandbox_put_artifact(
 
         # _resolve_artifact_files accepts the {filename: artifact_id} shape;
         # using dest_path as the key is fine — it is only the key of the returned dict.
-        files_b64, err = _resolve_artifact_files({dest_path: artifact_id}, user_id)
+        files_b64, err = await run_db(_resolve_artifact_files, {dest_path: artifact_id}, user_id)
         if err:
             return _resp_json({"error": err})
         if not files_b64:

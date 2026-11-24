@@ -8,10 +8,6 @@ dayjs.extend(timezone);
 // Backend timestamps are UTC; all application displays use this timezone.
 export const APP_TIMEZONE = 'Asia/Shanghai';
 
-export function pad2(value: number | string) {
-  return String(value).padStart(2, '0');
-}
-
 /** Parse server instants; legacy ISO datetimes without an offset mean UTC. */
 export function parseServerTime(value?: string | number | Date | null): number {
   if (typeof value === 'number') return value;
@@ -83,12 +79,6 @@ export function formatTime(value?: string | number | Date | null, fallback = '-'
   return p ? `${p.hour}:${p.minute}:${p.second}` : fallback;
 }
 
-/** MM.DD */
-export function formatMonthDay(value?: string | number | Date | null, fallback = '-') {
-  const p = zonedParts(value);
-  return p ? `${p.month}.${p.day}` : fallback;
-}
-
 /** MM/DD HH:MM */
 export function formatShortDateTime(value?: string | number | Date | null, fallback = '-') {
   const p = zonedParts(value);
@@ -101,18 +91,11 @@ export function formatMonthDayTime(value?: string | number | Date | null, fallba
   return p ? `${p.month}/${p.day} ${p.hour}:${p.minute}:${p.second}` : fallback;
 }
 
-/** YYYY.MM.DD HH:MM:SS */
-export function formatFullDateTime(value?: string | number | Date | null, fallback = '-') {
-  const p = zonedParts(value);
-  return p ? `${p.year}.${p.month}.${p.day} ${p.hour}:${p.minute}:${p.second}` : fallback;
-}
-
 /** YYYY-MM-DD, used for filenames / grouping keys */
 export function formatDateKey(value?: string | number | Date | null, fallback = '') {
   const p = zonedParts(value);
   return p ? `${p.year}-${p.month}-${p.day}` : fallback;
 }
-
 
 /** A picked calendar day belongs to the same zone used by the displayed rows. */
 export function dateRangeBoundary(value: Dayjs, endOfDay = false): string {

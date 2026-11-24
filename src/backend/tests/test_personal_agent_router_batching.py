@@ -338,7 +338,7 @@ async def test_the_last_im_placeholder_becomes_the_reply_and_the_others_are_reca
     monkeypatch.setattr("integrations.channels.registry.get_adapter", lambda kind: adapter)
     with sessions() as db:
         svc = AgentContext(db, "owner"); svc.identity.ensure(); agent = svc.identity.agent()
-        agent.config = {**agent.config, "channel_ids": ["bot"], **listed_owner("bot", "alice")}
+        agent.config = {**agent.config, **listed_owner("bot", "alice")}
         db.commit()
     for n, text in enumerate(("在吗", "帮我查天气", "北京的"), 1):
         await channel_bridge.admit_inbound(CONN, inbound(text, "m" + str(n)), adapter)

@@ -1,6 +1,12 @@
 """vector fields responsibilities."""
 from __future__ import annotations
+import json
 from features.knowledge import kb_vector_state
+
+def milvus_literal(value: str) -> str:
+    """Quote a value as a Milvus string literal (escapes quotes and backslashes)."""
+    return json.dumps(value)
+
 
 def truncate_utf8(text: str, max_bytes: int = kb_vector_state.CONTENT_FIELD_MAX_BYTES) -> str:
     """Safe truncation by UTF-8 bytes (Chinese is 3 bytes/char); never cuts in the middle of a multi-byte character.

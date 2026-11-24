@@ -1,5 +1,7 @@
 # Heatmap
 
+> **HugAgentOS 版本说明**：上游的 `verify-*.py` / `test-verify-*.py` / `lint-*.py` / `build-*-examples.py` 等维护脚本没有随技能导入，文中要求运行它们的步骤在本版本不可用；安装版只提供 `{baseDir}/scripts/self_check.py`、`export_*.py` 与 `*_extract.py`，需要自检时改用 `self_check.py` 并按文中的检查项人工核对。
+
 **Best for:** cross-tabulated data where *which row × column combination stands out* is the story. Use when the reader needs to scan a full matrix at once — not compare individual bars or trace a trend line — and one cell (or a cluster of cells) is editorially distinct from the field. Common uses: CI failure rate by service and sprint, support ticket volume by team and week, confusion matrix for a classifier, correlation coefficients across many variables.
 
 The CSS geometry guard ignores comments; active transform declarations still fail.

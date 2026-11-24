@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 from sqlalchemy.orm import sessionmaker
 from core.db.engine import get_db
-from tests.features.workbench.test_workbench_state_routes import client as client, BASE, SCOPE, body
+from tests.features.workbench.test_workbench_state_routes import BASE, SCOPE, body
 from tests.db_support import share_factory
 
 

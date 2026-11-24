@@ -1,4 +1,4 @@
-import { AppstoreOutlined,CloudUploadOutlined,DeleteOutlined,DownOutlined,LeftOutlined,PlusOutlined,SearchOutlined } from '@ant-design/icons';
+import { AppstoreOutlined,CloudUploadOutlined,DeleteOutlined,DownOutlined,LeftOutlined,PlusOutlined,QuestionCircleOutlined,SearchOutlined } from '@ant-design/icons';
 import { Button,Dropdown,Form,Input,message,Modal,Pagination,Popconfirm,Select,Switch,Tag,Tooltip,Typography } from 'antd';
 import { motion } from 'motion/react';
 import { useCallback,useEffect,useMemo,useState } from 'react';
@@ -15,15 +15,17 @@ import { ContinuousLoadSentinel } from '../common';
 import { useAuthStore,useCatalogStore } from '../../stores';
 import type { McpMarketSubmission } from '../../types';
 import { sortCapabilitiesByCreation } from '../../utils/capabilityOrder';
-import { mdToHtml } from '../../utils/markdown';
 import { staggerStyle } from '../../utils/motionTokens';
 import { DRILL_IN_BACK,DRILL_IN_DETAIL } from '../../utils/motionVariants';
 import { CardTail } from '../common/CardTail';
+import { FormGrid } from '../common/FormLayout';
+import { COMPACT_MODAL_PROPS } from '../common/modalLayout';
 import { ABILITY_TAB_TITLE } from './abilityTabs';
 import { DeviceCapabilityBadge } from './DeviceCapabilityBadge';
 import { McpIcon } from './McpIcon';
 import { McpMarketplaceModal } from './McpMarketplaceModal';
 import { AddPrivateMcpModal } from './AddPrivateMcpModal';
+import { MarkdownHtml } from '../common/MarkdownHtml';
 
 // Icons all come from the backend catalog API (admin DB custom value → DEFAULT_MCP_ICONS fallback,
 // see src/backend/api/routes/v1/admin_mcp_servers.py). Here we only show a first-letter placeholder
@@ -40,8 +42,8 @@ export function McpPage() {
     toggleItem,
   } = useCatalogStore();
   const { title: mcpTitle, subtitle: mcpSubtitle } = usePanelHeader('mcp', {
-    title: ABILITY_TAB_TITLE.mcp,
-    subtitle: '管理连接器服务，并查看其作用范围与可靠性影响。',
+    title: t(ABILITY_TAB_TITLE.mcp),
+    subtitle: t('管理连接器服务，并查看其作用范围与可靠性影响。'),
   });
 
   const fetchCatalog = useCatalogStore((s) => s.fetchCatalog);
@@ -214,7 +216,7 @@ export function McpPage() {
           {/* User intro body — single source of truth, managed via admin */}
           <div className="jx-mcp-detailBody">
             {markdownBody ? (
-              <div className="jx-md jx-mcp-detailMarkdown" dangerouslySetInnerHTML={{ __html: mdToHtml(markdownBody) }} />
+              <MarkdownHtml className="jx-md jx-mcp-detailMarkdown" markdown={markdownBody} />
             ) : (
               <Typography.Text type="secondary">{t('暂无介绍')}</Typography.Text>
             )}
@@ -405,11 +407,15 @@ export function McpPage() {
         okText={t('提交申请')}
         cancelText={t('取消')}
         confirmLoading={applying}
-        width={540}
+        width={640}
         destroyOnHidden
+        {...COMPACT_MODAL_PROPS}
       >
-        <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-          {t('系统会重新连接服务并保存不含凭据的工具快照，你的令牌和 OAuth 授权不会进入市场。管理员审核通过后，其他用户安装时须填写自己的凭据或各自完成 OAuth 授权；远程工具发生变化会暂停安装并触发复审。')}
+        <Typography.Paragraph type="secondary" className="jx-addMcp-intro">
+          {t('上架快照不含你的凭据，审核通过后其他用户须各自填写凭据或完成授权。')}
+          <Tooltip title={t('系统会重新连接服务并保存不含凭据的工具快照，你的令牌和 OAuth 授权不会进入市场。管理员审核通过后，其他用户安装时须填写自己的凭据或各自完成 OAuth 授权；远程工具发生变化会暂停安装并触发复审。')}>
+            <QuestionCircleOutlined className="jx-addMcp-introHelp" aria-label={t('说明')} />
+          </Tooltip>
         </Typography.Paragraph>
         {applyServerId && submissionByServer.get(applyServerId)?.status === 'rejected' && (
           <Typography.Paragraph type="danger" style={{ fontSize: 12 }}>
@@ -417,21 +423,23 @@ export function McpPage() {
           </Typography.Paragraph>
         )}
         <Form form={applyForm} layout="vertical" initialValues={{ version: '1.0.0' }}>
-          <Form.Item name="summary" label={t('市场展示摘要（可选）')}>
-            <Input.TextArea rows={2} maxLength={2000} />
-          </Form.Item>
-          <Form.Item name="category" label={t('上架分类')} rules={[{ required: true, message: t('请选择上架分类') }]}>
-            <Select options={MCP_MARKET_CATEGORIES.map((value) => ({ value, label: value }))} />
-          </Form.Item>
-          <Form.Item name="version" label={t('版本号')} rules={[{ required: true, message: t('请输入版本号') }]}>
-            <Input placeholder="1.0.0" maxLength={50} />
-          </Form.Item>
-          <Form.Item name="tags" label={t('标签（可选）')}>
-            <Select mode="tags" tokenSeparators={[',', '，']} maxCount={20} />
-          </Form.Item>
-          <Form.Item name="note" label={t('给管理员的备注（可选）')}>
-            <Input.TextArea rows={3} maxLength={2000} />
-          </Form.Item>
+          <FormGrid>
+            <Form.Item name="category" label={t('上架分类')} rules={[{ required: true, message: t('请选择上架分类') }]}>
+              <Select options={MCP_MARKET_CATEGORIES.map((value) => ({ value, label: t(value) }))} />
+            </Form.Item>
+            <Form.Item name="version" label={t('版本号')} rules={[{ required: true, message: t('请输入版本号') }]}>
+              <Input placeholder="1.0.0" maxLength={50} />
+            </Form.Item>
+            <Form.Item name="summary" label={t('市场展示摘要（可选）')} className="jx-formGrid-full">
+              <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} maxLength={2000} />
+            </Form.Item>
+            <Form.Item name="tags" label={t('标签（可选）')} className="jx-formGrid-full">
+              <Select mode="tags" tokenSeparators={[',', '，']} maxCount={20} />
+            </Form.Item>
+            <Form.Item name="note" label={t('给管理员的备注（可选）')} className="jx-formGrid-full">
+              <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} maxLength={2000} />
+            </Form.Item>
+          </FormGrid>
         </Form>
       </Modal>
 

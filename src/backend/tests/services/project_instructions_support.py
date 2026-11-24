@@ -4,22 +4,20 @@ from __future__ import annotations
 from core.files.storage.factory import process_state as state_core_files_storage_factory
 
 import pytest
-from core.db.engine import Base
 from core.db.models import UserShadow
 from core.projects.edition import ProjectService
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from core.db.engine import Base  # noqa: F401 (re-exported to tests)
+from sqlalchemy import create_engine  # noqa: F401 (re-exported to tests)
+from tests.db_support import file_engine, share_factory
 
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     # No application DB, object store, model, or sandbox process is used.
-    engine = create_engine(
-        f"sqlite:///{tmp_path / 'acceptance.db'}", connect_args={"check_same_thread": False}
-    )
-    Base.metadata.create_all(engine)
+    engine = file_engine(tmp_path / 'acceptance.db')
     factory = sessionmaker(bind=engine, autoflush=False)
-    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
+    share_factory(monkeypatch, factory)
     monkeypatch.setenv("STORAGE_TYPE", "local")
     monkeypatch.setenv("STORAGE_PATH", str(tmp_path / "storage"))
     monkeypatch.setattr(state_core_files_storage_factory(), 'storage_instance', None)

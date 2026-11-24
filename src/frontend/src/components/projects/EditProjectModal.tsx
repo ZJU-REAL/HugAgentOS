@@ -69,7 +69,7 @@ export default function EditProjectModal({ open, onClose }: Props) {
       okText={t('保存')}
       cancelText={t('取消')}
       confirmLoading={submitting}
-      destroyOnClose
+      destroyOnHidden
       width={520}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 8 }}>

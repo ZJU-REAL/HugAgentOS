@@ -123,7 +123,7 @@
   border: 1px solid var(--border);
   border-radius: 10px;
   color: var(--muted);
-  background: var(--bg);
+  background: var(--color-bg-container);
   font-size: 13px;
 }
 
@@ -275,25 +275,14 @@
 
 .jx-deploySwitcherCheck { align-self: center; }
 
-.jx-deploySwitcherDivider { height: 1px; margin: 6px 8px; background: var(--color-border, #e5e6eb); }
-
 .jx-deploySwitcherItem--action .jx-deploySwitcherItemIcon { color: var(--color-primary, #165dff); font-weight: 700; }
-
-.jx-deploySwitcherFooter { width: 100%; padding: 8px 10px; border: 0; background: transparent; border-radius: 8px; cursor: pointer; text-align: left; font-size: 13px; color: var(--color-text-secondary, #4e5969); }
-
-.jx-deploySwitcherFooter:hover { background: var(--color-fill-hover); }
 
 /* Local permissions modal (ticket #06) */
 
-.jx-localPermOverlay { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; }
+/* The antd Modal body already provides the side padding; sections only separate vertically. */
+.jx-localPermSection { padding: 14px 0; border-bottom: 1px solid var(--color-border); }
 
-.jx-localPermModal { width: 520px; max-width: 92vw; max-height: 82vh; overflow: auto; background: var(--color-bg-elevated); color: var(--color-text); border-radius: 14px; box-shadow: 0 16px 48px rgba(0,0,0,.24); }
-
-.jx-localPermHead { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; font-size: 16px; font-weight: 600; border-bottom: 1px solid var(--color-border, #e5e6eb); }
-
-.jx-localPermClose { border: 0; background: transparent; font-size: 22px; line-height: 1; cursor: pointer; color: var(--color-text-tertiary, #86909c); }
-
-.jx-localPermSection { padding: 14px 18px; border-bottom: 1px solid var(--color-border, var(--color-border)); }
+.jx-localPermSection:last-child { border-bottom: none; padding-bottom: 0; }
 
 .jx-localPermSectionTitle { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
 
@@ -307,15 +296,9 @@
 
 .jx-localPermMode { font-size: 12px; color: var(--color-text-secondary, #86909c); }
 
-.jx-localPermRemove { border: 0; background: transparent; color: var(--color-error, #f53f3f); cursor: pointer; font-size: 12px; }
-
-.jx-localPermAdd { margin-top: 8px; border: 1px dashed var(--color-border, #c9cdd4); background: transparent; color: var(--color-primary, #165dff); border-radius: 8px; padding: 7px 12px; cursor: pointer; font-size: 13px; }
-
 .jx-localPermPolicyRow { display: flex; align-items: center; justify-content: space-between; padding: 7px 0; }
 
 .jx-localPermPolicyLabel { font-size: 13px; }
-
-.jx-localPermSelect { font-size: 13px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-bg-container); color: var(--color-text); }
 
 /* 项目框旁的本机操作权限档胶囊（桌面壳本机模式） */
 
@@ -326,16 +309,6 @@
 .jx-approvalMenu .ant-dropdown-menu-item-group-title { font-size: 12px; color: color-mix(in srgb, var(--color-text) 45%, transparent); padding: 6px 12px 2px; }
 
 .jx-approvalDetailEntry { font-size: 13px; color: color-mix(in srgb, var(--color-text) 62%, transparent); }
-
-.jx-cloudPrompt { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--color-border, #e5e6eb); background: var(--color-bg-layout); font-size: 13px; }
-
-.jx-cloudPromptText { color: var(--color-text-secondary, #4e5969); }
-
-.jx-cloudPromptYes, .jx-cloudPromptNo { border: 0; border-radius: 8px; padding: 4px 10px; cursor: pointer; font-size: 12.5px; }
-
-.jx-cloudPromptYes { background: var(--color-primary, #165dff); color: var(--color-text-white); }
-
-.jx-cloudPromptNo { background: transparent; color: var(--color-text, #1d2129); border: 1px solid var(--color-border, #c9cdd4); }
 
 /* 更早的消息：滚到顶自动续拉时的占位提示（哨兵本身，见 ChatArea 的 IntersectionObserver）。
    刻意做得很轻——它只是"上面还有"的一行注脚，不该抢正文的注意力。 */
@@ -380,8 +353,6 @@
   .jx-chatTopbarProject { max-width:32%; }
   }
 
-
-
 .jx-spaceImportLoadMore {
   display: flex;
   align-items: center;
@@ -392,4 +363,20 @@
 .jx-spaceImportLoadMore-hint {
   color: var(--color-text-placeholder);
   font-size: 12px;
+}
+
+/* ── Local permissions: long lists scroll in place, policy rows in two columns ── */
+.jx-localPermList{
+  max-height:160px;
+  overflow-y:auto;
+  margin-bottom:8px;
+}
+.jx-localPermPolicyGrid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  column-gap:24px;
+}
+.jx-localPermPolicyGrid > .jx-localPermPolicyRow{ gap:8px; min-width:0; }
+@media (max-width:560px){
+  .jx-localPermPolicyGrid{ grid-template-columns:minmax(0,1fr); }
 }

@@ -4,13 +4,14 @@ from sqlalchemy.orm import sessionmaker
 
 from core.db.capability_revision import read_revision
 from core.db.models import AdminMcpServer
+from tests.db_support import share_factory
 
 
 @pytest.fixture
 def factory(db_session, monkeypatch):
     factory = sessionmaker(bind=db_session.get_bind())
     monkeypatch.setattr("core.capabilities.mcp.service.SessionLocal", factory)
-    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
+    share_factory(monkeypatch, factory)
     monkeypatch.setattr("core.db.capability_revision._CHECK_INTERVAL_S", 0.0)
     return factory
 

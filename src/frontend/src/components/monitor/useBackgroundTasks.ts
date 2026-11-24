@@ -8,7 +8,7 @@ const LIVE_JOB = new Set(['pending', 'running']);
 /** Live tasks change by the second; poll only while something can still move. */
 const POLL_MS = 3000;
 
-export interface BackgroundTasks {
+interface BackgroundTasks {
   commands: CommandTaskBrief[];
   jobs: JobBrief[];
   cancelCommand: (taskId: string) => Promise<void>;

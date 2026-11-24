@@ -4,6 +4,7 @@ import { Popover } from 'antd';
 import type { ChatMessage } from '../../types';
 import { t } from '../../i18n';
 import { buildConversationTurns } from '../../utils/conversationNavigation';
+import { flashElement } from '../../utils/scroll';
 import '../../styles/conversationNavigation.css';
 
 interface ConversationNavigationProps {
@@ -98,9 +99,7 @@ export function ConversationNavigation({ messages, chatListRef, hidden = false }
       top: Math.max(0, top),
       behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
     });
-    target.classList.remove('jx-anim-flash');
-    void target.offsetWidth;
-    target.classList.add('jx-anim-flash');
+    flashElement(target);
   };
 
   if (hidden || !turns.length || !position || position.height < 44) return null;

@@ -1,6 +1,12 @@
-# Multi-stage build for HugAgentOS backend
+# Multi-stage build for the HugAgentOS backend and mcp images.
+#
+# Targets (docker-compose.yml selects them with `target:`):
+#   production — backend API (default: last stage)
+#   mcp        — every MCP server as a streamable-http process
+# Both copy the same dependency tree from the shared builder stage, so a build
+# of both targets installs requirements.txt once.
 
-# Stage 1: Builder
+# Stage 1: Builder (shared Python dependencies)
 FROM python:3.11-slim AS builder
 RUN sed -i 's/deb.debian.org/mirrors.huaweicloud.com/g' /etc/apt/sources.list.d/debian.sources
 WORKDIR /build
@@ -10,18 +16,59 @@ ENV PIP_DEFAULT_TIMEOUT=180 \
     PIP_INDEX_URL=https://repo.huaweicloud.com/repository/pypi/simple \
     PIP_TRUSTED_HOST=repo.huaweicloud.com
 
-# Build dependencies include Rust for ripgrep on Linux ARM64.
+# C toolchain for the few dependencies that ship sdists on some architectures.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
-    rustc cargo \
     libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install
+# The BuildKit cache mount keeps downloaded wheels between builds, so changing
+# one line in requirements.txt does not download every dependency again.
 COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --user -r requirements.txt
 
-# Stage 2: Production Runtime
+# Stage 2: MCP runtime
+# Office document editing lives in the sandbox skills, so this image needs no
+# LibreOffice / .NET / Node / Chromium. Launcher: extensions.mcp_servers._launcher
+# spawns one streamable-http process per MCP server; the backend connects over HTTP.
+FROM python:3.11-slim AS mcp
+RUN sed -i 's/deb.debian.org/mirrors.huaweicloud.com/g' /etc/apt/sources.list.d/debian.sources
+
+RUN useradd -m -u 1000 -s /bin/bash appuser
+WORKDIR /app
+
+# curl is the HEALTHCHECK probe.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /root/.local /home/appuser/.local
+
+# /app/storage is shared with backend so artifacts saved by MCP servers are
+# visible from both containers.
+RUN mkdir -p /app/src/backend /app/storage /app/logs && \
+    chown -R appuser:appuser /app/src/backend /app/storage /app/logs
+
+ENV PATH=/home/appuser/.local/bin:$PATH
+ENV PYTHONPATH=/app/src/backend
+ENV TZ=Asia/Shanghai
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# Probe the lowest-port MCP (KB retrieval, always running). The launcher exits
+# non-zero on persistent crashes, so the container itself restarts.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD curl -fsS http://localhost:9100/mcp/ || exit 1
+
+USER appuser
+
+# Active MCP ports; retired assignments remain reserved.
+EXPOSE 9100 9102 9103 9106 9107 9108 9112 9113 9114 9115 9116 9117 9118
+
+CMD ["python", "-m", "extensions.mcp_servers._launcher"]
+
+# Stage 3: Backend runtime
 FROM python:3.11-slim AS production
 RUN sed -i 's/deb.debian.org/mirrors.huaweicloud.com/g' /etc/apt/sources.list.d/debian.sources
 # Create non-root user
@@ -63,7 +110,7 @@ RUN install -m 0755 -d /etc/apt/keyrings && \
 
 # dws（DingTalk Workspace CLI）—— 后端以子进程跑 per-user 设备流 OAuth 登录
 # （进程稳定存活，不受沙箱杀后台进程影响；每用户独立 HOME 隔离）。单 Go 二进制。
-ARG DWS_VERSION=v1.0.37
+ARG DWS_VERSION=v1.0.39
 ARG TARGETARCH
 RUN if curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 30 \
         "https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli/releases/download/${DWS_VERSION}/dws-linux-${TARGETARCH:-amd64}.tar.gz" \
@@ -81,6 +128,7 @@ RUN if curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors --connect-timeout
 # ⚠️ 必须与三个沙箱镜像（Dockerfile.opensandbox / .script-runner / .cube-sandbox）里
 # npm 安装的 @larksuite/cli 版本一致——后端写凭据、沙箱读凭据，后端还要解析 `auth status`
 # 的输出格式。曾经后端锁 1.0.34、沙箱浮动到 1.0.78，两边行为不一致且无人察觉。
+# 所有镜像的 CLI 版本以 docker/tool-versions.env 为准，CI 用 scripts/check_tool_versions.py 校验。
 ARG LARK_CLI_VERSION=1.0.78
 RUN if curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 30 \
         "https://github.com/larksuite/cli/releases/download/v${LARK_CLI_VERSION}/lark-cli-${LARK_CLI_VERSION}-linux-${TARGETARCH:-amd64}.tar.gz" \
@@ -112,8 +160,7 @@ COPY --from=builder /root/.local /home/appuser/.local
 
 # Prepare mount points and writable directories.
 RUN mkdir -p /app/src/backend /app/storage /app/logs /app/storage/manual /app/storage/page_config && \
-    chown -R appuser:appuser /app/src/backend /app/storage /app/logs /app/storage/manual /app/storage/page_config && \
-    rm -rf /home/appuser/.cache/matplotlib
+    chown -R appuser:appuser /app/src/backend /app/storage /app/logs /app/storage/manual /app/storage/page_config
 
 # Set PATH for user-installed packages
 ENV PATH=/home/appuser/.local/bin:$PATH

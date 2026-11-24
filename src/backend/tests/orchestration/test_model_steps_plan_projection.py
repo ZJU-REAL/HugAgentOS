@@ -38,12 +38,10 @@ from tests.orchestration.test_model_steps_pipeline import run_env as run_env
 async def test_plan_bar_and_canonical_results_survive_workflow_and_persistence(
     run_env, monkeypatch, persist_result
 ):
-    from core.db import engine as db_engine
     from core.capabilities.agents import builtin as builtin_subagents
     from core.chat.compaction import service as compaction_service
     from core.capabilities.agents import edition as user_agent_service
     from core.auth import users as user_service
-    pass
 
     class FakeStreamingAgent:
         def __init__(self, agent, _clients):

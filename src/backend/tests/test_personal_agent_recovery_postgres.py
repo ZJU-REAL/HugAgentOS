@@ -8,12 +8,12 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.engine import make_url
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.schema import CreateSchema, CreateTable, DropSchema
 
 from personal_agent.models import PersonalAgent, PersonalAssignment, PersonalWorkItem
 from personal_agent.tasks import worker as states
 from personal_agent.worker import executor as module
+from tests.db_support import session_factory
 
 
 @pytest.fixture
@@ -36,7 +36,7 @@ def recovery_db(monkeypatch):
             # identity/chat FKs are unrelated to this isolated concurrency test.
             for table in (PersonalAgent.__table__, PersonalWorkItem.__table__, PersonalAssignment.__table__):
                 conn.execute(CreateTable(table, include_foreign_key_constraints=[]))
-        factory = sessionmaker(bind=engine, expire_on_commit=False)
+        factory = session_factory(engine)
         monkeypatch.setattr(module, "SessionLocal", factory)
         monkeypatch.setattr(module.access, "allowed", lambda *args: True)
         with factory() as db:

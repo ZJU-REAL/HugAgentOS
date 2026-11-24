@@ -20,7 +20,7 @@ export function PersonalTaskDialog({ task, onClose, onChange }: { task: Personal
   useReadAtBottom(viewport, !!notice && !notice.seen && thread?.task_run_id === task.run_id && thread?.task_status === task.status
     && messages.some(m => m.messageId === thread?.terminal_message_id && !m.isStreaming) && ['completed', 'failed'].includes(task.status), acknowledge);
   return <Modal open title={taskTitle(task).slice(0, 120)} width={1050} onCancel={onClose} footer={null}>
-    {error && <Alert type="error" message={error} />}
+    {error && <Alert type="error" title={error} />}
     <div className="pa-task-dialog-actions"><TaskActions task={task} onDone={onChange} onError={exc => setError(errorText(exc))} /></div>
     {hasOlder && <Button onClick={() => void loadOlder()}>{t('查看更早的消息')}</Button>}
     <div ref={setViewport} className="pa-task-conversation" data-testid="task-conversation" data-chat-id={thread?.chat_id}>{messages.map((row, index) => <div className={'jx-msg ' + (row.role === 'user' ? 'user' : 'assistant')} key={row.uid}><div className="jx-msgInner"><div className="jx-msgContent"><ToolMessageContext.Provider value={{ chatId, messageId: row.messageId, messageUid: row.uid, readOnly: true }}><MessageBody m={row} messageIndex={index} currentChatId={chatId} send={() => undefined} /></ToolMessageContext.Provider></div></div></div>)}</div>

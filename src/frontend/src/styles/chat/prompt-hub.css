@@ -134,15 +134,10 @@
 }
 
 @media (max-width: 720px){
-  .jx-sideActionBar{
-    flex-direction:column;
-  }
   .jx-tlItem{
     grid-template-columns:62px 24px 1fr;
   }
   .jx-tlDateMain{ font-size:13px; }
-  .jx-docsNewTabGroup{ width:100%; justify-content:center; }
-  .jx-docsNewTab{ padding:6px 16px; }
 }
 
 .jx-sharePage{

@@ -2,25 +2,10 @@
 
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 from sqlalchemy import create_engine, inspect, text
-
-
-def _alembic(repo_root: Path, database_url: str, *args: str) -> None:
-    env = dict(os.environ)
-    env["DATABASE_URL"] = database_url
-    subprocess.run(
-        [sys.executable, "-m", "alembic", *args],
-        cwd=repo_root,
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+from tests.db_support import run_alembic
 
 
 def test_sqlite_legacy_upgrade_downgrade_and_reupgrade(tmp_path):
@@ -60,7 +45,7 @@ def test_sqlite_legacy_upgrade_downgrade_and_reupgrade(tmp_path):
                 )
                 """))
 
-    _alembic(repo_root, database_url, "upgrade", "runjrnl01")
+    run_alembic(repo_root, database_url, "upgrade", "runjrnl01")
     inspector = inspect(engine)
     assert "chat_run_operations" in inspector.get_table_names()
     columns = {column["name"] for column in inspector.get_columns("chat_runs")}
@@ -74,14 +59,14 @@ def test_sqlite_legacy_upgrade_downgrade_and_reupgrade(tmp_path):
         assert legacy.run_phase == "legacy_unrecoverable"
         assert legacy.last_event_offset == 7
 
-    _alembic(repo_root, database_url, "downgrade", "pluginui01")
+    run_alembic(repo_root, database_url, "downgrade", "pluginui01")
     inspector = inspect(engine)
     assert "chat_run_operations" not in inspector.get_table_names()
     columns = {column["name"] for column in inspector.get_columns("chat_runs")}
     assert "lease_owner" not in columns
     assert "run_phase" not in columns
 
-    _alembic(repo_root, database_url, "upgrade", "runjrnl01")
+    run_alembic(repo_root, database_url, "upgrade", "runjrnl01")
     inspector = inspect(engine)
     assert "chat_run_operations" in inspector.get_table_names()
     with engine.connect() as db:

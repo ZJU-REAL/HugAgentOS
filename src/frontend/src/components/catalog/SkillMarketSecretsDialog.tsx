@@ -2,6 +2,8 @@ import { Modal, Typography, Form, Input } from 'antd';
 import type { FormInstance } from 'antd';
 import { t } from '../../i18n';
 import type { MarketplaceSkill } from '../../types';
+import { FormGrid } from '../common/FormLayout';
+import { COMPACT_MODAL_PROPS } from '../common/modalLayout';
 
 export function SkillMarketSecretsDialog({ secretSkill, secretForm, loading, onClose, onSubmit }: {
   secretSkill: MarketplaceSkill | null;
@@ -10,6 +12,8 @@ export function SkillMarketSecretsDialog({ secretSkill, secretForm, loading, onC
   onClose: () => void;
   onSubmit: () => Promise<void>;
 }) {
+  // More than two secrets: pair them so the dialog stays one screen tall.
+  const wide = (secretSkill?.required_secrets.length ?? 0) > 2;
   return (
       <Modal
         title={secretSkill ? t('配置「{name}」', { name: secretSkill.display_name }) : t('配置凭据')}
@@ -20,23 +24,26 @@ export function SkillMarketSecretsDialog({ secretSkill, secretForm, loading, onC
         cancelText={t('取消')}
         confirmLoading={!!secretSkill && loading}
         destroyOnHidden
+        width={wide ? 720 : 520}
+        {...COMPACT_MODAL_PROPS}
       >
         <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
           {t('该技能运行需要以下凭据。凭据仅保存在你安装的这份技能里，不会上传到技能市场。')}
         </Typography.Paragraph>
         <Form form={secretForm} layout="vertical">
+          <FormGrid cols={2} className={wide ? undefined : 'jx-formGrid--single'}>
           {secretSkill?.required_secrets.map((f) => (
             <Form.Item
               key={f.key}
               name={f.key}
               label={f.label || f.key}
               tooltip={f.help}
-              extra={f.help}
               rules={f.required ? [{ required: true, message: t('请填写{label}', { label: f.label || f.key }) }] : []}
             >
               <Input.Password placeholder={f.placeholder || t('请输入 {label}', { label: f.label || f.key })} autoComplete="off" />
             </Form.Item>
           ))}
+          </FormGrid>
         </Form>
       </Modal>
   );

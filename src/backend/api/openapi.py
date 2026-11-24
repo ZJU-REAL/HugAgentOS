@@ -1,6 +1,15 @@
-"""OpenAPI schema and documentation metadata."""
-import os
-from core.config.settings import settings
+"""OpenAPI schema and documentation metadata.
+
+By project convention every /v1/* endpoint returns
+{ code, message, data, trace_id, timestamp } (see core/infra/responses.py), but most
+routes declare no response_model, so FastAPI's generated openapi.json leaves those
+response schemas empty. ``_build_custom_openapi`` post-processes the schema: a /v1/*
+2xx response with no explicit schema is replaced by a reference to the
+``ApiResponseEnvelope`` component, so Swagger / ReDoc / the API docs page show the
+envelope without touching any route. ``data`` stays untyped unless
+``api/openapi_data_schemas.py`` describes it; a route's own response_model is never
+overridden.
+"""
 
 def _build_custom_openapi(app):
     from api.openapi_data_schemas import DATA_COMPONENTS, DATA_SCHEMAS

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import {
   copyFileSync,
@@ -27,6 +26,7 @@ import {
   readAndValidateDesktopLock,
 } from "./desktop-dependencies.mjs";
 import { fetchPublishedRuntime } from "./published-runtime.mjs";
+import { hashFile, run } from "./process-utils.mjs";
 
 export function buildDesktopRuntime({ desktopDir, repoRoot, sourceRoot, python }) {
   assertMacosSigning();
@@ -154,6 +154,8 @@ export function buildDesktopRuntime({ desktopDir, repoRoot, sourceRoot, python }
       copyFileSync(join(desktopDir, "licenses", name), join(runtimeRoot, "licenses", name));
     }
   }
+  // Before the smoke tests, so they exercise the runtime that ships.
+  pruneSitePackageTests(pythonRoot);
   const nativeTools = readJson(join(runtimeRoot, "native-tools.json"));
 
   copyFileSync(
@@ -182,6 +184,8 @@ export function buildDesktopRuntime({ desktopDir, repoRoot, sourceRoot, python }
   // Catch Hardened Runtime library-validation failures in native Python wheels.
   run(executable, [smokeTest, "--source", sourceRoot], { cwd: sourceRoot });
   run(executable, [smokeTest, "--native-only"], { cwd: runtimeRoot });
+  // After the last smoke test, which writes bytecode of its own.
+  pruneBytecodeCaches(pythonRoot);
 
   rmSync(archive, { force: true });
   run(
@@ -199,7 +203,7 @@ export function buildDesktopRuntime({ desktopDir, repoRoot, sourceRoot, python }
   const manifest = {
     ...layout,
     archive: basename(archive),
-    archive_sha256: hashFile(archive),
+    archive_sha256: hashFileIfExists(archive),
     archive_size: statSync(archive).size,
     unpacked_size: directorySize(runtimeRoot),
   };
@@ -223,26 +227,53 @@ export function pruneCuaDriver(pythonRoot) {
   return true;
 }
 
+// Wheels ship their own test suites (pandas, scipy, numpy, sympy, ...), about 60 MB that
+// nothing imports at run time: the few runtime references (openpyxl, mpmath) are guarded
+// or sit inside test-runner functions. Only directories are removed, because some
+// packages have runtime *modules* named test.py (werkzeug, lark_oapi). Returns the count.
+export function pruneSitePackageTests(pythonRoot) {
+  let removed = 0;
+  for (const sitePackages of findDirectories(pythonRoot, (name) => name === "site-packages")) {
+    for (const dir of findDirectories(sitePackages, (name) => name === "tests" || name === "test")) {
+      rmSync(dir, { recursive: true, force: true });
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
+// The archive stores every mtime as 0, so bytecode compiled on the build machine never
+// matches its source after extraction and Python recompiles it anyway (about 40 MB of
+// dead weight). Returns the number of __pycache__ directories removed.
+export function pruneBytecodeCaches(pythonRoot) {
+  const dirs = findDirectories(pythonRoot, (name) => name === "__pycache__");
+  for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+  return dirs.length;
+}
+
+// Matching directories below root, without descending into a match or following symlinks.
+function findDirectories(root, matches) {
+  const found = [];
+  const pending = [root];
+  while (pending.length > 0) {
+    const dir = pending.pop();
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const path = join(dir, entry.name);
+      if (matches(entry.name)) found.push(path);
+      else pending.push(path);
+    }
+  }
+  return found;
+}
+
 function isCachedRuntime(cached, target, dependencyFingerprint, archive) {
   return (
     cached?.schema === 1 &&
     cached.target === target &&
     cached.dependency_fingerprint === dependencyFingerprint &&
-    cached.archive_sha256 === hashFile(archive)
+    cached.archive_sha256 === hashFileIfExists(archive)
   );
-}
-
-function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
-    cwd: options.cwd,
-    env: { ...process.env, ...(options.env || {}) },
-    stdio: "inherit",
-    shell: false,
-  });
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    throw new Error(`${command} ${args.join(" ")} failed with exit code ${result.status}`);
-  }
 }
 
 function capture(command, args) {
@@ -260,9 +291,8 @@ function readJson(path) {
   }
 }
 
-function hashFile(path) {
-  if (!existsSync(path)) return null;
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
+function hashFileIfExists(path) {
+  return existsSync(path) ? hashFile(path) : null;
 }
 
 function directorySize(root) {

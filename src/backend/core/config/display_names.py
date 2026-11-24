@@ -89,8 +89,6 @@ TOOL_DISPLAY_NAMES: Dict[str, str] = {
     # Deprecated (kept for fallback display)
     "execute_code": "代码执行（已废弃）",
     "run_command": "执行命令（已废弃）",
-    # Deprecated (kept for fallback display)
-    "use_skill": "加载技能（已废弃）",
     # My Space access tools (code-execution mode)
     **edition_tool_display_names(),
 }

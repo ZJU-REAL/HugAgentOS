@@ -12,7 +12,6 @@ from features.hosted_apps.operations import create_application
 from features.hosted_apps.publication import ApplicationPublicationService
 from features.hosted_apps.schema import ApplicationDefinition, MCPPublish, MCPRollback, PatchRecord, RecordBatch, RestoreCollection, TableDefinition
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/v1/applications", tags=["Applications"])

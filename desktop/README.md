@@ -322,7 +322,7 @@ Developer ID 模式还验证公证票据及 Gatekeeper 状态。CI 全部检查�
 **链路**：`客户端「检查更新」→ <update_base>/api/v1/desktop/latest.json →（有新版）下载安装包 →
 pubkey 验签 → 安装 → 重启`。远程模式默认让更新源跟随当前 `server_base`；本机模式改用构建时
 `JX_DESKTOP_UPDATE_BASE`（未设时回退 `JX_DEFAULT_SERVER_BASE`），避免向本机 CE 服务查询并不存在的
-桌面安装包。后端接口见 `src/backend/api/routes/v1/desktop.py`。
+桌面安装包。后端接口见 `src/backend/features/desktop/api/desktop.py`。
 
 ### 一次性前置：生成签名密钥（不做则构建/更新都不可用）
 
@@ -430,7 +430,7 @@ Linux 目标（`--target linux-*`）取目录里的 `.deb`，没有则取 `.AppI
    带 `-update` 的包必须同时给 `--runtime-dir`；同一指纹已发布过不同字节时发布会失败，
    需用 `HUGAGENT_RUNTIME_SOURCE` 重新构建。网页下载入口优先提供 `installer`（完整离线包）。
 
-UOS deb 与 linux-aarch64 仍发布完整包。混合模式的私有云端也需要发布运行时文件，
+UOS deb 也支持小更新包（`desktop-uos` 的 `npm run build:update` 与 `release:publish -- --slim`，见 desktop-uos/README.md）。混合模式的私有云端也需要发布运行时文件，
 否则依赖变化的版本会提示用户重试或下载完整安装包。
 
 ## 已知注意点
@@ -604,7 +604,7 @@ hugagent://auth/focus 只聚焦窗口，不携带任何认证凭据。服务器�
 
 验证（仓库根目录 / WSL）：
 
-- PYTHONPATH=src/backend .venv/bin/python -m pytest src/backend/tests/test_desktop_device_login.py -q
+- PYTHONPATH=src/backend .venv/bin/python -m pytest src/backend/tests/features/desktop/test_desktop_device_login.py -q
   （内存和独立 Unix socket Redis；需要 redis-server）。
 - cd desktop/src-tauri && TAURI_CONFIG='{"bundle":{"resources":[]}}' cargo test --lib --offline
 - cd desktop-uos && npm test

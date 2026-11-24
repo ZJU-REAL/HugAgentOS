@@ -3,6 +3,7 @@ import pytest
 
 from core.llm.subagents.tool import _run_subagent_in_thread
 from core.llm.tools._common import resolve_sandbox_session
+from tests.db_support import share_factory
 
 
 def test_empty_override_falls_back_to_chat_session():
@@ -62,7 +63,7 @@ def test_custom_subagent_reuses_parent_session(monkeypatch, local_project):
     async def no_op(*args, **kwargs):
         del args, kwargs
 
-    monkeypatch.setattr("core.db.engine.SessionLocal", lambda: FakeDbContext())
+    share_factory(monkeypatch, lambda: FakeDbContext())
     monkeypatch.setattr(
         'core.capabilities.agents.edition.UserAgentService',
         FakeUserAgentService,

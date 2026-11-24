@@ -12,22 +12,18 @@ import core.runs.tasks as tasks
 import fakeredis.aioredis
 import pytest
 from integrations.channels.protocol import ChannelCaps, InboundMsg, SendResult
-from core.db.engine import Base
 from integrations.channels.models import ChannelConnection
 from core.db.models import ChatMessage, ChatRun, ChatSession, ContentBlock, UserShadow
 from integrations.channels import desktop_worker as worker
 from core.runs.journal import RunJournal
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import select
+from tests.db_support import file_engine, session_factory
 
 
 @pytest.fixture
 def runtime(tmp_path, monkeypatch):
-    engine = create_engine(
-        f"sqlite:///{tmp_path / 'local.sqlite'}", connect_args={"check_same_thread": False}
-    )
-    Base.metadata.create_all(engine)
-    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+    engine = file_engine(tmp_path / 'local.sqlite')
+    sessions = session_factory(engine)
     with sessions() as db:
         db.add(UserShadow(user_id="local-owner", username="owner", extra_data={}))
         db.commit()

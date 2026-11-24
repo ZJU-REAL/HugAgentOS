@@ -14,6 +14,7 @@ from core.models import repository as model_repository
 from core.models.providers import protocol_probe
 from core.models.providers.protocol_probe import PROTOCOL_CHAT, PROTOCOL_RESPONSES
 from core.models.api_protocol_backfill import backfill_missing_api_protocol
+from tests.db_support import share_factory
 
 
 def _provider(pid, **kw):
@@ -40,7 +41,7 @@ def harness(monkeypatch):
         def __exit__(self, *a):
             return False
 
-    monkeypatch.setattr("core.db.engine.SessionLocal", _Session)
+    share_factory(monkeypatch, _Session)
     monkeypatch.setattr(model_repository, "list_providers", lambda db: state["rows"])
     monkeypatch.setattr(
         model_repository,

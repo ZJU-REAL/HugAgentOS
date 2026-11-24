@@ -51,30 +51,57 @@ def _path(value):
     return posixpath.normpath(value if value.startswith("/") else "/workspace/" + value)
 
 
+# Leases live at most 14400s (api/evaluation_sandboxes ttl_seconds); a client unused for
+# longer belongs to a box nobody destroyed. Closing one early is harmless: _connect reattaches.
+_IDLE_CONNECTION_SECONDS = 5 * 3600
+# A local client close must never hold up the operation or destroy that triggered it.
+_RELEASE_TIMEOUT_SECONDS = 15
+# Stale clients only appear on that scale, so _connect checks for them at most this often.
+_SWEEP_INTERVAL_SECONDS = 60
+
+
 class EvaluationSandboxProvider:
     name = "opensandbox"
     runs_on_host = False
 
     def __init__(self, *, connector=None):
         self._connector = connector or connect_sandbox
+        # (loop, sandbox_id) -> [connect task, last use]; the timestamp is refreshed in place.
         self._connections = {}
+        self._swept_at = time.monotonic()
         self._cache_lock = threading.Lock()
+
+    def _take_stale(self, now):
+        """Detach clients whose loop ended or that sat idle past any lease; caller holds the lock."""
+        if now - self._swept_at < _SWEEP_INTERVAL_SECONDS:
+            return []
+        self._swept_at = now
+        stale = [
+            key for key, (_, used) in self._connections.items()
+            if key[0].is_closed() or now - used > _IDLE_CONNECTION_SECONDS
+        ]
+        return [(key, self._connections.pop(key)[0]) for key in stale]
 
     async def _connect(self, sandbox_id):
         # SDK clients belong to their creating event loop; children use separate
         # loops. Never reuse a client across loops or initialize ordinary pools.
         loop = asyncio.get_running_loop()
         key = (loop, sandbox_id)
+        now = time.monotonic()
         with self._cache_lock:
-            task = self._connections.get(key)
-            if task is None:
-                task = loop.create_task(self._connector(sandbox_id))
-                self._connections[key] = task
+            stale = self._take_stale(now)
+            entry = self._connections.get(key)
+            if entry is None:
+                entry = self._connections[key] = [loop.create_task(self._connector(sandbox_id)), now]
+            entry[1] = now
+            task = entry[0]
+        if stale:
+            await self._release(stale)
         try:
             return await asyncio.shield(task)
         except Exception:
             with self._cache_lock:
-                if self._connections.get(key) is task:
+                if self._connections.get(key) is entry:
                     self._connections.pop(key, None)
             raise SandboxConnectError(
                 "Evaluation sandbox attach failed; replacement is forbidden"
@@ -304,13 +331,20 @@ class EvaluationSandboxProvider:
         # ordinary pools or snapshot it. Close invalidates all agent operations.
         item = await binding.get(session_id, allow_expired=True)
         await binding.close(session_id, item.owner_user_id)
-        current = asyncio.get_running_loop()
+        await self.forget_connections(item.sandbox_id)
+
+    async def forget_connections(self, sandbox_id):
+        """Close this process's cached SDK clients for one box; the remote instance is untouched."""
         with self._cache_lock:
             cached = [
-                (key, task) for key, task in self._connections.items() if key[1] == item.sandbox_id
+                (key, self._connections.pop(key)[0])
+                for key in [key for key in self._connections if key[1] == sandbox_id]
             ]
-            for key, _ in cached:
-                self._connections.pop(key, None)
+        await self._release(cached)
+
+    @staticmethod
+    async def _release(cached):
+        current = asyncio.get_running_loop()
         for (loop, _), task in cached:
 
             async def release(connection=task):
@@ -318,13 +352,14 @@ class EvaluationSandboxProvider:
                 await sandbox.close()
 
             try:
-                if loop is current:
-                    await release()
-                elif loop.is_running():
-                    future = asyncio.run_coroutine_threadsafe(release(), loop)
-                    await asyncio.wrap_future(future)
-                elif task.done() and not task.cancelled() and task.exception() is None:
-                    await task.result().close()
+                async with asyncio.timeout(_RELEASE_TIMEOUT_SECONDS):
+                    if loop is current:
+                        await release()
+                    elif loop.is_running():
+                        future = asyncio.run_coroutine_threadsafe(release(), loop)
+                        await asyncio.wrap_future(future)
+                    elif task.done() and not task.cancelled() and task.exception() is None:
+                        await task.result().close()
             except Exception:
                 pass
 

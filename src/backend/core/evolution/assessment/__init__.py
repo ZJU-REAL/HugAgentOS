@@ -1,1 +1,1 @@
-"""Evaluate evolution candidates: replay benchmarks, metrics and similarity."""
+"""Assess evolution candidates: applicability, metrics, similarity and SOP judging."""

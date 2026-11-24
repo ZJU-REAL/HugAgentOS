@@ -157,7 +157,7 @@ User-granular feature switches are stored in the `users_shadow.metadata` JSON co
 | `lab_enabled` | **on** | `PATCH /v1/config/users/{id}/lab-permission` | Lab module entry and access |
 | `sites_enabled` | **on** | `PATCH /v1/config/users/{id}/sites-permission` | Sites entry, site management and publishing (public site addresses stay reachable); split from `lab_enabled`, existing lab settings were copied on upgrade |
 | `allowed_apps` | unrestricted | `PATCH /v1/config/users/{id}/app-permissions` | App visibility; `None` = all enabled apps, list = allowlist (empty list = block all) |
-| `role: super_admin` | none | (written directly into metadata) | Passes the `require_super_admin` dependency; bypasses team role checks |
+| `role: super_admin` | none | (written directly into metadata) | Implies every capability flag; bypasses team role checks |
 
 Self-added private MCP servers / skills record `owner_user_id` = the current user and are **visible and usable only to that user** (owner isolation).
 
@@ -172,7 +172,6 @@ The actual gating, verified against each route file's dependencies:
 | `ADMIN_TOKEN` (`require_admin`) | `admin_skills` (skill management), `admin_skill_drafts` (distilled draft review), `admin_marketplace` (marketplace review), `admin_kb` (public KB management), `admin_sandbox` (sandbox dependency rebuilds), `admin_agents` (sub-agents), and the content-block writes in `content.py` (e.g. `PUT /v1/content/docs/{block_id}`, manual upload) |
 | `CONFIG_TOKEN` (`require_config`) | `admin_prompts` (prompt management), `admin_mcp_servers` (MCP management), `admin_billing` / `admin_usage_logs` (billing & usage), `admin_logs` / `admin_chat_history` (call logs & chat review), `config_users` / `config_teams` / `config_invites` (users / teams / invite codes), `config_security` (security console), `config_license` (license), `config_verify` (token check), `service_configs` (external service configs), `models.py` (model management), and the page / app config writes in `content.py` |
 | Either (`require_admin_or_config`) | Prompt snapshot export / import (`/v1/content/prompts/export|import`) — CLI migration scripts carry `ADMIN_TOKEN` while the Config console carries `CONFIG_TOKEN` |
-| `require_super_admin` | Session user with `role=super_admin` in metadata, or a valid `ADMIN_TOKEN` as fallback |
 
 > Note that naming and credentials do not map one-to-one: `admin_prompts`, `admin_mcp_servers`, `admin_billing`, etc. are named `admin_*` but are gated by `CONFIG_TOKEN`, and their panels render in the `/config` console. See [Admin Consoles](admin-console.md) for the full panel layout.
 

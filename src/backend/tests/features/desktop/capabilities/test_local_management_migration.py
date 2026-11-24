@@ -7,12 +7,13 @@ from core.db.engine import Base
 from core.db.models import AdminSkill, AdminMcpServer, InstalledPlugin, ContentBlock
 from features.desktop.local.plugins import legacy_migration as migration
 from features.desktop.local import management_migration as skill_migration
+from tests.db_support import share_factory
 
 
 @pytest.fixture
 def legacy(index_db, caps_root, monkeypatch):
     Base.metadata.create_all(index_db.kw["bind"])
-    monkeypatch.setattr("core.db.engine.SessionLocal", index_db)
+    share_factory(monkeypatch, index_db)
     monkeypatch.setattr('core.capabilities.mcp.service.SessionLocal', index_db)
     monkeypatch.setattr('features.desktop.capabilities.device_catalog.active', lambda: False)
     monkeypatch.setattr('features.desktop.capabilities.skill_account.account_authorized_for', lambda _: False)

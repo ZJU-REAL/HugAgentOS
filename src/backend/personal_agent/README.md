@@ -62,7 +62,8 @@ and retried on a later seeding. No ordinary-chat memory is touched.
 
 ## IM allowed list
 
-A bot routed to Personal Agent acts as its owner, so only the owner's IM accounts may
+Personal Agent answers every bot its owner bound for the main agent (not a sub-agent;
+channel_bridge.connected). Such a bot acts as its owner, so only the owner's IM accounts may
 instruct it (channels/owner_binding.py). The owner keeps an allowed list per bot in the
 web settings (接入频道): pick an account from the ones that recently messaged the bot
 privately, or type its ID. Nothing a message says adds an account. State lives in

@@ -34,7 +34,6 @@ HugAgentOS 内置两种「把一句话变成可重复的生产力」机制，两
 |---|---|
 | `POST ""` / `GET ""` / `GET /{task_id}` / `PATCH /{task_id}` / `DELETE /{task_id}` | 任务 CRUD |
 | `POST /{task_id}/pause` / `resume` / `trigger` | 暂停 / 恢复 / 手动触发 |
-| `POST /{task_id}/activate-sidebar` | 在侧边栏激活该任务的会话分组 |
 | `GET /{task_id}/runs` | 运行历史（`scheduled_task_runs` 表，含状态、耗时、结果摘要、关联会话） |
 | `GET /notifications/list` / `POST /notifications/read` / `delete` | 自动化结果通知（存 Redis 列表 `jx:notifications:{user_id}`，保留最近 50 条、TTL 7 天） |
 

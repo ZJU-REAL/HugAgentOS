@@ -100,3 +100,17 @@
   justify-content:flex-end;
   gap:10px;
 }
+
+/* ── Compact KB editor (2026-11): visibility + name side by side, tighter rhythm ── */
+.jx-kbEditorBody{
+  gap:16px;
+}
+.jx-kbEditorRow{
+  display:flex;
+  flex-wrap:wrap;
+  gap:16px;
+}
+.jx-kbEditorRow > .jx-kbEditorField{
+  flex:1 1 240px;
+  min-width:0;
+}

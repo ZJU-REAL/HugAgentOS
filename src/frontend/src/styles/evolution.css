@@ -501,3 +501,10 @@
 .jx-evoConsole-tabsCard .ant-tabs-nav { margin-bottom: 18px; }
 .jx-evoConsole-tabsCard .ant-tabs-tabpane { padding-bottom: 4px; }
 .jx-evoConsole-tabsCard .jx-evoConsole-note { margin-top: 14px; }
+
+/* Contribution list scrolls inside the dialog so stats and the note stay on screen. */
+.jx-evoContrib-modal .jx-evoContrib-list{
+  max-height:min(420px, calc(100vh - 360px));
+  overflow-y:auto;
+  padding-right:4px;
+}

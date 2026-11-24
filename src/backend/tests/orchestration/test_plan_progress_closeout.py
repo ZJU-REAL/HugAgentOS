@@ -16,11 +16,9 @@
 
 import core.db.engine as db_engine
 import pytest
-from core.db.engine import Base
 from core.db.models import ChatSession, Job
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+from tests.db_support import memory_engine, share_factory
 
 PLAN_5 = {
     "title": "问答记录分类",
@@ -36,12 +34,9 @@ PLAN_5 = {
 
 @pytest.fixture()
 def db_session(monkeypatch):
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
+    engine = memory_engine()
     Session = sessionmaker(bind=engine)
-    monkeypatch.setattr(db_engine, "SessionLocal", Session)
+    share_factory(monkeypatch, Session)
 
     import core.chat.plan_progress as pp_mod
 

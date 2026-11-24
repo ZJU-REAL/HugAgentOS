@@ -1,5 +1,7 @@
 # v5 · "Markdown is the new typewriter."
 
+> **HugAgentOS 版本说明**：本版本只做 HTML 动画，视频与音频管线没有随技能分发。文中提到的 `scripts/render-video*.js`、`verify-video.sh`、`add-music.sh`、`mix-voiceover.sh`、`sfx-cues.sh`，以及 `hyperframes-backend.md`、`video-export.md`、`audio-design-rules.md` 等文档在本版本不可用，相关步骤一律跳过（见 `references/modules/motion.md` 开头的说明）。
+
 > Director's Notes for the **huashu-md-html v2.0** launch film
 > 30 seconds · 1920×1080 · 25 fps · no voiceover
 > Director: huashu-design (acting as Apple-tier launch film director)

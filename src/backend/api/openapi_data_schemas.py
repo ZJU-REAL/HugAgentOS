@@ -13,7 +13,7 @@ This module provides:
     * DATA_SCHEMAS    — (METHOD, PATH) → JSON Schema mapping for the data field.
 
 Integration point:
-    The _custom_openapi() hook in api/app.py reads this module; for endpoints matched in
+    _build_custom_openapi() in api/openapi.py imports this module; for endpoints matched in
     DATA_SCHEMAS, it replaces the response schema from `$ref ApiResponseEnvelope` to
     `allOf: [ApiResponseEnvelope, {properties: {data: <specific>}}]`,
     keeping the envelope structure while typing the business data.
@@ -46,6 +46,7 @@ _CAPABILITY_FLAGS: Tuple[str, ...] = (
     "can_create_channel_bot",
     "can_switch_model",
     "can_use_voice",
+    "can_use_evaluation",
     "can_run_autonomous_loop",
     "can_manage_chat_modes",
     "can_use_personal_agent",
@@ -291,6 +292,7 @@ DATA_COMPONENTS: Dict[str, Dict[str, Any]] = {
             "lab_enabled": {"type": "boolean"},
             "sites_enabled": {"type": "boolean"},
             "can_use_voice": {"type": "boolean", "default": False},
+            "can_use_evaluation": {"type": "boolean", "default": False},
         },
     },
     "CurrentUserInfo": {
@@ -519,6 +521,8 @@ DATA_SCHEMAS: Dict[Tuple[str, str], Dict[str, Any]] = {
             "ok": {"type": "boolean"},
             "feedback_id": {"type": "string"},
             "rating": {"type": "string", "enum": ["like", "dislike"]},
+            "verdict": {"type": "string", "enum": ["adopt", "revise", "reject"]},
+            "reasons": {"type": "array", "items": {"type": "string"}},
         },
     },
     # ===== Chat Shares =====

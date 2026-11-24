@@ -13,3 +13,18 @@
 .pa-channel-accounts{display:flex;flex-direction:column;gap:4px;margin:0;padding:0;list-style:none}
 .pa-channel-accounts li{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 8px;border-radius:var(--radius-sm);background:var(--color-fill-hover)}
 .pa-channel-accounts li>span{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere}
+
+/* ── Channel dialog: compact 3-column state grid + per-channel detail view ── */
+.pa-channel-grid.pa-channel-grid--compact{grid-template-columns:repeat(3,minmax(0,1fr))}
+.pa-channel-card-actions{display:flex;flex-wrap:wrap;gap:8px}
+.pa-channel-card .pa-channel-conversation{justify-content:flex-start}
+.pa-channel-detail{display:flex;flex-direction:column;gap:12px}
+.pa-channel-detail-head{display:flex;align-items:center;gap:8px}
+.pa-channel-detail-head strong{font-size:14px;font-weight:500}
+.pa-channel-detail-body{max-height:calc(100vh - 240px);overflow-y:auto;padding-right:4px}
+@media (max-width:900px){
+  .pa-channel-grid.pa-channel-grid--compact{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:640px){
+  .pa-channel-grid.pa-channel-grid--compact{grid-template-columns:minmax(0,1fr)}
+}

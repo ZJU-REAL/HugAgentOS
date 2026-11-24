@@ -376,7 +376,7 @@ export function AutomationDetailPage({ taskId, onBack }: Props) {
                 className="jx-automation-detail-errorAlert"
                 type="error"
                 showIcon
-                message={
+                title={
                   <span>
                     {t('最近一次执行失败：')}{task.last_error}
                     {failedRunWithChat && (

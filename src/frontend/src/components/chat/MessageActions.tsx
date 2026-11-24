@@ -5,8 +5,11 @@ import {
   CopyOutlined, CheckOutlined, LikeOutlined, DislikeOutlined, LikeFilled, DislikeFilled,
   ExportOutlined, ShareAltOutlined, EditOutlined, SyncOutlined,
 } from '@ant-design/icons';
-import { authFetch } from '../../api';
 import { useChatStore } from '../../stores';
+import { isAutomationHistoryChat } from '../../utils/history';
+import { useAuthStore } from '../../stores/authStore';
+import { useEvaluationStore } from '../../stores/evaluationStore';
+import { EvaluationCard } from './EvaluationCard';
 import type { ChatMessage } from '../../types';
 import { t } from '../../i18n';
 import { RichTextField } from './RichTextField';
@@ -15,7 +18,6 @@ import { copyHtmlToClipboard } from '../../utils/clipboard';
 import { message } from 'antd';
 import { ForkChatButton } from './ForkChatButton';
 import { formatTurnSeconds } from '../../utils/elapsed';
-const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
 
 /** Format a message timestamp as local "YYYY-MM-DD HH:MM:SS", shown below each message. */
 function formatMsgTime(ts: number): string {
@@ -36,6 +38,12 @@ function formatDuration(ms?: number): { label: string; exact: string } | null {
     label: t('用时 {d}', { d: formatTurnSeconds(Math.round(ms / 1000)) }),
     exact: t('本次回答整体生成耗时 {sec} 秒', { sec: (ms / 1000).toFixed(1) }),
   };
+}
+
+/** Save a quick like / dislike (store is optimistic and rolls back on failure). */
+function saveVerdict(chatId: string, messageId: string, verdict: 'adopt' | 'reject', comment: string) {
+  useEvaluationStore.getState().submit(chatId, messageId, { verdict, reasons: [], comment })
+    .catch(() => { void message.error(t('评价没有保存，请稍后再试')); });
 }
 
 /** Wait for the jx-expandWrap height animation to finish expanding before focusing the input */
@@ -95,19 +103,64 @@ export function MessageActions({ m, messageIndex, currentChatId, exportChatRecor
   const duration = m.role === 'assistant' ? formatDuration(m.durationMs) : null;
   const copiedMsg = useChatStore((s) => s.copiedMsg);
   const setCopiedMsg = useChatStore((s) => s.setCopiedMsg);
-  const feedbackMap = useChatStore((s) => s.feedbackMap);
-  const setFeedbackMap = useChatStore((s) => s.setFeedbackMap);
-  const dislikingUid = useChatStore((s) => s.dislikingUid);
-  const setDislikingUid = useChatStore((s) => s.setDislikingUid);
-  const dislikeComment = useChatStore((s) => s.dislikeComment);
-  const setDislikeComment = useChatStore((s) => s.setDislikeComment);
+  // With the 会话评价 permission the answer gets the evaluation card; without it, the quick
+  // like / dislike buttons record 满意 / 不满意.
+  const evaluationEnabled = useAuthStore((s) => s.authUser?.can_use_evaluation === true);
+  // Scheduled and loop tasks have no evaluation at all: no card, no like / dislike.
+  const excludedAnswer = useEvaluationStore((s) => !!m.messageId && !!s.excluded[m.messageId]);
+  const scheduledChat = useChatStore((s) => isAutomationHistoryChat(s.store.chats[currentChatId]));
+  const evaluable = !excludedAnswer && !scheduledChat;
+  const verdict = useEvaluationStore((s) => (m.messageId ? s.records[m.messageId]?.verdict : undefined));
+  const storedComment = useEvaluationStore((s) => (m.messageId ? s.records[m.messageId]?.comment ?? '' : ''));
+  const [isDisliking, setIsDisliking] = useState(false);
+  const [dislikeComment, setDislikeComment] = useState('');
+  // A new dislike is saved once, when its note form closes (提交 / 跳过 / dislike again / like /
+  // the message unmounting), so the verdict and the note go out in a single request.
+  const pendingDislike = useRef<{ chatId: string; messageId: string; comment: string } | null>(null);
   const shareSelectionMode = useChatStore((s) => s.shareSelectionMode);
   const startShareSelectionWithAll = useChatStore((s) => s.startShareSelectionWithAll);
   const editingMessageUid = useChatStore((s) => s.editingMessageUid);
   const setEditingMessageUid = useChatStore((s) => s.setEditingMessageUid);
   const [editText, setEditText] = useState('');
   const isEditing = editingMessageUid === m.uid;
-  const isDisliking = dislikingUid === m.uid;
+  const showEvaluationCard = evaluationEnabled && evaluable && m.role === 'assistant' && !m.isStreaming && !m.inFlight
+    && !m.error && !!m.messageId && !isEditing;
+  const openDislike = () => {
+    if (!m.messageId) return;
+    const rejected = verdict === 'reject';
+    // Already 不满意: the form only edits the note, so closing it without a new note saves nothing.
+    pendingDislike.current = rejected ? null : { chatId: currentChatId, messageId: m.messageId, comment: '' };
+    setDislikeComment(rejected ? storedComment : '');
+    setIsDisliking(true);
+  };
+  /** `note` is the typed note on 提交, `null` when the form is skipped or toggled closed. */
+  const closeDislike = (note: string | null) => {
+    const pending = pendingDislike.current;
+    pendingDislike.current = null;
+    setIsDisliking(false);
+    const text = note?.trim() ?? '';
+    if (pending) {
+      saveVerdict(pending.chatId, pending.messageId, 'reject', text);
+    } else if (text && text !== storedComment.trim() && m.messageId && verdict === 'reject') {
+      saveVerdict(currentChatId, m.messageId, 'reject', text);
+    }
+  };
+  const like = () => {
+    // Liking with the dislike form open drops the unsaved dislike instead of saving it first.
+    if (isDisliking) {
+      pendingDislike.current = null;
+      setIsDisliking(false);
+    }
+    if (verdict !== 'adopt' && m.messageId) saveVerdict(currentChatId, m.messageId, 'adopt', '');
+  };
+  // Leaving the chat (or regenerating) with the form still open keeps the dislike and its draft note.
+  useEffect(() => () => {
+    const pending = pendingDislike.current;
+    pendingDislike.current = null;
+    if (pending) saveVerdict(pending.chatId, pending.messageId, 'reject', pending.comment.trim());
+  }, []);
+  const disliked = isDisliking || verdict === 'reject' || verdict === 'revise';
+  const liked = verdict === 'adopt' && !isDisliking;
 
   const dislikeInputRef = useRef<TextAreaRef>(null);
 
@@ -179,32 +232,18 @@ export function MessageActions({ m, messageIndex, currentChatId, exportChatRecor
               </button>
             )}
             {m.role === 'assistant' && (<>
-              <button className={`jx-msgActionBtn${feedbackMap[m.uid] === 'like' ? ' active-like' : ''}`} title={t('有帮助')}
-                onClick={() => {
-                  const next = feedbackMap[m.uid] === 'like' ? undefined : 'like' as const;
-                  setFeedbackMap(next ? { ...feedbackMap, [m.uid]: next } : Object.fromEntries(Object.entries(feedbackMap).filter(([k]) => k !== m.uid)));
-                  if (next && m.messageId) {
-                    authFetch(`${effectiveApiUrl}/v1/chats/messages/${m.messageId}/feedback`, {
-                      method: 'POST', headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ rating: 'like', chat_id: currentChatId }),
-                    }).catch(() => {});
-                  }
-                }}>
-                {feedbackMap[m.uid] === 'like' ? <LikeFilled /> : <LikeOutlined />}
-              </button>
-              <button className={`jx-msgActionBtn${feedbackMap[m.uid] === 'dislike' ? ' active-dislike' : ''}`} title={t('没有帮助')}
-                onClick={() => {
-                  if (feedbackMap[m.uid] === 'dislike') {
-                    setFeedbackMap(Object.fromEntries(Object.entries(feedbackMap).filter(([k]) => k !== m.uid)));
-                    setDislikingUid(null);
-                  } else {
-                    setFeedbackMap({ ...feedbackMap, [m.uid]: 'dislike' });
-                    setDislikingUid(m.uid);
-                    setDislikeComment('');
-                  }
-                }}>
-                {feedbackMap[m.uid] === 'dislike' ? <DislikeFilled /> : <DislikeOutlined />}
-              </button>
+              {!evaluationEnabled && evaluable && (<>
+                <button className={`jx-msgActionBtn${liked ? ' active-like' : ''}`} title={t('有帮助')}
+                  aria-label={t('有帮助')} aria-pressed={liked}
+                  onClick={like}>
+                  {liked ? <LikeFilled /> : <LikeOutlined />}
+                </button>
+                <button className={`jx-msgActionBtn${disliked ? ' active-dislike' : ''}`} title={t('没有帮助')}
+                  aria-label={t('没有帮助')} aria-pressed={disliked}
+                  onClick={() => { if (isDisliking) closeDislike(null); else openDislike(); }}>
+                  {disliked ? <DislikeFilled /> : <DislikeOutlined />}
+                </button>
+              </>)}
               {m.messageId && (
                 <ForkChatButton chatId={currentChatId} messageId={m.messageId} />
               )}
@@ -244,24 +283,24 @@ export function MessageActions({ m, messageIndex, currentChatId, exportChatRecor
           </div>
         )}
 
+        {showEvaluationCard && m.messageId && (
+          <EvaluationCard chatId={currentChatId} messageId={m.messageId} />
+        )}
+
         {/* Dislike feedback form — lazy-keep-mounted: only mount on first open, then keep it to play the collapse animation */}
         {m.role === 'assistant' && dislikeExpand.mounted && (
           <div className={`jx-expandWrap jx-msgExpand${dislikeExpand.openClass ? ' jx-expandWrap--open' : ''}`}>
             <div className="jx-dislikeFeedback">
               <p className="jx-dislikeFeedback-title">{t('请告诉我们哪里不好（可选）')}</p>
               <Input.TextArea ref={dislikeInputRef} rows={3} placeholder={t('内容不准确 / 答非所问 / 其他...')}
-                value={dislikeComment} onChange={e => setDislikeComment(e.target.value)} className="jx-dislikeFeedback-input" />
+                value={dislikeComment} className="jx-dislikeFeedback-input"
+                onChange={(e) => {
+                  setDislikeComment(e.target.value);
+                  if (pendingDislike.current) pendingDislike.current.comment = e.target.value;
+                }} />
               <div className="jx-dislikeFeedback-btns">
-                <Button size="small" onClick={() => setDislikingUid(null)}>{t('跳过')}</Button>
-                <Button size="small" type="primary" onClick={() => {
-                  if (m.messageId) {
-                    authFetch(`${effectiveApiUrl}/v1/chats/messages/${m.messageId}/feedback`, {
-                      method: 'POST', headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ rating: 'dislike', comment: dislikeComment || undefined, chat_id: currentChatId }),
-                    }).catch(() => {});
-                  }
-                  setDislikingUid(null);
-                }}>{t('提交')}</Button>
+                <Button size="small" onClick={() => closeDislike(null)}>{t('跳过')}</Button>
+                <Button size="small" type="primary" onClick={() => closeDislike(dislikeComment)}>{t('提交')}</Button>
               </div>
             </div>
           </div>

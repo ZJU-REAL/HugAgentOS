@@ -6,8 +6,8 @@
 import { ApiResponseError } from '../../../utils/apiError';
 import type { MemoryLintFinding } from '../api';
 
-export interface PageMeta { name?: string; description?: string; aliases: string[]; type?: string; status?: string; updated?: string }
-export interface ParsedPage { meta: PageMeta; body: string; hasFrontmatter: boolean }
+interface PageMeta { name?: string; description?: string; aliases: string[]; type?: string; status?: string; updated?: string }
+interface ParsedPage { meta: PageMeta; body: string; hasFrontmatter: boolean }
 
 export function parsePage(text: string): ParsedPage {
   const empty: PageMeta = { aliases: [] };
@@ -61,7 +61,7 @@ export function blocks(body: string): Block[] {
   return out;
 }
 
-export type SourceKind = 'conv' | 'chan' | 'task';
+type SourceKind = 'conv' | 'chan' | 'task';
 export type Inline =
   | { kind: 'text'; text: string }
   | { kind: 'strong'; text: string }
@@ -104,13 +104,7 @@ export function inline(text: string): Inline[] {
   return out;
 }
 
-/** The slug of /workspace/memory/<slug>.md, or null for any other path. */
-export function slugOf(path: string): string | null {
-  const match = /(?:^|\/)memory\/([a-z0-9-]+)\.md$/.exec(path);
-  return match && !match[1].startsWith('_') ? match[1] : null;
-}
-
-export type DiffLine = { kind: 'same' | 'add' | 'del'; text: string };
+type DiffLine = { kind: 'same' | 'add' | 'del'; text: string };
 
 /** A line diff (LCS). Large inputs fall back to "all removed, all added" to stay responsive. */
 export function lineDiff(before: string, after: string): DiffLine[] {

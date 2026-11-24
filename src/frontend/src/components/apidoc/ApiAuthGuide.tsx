@@ -1,6 +1,7 @@
 import { Collapse, Space, Tag, Typography } from 'antd';
 import { KeyOutlined, LockOutlined } from '@ant-design/icons';
 import { CopyButton } from '../common/CopyButton';
+import { fillNodes } from '../common/fillNodes';
 import { projectApiExample } from '../../utils/projectApiExamples';
 import { t } from '../../i18n';
 const { Text, Paragraph } = Typography;
@@ -41,19 +42,27 @@ export function AuthGuide() {
         children: (
           <div style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
             <Paragraph style={{ marginBottom: 8 }}>
-              所有 <Text code>/v1/*</Text> 接口都需要身份认证。支持两种方式，二者皆无（或无效）时返回 <Tag color="orange">401</Tag>，
-              <b>绝不会匿名放行</b>。
+              {fillNodes(t('所有 {scope} 接口都需要身份认证。支持两种方式，二者皆无（或无效）时返回 {status}，{never}。'), {
+                scope: <Text code>/v1/*</Text>,
+                status: <Tag color="orange">401</Tag>,
+                never: <b>{t('绝不会匿名放行')}</b>,
+              })}
             </Paragraph>
 
             <Text strong>{t('方式一 · API-Key（推荐，用于程序化 / 外部调用）')}</Text>
             <Paragraph style={{ marginTop: 4, marginBottom: 4 }}>
-              在 <Text strong>「设置 → API-Key」</Text> 创建。明文形如 <Text code>sk-jx-xxxxxxxx</Text>，
+              {fillNodes(t('在 {location} 创建。明文形如 {sample}，'), {
+                location: <Text strong>{t('「设置 → API-Key」')}</Text>,
+                sample: <Text code>sk-jx-xxxxxxxx</Text>,
+              })}
               {t('请妥善保存，可在密钥列表按需再次复制。调用时放入请求头：')}
             </Paragraph>
             <CodeLine>{`Authorization: Bearer sk-jx-<YOUR_API_KEY>`}</CodeLine>
             <Paragraph type="secondary" style={{ marginTop: 6, marginBottom: 12, fontSize: 12 }}>
-              Key 以调用者的用户身份执行，继承其全部能力（技能 / MCP / 知识库 / 项目权限等）。
-              撤销、禁用或过期的 Key 会被拒绝（<Text code>code: 30002</Text>）。需管理员开通 <Text code>can_use_api_key</Text> 权限位。
+              {fillNodes(t('Key 以调用者的用户身份执行，继承其全部能力（技能 / MCP / 知识库 / 项目权限等）。 撤销、禁用或过期的 Key 会被拒绝（{code}）。需管理员开通 {permission} 权限位。'), {
+                code: <Text code>code: 30002</Text>,
+                permission: <Text code>can_use_api_key</Text>,
+              })}
             </Paragraph>
 
             <Paragraph type="secondary">
@@ -61,7 +70,9 @@ export function AuthGuide() {
             </Paragraph>
             <Text strong>{t('方式二 · 会话 Cookie')}</Text>
             <Paragraph style={{ marginTop: 4, marginBottom: 12 }}>
-              浏览器 SSO 登录后自动携带 <Text code>jx_session</Text>，前端页面走此方式，无需手动设置。
+              {fillNodes(t('浏览器 SSO 登录后自动携带 {cookie}，前端页面走此方式，无需手动设置。'), {
+                cookie: <Text code>jx_session</Text>,
+              })}
             </Paragraph>
 
             <Text strong>{t('完整调用示例')}</Text>
@@ -81,9 +92,10 @@ export function AuthGuide() {
             <CodeLine>{`{ "code": 10000, "message": "Success", "data": { ... }, "trace_id": "...", "timestamp": 0 }`}</CodeLine>
 
             <Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0, fontSize: 12 }}>
-              说明：浏览器实际请求带 <Text code>/api</Text> 前缀（经 nginx 反代到后端）。下方接口列表中标注
-              <Tag color="orange" icon={<LockOutlined />} style={{ margin: '0 4px' }}>{t('需要鉴权')}</Tag>
-              的均需携带上述任一凭证。
+              {fillNodes(t('说明：浏览器实际请求带 {prefix} 前缀（经 nginx 反代到后端）。下方接口列表中标注{tag}的均需携带上述任一凭证。'), {
+                prefix: <Text code>/api</Text>,
+                tag: <Tag color="orange" icon={<LockOutlined />} style={{ margin: '0 4px' }}>{t('需要鉴权')}</Tag>,
+              })}
             </Paragraph>
           </div>
         ),

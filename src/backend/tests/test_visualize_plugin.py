@@ -9,6 +9,7 @@ from core.db.models import AdminSkill, ContentBlock, InstalledPlugin
 from core.capabilities.plugins import management as plugins
 from core.capabilities.plugins.management.defaults import ensure_visualize_plugin_bootstrapped
 from core.capabilities.plugins.packaging.importer import normalize_plugin_dir
+from tests.db_support import share_factory
 
 BUNDLE = Path(__file__).resolve().parents[1] / "extensions/plugins/default/visualize"
 SKILL = BUNDLE / "skills/visualize"
@@ -103,7 +104,7 @@ async def test_startup_includes_visualize_in_all_profiles(monkeypatch, local, ed
             deploy=SimpleNamespace(is_local=local),
         ),
     )
-    monkeypatch.setattr(engine, "SessionLocal", lambda: session)
+    share_factory(monkeypatch, lambda: session)
     monkeypatch.setattr(plugins, "ensure_default_plugins_bootstrapped", lambda db: False)
     monkeypatch.setattr(edition_startup, "bootstrap_edition_plugins", lambda db: ())
     monkeypatch.setattr(
@@ -139,7 +140,7 @@ async def test_local_bootstrap_respects_opt_out_and_hybrid(monkeypatch, opt_in, 
     def unexpected_session():
         pytest.fail("Local opt-out and hybrid mode must not bootstrap global plugins")
 
-    monkeypatch.setattr(engine, "SessionLocal", unexpected_session)
+    share_factory(monkeypatch, unexpected_session)
     await startup._startup_seed_default_plugins()
 
 

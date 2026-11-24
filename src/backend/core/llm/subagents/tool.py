@@ -18,7 +18,7 @@ from typing import Any, Callable, Dict, List, Optional
 from agentscope.message import TextBlock
 from agentscope.tool import Toolkit
 
-# AgentScope 2.0: tool functions must return ToolChunk (call_tool rejects ToolChunk).
+# AgentScope 2.0: tool functions must return ToolChunk.
 from agentscope.tool._response import ToolChunk
 from core.infra.task_lifecycle import settle_task
 from core.llm.subagents import sessions as subagent_sessions

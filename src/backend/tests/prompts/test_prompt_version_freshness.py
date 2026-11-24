@@ -15,6 +15,7 @@ from sqlalchemy.orm import sessionmaker
 from core.db import engine as db_engine
 from core.db.models import AdminPromptPart, ContentBlock, SystemConfig
 from core.llm import prompt_storage as pvs
+from tests.db_support import share_factory
 
 
 @pytest.fixture
@@ -26,7 +27,7 @@ def prompt_db(tmp_path, monkeypatch):
     SystemConfig.__table__.create(engine)
     sessions = sessionmaker(bind=engine)
     monkeypatch.setattr(pvs, "SessionLocal", sessions)
-    monkeypatch.setattr(db_engine, "SessionLocal", sessions)
+    share_factory(monkeypatch, sessions)
     from prompts import prompt_runtime
     from core.config.store import system_config
 

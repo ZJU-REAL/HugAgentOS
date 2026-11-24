@@ -179,7 +179,7 @@ def write_subagent_finish_sync(
             return
         row.status = status
         if "output_content" in updates:
-            output, _ = log_context.truncate_text(updates.get("output_content"), log_writer_constants.MAX_RESULT_BYTES)
+            output, _ = log_context.truncate_log_text(updates.get("output_content"), log_writer_constants.MAX_RESULT_BYTES)
             row.output_content = output
         if "intermediate_steps" in updates:
             steps_safe, _ = log_context.truncate_json(updates.get("intermediate_steps"), log_writer_constants.MAX_RESULT_BYTES)
@@ -210,9 +210,9 @@ def write_skill_call_sync(record: Dict[str, Any]) -> None:
     try:
         args_safe = mask_sensitive_data(record.get("script_args"), field_patterns=log_context.REDACT_FIELDS)
         args_safe, _ = log_context.truncate_json(args_safe, log_writer_constants.MAX_RESULT_BYTES)
-        stdout_safe, trunc_out = log_context.truncate_text(record.get("script_stdout"), log_writer_constants.MAX_STDOUT_BYTES)
-        stderr_safe, trunc_err = log_context.truncate_text(record.get("script_stderr"), log_writer_constants.MAX_STDOUT_BYTES)
-        stdin_safe, _ = log_context.truncate_text(record.get("script_stdin"), log_writer_constants.MAX_STDOUT_BYTES)
+        stdout_safe, trunc_out = log_context.truncate_log_text(record.get("script_stdout"), log_writer_constants.MAX_STDOUT_BYTES)
+        stderr_safe, trunc_err = log_context.truncate_log_text(record.get("script_stderr"), log_writer_constants.MAX_STDOUT_BYTES)
+        stdin_safe, _ = log_context.truncate_log_text(record.get("script_stdin"), log_writer_constants.MAX_STDOUT_BYTES)
         username = log_context.fetch_username(db, record.get("user_id", ""))
         row = SkillCallLog(
             id=record.get("id") or log_context.new_id(),

@@ -15,7 +15,8 @@ export function useAppBootstrap(chatSurface: boolean) {
   const { pathname } = useLocation();
   const pageConfig = usePageConfigAll();
   const panel = usePanel();
-  const { authUser, authChecking } = useAuthStore();
+  const authUserId = useAuthStore(s => s.authUser?.user_id || '');
+  const authChecking = useAuthStore(s => s.authChecking);
   const setSiderCollapsed = useUIStore(s => s.setSiderCollapsed);
   const openSearchModal = useUIStore(s => s.openSearchModal);
   const resetRightSidebar = useCanvasStore(s => s.resetSidebar);
@@ -67,7 +68,6 @@ export function useAppBootstrap(chatSurface: boolean) {
 
   // Fetch main-model capabilities at startup (decides whether the dropdown shows "Thinking: high/max")
   const fetchCapabilities = useModelCapabilitiesStore((s) => s.fetchCapabilities);
-  const authUserId = authUser?.user_id || '';
   useEffect(() => {
     if (authChecking || !authUserId) return;
     void fetchCapabilities();

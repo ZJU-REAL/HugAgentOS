@@ -1,5 +1,6 @@
 /** English translations used by CE source but owned by mixed EE/CE dictionaries upstream. */
 export const CE_SHARED_DICT: Record<string, string> = {
+  '具体说明': "Details",
   '未知': 'Unknown',
   '快照': 'Snapshot',
   '后台任务': 'Background tasks',
@@ -354,4 +355,10 @@ export const CE_SHARED_DICT: Record<string, string> = {
   '端口': 'Port',
   '（未启用）': ' (disabled)',
   '请输入字段名': 'Enter column name',
+  // EE carries this in edition-ee/i18n.ts; CE status labels use it too.
+  '排队中': 'Queued',
+  // Shared components whose EE strings live in edition-ee/i18n/{adminMisc,configB}.ts.
+  '{name}（{skills} 技能 · {tools} 工具）': '{name} ({skills} skills - {tools} tools)',
+  '全组共用此应用，用户在「设置 → 集成」扫码登录各自账号即可。': 'The whole org shares this app; users just scan to log in with their own account under "Settings - Integrations".',
+  '读写': 'Read/Write',
 };

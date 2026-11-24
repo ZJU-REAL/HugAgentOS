@@ -10,6 +10,7 @@ import pytest
 from core.sandbox.protocol import ProcessRequest
 from core.sandbox.providers.opensandbox import creation, skills, connection
 from core.sandbox.errors import SandboxError, SandboxConnectError
+from tests.db_support import share_factory
 
 
 @pytest.mark.asyncio
@@ -290,7 +291,7 @@ def test_database_enablement_owner_and_dependency_are_checked_without_cache(db_s
     from sqlalchemy.orm import sessionmaker
     from core.db import engine
     from core.db.models import AdminSkill
-    monkeypatch.setattr(engine, "SessionLocal", sessionmaker(bind=db_session.get_bind()))
+    share_factory(monkeypatch, sessionmaker(bind=db_session.get_bind()))
     row = AdminSkill(skill_id="view-native-test", display_name="view", description="test", skill_content="test",
                      is_enabled=True, owner_user_id="alice", dep_status="ready")
     db_session.add(row)

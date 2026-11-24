@@ -2,23 +2,16 @@ from __future__ import annotations
 from core.infra.time import utc_now
 
 import logging
-import uuid
-from datetime import datetime
-from typing import Dict, List, Optional
 
 from core.harness.registry.run_capabilities import has_run_capabilities
 from features.desktop.local.skills import editor as local_editor
 from core.auth.backend import UserContext, get_current_user
-from core.auth.capabilities import resolve_user_capabilities
-from core.config.settings import settings
 from core.db.engine import get_db
-from core.db.models import AdminMcpServer, AdminSkill
-from core.infra.exceptions import AccessDeniedError, BadRequestError, ResourceNotFoundError
-from core.infra.responses import created_response, success_response
-from core.capabilities.mcp.management import encrypt_mcp_headers, probe_mcp_connectivity, refresh_mcp_caches, validate_remote_mcp_url
-from core.capabilities.skills.management import build_skill_content, extract_instructions, extract_mcp_server_ids, parse_and_upsert_skill_zip, refresh_skill_caches, resolve_mcp_bindings, resolve_ontology_workflows, validate_skill_file_path
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
-from pydantic import BaseModel, Field, field_validator
+from core.infra.exceptions import BadRequestError, ResourceNotFoundError
+from core.infra.responses import success_response
+from core.capabilities.skills.management import refresh_skill_caches, validate_skill_file_path
+from fastapi import APIRouter, Depends, File, Form, Response, UploadFile
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 

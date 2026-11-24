@@ -23,9 +23,10 @@ from core.db.models import UserFolder, UserShadow
 
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
+from core.infra.exceptions import AppException, BadRequestError
 from core.infra.responses import success_response
 from core.projects.user_folders import UserFolderService
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -86,7 +87,7 @@ def get_breadcrumb(
     user_id = str(user.user_id)
     folder = service.get_owned(folder_id, user_id)
     if folder is None:
-        raise HTTPException(status_code=404, detail="文件夹不存在")
+        raise AppException(code=40001, message="文件夹不存在", status_code=404)
     return success_response(data={"breadcrumb": service.get_breadcrumb(folder_id, user_id)})
 
 
@@ -108,7 +109,7 @@ def batch_create_folders(
             parent_folder_id=body.parent_folder_id,
         )
     except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise BadRequestError(str(exc)) from exc
     return success_response(data={"folders": folders})
 
 
@@ -127,7 +128,7 @@ def create_folder(
         actor=user_id,
     )
     if not result.ok:
-        raise HTTPException(status_code=400, detail=result.message)
+        raise BadRequestError(result.message)
     return success_response(data={"folder_id": result.folder_id}, message=result.message)
 
 
@@ -143,17 +144,17 @@ def update_folder(
     service = UserFolderService(db)
     folder = service.get_owned(folder_id, user_id)
     if folder is None:
-        raise HTTPException(status_code=404, detail="文件夹不存在")
+        raise AppException(code=40001, message="文件夹不存在", status_code=404)
 
     if body.name is not None:
         res = service.rename_folder(folder_id, body.name, actor=user_id)
         if not res.ok:
-            raise HTTPException(status_code=400, detail=res.message)
+            raise BadRequestError(res.message)
 
     if "parent_folder_id" in body.model_fields_set:
         res = service.move_folder(folder_id, body.parent_folder_id, actor=user_id)
         if not res.ok:
-            raise HTTPException(status_code=400, detail=res.message)
+            raise BadRequestError(res.message)
 
     return success_response(data={"folder_id": folder_id}, message="已更新")
 
@@ -169,10 +170,10 @@ def delete_folder(
     service = UserFolderService(db)
     folder = service.get_owned(folder_id, user_id)
     if folder is None:
-        raise HTTPException(status_code=404, detail="文件夹不存在")
+        raise AppException(code=40001, message="文件夹不存在", status_code=404)
     result, affected = service.delete_folder(folder_id, actor=user_id)
     if not result.ok:
-        raise HTTPException(status_code=400, detail=result.message)
+        raise BadRequestError(result.message)
     return success_response(
         data={"folder_id": folder_id, "artifacts_affected": affected},
         message="文件夹及其内容已删除",
@@ -190,7 +191,7 @@ def affected_count(
     service = UserFolderService(db)
     folder = service.get_owned(folder_id, user_id)
     if folder is None:
-        raise HTTPException(status_code=404, detail="文件夹不存在")
+        raise AppException(code=40001, message="文件夹不存在", status_code=404)
     return success_response(data={"count": service.count_affected_artifacts(folder_id, user_id)})
 
 
@@ -206,7 +207,7 @@ def move_artifact_to_folder(
     result = service.move_artifact(body.artifact_id, body.folder_id, actor=user_id)
     if not result.ok:
         # Distinguishing 401/404/400 adds little value; use a uniform 400 so the frontend toast passes through message
-        raise HTTPException(status_code=400, detail=result.message)
+        raise BadRequestError(result.message)
     return success_response(
         data={"artifact_id": body.artifact_id, "folder_id": body.folder_id}, message=result.message
     )
@@ -223,7 +224,7 @@ def copy_artifact_to_folder(
     service = UserFolderService(db)
     result = service.copy_artifact(body.artifact_id, body.folder_id, actor=user_id)
     if not result.ok:
-        raise HTTPException(status_code=400, detail=result.message)
+        raise BadRequestError(result.message)
     return success_response(
         data={"artifact_id": result.artifact_id, "folder_id": body.folder_id},
         message=result.message,

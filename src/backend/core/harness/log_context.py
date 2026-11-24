@@ -22,7 +22,7 @@ def now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def truncate_text(text: Optional[str], limit: int) -> tuple[Optional[str], bool]:
+def truncate_log_text(text: Optional[str], limit: int) -> tuple[Optional[str], bool]:
     if text is None:
         return None, False
     if not isinstance(text, str):
@@ -69,14 +69,18 @@ def fetch_username(db: Session, user_id: str) -> Optional[str]:
         return None
     try:
         row = (
-            db.query(UserShadow.username, LocalUser.nickname, LocalUser.real_name)
+            db.query(UserShadow, LocalUser)
             .outerjoin(LocalUser, LocalUser.user_id == UserShadow.user_id)
             .filter(UserShadow.user_id == user_id)
             .one_or_none()
         )
         if not row:
             return None
-        return row.nickname or row.real_name or row.username
+        from core.auth.user_profile import profile_fields
+
+        shadow, local = row
+        profile = profile_fields(shadow, local)
+        return profile["nickname"] or profile["real_name"] or shadow.username
     except Exception as exc:  # noqa: BLE001
         logger.debug("username_lookup_failed", user_id=user_id, error=str(exc))
         return None
@@ -91,15 +95,6 @@ def subagent_scope(subagent_log_id: Optional[str], source: str = "subagent") -> 
     finally:
         subagent_log_id_var.reset(tok_id)
         source_var.reset(tok_src)
-
-
-@contextmanager
-def skill_scope(source: str = "skill") -> Iterator[None]:
-    tok = source_var.set(source)
-    try:
-        yield
-    finally:
-        source_var.reset(tok)
 
 
 def set_current_message_id(message_id: str) -> None:

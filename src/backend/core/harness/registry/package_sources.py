@@ -25,7 +25,6 @@ def package_source(name: str) -> PackageSource:
 
 
 def register_package_upgrade_policy(policy: PackageUpgradePolicy) -> None:
-    pass
     registration_state().upgrade_policy = policy
 
 

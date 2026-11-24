@@ -81,7 +81,7 @@ export function ContextGauge({ draftKey }: { draftKey?: string } = {}) {
       placement="topRight"
       trigger="hover"
       mouseEnterDelay={0.15}
-      overlayClassName="jx-ctxPopover"
+      classNames={{ root: "jx-ctxPopover" }}
       content={(
         <GaugeContent
           breakdown={breakdown}

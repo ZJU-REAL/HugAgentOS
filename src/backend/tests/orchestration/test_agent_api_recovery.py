@@ -174,7 +174,9 @@ def test_worker_restore_passes_only_validated_context(recovery, monkeypatch):
 
     monkeypatch.setattr(worker, "_run_workflow", workflow)
     monkeypatch.setattr(runtime, 'register_run_task', lambda *a, **k: None)
-    assert runtime_recovery._register_recovered_chat(_decision(context)) is True
+    decision = _decision(context)
+    restored = runtime_recovery._restore_recovered_chat(decision)
+    assert runtime_recovery._register_recovered_chat(decision, restored) is True
     assert observed["context"]["memory_enabled"] is False
     assert observed["context"]["agent_api_scope"] == context["agent_api_scope"]
 
@@ -187,7 +189,9 @@ def test_worker_restore_refuses_lost_scope_before_start(recovery, monkeypatch):
         'register_run_task',
         lambda *a, **k: pytest.fail("damaged scope must not create a worker"),
     )
-    assert runtime_recovery._register_recovered_chat(_decision(context)) is False
+    decision = _decision(context)
+    restored = runtime_recovery._restore_recovered_chat(decision)
+    assert runtime_recovery._register_recovered_chat(decision, restored) is False
 
 
 @pytest.mark.asyncio

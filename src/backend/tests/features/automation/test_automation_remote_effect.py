@@ -2,7 +2,6 @@ import pytest
 from core.db.engine import Base
 from extensions.mcp_servers.automation_task_mcp import impl
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 
 @pytest.fixture
@@ -10,8 +9,8 @@ def sessions(tmp_path, monkeypatch):
     import core.db.engine as engine_module
     engine = create_engine(f"sqlite:///{tmp_path / 'cloud.sqlite'}")
     Base.metadata.create_all(engine)
-    factory = sessionmaker(bind=engine, expire_on_commit=False)
-    monkeypatch.setattr(engine_module, "SessionLocal", factory)
+    factory = session_factory(engine)
+    share_factory(monkeypatch, factory)
     yield factory
     engine.dispose()
 
@@ -53,8 +52,8 @@ async def test_device_gateway_maps_local_intent_before_cloud_mcp(effect_env, tmp
     make_run("gateway-run")
     cloud_engine = create_engine(f"sqlite:///{tmp_path / 'remote.sqlite'}")
     Base.metadata.create_all(cloud_engine)
-    cloud = sessionmaker(bind=cloud_engine, expire_on_commit=False)
-    monkeypatch.setattr(engine_module, "SessionLocal", local)
+    cloud = session_factory(cloud_engine)
+    share_factory(monkeypatch, local)
     monkeypatch.setattr("core.config.local_mode.local_mode_enabled", lambda: False)
     monkeypatch.delenv("HUGAGENT_CAPS_ROOT", raising=False)
     raw = {"name": "create_scheduled_task", "inputSchema": {"type": "object", "properties": {}}}
@@ -105,6 +104,7 @@ async def test_device_gateway_maps_local_intent_before_cloud_mcp(effect_env, tmp
 
 
 from tests.orchestration.test_tool_effect_ledger import effect_env
+from tests.db_support import session_factory, share_factory
 
 
 @pytest.mark.asyncio

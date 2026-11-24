@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from core.db import engine as db_engine
+from tests.db_support import share_factory
 
 
 @pytest.fixture
@@ -17,7 +18,7 @@ def isolated_db(monkeypatch):
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
     factory = sessionmaker(bind=database)
-    monkeypatch.setattr(db_engine, "SessionLocal", factory)
+    share_factory(monkeypatch, factory)
     return database, factory
 
 

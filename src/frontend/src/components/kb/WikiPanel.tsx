@@ -26,6 +26,7 @@ import { WIKI_KNOWLEDGE_TYPES } from '../../types';
 import { mdToHtml } from '../../utils/markdown';
 import { WikiGraphView } from './WikiGraphView';
 import { WikiTree } from './WikiTree';
+import { t, tCtx } from '../../i18n';
 
 /**
  * 外接知识库的「知识 Wiki」视图。
@@ -47,13 +48,25 @@ type WikiView = 'browse' | 'graph';
 type SidebarTab = 'knowledge' | 'summary';
 
 const TYPE_LABELS: Record<string, string> = {
-  concept: '概念',
-  entity: '实体',
-  synthesis: '综述',
-  comparison: '对比',
-  summary: '文档摘要',
-  index: '索引',
+  concept: tCtx('wiki', '概念'),
+  entity: t('实体'),
+  synthesis: t('综述'),
+  comparison: t('对比'),
+  summary: t('文档摘要'),
+  index: t('索引'),
 };
+
+/** 把译文里的 {key} 占位换成 React 节点（加粗数字、代码示例等），中英文语序各自成立 */
+function fillSlot(template: string, node: React.ReactNode, key = 'n') {
+  const [before, after = ''] = template.split(`{${key}}`);
+  return (
+    <>
+      {before}
+      {node}
+      {after}
+    </>
+  );
+}
 
 interface WikiPanelProps {
   kbId: string;
@@ -132,7 +145,7 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
       setFlatPages(result.pages);
       setFlatTotal(result.total);
     } catch (e) {
-      message.error(`加载摘要列表失败：${(e as Error).message}`);
+      message.error(t('加载摘要列表失败：{msg}', { msg: (e as Error).message }));
       setFlatPages([]);
       setFlatTotal(0);
     } finally {
@@ -151,7 +164,7 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
         setPage(detail);
         readerRef.current?.scrollTo({ top: 0 });
       } catch (e) {
-        message.error(`打开页面失败：${(e as Error).message}`);
+        message.error(t('打开页面失败：{msg}', { msg: (e as Error).message }));
         setPage(null);
       } finally {
         setPageLoading(false);
@@ -171,7 +184,7 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
       const result = await searchWikiPages(kbId, keyword, 40);
       setSearchResults(result.pages);
     } catch (e) {
-      message.error(`检索失败：${(e as Error).message}`);
+      message.error(t('检索失败：{msg}', { msg: (e as Error).message }));
     } finally {
       setSearching(false);
     }
@@ -183,9 +196,9 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
     try {
       const result = await getWikiSourceChunks(kbId, activeSlug, 6);
       setSources(result.chunks);
-      if (!result.chunks.length) message.info('该页面暂未关联到可回溯的原文片段');
+      if (!result.chunks.length) message.info(t('该页面暂未关联到可回溯的原文片段'));
     } catch (e) {
-      message.error(`回溯原文失败：${(e as Error).message}`);
+      message.error(t('回溯原文失败：{msg}', { msg: (e as Error).message }));
     } finally {
       setSourceLoading(false);
     }
@@ -234,22 +247,22 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
     if (!stats) return [];
     const byType = stats.pages_by_type || {};
     const chips: Array<{ label: string; value: number }> = [
-      { label: '概念页', value: byType.concept || 0 },
-      { label: '实体页', value: byType.entity || 0 },
+      { label: t('概念页'), value: byType.concept || 0 },
+      { label: t('实体页'), value: byType.entity || 0 },
     ];
-    if (byType.synthesis) chips.push({ label: '综述', value: byType.synthesis });
-    if (byType.comparison) chips.push({ label: '对比', value: byType.comparison });
-    chips.push({ label: '文档摘要', value: byType.summary || 0 });
-    chips.push({ label: '关联链接', value: stats.total_links || 0 });
+    if (byType.synthesis) chips.push({ label: t('综述'), value: byType.synthesis });
+    if (byType.comparison) chips.push({ label: t('对比'), value: byType.comparison });
+    chips.push({ label: t('文档摘要'), value: byType.summary || 0 });
+    chips.push({ label: t('关联链接'), value: stats.total_links || 0 });
     return chips;
   }, [stats]);
 
   const tabDefs = useMemo(() => {
     const byType = stats?.pages_by_type || {};
-    const knowledge = WIKI_KNOWLEDGE_TYPES.reduce((sum, t) => sum + (byType[t] || 0), 0);
+    const knowledge = WIKI_KNOWLEDGE_TYPES.reduce((sum, type) => sum + (byType[type] || 0), 0);
     return [
-      { key: 'knowledge' as SidebarTab, label: '知识', count: knowledge },
-      { key: 'summary' as SidebarTab, label: '摘要', count: byType.summary || 0 },
+      { key: 'knowledge' as SidebarTab, label: t('知识'), count: knowledge },
+      { key: 'summary' as SidebarTab, label: t('摘要'), count: byType.summary || 0 },
     ];
   }, [stats]);
 
@@ -267,10 +280,10 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
           }}
           onPressEnter={() => void runSearch()}
           prefix={<SearchOutlined />}
-          placeholder="搜索概念、机构、制度…"
+          placeholder={t('搜索概念、机构、制度…')}
         />
         <Button type="primary" loading={searching} onClick={() => void runSearch()}>
-          检索
+          {t('检索')}
         </Button>
       </div>
 
@@ -284,7 +297,7 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
         }}
       >
         <AppstoreOutlined />
-        <span>索引总览</span>
+        <span>{t('索引总览')}</span>
         {stats ? (
           <span className="jx-wikiNavCount">{stats.total_pages.toLocaleString()}</span>
         ) : null}
@@ -293,7 +306,7 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
       {searchResults !== null ? (
         <>
           <div className="jx-wikiListMeta">
-            <span>检索到 {searchResults.length} 页</span>
+            <span>{t('检索到 {n} 页', { n: searchResults.length })}</span>
             <Button
               type="link"
               size="small"
@@ -302,16 +315,21 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
                 setSearchResults(null);
               }}
             >
-              返回目录
+              {t('返回目录')}
             </Button>
           </div>
           <div className="jx-wikiList">
             {searchResults.length === 0 ? (
               <div className="jx-wikiListEmpty">
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配的知识页" />
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('没有匹配的知识页')} />
                 <p className="jx-wikiListEmptyHint">
-                  Wiki 检索按字面匹配，口语化说法可能对不上。换更书面的术语试试，
-                  或一次给多个说法（如 <code>资质|牌照|证书</code>）。
+                  {fillSlot(
+                    t(
+                      'Wiki 检索按字面匹配，口语化说法可能对不上。换更书面的术语试试， 或一次给多个说法（如 {terms}）。',
+                    ),
+                    <code>{t('资质|牌照|证书')}</code>,
+                    'terms',
+                  )}
                 </p>
               </div>
             ) : (
@@ -325,7 +343,7 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
                 >
                   <div className="jx-wikiListItemTop">
                     <span className={`jx-wikiTypeTag jx-wikiTypeTag--${item.page_type}`}>
-                      {item.type_label || TYPE_LABELS[item.page_type] || '其他'}
+                      {item.type_label || TYPE_LABELS[item.page_type] || t('其他')}
                     </span>
                     <span className="jx-wikiListItemTitle">{item.title}</span>
                   </div>
@@ -337,7 +355,7 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
         </>
       ) : (
         <>
-          <div className="jx-wikiTypeFilter" role="tablist" aria-label="内容分类">
+          <div className="jx-wikiTypeFilter" role="tablist" aria-label={t('内容分类')}>
             {tabDefs.map((item) => (
               <button
                 key={item.key}
@@ -351,7 +369,7 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
                 {item.count ? <b>{item.count.toLocaleString()}</b> : null}
               </button>
             ))}
-            <Tooltip title="刷新">
+            <Tooltip title={t('刷新')}>
               <Button
                 type="text"
                 size="small"
@@ -382,7 +400,7 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
               </div>
             ) : flatPages.length === 0 ? (
               <div className="jx-wikiListEmpty">
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无文档摘要页" />
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('暂无文档摘要页')} />
               </div>
             ) : (
               <>
@@ -395,7 +413,7 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
                     onClick={() => void openPage(item.slug)}
                   >
                     <div className="jx-wikiListItemTop">
-                      <span className="jx-wikiTypeTag jx-wikiTypeTag--summary">文档摘要</span>
+                      <span className="jx-wikiTypeTag jx-wikiTypeTag--summary">{t('文档摘要')}</span>
                       <span className="jx-wikiListItemTitle">{item.title}</span>
                     </div>
                     {item.summary ? <p className="jx-wikiListItemDesc">{item.summary}</p> : null}
@@ -403,7 +421,10 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
                 ))}
                 {flatTotal > flatPages.length && (
                   <div className="jx-wikiTreeEmpty">
-                    仅显示前 {flatPages.length} / {flatTotal} 页，用搜索精确定位
+                    {t('仅显示前 {n} / {total} 页，用搜索精确定位', {
+                      n: flatPages.length,
+                      total: flatTotal,
+                    })}
                   </div>
                 )}
               </>
@@ -418,8 +439,8 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
     <article className="jx-wikiArticle">
       <div className="jx-wikiArticleHead">
         <h1 className="jx-wikiArticleTitle">
-          <span className="jx-wikiTypeTag jx-wikiTypeTag--index">索引</span>
-          {kbName} · 知识索引
+          <span className="jx-wikiTypeTag jx-wikiTypeTag--index">{t('索引')}</span>
+          {t('{name} · 知识索引', { name: kbName })}
         </h1>
       </div>
       {indexLoading ? (
@@ -427,7 +448,7 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
           <Spin />
         </div>
       ) : !indexData ? (
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无索引" />
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('暂无索引')} />
       ) : (
         <>
           {introHtml ? (
@@ -445,7 +466,7 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
                     {group.type_label || TYPE_LABELS[group.type] || group.type}
                   </span>
                   <span className="jx-wikiIndexGroupCount">
-                    共 {group.total.toLocaleString()} 页
+                    {t('共 {n} 页', { n: group.total.toLocaleString() })}
                   </span>
                 </h3>
                 <div className="jx-wikiIndexItems">
@@ -487,13 +508,13 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
           ) : null}
           <h1 className="jx-wikiArticleTitle">
             <span className={`jx-wikiTypeTag jx-wikiTypeTag--${page.page_type}`}>
-              {page.type_label || TYPE_LABELS[page.page_type] || '其他'}
+              {page.type_label || TYPE_LABELS[page.page_type] || t('其他')}
             </span>
             {page.title}
           </h1>
           {page.aliases?.length ? (
             <div className="jx-wikiAliases">
-              别名：
+              {t('别名：')}
               {page.aliases.map((alias) => (
                 <span key={alias}>{alias}</span>
               ))}
@@ -505,7 +526,7 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
 
         {page.related_pages?.length ? (
           <div className="jx-wikiRelated">
-            <h4>相关概念</h4>
+            <h4>{t('相关概念')}</h4>
             <div className="jx-wikiRelatedList">
               {page.related_pages.slice(0, 24).map((rel) => (
                 <button
@@ -525,26 +546,26 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
 
         <div className="jx-wikiSource">
           <div className="jx-wikiSourceHead">
-            <h4>原文出处</h4>
+            <h4>{t('原文出处')}</h4>
             <Button
               size="small"
               loading={sourceLoading}
               onClick={() => void loadSources()}
               disabled={!page.source_refs?.length}
             >
-              {sources ? '重新回溯' : '查看原文出处'}
+              {sources ? t('重新回溯') : t('查看原文出处')}
             </Button>
           </div>
           <p className="jx-wikiSourceHint">
             {page.source_refs?.length
-              ? '按页面记录的血缘坐标直接取回原始段落，不是重新检索——所以取到的就是这页依据的那几段。'
-              : '该页面没有记录来源坐标，无法回溯原文。'}
+              ? t('按页面记录的血缘坐标直接取回原始段落，不是重新检索——所以取到的就是这页依据的那几段。')
+              : t('该页面没有记录来源坐标，无法回溯原文。')}
           </p>
           {sources?.length ? (
             <ol className="jx-wikiSourceList">
               {sources.map((chunk) => (
                 <li key={chunk.chunk_id} className="jx-wikiSourceItem">
-                  <div className="jx-wikiSourceItemHead">{chunk.document_title || '原始文档'}</div>
+                  <div className="jx-wikiSourceItemHead">{chunk.document_title || t('原始文档')}</div>
                   <p className="jx-wikiSourceItemBody">{chunk.content}</p>
                 </li>
               ))}
@@ -568,7 +589,7 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
               onClick={() => setView('browse')}
             >
               <FileTextOutlined />
-              知识 Wiki
+              {t('知识 Wiki')}
             </button>
             <button
               type="button"
@@ -578,13 +599,13 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
               onClick={() => setView('graph')}
             >
               <NodeIndexOutlined />
-              概念图谱
+              {t('概念图谱')}
             </button>
           </div>
           {stats && (
             <div className="jx-wikiStats">
               <span className="jx-wikiStatsTotal">
-                <b>{stats.total_pages.toLocaleString()}</b> 个知识页
+                {fillSlot(t('{n} 个知识页'), <b>{stats.total_pages.toLocaleString()}</b>)}
               </span>
               {statChips.map((chip) => (
                 <span key={chip.label} className="jx-wikiStatChip">
@@ -596,8 +617,10 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
           )}
         </div>
         <p className="jx-wikiHeaderHint">
-          由大模型从《{kbName}》的文档中抽取概念并互相链接而成，是这个知识库的结构地图；
-          事实与出处请以每页底部回溯的原文为准。
+          {t(
+            '由大模型从《{name}》的文档中抽取概念并互相链接而成，是这个知识库的结构地图； 事实与出处请以每页底部回溯的原文为准。',
+            { name: kbName },
+          )}
         </p>
       </header>
 
@@ -618,10 +641,11 @@ export function WikiPanel({ kbId, kbName }: WikiPanelProps) {
                 <div className="jx-wikiReaderPlaceholderIcon">
                   <FileTextOutlined />
                 </div>
-                <h3>从左侧选择一个知识页</h3>
+                <h3>{t('从左侧选择一个知识页')}</h3>
                 <p>
-                  概念页解释「是什么」，实体页记录具体的机构、文件与制度，
-                  文档摘要则对应一篇原始文档。页面之间的蓝色链接可以直接跳转。
+                  {t(
+                    '概念页解释「是什么」，实体页记录具体的机构、文件与制度， 文档摘要则对应一篇原始文档。页面之间的蓝色链接可以直接跳转。',
+                  )}
                 </p>
               </div>
             )}

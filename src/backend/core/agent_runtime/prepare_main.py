@@ -17,7 +17,7 @@ import core.agent_runtime.targets as targets
 import core.capabilities.catalog.resolver as catalog_resolver
 import core.llm.factory as factory
 from core.agent_runtime.main_state import MainTurn
-from core.db.threads import run_in_session
+from core.db.threads import run_db, run_in_session
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +94,7 @@ async def prepare_main(turn: MainTurn):
     _plan_chat = bool(turn.context.get("plan_chat", False))
     # 极速模式：配置化检索工具集 + 独立 turbo 提示词 + 迭代硬上限。
     # plan 会话有自己的编排语义，不进入极速裁剪。
-    _stream_mode_spec = targets._resolve_mode_spec(turn.context)
+    _stream_mode_spec = await run_db(targets._resolve_mode_spec, turn.context)
     _turbo_chat = _stream_mode_spec is not None and _stream_mode_spec.restricted and not _plan_chat
     if _turbo_chat:
         # 收窄模式下子智能体不再只靠手动呼唤入场：模式自己圈定的那批常驻，

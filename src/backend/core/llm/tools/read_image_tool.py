@@ -21,7 +21,7 @@ from agentscope.tool import Toolkit
 from core.projects.edition import ProjectScope
 from core.models.vision import VisionMode
 
-from ._common import ToolChunk, resolve_sandbox_session, resp_image, resp_json
+from ._common import ToolChunk, read_local_bytes, resolve_sandbox_session, resp_image, resp_json
 from core.sandbox.workspace.resolution import to_physical_path, validate_project_scope_path, validate_workspace_path
 
 logger = logging.getLogger(__name__)
@@ -216,8 +216,7 @@ async def _read_path_bytes(
             from core.sandbox.permissions.dispatch_models import PermissionEnforcementError, require_local_path_permission
 
             require_local_path_permission(physical, "read")
-            with open(physical, "rb") as handle:
-                return handle.read()
+            return await read_local_bytes(physical)
         except PermissionEnforcementError as exc:
             logger.warning("[read_image] permission denied %s: %s", physical, exc)
             return None

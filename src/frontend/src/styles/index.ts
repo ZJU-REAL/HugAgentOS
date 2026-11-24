@@ -13,6 +13,7 @@ import './catalog.css';
 import './device-capability.css';
 import './kb-wiki.css';
 import './common.css';
+import './form-layout.css';
 import './settings.css';
 import './mcp.css';
 import './myspace.css';

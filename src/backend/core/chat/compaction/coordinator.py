@@ -13,6 +13,7 @@ from core.llm.context import budget
 from core.chat.compaction import summary as summary_model
 from core.chat.compaction.history import normalize_rows
 from core.chat.compaction.progress import finish_progress, report_outcome, start_progress
+from core.db.threads import run_db
 
 logger = logging.getLogger(__name__)
 
@@ -200,7 +201,7 @@ class CompactionCoordinator:
             if "system_prompt" not in inputs:
                 from core.chat.compaction.summary import _load_base_system_prompt
 
-                inputs["system_prompt"] = _load_base_system_prompt()
+                inputs["system_prompt"] = await run_db(_load_base_system_prompt)
             estimate = budget.estimate_context_budget(**inputs)
             active_tokens = estimate["total_estimated_tokens"]
             measured_tokens = -1

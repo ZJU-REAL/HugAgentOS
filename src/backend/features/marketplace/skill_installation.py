@@ -161,10 +161,9 @@ def install_marketplace_skill(
         ))
         action = "installed"
     db.commit()
-    # Strict dependency verdicts happen at the async route layer (gate_skill_deps
-    # needs to actually run probes in the sandbox; this function is synchronous).
-    # Here we only carry the declared dependencies out with the result; the route
-    # awaits the probe → decides installing/ready.
+    # Marketplace skill dependencies are managed on the admin side (a sandbox
+    # rebuild installs them), so no per-user dependency gate runs. The declared
+    # dependencies are only carried out with the result.
     # Assign the installed skill a built-in icon by category (users/admins can change it later in skill editing).
     try:
         from core.capabilities.skills.icons import get_skill_icon, preset_for_category, set_skill_icon
@@ -183,7 +182,7 @@ def install_marketplace_skill(
         "owner": "self" if owner_user_id else "global",
         "action": action,
         "dependencies": dependencies,
-        # dep_pending / message are filled in by the route layer after awaiting gate_skill_deps (strict probe result).
+        # Marketplace installs never wait on a dependency gate.
         "dep_pending": False,
         "message": "技能已安装" if action == "installed" else "技能已更新",
     }

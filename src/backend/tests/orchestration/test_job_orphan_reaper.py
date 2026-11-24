@@ -166,7 +166,6 @@ def test_explicit_env_wins_and_skips_probing(monkeypatch):
 
 def test_probe_picks_the_reachable_base(monkeypatch):
     monkeypatch.delenv("JOB_CALLBACK_URL", raising=False)
-    monkeypatch.setattr(jr, "_resolved_callback_base", None, raising=False)
 
     async def fake_bash(cmd, *, session_id, user_id, timeout=60):
         return 0, "PICK http://backend:8011\n", ""
@@ -184,7 +183,6 @@ def test_unreachable_callback_refuses_to_start(monkeypatch):
     "启动成功但永远没有进度"是最贵的失败形态：用户会等上几个小时才发现什么都没发生。
     """
     monkeypatch.delenv("JOB_CALLBACK_URL", raising=False)
-    monkeypatch.setattr(jr, "_resolved_callback_base", None, raising=False)
 
     async def fake_bash(cmd, *, session_id, user_id, timeout=60):
         return 0, "NONE\n", ""

@@ -17,6 +17,7 @@ console's user, team, and role management panels:
 | ``can_add_agent``   | bool | ``False``      | Build or import own sub-agents, submit them to the sub-agent marketplace |
 | ``can_install_market_agent`` | bool | ``False`` | Install sub-agents from the sub-agent marketplace |
 | ``can_switch_model`` | bool | ``False``     | User-side chat model switching                 |
+| ``can_use_evaluation`` | bool | ``False``   | Task evaluation card, reminder and history marks |
 | ``can_use_personal_agent`` | bool | ``False`` | EE account permission for the shared Personal Agent module |
 | ``allowed_apps``    | list/None | ``None``  | App visibility whitelist (``None`` = all enabled apps) |
 
@@ -99,6 +100,8 @@ BOOL_CAPABILITY_DEFAULTS: Dict[str, bool] = {
     "can_create_channel_bot": False,
     "can_switch_model": False,
     "can_use_voice": False,  # Dictation is opt-in, including for administrators.
+    # 会话评价：评价卡片（采纳 / 需修改 / 不满意）、「温馨提醒」浮窗与历史对话待评价标记。
+    "can_use_evaluation": False,
     "can_run_autonomous_loop": True,  # long-running autonomous loop (open in CE, enabled by default, can be disabled per user/team)
     # 自定义对话模式：授予后「设置 → 模式选择」出现，可自建仅本人可见的模式
     "can_manage_chat_modes": False,

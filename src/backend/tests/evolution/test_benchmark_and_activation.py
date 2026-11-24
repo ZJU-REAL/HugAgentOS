@@ -1,4 +1,4 @@
-"""Benchmark harness, context-scoped ordering rules, and materialisation.
+"""Context-scoped ordering rules and materialisation.
 
 These cover the mechanism the before/after benchmark exposed: the loop produced
 candidates but nothing reached the runtime, and once it did, transfer was
@@ -9,7 +9,6 @@ from core.evolution.cycle import promotion_types as promotion_types_module
 
 import pytest
 
-from core.evolution.assessment import benchmark as B
 from core.evolution.cycle import promotion as P
 
 
@@ -111,83 +110,3 @@ def test_constraints_reorder_only_what_they_constrain():
     # Unconstrained pairs keep their relative order — applying one rule must not
     # silently reshuffle everything else.
     assert ordered.index("chart") < ordered.index("export")
-
-
-# ── Benchmark harness integrity ──────────────────────────────────────────────
-
-
-def test_task_set_includes_distractors_and_a_trap():
-    families = {t.family for t in B.build_task_set()}
-    # Without these the benchmark could only ever succeed.
-    assert "kb_qa" in families
-    assert "trap" in families
-
-
-def test_the_trap_has_passes_to_lose():
-    """A trap whose tasks all fail anyway cannot detect over-generalisation."""
-    summary = B.ArmSummary("base", B.run_arm(B.build_task_set(), {}))
-    trap = summary.by_family()["trap"]
-    assert 0 < trap["passed"] < trap["total"]
-
-
-def test_a_memorised_sequence_does_not_claim_a_subset_task():
-    """The over-generalisation the trap caught: subset matching imposed a
-    skill's ordering on tasks where the opposite order is correct."""
-    tasks = [t for t in B.build_task_set() if t.family == "trap"]
-    skills = {"evo-report": ["company_verify", "db_query", "chart_render", "doc_export"]}
-    results = B.run_arm(tasks, skills)
-    assert all(r.used_skill is None for r in results)
-
-
-def test_an_exact_tool_set_match_does_use_the_sequence():
-    tasks = [t for t in B.build_task_set() if t.family == "industry_report"]
-    skills = {"evo-report": ["company_verify", "db_query", "chart_render", "doc_export"]}
-    results = B.run_arm(tasks, skills)
-    assert all(r.used_skill == "evo-report" and r.success for r in results)
-
-
-def test_rules_earn_credit_only_by_correcting_a_wrong_plan():
-    """Applying rules to the declared tool list flattered them: that list was
-    already correctly ordered, so a rule scored a pass without doing work."""
-    tasks = [t for t in B.build_task_set() if t.family == "finance"]
-    unhelpful = promotion_types_module.OrderingConstraint(
-        before="risk_score", after="nonexistent", support=9, contexts=2
-    )
-    results = B.run_arm(tasks, {}, ordering_rules=[unhelpful])
-    assert all(r.used_skill is None for r in results)
-
-
-def test_comparison_flags_distractor_contamination():
-    tasks = B.build_task_set()
-    before = B.ArmSummary("before", B.run_arm(tasks, {}))
-    after = B.ArmSummary("after", list(before.results))
-    # Hand-alter a distractor result: the comparison must call the run invalid.
-    for index, result in enumerate(after.results):
-        if result.family == "kb_qa":
-            after.results[index] = B.RunResult(
-                task_id=result.task_id,
-                family=result.family,
-                success=not result.success,
-                order=result.order,
-            )
-            break
-    verdict = B.compare(before, after)
-    assert verdict["distractor_contaminated"] is True
-    assert verdict["valid"] is False
-
-
-def test_comparison_reports_regressions_explicitly():
-    tasks = B.build_task_set()
-    before = B.ArmSummary("before", B.run_arm(tasks, {}))
-    after = B.ArmSummary(
-        "after",
-        [
-            B.RunResult(r.task_id, r.family, False, r.order)
-            if r.family == "trap"
-            else r
-            for r in before.results
-        ],
-    )
-    verdict = B.compare(before, after)
-    assert verdict["regressed_tasks"] > 0
-    assert verdict["regressions"]

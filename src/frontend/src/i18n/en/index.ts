@@ -23,6 +23,10 @@ import { ONBOARDING_DICT } from './onboarding';
 import { APPLICATION_HOSTING_DICT } from './applicationHosting';
 import { CE_SHARED_DICT } from './ceShared';
 import { SIDEBAR_LAYOUT_DICT } from './sidebarLayout';
+import { WIKI_DICT } from './wiki';
+import { COMPONENTS_MISC_DICT } from './componentsMisc';
+import { COMPONENTS_REFACTOR_DICT } from './componentsRefactor';
+import { FORM_LAYOUT_DICT } from './formLayout';
 
 export const EN_DICT: Record<string, string> = {
   ...PERSONAL_AGENT_DICT,
@@ -49,4 +53,8 @@ export const EN_DICT: Record<string, string> = {
   ...CE_SHARED_DICT,
   ...SIDEBAR_LAYOUT_DICT,
   ...APPLICATION_HOSTING_DICT,
+  ...WIKI_DICT,
+  ...COMPONENTS_MISC_DICT,
+  ...COMPONENTS_REFACTOR_DICT,
+  ...FORM_LAYOUT_DICT,
 };

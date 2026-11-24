@@ -115,3 +115,74 @@
     padding: 16px;
   }
 }
+
+/* 知识库权限弹窗：搜索框与说明同一行，放不下时说明换到下一行 */
+.jx-kbGrants-toolbar{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px 16px;
+  margin-bottom:12px;
+}
+.jx-kbGrants-search{
+  flex:0 1 280px;
+  min-width:200px;
+}
+.jx-kbGrants-hint{
+  flex:1 1 260px;
+  min-width:0;
+  font-size:12px;
+}
+.jx-kbGrants-help{
+  margin-left:4px;
+  color:var(--color-text-tertiary);
+  cursor:help;
+}
+
+/* 蒸馏同事技能弹窗：侧重输入 + 开关 + 开始按钮一行；作业列表限高；详情的落库操作放进页脚 */
+.jx-distill-help{
+  margin-left:4px;
+  color:var(--color-text-tertiary);
+  cursor:help;
+}
+.jx-distill-createRow{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px 16px;
+}
+.jx-distill-hint{
+  flex:1 1 max(260px, 40%);
+  min-width:0;
+}
+.jx-distill-createActions{
+  display:flex;
+  flex:none;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px 16px;
+  max-width:100%;
+  margin-left:auto;
+}
+.jx-distill-jobs{
+  display:flex;
+  flex-direction:column;
+  max-height:clamp(220px, calc(100vh - 440px), 400px);
+  overflow-y:auto;
+}
+.jx-distill-footer{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px 16px;
+}
+.jx-distill-saveActions{
+  display:flex;
+  flex:none;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px 16px;
+  max-width:100%;
+  margin-left:auto;
+}

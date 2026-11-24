@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.db.engine import SessionLocal
-from features.desktop.capability.configs import _EFFECTIVE_TTL_S, _effective_lock
+from features.desktop.capability.configs import _EFFECTIVE_TTL_S, _effective_lock, _ttl_put
 from core.capabilities.manifest_protocol import build_skill_manifest, skill_content_hash
 
 # ── 技能清单 / 技能包（云端为真源，本机只缓存文件快照） ───────────────────
@@ -105,7 +105,7 @@ def build_user_skill_manifest(user_id: str, *, use_cache: bool = True) -> Dict[s
         )
     manifest = build_skill_manifest(skills)
     with _effective_lock:
-        _skill_manifest_cache[uid] = (now, copy.deepcopy(manifest))
+        _ttl_put(_skill_manifest_cache, uid, (now, copy.deepcopy(manifest)), now)
     return manifest
 
 

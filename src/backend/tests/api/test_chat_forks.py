@@ -7,6 +7,7 @@ from core.db.models import ChatCompactionState, ChatMessage, ChatRun, ChatSessio
 from core.chat.service import ChatService
 from core.chat.compaction.service import load_session_history
 from tests.api.chat_fork_fixtures import fork_env  # noqa: F401
+from tests.db_support import share_factory
 
 
 def test_fork_copies_prefix_as_independent_replayable_history(fork_env):
@@ -297,7 +298,7 @@ def test_long_history_is_not_limited_to_ui_page(fork_env, monkeypatch):
     from core.db import engine as engine_module
     from core.chat.compaction import service as compaction
 
-    monkeypatch.setattr(engine_module, "SessionLocal", sessions)
+    share_factory(monkeypatch, sessions)
     monkeypatch.setattr(
         config_settings,
         "settings",
@@ -407,7 +408,7 @@ def test_next_turn_collects_inherited_attachment_context(fork_env, monkeypatch):
             )
         )
         db.commit()
-    monkeypatch.setattr(engine_module, "SessionLocal", sessions)
+    share_factory(monkeypatch, sessions)
     cid = fork(client, through_message_id="a1").json()["data"]["chat_id"]
     attachments = collect_historical_attachments(cid, "owner", set())
     assert len(attachments) == 1

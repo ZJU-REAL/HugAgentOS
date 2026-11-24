@@ -18,6 +18,7 @@ import { ABILITY_TAB_TITLE } from './abilityTabs';
 import { PluginIconPicker } from './PluginIconPicker';
 import { CardTail } from '../common/CardTail';
 import { sortCapabilitiesByCreation } from '../../utils/capabilityOrder';
+import { COMPACT_MODAL_PROPS } from '../common/modalLayout';
 import {
   listPlugins, getInstalledPluginDetail,
   installPlugin, importPlugin, uninstallPlugin, setPluginEnabled, setInstalledPluginMeta,
@@ -40,8 +41,8 @@ export function PluginsPage() {
   // CE 无用户/管理员体系，全局安装的默认插件不标「管理员」
   const isCE = useEditionStore((s) => s.edition === 'ce');
   const { title, subtitle } = usePanelHeader('plugins', {
-    title: ABILITY_TAB_TITLE.plugins,
-    subtitle: '插件把成套的技能与连接器打包成一个整体，安装后即可整组启用。',
+    title: t(ABILITY_TAB_TITLE.plugins),
+    subtitle: t('插件把成套的技能与连接器打包成一个整体，安装后即可整组启用。'),
   });
 
   const [loading, setLoading] = useState(false);
@@ -359,7 +360,7 @@ export function PluginsPage() {
       {/* Display metadata edit modal (my imported/private plugins) */}
       <Modal open={!!metaTarget} title={t('编辑展示信息：{name}', { name: metaTarget?.name || '' })}
         onCancel={() => setMetaTarget(null)} onOk={() => void submitMeta()} confirmLoading={metaBusy}
-        okText={t('保存')} width={440} destroyOnClose>
+        okText={t('保存')} width={440} destroyOnHidden>
         <Form form={metaForm} layout="vertical">
           <Form.Item name="icon" label={t('图标')}>
             <PluginIconPicker />
@@ -405,7 +406,7 @@ export function PluginsPage() {
       {/* Credentials modal */}
       <Modal open={!!secretPlugin} title={t('配置凭据：{name}', { name: secretPlugin?.name || '' })}
         onCancel={() => setSecretPlugin(null)} onOk={() => void submitSecretInstall()}
-        confirmLoading={!!busySlug} okText={t('安装')} destroyOnClose>
+        confirmLoading={!!busySlug} okText={t('安装')} destroyOnHidden>
         <Form form={secretForm} layout="vertical">
           {(secretPlugin?.secrets || []).map((f) => (
             <Form.Item key={f.key} name={f.key} label={f.label || f.key}
@@ -419,7 +420,7 @@ export function PluginsPage() {
       {/* Import report modal */}
       <Modal open={!!report} title={t('导入报告：{name}', { name: report?.name || '' })}
         onCancel={() => setReport(null)}
-        footer={<Button type="primary" onClick={() => setReport(null)}>{t('知道了')}</Button>} width={560}>
+        footer={<Button type="primary" onClick={() => setReport(null)}>{t('知道了')}</Button>} width={560} {...COMPACT_MODAL_PROPS}>
         {report && <ImportReportView report={report.report} />}
       </Modal>
     </motion.div>
@@ -444,7 +445,7 @@ function ReportGroup({ icon, title, rows }: { icon: React.ReactNode; title: stri
   return (
     <div style={{ marginBottom: 14 }}>
       <div style={{ fontWeight: 600, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>{icon}{title}（{rows.length}）</div>
-      <ul style={{ margin: 0, paddingLeft: 22, color: 'var(--color-text-secondary)', fontSize: 13 }}>
+      <ul style={{ margin: 0, paddingLeft: 22, color: 'var(--color-text-secondary)', fontSize: 13, maxHeight: 200, overflowY: 'auto' }}>
         {rows.map((r, i) => <li key={i}>{r}</li>)}
       </ul>
     </div>

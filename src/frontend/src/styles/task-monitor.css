@@ -235,6 +235,17 @@
 .jx-tmSignal { display: flex; align-items: center; gap: 2px; padding: 4px 10px; border-radius: var(--radius-xs); background: var(--color-bg-layout); font-size: 0.75rem; color: var(--color-text-secondary); }
 .jx-tmSignal b { margin-left: auto; padding-left: 8px; font-weight: 600; color: var(--color-text); }
 
+/* User evaluation detail (需修改 / 不满意): problems picked, the user's note, when. */
+.jx-tmFeedback { display: grid; gap: 4px; margin: 0; padding: 8px 12px; border-radius: var(--radius-xs); background: var(--color-fill); font-size: 0.8125rem; }
+.jx-tmFeedback-row { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.jx-tmFeedback dt { color: var(--color-text-tertiary); }
+.jx-tmFeedback dd { margin: 0; display: flex; flex-wrap: wrap; gap: 4px; color: var(--color-text); word-break: break-word; }
+.jx-tmFeedback-reason { padding: 0 8px; line-height: 22px; border-radius: var(--radius-xs); background: var(--color-primary-bg); color: var(--color-primary-text); }
+.jx-tmFeedback-comment { white-space: pre-wrap; }
+.jx-tmFeedback-time { color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
+.jx-tmQgrid > .jx-tmQgrid-block { display: block; }
+.jx-tmRowIndent { margin: 2px 0 8px 46px; }
+
 /* Modals */
 .jx-tmCarried { margin-bottom: 16px; padding: 12px; border-radius: var(--radius-sm); background: var(--color-bg-layout); font-size: 0.8125rem; }
 .jx-tmCarried-h { margin-bottom: 8px; font-size: 0.75rem; font-weight: 600; color: var(--color-text-secondary); }
@@ -271,3 +282,9 @@
 .jx-ticketAdmin-form { display: grid; grid-template-columns: 80px 1fr; gap: 12px 16px; align-items: center; }
 .jx-ticketAdmin-form label { color: var(--color-text-secondary); }
 .jx-ticketAdmin-form label[for="ticket-note"] { align-self: start; padding-top: 4px; }
+
+/* 纠错工单弹窗：执行轨迹步骤多时只占两行高度，其余在框内滚动 */
+.jx-tmTicketForm .jx-tmTrail{
+  max-height:48px;
+  overflow-y:auto;
+}

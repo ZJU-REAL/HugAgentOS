@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Button, message, Modal, Popover, Select, Space, Upload } from 'antd';
 import { CloudUploadOutlined } from '@ant-design/icons';
 import { t } from '../../i18n';
-import { ADMIN_STORAGE_KEY, API_BASE, CONFIG_STORAGE_KEY } from '../../utils/adminApi';
-import { createApiResponseError } from '../../utils/apiError';
+import {
+  ADMIN_STORAGE_KEY, CONFIG_STORAGE_KEY, adminDownload, adminFetch, configDownload, configFetch,
+} from '../../utils/adminApi';
 
 type Kind = 'skill' | 'plugin' | 'agent' | 'connector';
 interface Versions {
@@ -23,16 +24,16 @@ export function MarketVersionControls({ kind, slug, token, onChanged }: {
   const [open, setOpen] = useState(false);
   const lock = useRef(false);
   const endpoint = `/v1/admin/marketplace-versions/${kind}/${encodeURIComponent(slug)}`;
+  // Connectors live in the Config console, everything else in Admin: same token and fetch as that console.
+  const consoleAuth = useCallback(
+    () => token ?? localStorage.getItem(kind === 'connector' ? CONFIG_STORAGE_KEY : ADMIN_STORAGE_KEY) ?? '',
+    [kind, token],
+  );
   const request = useCallback(async (suffix = '', init?: RequestInit) => {
-    const auth = token ?? localStorage.getItem(kind === 'connector' ? CONFIG_STORAGE_KEY : ADMIN_STORAGE_KEY) ?? '';
-    const res = await fetch(API_BASE + endpoint + suffix, {
-      ...init, credentials: 'include',
-      headers: { ...(auth ? { Authorization: `Bearer ${auth}` } : {}), ...init?.headers },
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw createApiResponseError(res.status, body, `HTTP ${res.status}`);
+    const consoleFetch = kind === 'connector' ? configFetch : adminFetch;
+    const body = await consoleFetch(consoleAuth(), endpoint + suffix, init);
     return body.data as Versions;
-  }, [endpoint, kind, token]);
+  }, [consoleAuth, endpoint, kind]);
   const load = useCallback(async () => {
     try { setData(await request()); setError(''); }
     catch (e) { setError((e as Error).message); }
@@ -76,17 +77,15 @@ export function MarketVersionControls({ kind, slug, token, onChanged }: {
           value: v.id, label: `v${v.version}${v.current ? ' · ' + t('当前') : ''}`,
         }))} />
       <Popover trigger="click" open={open} onOpenChange={setOpen} title={t('更新版本')}
-        content={<Space direction="vertical" style={{ width: 300 }}>
+        content={<Space orientation="vertical" style={{ width: 300 }}>
           <span>{t('ZIP ≤20 MiB；解压 ≤50 MiB；禁止凭据文件。')}</span>
           <Button size="small" onClick={async () => {
-            const auth = token ?? localStorage.getItem(kind === 'connector' ? CONFIG_STORAGE_KEY : ADMIN_STORAGE_KEY) ?? '';
-            const res = await fetch(API_BASE + endpoint + '/package', {
-              credentials: 'include', headers: auth ? { Authorization: `Bearer ${auth}` } : {},
-            });
-            if (!res.ok) { setError(t('下载失败')); return; }
-            const url = URL.createObjectURL(await res.blob());
-            const a = document.createElement('a'); a.href = url; a.download = slug + '.zip'; a.click();
-            URL.revokeObjectURL(url);
+            const download = kind === 'connector' ? configDownload : adminDownload;
+            try {
+              await download(consoleAuth(), endpoint + '/package', slug + '.zip');
+            } catch {
+              setError(t('下载失败'));
+            }
           }}>{t('下载当前版本包')}</Button>
           <Select aria-label={t('版本递增方式')} value={bump} onChange={setBump} style={{ width: '100%' }}
             options={[{ value: 'patch', label: t('补丁版本 +1') },
@@ -100,7 +99,7 @@ export function MarketVersionControls({ kind, slug, token, onChanged }: {
               }
               setError(''); setFile(f); return false;
             }}><Button icon={<CloudUploadOutlined />}>{t('选择 ZIP')}</Button></Upload>
-          {error && <Alert type="error" message={error} />}
+          {error && <Alert type="error" title={error} />}
           <Button type="primary" loading={busy} disabled={!file || !data} onClick={upload}>{t('上传并更新')}</Button>
           {error && <Button size="small" onClick={() => void load()}>{t('刷新版本')}</Button>}
         </Space>}>

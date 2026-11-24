@@ -34,9 +34,13 @@ import {
 } from '../../api';
 import type { McpMarketItem } from '../../types';
 import { OAUTH_CANCELLED, runMcpOAuthPopup, type McpOAuthAttempt } from './mcpOAuthPopup';
+import { FormGrid } from '../common/FormLayout';
+import { COMPACT_MODAL_PROPS } from '../common/modalLayout';
 import { normalizeMcpIconUrl } from '../../utils/iconLibrary';
 
 const PAGE_SIZE = 10;
+/** 分类筛选「全部」的哨兵值：不参与显示，渲染时用 t('全部')。 */
+const ALL_CATEGORIES = '__all__';
 const OAUTH_STAGE_HINTS: Record<string, string> = {
   starting: '正在等待授权页准备就绪…',
   waiting_for_user: '请在新标签页完成登录授权…',
@@ -68,7 +72,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
   const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState('');
-  const [category, setCategory] = useState('全部');
+  const [category, setCategory] = useState(ALL_CATEGORIES);
   const [page, setPage] = useState(1);
   const [detail, setDetail] = useState<McpMarketItem | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -85,12 +89,25 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
     return method?.type === 'oauth2' ? method : undefined;
   }, [installTarget, selectedAuthMethod]);
   const oauthAttemptRef = useRef<McpOAuthAttempt | null>(null);
+  const installCredentialFields = useMemo(() => (
+    installTarget?.credentials_managed_by_admin ? [] : (installTarget?.auth_schema || []).filter((field) => (
+      !field.methods?.length || field.methods.includes(selectedAuthMethod || installTarget?.auth_config?.default_method)
+    ))
+  ), [installTarget, selectedAuthMethod]);
+  // More than two inputs: widen and pair them so the dialog stays one screen tall.
+  const installWide = installCredentialFields.length
+    + (selectedOAuthMethod?.client_id_required ? 1 : 0)
+    + (selectedOAuthMethod?.client_secret_required ? 1 : 0) > 2;
 
   const reload = useCallback(async () => {
     setLoading(true);
     try {
       const result = await getMcpMarketItems();
-      setItems(result.items || []);
+      // Order: not installed → installed → system-provided ("系统已提供", same condition as the
+      // disabled button) last; stable sort keeps backend order within each group. Sorted on load
+      // only, so a card doesn't jump away right after it is installed.
+      const rank = (m: McpMarketItem) => (m.system_provided && !m.requires_user_credentials ? 2 : m.installed ? 1 : 0);
+      setItems([...(result.items || [])].sort((a, b) => rank(a) - rank(b)));
       setCategories(result.categories || []);
     } catch (error) {
       message.error((error as Error).message || t('加载 MCP 市场失败'));
@@ -102,7 +119,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
   useEffect(() => {
     if (!open) return;
     setQuery('');
-    setCategory('全部');
+    setCategory(ALL_CATEGORIES);
     setPage(1);
     setDetail(null);
     void reload();
@@ -122,7 +139,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     return items.filter((item) => {
-      if (category !== '全部' && item.category !== category) return false;
+      if (category !== ALL_CATEGORIES && item.category !== category) return false;
       if (!keyword) return true;
       return `${item.display_name} ${item.description} ${item.tags.join(' ')} ${item.publisher_name}`
         .toLowerCase()
@@ -270,7 +287,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
               <div className="jx-mcp-marketDetailInfo">
                 <Typography.Title level={4}>{detail.display_name}</Typography.Title>
                 <div>
-                  <Tag>{detail.category}</Tag>
+                  <Tag>{t(detail.category)}</Tag>
                   <Tag color={detail.source === 'admin' ? 'blue' : 'purple'}>
                     {detail.source === 'admin' ? t('平台精选') : t('社区共享')}
                   </Tag>
@@ -319,7 +336,10 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
               <Select
                 value={category}
                 onChange={setCategory}
-                options={['全部', ...categories].map((value) => ({ value, label: value }))}
+                options={[
+                  { value: ALL_CATEGORIES, label: t('全部') },
+                  ...categories.map((value) => ({ value, label: t(value) })),
+                ]}
               />
             </div>
             {loading ? (
@@ -366,6 +386,8 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
 
       <Modal
         open={!!installTarget}
+        width={installWide ? 720 : 520}
+        {...COMPACT_MODAL_PROPS}
         title={installTarget ? t('安装「{name}」', { name: installTarget.display_name }) : ''}
         onCancel={cancelInstall}
         onOk={() => void submitInstall()}
@@ -387,7 +409,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
             style={{ marginBottom: 16 }}
             type="info"
             showIcon
-            message={installTarget.listing_notice.install_notice}
+            title={installTarget.listing_notice.install_notice}
           />
         )}
         {installing && OAUTH_STAGE_HINTS[oauthStage] && (
@@ -396,8 +418,9 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
           </Typography.Paragraph>
         )}
         <Form form={installForm} layout="vertical">
+          <FormGrid cols={2} className={installWide ? undefined : 'jx-formGrid--single'}>
           {!installTarget?.credentials_managed_by_admin && (installTarget?.auth_config?.methods?.length || 0) > 1 && (
-            <Form.Item name="auth_method" label={t('认证方式')} rules={[{ required: true }]}>
+            <Form.Item name="auth_method" label={t('认证方式')} className="jx-formGrid-full" rules={[{ required: true }]}>
               <Select options={installTarget?.auth_config.methods.map((method) => ({
                 value: method.id,
                 label: method.label,
@@ -414,9 +437,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
               <Input.Password autoComplete="new-password" />
             </Form.Item>
           )}
-          {!installTarget?.credentials_managed_by_admin && (installTarget?.auth_schema || []).filter((field) => (
-            !field.methods?.length || field.methods.includes(selectedAuthMethod || installTarget?.auth_config?.default_method)
-          )).map((field) => (
+          {installCredentialFields.map((field) => (
             <Form.Item
               key={field.key}
               name={['credentials', field.key]}
@@ -434,6 +455,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
                 : <Input placeholder={field.placeholder} />}
             </Form.Item>
           ))}
+          </FormGrid>
         </Form>
       </Modal>
     </>

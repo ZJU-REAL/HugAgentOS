@@ -2,11 +2,6 @@
 
 /* Detail top: arrow (outside) + content (840px) */
 
-.jx-sk-detailTop {
-  display: flex;
-  align-items: flex-start;
-}
-
 .jx-sk-backBtn {
   appearance: none;
   border: none;
@@ -27,25 +22,6 @@
   color: var(--color-text);
 }
 
-.jx-sk-detailContent {
-  flex: 1;
-  min-width: 0;
-  max-width: 840px;
-}
-
-.jx-sk-detailNameRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.jx-sk-detailNameLeft {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
 .jx-sk-detailName {
   font-size: 19px;
   font-weight: 520;
@@ -56,20 +32,6 @@
 
 .jx-sk-detailBody {
   line-height: 1.82;
-}
-
-.jx-sk-detailSubtitle {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--color-text);
-  margin: 0 0 8px;
-}
-
-.jx-sk-detailDesc {
-  font-size: 15px;
-  color: var(--color-text-secondary);
-  line-height: 1.82;
-  margin: 0 0 20px;
 }
 
 .jx-sk-detailMarkdown {
@@ -222,12 +184,6 @@
   margin-bottom: 20px;
 }
 
-.jx-sk-divider {
-  border: none;
-  border-top: 1px solid var(--color-border);
-  margin: 0 0 20px;
-}
-
 /* ── Metadata card ──────────────────────────────────────────────── */
 
 .jx-sk-metaCard {
@@ -302,4 +258,54 @@
 
 .jx-sk-stickyBody {
   padding: 20px 0 60px;
+}
+
+/* ── Hand-write / edit skill modal (SkillEditorDialogs): meta fields left, SKILL.md body right ── */
+.jx-skillHandwrite{
+  display:grid;
+  grid-template-columns:minmax(0,5fr) minmax(0,6fr);
+  column-gap:24px;
+  align-items:stretch;
+}
+.jx-skillHandwrite-body{
+  display:flex;
+  flex-direction:column;
+}
+.jx-skillHandwrite-body .ant-form-item-row,
+.jx-skillHandwrite-body .ant-form-item-control,
+.jx-skillHandwrite-body .ant-form-item-control-input,
+.jx-skillHandwrite-body .ant-form-item-control-input-content{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  /* antd centres the control row; stretch so the textarea fills the column width. */
+  align-items:stretch;
+}
+.jx-skillHandwrite-body textarea.ant-input{
+  flex:1;
+  min-height:320px;
+  resize:vertical;
+}
+.jx-skillHandwrite-filesHead{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px 12px;
+  margin-bottom:8px;
+}
+.jx-skillHandwrite-filesHint{
+  flex:1 1 max(260px,50%);
+  min-width:0;
+  font-size:12px;
+}
+.jx-skillHandwrite-filesActions{
+  display:flex;
+  flex:none;
+  flex-wrap:wrap;
+  gap:8px;
+  max-width:100%;
+  margin-left:auto;
+}
+@media (max-width:760px){
+  .jx-skillHandwrite{ grid-template-columns:minmax(0,1fr); }
 }

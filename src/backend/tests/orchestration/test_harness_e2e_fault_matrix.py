@@ -14,24 +14,18 @@ import core.chat.runtime.handoff as runtime_handoff
 import core.runs.events.store as run_event_stream
 import fakeredis.aioredis
 import pytest
-from core.db.engine import Base
 from core.db.models import ChatMessage, ChatRun, ChatSession, ChatSteerQueueItem
 from core.chat.service import ChatService
 from core.chat.sequencer import ChatBusyError, ChatSequencer
 from core.runs.journal import RunJournal, RunLeaseLost
 from core.chat.steer_queue import SteerQueue
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from tests.db_support import file_engine, session_factory
 
 
 @pytest.fixture()
 def harness_sessions(tmp_path):
-    engine = create_engine(
-        f"sqlite:///{tmp_path / 'harness-fault-matrix.sqlite'}",
-        connect_args={"check_same_thread": False},
-    )
-    Base.metadata.create_all(engine)
-    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+    engine = file_engine(tmp_path / 'harness-fault-matrix.sqlite')
+    sessions = session_factory(engine)
     with sessions() as db:
         db.add(ChatSession(chat_id="chat-1", user_id="user-1", title="fault matrix"))
         db.commit()

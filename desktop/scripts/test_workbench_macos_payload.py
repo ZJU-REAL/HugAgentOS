@@ -18,7 +18,7 @@ packer = load("create-macos-update")
 
 class NativePayload(unittest.TestCase):
     def test_archive_matches_actual_app_then_rejects_tampered_file(self):
-        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[2] / ".scratch/workbench-25") as folder:
+        with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             app = root / "Example.app"
             contents = app / "Contents"

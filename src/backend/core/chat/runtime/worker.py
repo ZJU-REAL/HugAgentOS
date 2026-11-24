@@ -1,7 +1,6 @@
 """Own one chat worker lifecycle and coordinate its persistence phases."""
 
 from __future__ import annotations
-from core.runs.tool_effects import errors
 
 import asyncio
 import contextlib
@@ -11,7 +10,7 @@ import typing as _typing
 from typing import Any, Dict, List, Optional
 
 from core.harness.registry.chat_execution import stream_chat_workflow
-from core.db.threads import run_in_session
+from core.db.threads import run_db, run_in_session
 import core.harness.hooks as hooks
 import core.llm.runtime.model_steps as model_steps
 import core.runs.clock as clock
@@ -23,7 +22,7 @@ import core.runs.watchdog as watchdog
 import core.chat.service as services_ChatService_module
 import core.runs.journal as run_journal
 from core.infra.logging import get_logger
-
+from core.runs.tool_effects import errors
 
 from core.chat.runtime import chunks, pauses, snapshots
 from core.chat.runtime.turn_state import TurnState
@@ -60,9 +59,8 @@ async def _run_workflow(
     """Consume astream_chat_workflow, forward chunks to the Redis Stream, persist at the end.
 
     Every chunk is written to ``jx:chat:run:{run_id}:events`` via ``_emit``.
-    The SSE event format stays fully identical to the existing protocol in
-    chats.py:889-1087; the frontend needs no changes to its chunk parsing —
-    only the new ``run_started`` event type is added.
+    The first frame is ``run_started`` (run id, message id, start time); the
+    rest are the chat stream chunks the frontend already parses.
     """
     turn = TurnState(
         chat_id=chat_id,
@@ -80,23 +78,27 @@ async def _run_workflow(
     claimed_at: _typing.Optional[_datetime.datetime] = None
     initial_claimed = False
     if not recovering:
-        claimed_at = ownership._claim_run_execution(turn.run_id)
+        claimed_at = await run_db(ownership._claim_run_execution, turn.run_id)
         initial_claimed = claimed_at is not None
         if not initial_claimed:
-            ownership._acknowledge_never_started_terminal_writer(turn.run_id)
+            await run_db(ownership._acknowledge_never_started_terminal_writer, turn.run_id)
             return
 
     turn.owner = journal_owner or ownership.new_worker_owner(turn.run_id)
     turn.journal = ownership.journal()
-    if not turn.journal.claim(
-        turn.run_id, owner=turn.owner, lease_seconds=settings.RUN_LEASE_SECONDS
+    if not await run_db(
+        turn.journal.claim,
+        turn.run_id,
+        owner=turn.owner,
+        lease_seconds=settings.RUN_LEASE_SECONDS,
     ):
         logger.info("chat_run_claim_skipped", run_id=turn.run_id, owner=turn.owner)
         if initial_claimed:
-            ownership._acknowledge_terminal_writer(turn.run_id)
+            await run_db(ownership._acknowledge_terminal_writer, turn.run_id)
         return
     try:
-        turn.journal.append_operation(
+        await run_db(
+            turn.journal.append_operation,
             turn.run_id,
             owner=turn.owner,
             operation_type="worker_started",
@@ -169,17 +171,18 @@ async def _run_workflow(
         if recovering:
             await writer._reset_stream_projection(turn.run_id)
         # First frame: run_started — carries run_id / message_id; the frontend uses these to resume / cancel
+        started_at = (
+            clock._epoch_ms(claimed_at)
+            if claimed_at
+            else await run_db(clock._run_started_at_ms, turn.run_id)
+        )
         await turn.emit(
             {
                 "type": "run_started",
                 "run_id": turn.run_id,
                 "message_id": turn.message_id,
                 "chat_id": turn.chat_id,
-                "started_at": (
-                    clock._epoch_ms(claimed_at)
-                    if claimed_at
-                    else clock._run_started_at_ms(turn.run_id)
-                ),
+                "started_at": started_at,
             }
         )
         if recovering:
@@ -243,7 +246,7 @@ async def _run_workflow(
             now = time.monotonic()
             if now >= next_cancel_poll:
                 next_cancel_poll = now + settings._CANCEL_VISIBILITY_SEC
-                if runtime.is_run_cancelled(turn.run_id):
+                if await run_db(runtime.is_run_cancelled, turn.run_id):
                     raise asyncio.CancelledError
             await chunks.consume_chunk(turn, chunk)
             if turn.stopped:
@@ -255,7 +258,7 @@ async def _run_workflow(
         # rejects the non-completed run and the outer handler overwrites
         # ``needs_attention`` with ``failed``.
         try:
-            current = runtime.get_run(turn.run_id)
+            current = await run_db(runtime.get_run, turn.run_id)
         except AttributeError:
             # Some narrow unit adapters replace SessionLocal with a commit-only
             # fake that intentionally has no query surface.
@@ -279,10 +282,10 @@ async def _run_workflow(
             # exception is fencing caused by the user's own cancel: nobody will
             # take that run over, so the partial answer must be persisted here.
             logger.warning("chat_run_worker_fenced", run_id=turn.run_id, owner=turn.owner)
-            if ownership.cancelled_by_user(turn.run_id):
-                snapshots._persist_cancelled_partial(turn)
+            if await run_db(ownership.cancelled_by_user, turn.run_id):
+                await run_db(snapshots._persist_cancelled_partial, turn)
         else:
-            current = runtime.get_run(turn.run_id)
+            current = await run_db(runtime.get_run, turn.run_id)
             if current is None or current.status != "cancelled":
                 # Reaper/hard-cap/external recovery may cancel the local task
                 # after publishing its own authoritative terminal verdict.
@@ -296,7 +299,7 @@ async def _run_workflow(
                 # then write a user-cancelled event + terminal marker so
                 # followers exit gracefully.
                 logger.info("chat_run_cancelled", run_id=turn.run_id)
-                snapshots._persist_cancelled_partial(turn)
+                await run_db(snapshots._persist_cancelled_partial, turn)
                 await turn.emit(
                     {
                         "type": "error",
@@ -323,8 +326,8 @@ async def _run_workflow(
         # old worker must not persist fallback messages or publish a terminal —
         # except when the fencing came from the user's own cancel.
         logger.warning("chat_run_worker_fenced", run_id=turn.run_id, owner=turn.owner)
-        if ownership.cancelled_by_user(turn.run_id):
-            snapshots._persist_cancelled_partial(turn)
+        if await run_db(ownership.cancelled_by_user, turn.run_id):
+            await run_db(snapshots._persist_cancelled_partial, turn)
 
     except Exception as exc:
         nested_pause = hooks.find_hook_paused(exc)
@@ -367,7 +370,8 @@ async def _run_workflow(
                 commit=False,
             )
 
-        failed = turn.journal.complete(
+        failed = await run_db(
+            turn.journal.complete,
             turn.run_id,
             owner=turn.owner,
             status="failed",
@@ -402,4 +406,4 @@ async def _run_workflow(
         turn.lease_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await turn.lease_task
-        ownership._acknowledge_terminal_writer(turn.run_id)
+        await run_db(ownership._acknowledge_terminal_writer, turn.run_id)

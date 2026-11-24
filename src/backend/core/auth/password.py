@@ -30,11 +30,3 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
     except Exception:
         return False
-
-
-def needs_rehash(password_hash: str) -> bool:
-    """Lets callers decide whether a re-hash is needed when parameters are upgraded."""
-    try:
-        return _hasher.check_needs_rehash(password_hash)
-    except Exception:
-        return False

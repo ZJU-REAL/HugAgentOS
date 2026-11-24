@@ -1,0 +1,129 @@
+/* ── Compact dialog / form layout (components/common/FormLayout.tsx) ──
+   Short fields sit side by side, switches are one row each, rarely used settings
+   fold away. The grid drops columns by the width of its own container (a dialog,
+   a narrow pane), not the viewport. */
+
+.jx-formGridWrap{
+  container-type:inline-size;
+}
+.jx-formGrid{
+  display:grid;
+  grid-template-columns:repeat(var(--jx-form-cols,2),minmax(0,1fr));
+  column-gap:16px;
+  align-items:start;
+}
+.jx-formGrid > .jx-formGrid-full{
+  grid-column:1 / -1;
+}
+@container (max-width:560px){
+  .jx-formGrid{ grid-template-columns:repeat(min(var(--jx-form-cols,2),2),minmax(0,1fr)); }
+}
+@container (max-width:400px){
+  .jx-formGrid{ grid-template-columns:minmax(0,1fr); }
+}
+
+/* Switch row: label (and optional one-line description) left, switch right. */
+.jx-formToggle{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  min-height:40px;
+  padding:8px 12px;
+  margin-bottom:12px;
+  border-radius:var(--radius-sm);
+  background:var(--color-fill-hover);
+}
+.jx-formToggle-text{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  min-width:0;
+}
+.jx-formToggle-label{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  color:var(--color-text);
+  font-size:14px;
+  line-height:20px;
+}
+.jx-formToggle-help{
+  color:var(--color-text-tertiary);
+  font-size:13px;
+  cursor:help;
+}
+.jx-formToggle-desc{
+  color:var(--color-text-tertiary);
+  font-size:12px;
+  line-height:16px;
+}
+.jx-formToggle > .ant-switch,
+.jx-formToggle > .ant-checkbox-wrapper{
+  flex:none;
+}
+
+/* Advanced section: one text toggle, body stays mounted (antd Form keeps reading it). */
+.jx-formAdvanced{
+  margin:0 0 12px;
+}
+.jx-formAdvanced-toggle.ant-btn{
+  padding-inline:4px;
+  color:var(--color-text-secondary);
+}
+.jx-formAdvanced-chevron{
+  font-size:10px;
+  transition:transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.jx-formAdvanced--open .jx-formAdvanced-chevron{
+  transform:rotate(90deg);
+}
+.jx-formAdvanced-hint{
+  margin-left:8px;
+  color:var(--color-text-tertiary);
+  font-size:12px;
+}
+.jx-formAdvanced .jx-expandWrap{
+  --expand-dur:var(--motion-duration-normal);
+}
+.jx-formAdvanced-body{
+  min-height:0;
+  overflow:hidden;
+}
+.jx-formAdvanced--open .jx-formAdvanced-body{
+  padding-top:12px;
+  /* Let focus rings and Select dropdown anchors show once open. */
+  overflow:visible;
+}
+
+@media (prefers-reduced-motion: reduce){
+  .jx-formAdvanced-chevron{ transition:none; }
+}
+
+.jx-formGrid > .jx-formGrid-span2{
+  grid-column:span 2;
+}
+@container (max-width:400px){
+  .jx-formGrid > .jx-formGrid-span2{ grid-column:1 / -1; }
+}
+
+/* Reasoning-effort sub-form (ReasoningEffortFields): probe button + note on one line. */
+.jx-reasoningFields-probe{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px 12px;
+  margin-bottom:12px;
+}
+.jx-reasoningFields-note{
+  flex:1 1 240px;
+  min-width:0;
+  color:var(--color-text-tertiary);
+  font-size:12px;
+}
+
+/* A ToggleField placed in a grid row next to labelled fields: drop it to the
+   control line (label height 22 + padding 4 = 26px; antd item margin below). */
+.jx-formGrid-alignField{
+  padding-top:26px;
+}

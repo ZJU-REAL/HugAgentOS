@@ -45,6 +45,12 @@ def extend_artifact_item(artifact, item: dict) -> dict:
 def personal_artifact_create_fields() -> dict[str, None]:
     return {}
 
+def artifact_name_target(user_id, fields, strict):
+    from core.db.personal_file_names import check_name
+
+    return user_id, fields.get("user_folder_id"), check_name
+
+
 def artifact_scope_fields(scope: Any) -> dict[str, Optional[str]]:
     return {
         "user_folder_id": (

@@ -1,6 +1,6 @@
 /** Browser half of a device-bound login. The device secret never enters this page. */
 import '../styles/variables.css';
-import './desktopLogin.css';
+import '../styles/desktop-login.css';
 
 const KEY = 'hugagent_desktop_request';
 const PARAM = 'desktop_request';

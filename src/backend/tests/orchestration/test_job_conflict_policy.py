@@ -29,9 +29,6 @@ def db_session(monkeypatch):
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
     monkeypatch.setattr(db_engine, "SessionLocal", Session)
-    import core.llm.tools.job_tool as jt
-
-    monkeypatch.setattr(jt, "SessionLocal", Session, raising=False)
     return Session
 
 

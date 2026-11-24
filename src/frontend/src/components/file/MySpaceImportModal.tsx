@@ -187,6 +187,7 @@ export function MySpaceImportModal({ draftKey, open, onClose, title }: Props) {
       open={open}
       onCancel={onClose}
       width={1080}
+      centered
       footer={
         <div className="jx-spaceImportFooter">
           <span className="jx-spaceImportSummary">{summaryText}</span>
@@ -200,7 +201,7 @@ export function MySpaceImportModal({ draftKey, open, onClose, title }: Props) {
         </div>
       }
       className="jx-spaceImportModal"
-      destroyOnClose
+      destroyOnHidden
     >
       <div className="jx-spaceImportLayout">
         <div className="jx-spaceImportLeft">

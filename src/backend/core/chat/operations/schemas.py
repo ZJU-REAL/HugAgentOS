@@ -87,8 +87,10 @@ class EditAndResendRequest(RerunOptions):
 
 
 class FeedbackRequest(BaseModel):
+    # adopt | revise | reject; legacy like / dislike are still accepted (like → adopt, dislike → reject).
     rating: str
-    comment: Optional[str] = None
+    reasons: Optional[List[str]] = Field(None, description="需修改 / 不满意的主要问题：accuracy（模型回答不准确）/ source（数据获取来源不准确）/ calculation（数据统计计算错误）/ definition（数据口径出错）/ intent（模型误解用户意图）/ efficiency（模型回答效率低）")
+    comment: Optional[str] = Field(None, max_length=2000)
     chat_id: Optional[str] = None
 
 

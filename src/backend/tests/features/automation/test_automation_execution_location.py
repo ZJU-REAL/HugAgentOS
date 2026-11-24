@@ -12,7 +12,7 @@ from core.db.engine import Base
 from core.db.models import Project
 from features.automation.service import AutomationService
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from tests.db_support import session_factory, share_factory
 
 
 @pytest.fixture
@@ -22,9 +22,9 @@ def local_project(tmp_path, monkeypatch):
     (tmp_path / "AGENTS.md").write_text("Summarize changes", encoding="utf-8")
     engine = create_engine(f"sqlite:///{tmp_path / 'local.sqlite'}")
     Base.metadata.create_all(engine)
-    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    factory = session_factory(engine)
     import core.db.engine as engine_module
-    monkeypatch.setattr(engine_module, "SessionLocal", factory)
+    share_factory(monkeypatch, factory)
     with factory() as db:
         db.add(Project(project_id="local-project", owner_user_id="owner", kind="local",
                        name="Reports", instructions="Summarize changes",
@@ -111,7 +111,7 @@ async def test_scheduler_restores_project_into_real_run_context(local_project, m
         yield {"type": "meta", "usage": {}}
     monkeypatch.setattr('core.agent_runtime.runner.astream_chat_workflow', workflow)
     import core.runs.events.store as run_event_stream
-    monkeypatch.setattr(db_engine, "SessionLocal", factory)
+    share_factory(monkeypatch, factory)
     monkeypatch.setattr(runner, "astream_chat_workflow", workflow)
     stream = run_event_stream.LocalRunEventStream(chat_projection_codec())
     monkeypatch.setattr(store, "get_run_event_stream", lambda: stream)
@@ -310,7 +310,7 @@ async def test_scheduled_loop_passes_authorized_local_project_to_executor(local_
     from features.automation.loops import LoopService
     from orchestration.automations.automation_conversation import execute_loop
     factory, _ = local_project
-    monkeypatch.setattr(db_engine, "SessionLocal", factory)
+    share_factory(monkeypatch, factory)
     monkeypatch.setattr(store, "get_run_event_stream", lambda: run_event_stream.LocalRunEventStream(chat_projection_codec()))
     async def workflow(**kwargs):
         yield {"type": "content", "delta": "Loop report"}

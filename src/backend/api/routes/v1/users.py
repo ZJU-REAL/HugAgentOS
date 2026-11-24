@@ -72,6 +72,7 @@ def get_current_user_info(
     if not user_shadow:
         raise ResourceNotFoundError(resource_type="user", resource_id=user.user_id)
 
+    from core.auth.user_profile import profile_fields
     from core.db.models import LocalUser
 
     local = db.query(LocalUser).filter(LocalUser.user_id == user.user_id).first()
@@ -86,9 +87,7 @@ def get_current_user_info(
         "email": user_shadow.email,
         "avatar": user_shadow.avatar_url,
         "avatar_url": user_shadow.avatar_url,
-        "nickname": local.nickname if local else None,
-        "real_name": local.real_name if local else None,
-        "phone": local.phone if local else None,
+        **profile_fields(user_shadow, local),
         "department": meta.get("department"),
         "auth_source": "local" if local else "external",
         "must_change_password": bool(meta.get("must_change_password")),

@@ -427,23 +427,3 @@ class ChatSequencer:
         )
         self.db.commit()
         return bool(affected)
-
-    def fail_run(self, run_id: str, *, reason: str) -> bool:
-        """Fail a pending/running run and release its writer slot."""
-
-        self.db.rollback()
-        affected = (
-            self.db.query(ChatRun)
-            .filter(ChatRun.run_id == run_id, ChatRun.status.in_(LIVE_RUN_STATUSES))
-            .update(
-                {
-                    "status": "failed",
-                    "writer_slot": None,
-                    "error_message": (reason or "run failed")[:1000],
-                    "completed_at": datetime.now(timezone.utc),
-                },
-                synchronize_session=False,
-            )
-        )
-        self.db.commit()
-        return bool(affected)

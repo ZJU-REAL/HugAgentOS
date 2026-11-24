@@ -2,10 +2,11 @@ import { motion } from 'motion/react';
 import { Tag, Switch, Typography } from 'antd';
 import { LeftOutlined } from '@ant-design/icons';
 import { t } from '../../i18n';
-import { mdToHtml, stripMarkdown } from '../../utils/markdown';
+import { stripMarkdown } from '../../utils/markdown';
 import { DRILL_IN_DETAIL } from '../../utils/motionVariants';
 import { SkillAvatar } from './skillIcons';
 import type { SkillItem } from '../../types';
+import { MarkdownHtml } from '../common/MarkdownHtml';
 export function SkillLibraryDetail({ selectedItem, selectedKind, navDir, closeDetail, toggleEnabled }: {
   selectedItem: SkillItem; selectedKind: 'skills' | 'agents'; navDir: 'detail' | 'list' | null;
   closeDetail: () => void; toggleEnabled: (kind: 'skills' | 'agents', id: string, enabled: boolean) => void;
@@ -68,7 +69,7 @@ export function SkillLibraryDetail({ selectedItem, selectedKind, navDir, closeDe
           {/* Body: markdown content */}
           <div className="jx-sk-detailBody">
             {markdownBody ? (
-              <div className="jx-md jx-sk-detailMarkdown" dangerouslySetInnerHTML={{ __html: mdToHtml(markdownBody) }} />
+              <MarkdownHtml className="jx-md jx-sk-detailMarkdown" markdown={markdownBody} />
             ) : (
               <Typography.Text type="secondary">{t('暂无详情')}</Typography.Text>
             )}

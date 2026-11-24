@@ -1,9 +1,9 @@
 import { apiRequest } from '../../api';
 
-export interface FieldDefinition {
+interface FieldDefinition {
   name: string; type: string; required: boolean; unique: boolean; indexed: boolean; max_length: number;
 }
-export interface TableDefinition { name: string; columns: FieldDefinition[]; public_insert: boolean; public_read: boolean; public_replace: boolean }
+interface TableDefinition { name: string; columns: FieldDefinition[]; public_insert: boolean; public_read: boolean; public_replace: boolean }
 export interface MCPToolDefinition {
   name: string; description: string; table: string; fields: string[]; filters: string[];
 }

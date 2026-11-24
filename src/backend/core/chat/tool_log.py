@@ -1,9 +1,8 @@
 """Tool-call log helpers for streaming SSE event processing.
 
-Pure list/dict utilities that assemble the ``tool_calls_log`` consumed by both
-the chat route (``api/routes/v1/chats/__init__.py``) and the background run executor
-(``routing/chat_run_executor.py``). Relocated here from the chat route so
-``routing.*`` no longer imports an API route module (breaks ``routing → api``).
+Pure list/dict utilities that assemble the ``tool_calls_log`` consumed by the
+chat routes and the background run worker (``core/chat/runtime``), so neither
+imports the other.
 """
 
 import json

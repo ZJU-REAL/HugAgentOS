@@ -8,7 +8,7 @@ from sqlalchemy import BigInteger, CheckConstraint, Column, ForeignKey, LargeBin
 from core.db.models.column_types import BigIntPK, JSONType
 
 class MessageFeedback(Base):
-    """Message feedback table - stores like/dislike ratings and optional comments."""
+    """User evaluation of one assistant answer: verdict, reasons and an optional comment."""
 
     __tablename__ = "message_feedback"
 
@@ -28,7 +28,13 @@ class MessageFeedback(Base):
         ForeignKey("users_shadow.user_id", ondelete="SET NULL"),
         nullable=True,
     )
-    rating = Column(String(10), nullable=False)  # 'like' or 'dislike'
+    # Legacy like/dislike, still written (adopt → like, revise/reject → dislike) so older readers
+    # and rolled-back releases keep working. The evaluation lives in ``verdict``.
+    rating = Column(String(10), nullable=False)
+    # 'adopt' | 'revise' | 'reject' (see core.chat.evaluation); NULL on rows written before it existed.
+    verdict = Column(String(16), nullable=True)
+    # Reason dimension keys picked for revise / reject, e.g. ["accuracy", "definition"].
+    reasons = Column(JSONType, nullable=True)
     comment = Column(Text, nullable=True)
     created_at = Column(UTCDateTime(timezone=True), default=utc_now)
     updated_at = Column(
@@ -42,6 +48,7 @@ class MessageFeedback(Base):
         Index("idx_message_feedback_message_id", "message_id"),
         Index("idx_message_feedback_chat_id", "chat_id"),
         Index("idx_message_feedback_user_id", "user_id"),
+        Index("idx_message_feedback_updated_at", "updated_at"),
     )
 
 

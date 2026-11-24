@@ -54,3 +54,26 @@
   .jx-agentApi-filters .ant-select { flex-basis: 100%; }
   .jx-agentApi-section .ant-segmented { max-width: 100%; overflow-x: auto; }
 }
+
+/* ── One-line scope note (replaces two stacked Alerts above the tabs) ── */
+.jx-agentApi-note{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:4px 8px;
+  margin-bottom:12px;
+  padding:8px 12px;
+  border-radius:var(--radius-sm);
+  background:var(--color-fill-hover);
+  color:var(--color-text-secondary);
+  font-size:13px;
+}
+.jx-agentApi-noteIcon{ color:var(--color-primary); }
+.jx-agentApi-noteText{ flex:0 1 auto; min-width:0; }
+.jx-agentApi-noteMore{
+  color:var(--color-text-tertiary);
+  text-decoration:underline dotted;
+  text-underline-offset:3px;
+  cursor:help;
+}
+.jx-agentApi-noteTag{ margin-inline-end:0; }

@@ -75,7 +75,6 @@ def test_new_run_supersedes_old_failure_and_old_live_tasks_are_still_visible(db)
 def test_active_run_route_only_adds_verdicts_when_requested(db,monkeypatch):
     from api.routes.v1.chats import run_views
     from core.auth.backend import UserContext
-    pass
     monkeypatch.setattr(runtime,"list_active_runs_for_user",lambda *args:([],[]))
     monkeypatch.setattr(run_views.chat_context,"resolve_db_user_id",lambda db,uid:uid)
     add_chat(db,"mine")

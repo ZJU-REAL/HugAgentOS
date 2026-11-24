@@ -18,7 +18,6 @@ export const STORES_DICT: Record<string, string> = {
   // mySpaceStore — error
   '当前作用域不支持上传': 'Upload is not supported in the current scope',
 
-  '流式连接异常': 'Streaming connection error',
 
   // projectStore — error
 
@@ -29,15 +28,9 @@ export const STORES_DICT: Record<string, string> = {
     'Set up scheduled or recurring AI tasks with natural-language prompts or plan mode, ideal for periodic reports and data monitoring.',
   // homepage shortcut labels / capability cards
   '知识检索': 'Knowledge Search',
-  '政策对比': 'Policy Comparison',
-  '材料对比': 'Document Comparison',
   '数据分析': 'Data Analysis',
   // default app config
-  '基于企业基础信息、经营动态与风险数据，智能生成企业综合画像，快速掌握企业全貌':
-    'Generates a comprehensive company profile based on basic information, business dynamics, and risk data.',
   '企业调研': 'Company Research',
-  '面向走访调研场景，围绕企业发展、诉求、问题等维度智能生成调研信息与报告':
-    'Intelligently generates research information and reports for on-site investigation scenarios across business development, demands, and issues.',
 
   // chatStore — default chat title
 
@@ -45,12 +38,8 @@ export const STORES_DICT: Record<string, string> = {
   '读取文件': 'Read File',
   '加载技能': 'Load Skill',
   '加载插件': 'Load Plugin',
-  '浏览我的空间': 'Browse My Space',
-  '导入文件到工作区': 'Import File to Workspace',
-  '浏览收藏会话': 'Browse Favorite Chats',
 
   // roles — display labels
-  '仅可读': 'Read Only',
   '无权限': 'No Access',
 
   // confirmDelete

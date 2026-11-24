@@ -5,23 +5,9 @@ from core.infra.time import utc_now
 from datetime import datetime, timezone
 
 from core.db.models import Base, Plan, UserShadow
-from sqlalchemy import (
-    JSON,
-    BigInteger,
-    Boolean,
-    CheckConstraint,
-    Column,
-    ForeignKey,
-    Index,
-    Integer,
-    Numeric,
-    String,
-    Text,
-    UniqueConstraint,
-    text,
-)
+from sqlalchemy import JSON, Boolean, CheckConstraint, Column, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import INET, JSONB
-from sqlalchemy.orm import mapped_column, relationship
+from sqlalchemy.orm import relationship
 
 JSONType = JSON().with_variant(JSONB(), "postgresql")
 INETType = String(45).with_variant(INET(), "postgresql")

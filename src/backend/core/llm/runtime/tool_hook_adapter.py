@@ -70,12 +70,25 @@ async def execute_tool(adapter, agent, input_kwargs, next_handler):
     if prepared is not None:
         await asyncio.to_thread(prepared.validate, user_id=str(getattr(agent.state, "user_id", "") or ""))
         await asyncio.to_thread(prepared.record_tool_scope, call_id, str(getattr(call, "name", "") or ""))
+    from core.llm.runtime.tool_interrupt import interruptible
+    interrupt = _interrupt_waiter(adapter, agent)
     token = CURRENT_TOOL_CALL_ID.set(call_id)
     try:
-        stream = (adapter.tool_dispatch.stream(agent, input_kwargs, next_handler)
-                  if adapter.tool_dispatch is not None else next_handler(**input_kwargs))
+        stream = (adapter.tool_dispatch.stream(agent, input_kwargs, next_handler, interrupt=interrupt)
+                  if adapter.tool_dispatch is not None
+                  else interruptible(lambda: next_handler(**input_kwargs), interrupt))
         async with aclosing(stream):
             async for item in stream:
                 yield item
     finally:
         CURRENT_TOOL_CALL_ID.reset(token)
+
+
+def _interrupt_waiter(adapter, agent):
+    """A waiter that returns once the user steers this run, or None when the
+    run's steering policy lets running tools finish."""
+    policy = getattr(adapter, "tool_interrupt", None)
+    run_id = adapter._run_id(agent)
+    if policy is None or not run_id or not getattr(policy, "interrupt_tools", False):
+        return None
+    return lambda: policy.wait_for_steer(run_id)

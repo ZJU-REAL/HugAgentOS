@@ -11,6 +11,7 @@ from core.llm.context.rendering import next_request_sequence, render_context_ite
 from core.llm.context.ir_constants import KIND_USER_INPUT, POLICY_NEVER, SESSION_CONTEXT_META_KEY
 from core.llm.context.items import ContextItem
 from core.llm.runtime.message_compat import session_to_msgs
+from core.db.threads import run_db
 import logging
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ async def stream(
         last_user_content = last_user_row.get("content", "")
     if history:
         try:
-            agent.state.context.extend(session_to_msgs(history))
+            agent.state.context.extend(await run_db(session_to_msgs, history))
         except Exception as exc:  # noqa: BLE001
             logger.warning("[stream] load history failed: %s", exc)
 

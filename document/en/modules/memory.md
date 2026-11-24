@@ -202,8 +202,6 @@ MEMORY_OUTBOX_RETRY_BASE_SECONDS=5 # exponential-backoff base
 MEMORY_OUTBOX_POLL_SECONDS=1      # worker poll interval
 MEMORY_EXTRACT_TIMEOUT_S=30       # per-extractor timeout
 MEMORY_PROFILE_MAX_CHARS=1500     # L1 profile char cap
-MEMORY_FACT_DEFAULT_TTL_DAYS=180  # legacy compatibility; procedures use dedicated TTLs
-MEMORY_FROZEN_TOPK=5              # frozen-block procedure Top-K
 MEMORY_BREAKER_THRESHOLD=3        # Milvus breaker threshold
 MEMORY_BREAKER_COOLDOWN_S=60      # breaker cooldown
 

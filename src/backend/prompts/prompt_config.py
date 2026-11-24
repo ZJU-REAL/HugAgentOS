@@ -1,4 +1,4 @@
-"""Prompt/tool/model pluggable configuration.
+"""Prompt and model-default configuration.
 
 This module is intentionally stdlib-only (JSON) to avoid extra deps.
 
@@ -38,57 +38,17 @@ class SystemPromptConfig:
 
 
 @dataclass(frozen=True)
-class ToolRoutingConfig:
-    strict_allowlist: bool = True
-
-
-@dataclass(frozen=True)
-class ToolsConfig:
-    # Tool-name allowlist (optional). This controls which *tools* are exposed to the LLM.
-    # NOTE: pluggability should primarily happen at the MCP server layer (configs/mcp_config.py).
-    allowed: List[str] = field(default_factory=list)
-    routing: ToolRoutingConfig = field(default_factory=ToolRoutingConfig)
-
-
-@dataclass(frozen=True)
-class MCPServersConfig:
-    # MCP server entry keys to enable (from configs/mcp_config.py::MCP_SERVERS).
-    # Empty means enable all.
-    enabled: List[str] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class ModelEnvConfig:
-    """Legacy env-var name mapping.
-
-    These fields are kept for backward-compat with existing config JSON files
-    but are no longer read at runtime — all model config now comes from the DB
-    via ModelConfigService.
-    """
-    base_url: str = "MODEL_URL"
-    api_key: str = "API_KEY"
-    base_model_name: str = "BASE_MODEL_NAME"
-    summarize_model_name: str = "SUMMARIZE_MODEL_NAME"
-
-
-@dataclass(frozen=True)
 class ModelConfig:
-    default_model_name: str = "deepseek"  # semantic default, used by middleware
     temperature: float = 0.6
     # None = 不限制输出长度，交给模型供应商自己的默认值。
     max_tokens: Optional[int] = None
     timeout: int = 120
-    env: ModelEnvConfig = field(default_factory=ModelEnvConfig)
 
 
 @dataclass(frozen=True)
 class PromptConfig:
     version: int = 1
     system_prompt: SystemPromptConfig = field(default_factory=SystemPromptConfig)
-    # MCP-level pluggability
-    mcp_servers: MCPServersConfig = field(default_factory=MCPServersConfig)
-    # Tool-level allowlist (optional)
-    tools: ToolsConfig = field(default_factory=ToolsConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
 
 
@@ -140,13 +100,7 @@ def load_prompt_config(path: Optional[str] = None) -> PromptConfig:
     version = int(raw.get("version", 1)) if isinstance(raw.get("version", 1), int | str) else 1
 
     sp_raw = _coerce_dict(raw.get("system_prompt"))
-    # Backward compat:
-    # - old field: system_prompt.mode (builtin|filesystem|inline)
-    # - new fields: system_prompt.provider (filesystem|inline) + prompt_dir
-    old_mode = str(sp_raw.get("mode", "filesystem")).strip().lower()
-    provider = str(sp_raw.get("provider", "")).strip().lower()
-    if not provider:
-        provider = "inline" if old_mode == "inline" else "filesystem"
+    provider = str(sp_raw.get("provider", "")).strip().lower() or "filesystem"
 
     # prompt_dir can also be overridden by env PROMPT_DIR at runtime,
     # but we keep a config-level default to support multiple prompt packs.
@@ -164,50 +118,16 @@ def load_prompt_config(path: Optional[str] = None) -> PromptConfig:
         inline_template=str(sp_raw.get("inline_template", "")),
     )
 
-    # MCP server enable list (MCP-level pluggability)
-    mcp_raw = _coerce_dict(raw.get("mcp_servers"))
-    enabled_raw = mcp_raw.get("enabled")
-    enabled: List[str] = []
-    if isinstance(enabled_raw, list) and all(isinstance(x, str) for x in enabled_raw):
-        enabled = list(enabled_raw)
-    mcp_servers = MCPServersConfig(enabled=enabled)
-
-    # Tool allowlist (optional)
-    tools_raw = _coerce_dict(raw.get("tools"))
-    routing_raw = _coerce_dict(tools_raw.get("routing"))
-    routing = ToolRoutingConfig(strict_allowlist=bool(routing_raw.get("strict_allowlist", True)))
-
-    allowed_raw = tools_raw.get("allowed")
-    allowed: List[str] = []
-    if isinstance(allowed_raw, list) and all(isinstance(x, str) for x in allowed_raw):
-        allowed = list(allowed_raw)
-
-    tools = ToolsConfig(allowed=allowed, routing=routing)
-
     model_raw = _coerce_dict(raw.get("model"))
-    env_raw = _coerce_dict(model_raw.get("env"))
-    env = ModelEnvConfig(
-        base_url=str(env_raw.get("base_url", ModelEnvConfig().base_url)),
-        api_key=str(env_raw.get("api_key", ModelEnvConfig().api_key)),
-        base_model_name=str(env_raw.get("base_model_name", ModelEnvConfig().base_model_name)),
-        summarize_model_name=str(
-            env_raw.get("summarize_model_name", ModelEnvConfig().summarize_model_name)
-        ),
-    )
-
     model = ModelConfig(
-        default_model_name=str(model_raw.get("default_model_name", ModelConfig().default_model_name)),
         temperature=float(model_raw.get("temperature", ModelConfig().temperature)),
         max_tokens=int(_max_tokens) if (_max_tokens := model_raw.get("max_tokens")) else None,
         timeout=int(model_raw.get("timeout", ModelConfig().timeout)),
-        env=env,
     )
 
     result = PromptConfig(
         version=version,
         system_prompt=system_prompt,
-        mcp_servers=mcp_servers,
-        tools=tools,
         model=model,
     )
 

@@ -13,6 +13,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from tests.llm.vision_test_support import _FakeCfg
 
 PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
@@ -31,19 +32,6 @@ EVIDENCE_JSON = json.dumps(
 )
 
 IMAGE_FILES = [{"file_id": "art-1", "name": "invoice.png", "mime_type": "image/png"}]
-
-
-class _FakeCfg:
-    base_url = "http://fake/v1"
-    api_key = "k"
-    model_name = "fake-vl"
-    temperature = 0.6
-    max_tokens = 4096
-    context_length = 0
-    timeout = 30
-    provider = "openai_compatible"
-    provider_extra: dict = {}
-    extra: dict = {}
 
 
 def _stub_state():

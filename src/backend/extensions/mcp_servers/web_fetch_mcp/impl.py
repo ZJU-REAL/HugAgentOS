@@ -69,14 +69,8 @@ async def fetch_url(
                 html = b"".join(chunks).decode(resp.encoding or "utf-8", errors="replace")
                 final_url = str(resp.url)
 
-    soup = BeautifulSoup(html, "lxml")
-    title = soup.title.get_text(strip=True) if soup.title else None
-    if extract_mode == "html":
-        content = html
-    else:
-        for tag in soup.find_all(list(_REMOVE_TAGS)):
-            tag.decompose()
-        content = _to_markdown(soup) if extract_mode == "markdown" else _to_text(soup)
+    # Parsing up to MAX_RESPONSE_BYTES of HTML is CPU-bound; keep it off the event loop.
+    title, content = await asyncio.to_thread(_extract, html, extract_mode)
     text = content[:max_chars]
     return {
         "result": text,
@@ -89,6 +83,18 @@ async def fetch_url(
         "content_truncated": download_truncated or len(content) > max_chars,
         "download_truncated": download_truncated,
     }
+
+
+def _extract(html: str, extract_mode: str) -> tuple[str | None, str]:
+    """Return the page title and the content rendered in ``extract_mode``."""
+    soup = BeautifulSoup(html, "lxml")
+    title = soup.title.get_text(strip=True) if soup.title else None
+    if extract_mode == "html":
+        return title, html
+    for tag in soup.find_all(list(_REMOVE_TAGS)):
+        tag.decompose()
+    content = _to_markdown(soup) if extract_mode == "markdown" else _to_text(soup)
+    return title, content
 
 
 def _to_text(soup: BeautifulSoup) -> str:

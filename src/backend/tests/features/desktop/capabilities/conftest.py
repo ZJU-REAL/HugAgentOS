@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from tests._capability_index import bind_capability_index
 from tests.features.desktop.capabilities._cloud_identity import CLOUD_BASE, CLOUD_USER, cloud_token
 from tests.db_support import share_session
+from tests.db_support import share_factory
 
 
 @pytest.fixture
@@ -72,7 +73,7 @@ def client(tmp_path, index_db, caps_root, monkeypatch):
     from core.db.engine import Base
 
     Base.metadata.create_all(index_db.kw["bind"])
-    monkeypatch.setattr("core.db.engine.SessionLocal", index_db)
+    share_factory(monkeypatch, index_db)
     monkeypatch.setattr('core.capabilities.mcp.service.SessionLocal', index_db)
     from features.desktop.api.desktop_capabilities import router as desktop_router
     from features.desktop.capabilities import skills

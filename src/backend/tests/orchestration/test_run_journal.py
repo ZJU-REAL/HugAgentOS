@@ -12,7 +12,7 @@ from core.db.engine import Base
 from core.db.models import ChatMessage, ChatRun, ChatRunOperation, ChatSession
 from core.runs.journal import RunAlreadyExists, RunJournal, RunLeaseLost, durable_run_binding
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from tests.db_support import file_engine, session_factory
 
 
 class Clock:
@@ -28,12 +28,8 @@ class Clock:
 
 @pytest.fixture()
 def journal_env(tmp_path):
-    engine = create_engine(
-        f"sqlite:///{tmp_path / 'journal.sqlite'}",
-        connect_args={"check_same_thread": False},
-    )
-    Base.metadata.create_all(engine)
-    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+    engine = file_engine(tmp_path / 'journal.sqlite')
+    sessions = session_factory(engine)
     with sessions() as db:
         db.add(ChatSession(chat_id="chat-1", user_id="user-1", title="journal test"))
         db.commit()
@@ -153,7 +149,7 @@ def test_two_workers_racing_to_claim_have_exactly_one_winner(tmp_path):
         connect_args={"check_same_thread": False, "timeout": 10},
     )
     Base.metadata.create_all(engine)
-    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+    sessions = session_factory(engine)
     clock = Clock()
     _accept(RunJournal(sessions, clock=clock), "race")
     barrier = Barrier(2)

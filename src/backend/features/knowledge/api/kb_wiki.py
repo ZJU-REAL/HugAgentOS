@@ -17,6 +17,7 @@ import logging
 
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
+from core.db.threads import run_db
 from core.infra.exceptions import AccessDeniedError, BadRequestError, ResourceNotFoundError
 from core.infra.responses import success_response
 from fastapi import APIRouter, Depends, Path, Query
@@ -122,7 +123,7 @@ async def wiki_stats(
     wiki=Depends(resolve_wiki),
 ):
     try:
-        data = wiki.wiki_stats(kb_id)
+        data = await run_db(wiki.wiki_stats, kb_id)
     except ResourceNotFoundError:
         raise
     except Exception as exc:
@@ -143,7 +144,8 @@ async def wiki_pages(
     wiki=Depends(resolve_wiki),
 ):
     try:
-        data = wiki.wiki_list_pages(
+        data = await run_db(
+            wiki.wiki_list_pages,
             kb_id,
             page=page,
             page_size=page_size,
@@ -167,7 +169,9 @@ async def wiki_folders(
 ):
     """逐层懒加载：大库有几千页，一次性展开整棵树必然卡。"""
     try:
-        data = wiki.wiki_folders(kb_id, parent_id=parent_id, page_types=page_types)
+        data = await run_db(
+            wiki.wiki_folders, kb_id, parent_id=parent_id, page_types=page_types
+        )
     except ResourceNotFoundError:
         raise
     except Exception as exc:
@@ -183,7 +187,7 @@ async def wiki_index(
     wiki=Depends(resolve_wiki),
 ):
     try:
-        data = wiki.wiki_index(kb_id, limit=limit, types=types)
+        data = await run_db(wiki.wiki_index, kb_id, limit=limit, types=types)
     except ResourceNotFoundError:
         raise
     except Exception as exc:
@@ -199,7 +203,7 @@ async def wiki_search(
     wiki=Depends(resolve_wiki),
 ):
     try:
-        data = wiki.wiki_search(kb_id, q, limit=limit)
+        data = await run_db(wiki.wiki_search, kb_id, q, limit=limit)
     except ResourceNotFoundError:
         raise
     except Exception as exc:
@@ -222,7 +226,8 @@ async def wiki_graph(
     if mode == "ego" and not center.strip():
         raise BadRequestError("mode=ego 时必须提供 center")
     try:
-        data = wiki.wiki_graph(
+        data = await run_db(
+            wiki.wiki_graph,
             kb_id, mode=mode, center=center.strip(), depth=depth, limit=limit, types=types
         )
     except ResourceNotFoundError:
@@ -239,7 +244,7 @@ async def wiki_page(
     wiki=Depends(resolve_wiki),
 ):
     try:
-        data = wiki.wiki_read_page(kb_id, slug)
+        data = await run_db(wiki.wiki_read_page, kb_id, slug)
     except ResourceNotFoundError:
         raise
     except Exception as exc:
@@ -258,7 +263,9 @@ async def wiki_source(
 ):
     """「地图 → 定位 → 顺坐标取回原文」这条链的最后一跳，按 ID 直取而非二次检索。"""
     try:
-        data = wiki.wiki_source_chunks(kb_id, slug, max_chunks=max_chunks)
+        data = await run_db(
+            wiki.wiki_source_chunks, kb_id, slug, max_chunks=max_chunks
+        )
     except ResourceNotFoundError:
         raise
     except Exception as exc:

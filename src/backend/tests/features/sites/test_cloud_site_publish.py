@@ -12,6 +12,7 @@ from core.sandbox.processes.completion import CompletionMixin
 from core.harness.registry.transfer_channels import UPLOAD_OPTIONS_HEADER, UPLOAD_SCHEMA_HEADER
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tests.db_support import share_factory
 
 
 def bundle():
@@ -55,7 +56,7 @@ def test_uploaded_bytes_are_hosted_and_versioned_for_cloud_user(tmp_path, monkey
     engine = create_engine(f"sqlite:///{tmp_path / 'cloud.db'}")
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine)
-    monkeypatch.setattr("core.db.engine.SessionLocal", factory)
+    share_factory(monkeypatch, factory)
     from features.desktop.capability import security as security
 
     monkeypatch.setattr(security, "SessionLocal", factory)

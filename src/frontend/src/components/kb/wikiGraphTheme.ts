@@ -5,6 +5,8 @@
  * 三处都要用同一份，所以单独成文件——放进组件文件会破坏 fast refresh。
  * 色相按页面类型固定，自建库与外接库共用一套，避免看不同来源的库时对不上号。
  */
+// Labels stay in Chinese here (this module is imported by node tests without the i18n runtime);
+// render sites translate them with tCtx('wiki', label).
 export interface GraphTypeStyle {
   fill: string;
   stroke: string;

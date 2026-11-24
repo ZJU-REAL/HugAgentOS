@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeftOutlined,
   CloseOutlined,
@@ -11,6 +11,7 @@ import type { WikiGraphData, WikiGraphNode, WikiPageDetail } from '../../types';
 import { mdToHtml } from '../../utils/markdown';
 import { ConceptGraph, type ConceptGraphHandle } from './ConceptGraph';
 import { GRAPH_TYPE_STYLE } from './wikiGraphTheme';
+import { t, tCtx } from '../../i18n';
 
 /**
  * 概念图谱视图：交互式力导向图 + 图例过滤 + 右侧节点详情抽屉。
@@ -23,6 +24,18 @@ import { GRAPH_TYPE_STYLE } from './wikiGraphTheme';
 
 // 默认 40：这个量级标签还读得出；再多就只适合看整体形态了
 const NODE_BUDGETS = [40, 80, 140] as const;
+
+/** 把译文里的 {n} 换成加粗数字，中英文语序各自成立 */
+function withBold(template: string, value: ReactNode) {
+  const [before, after = ''] = template.split('{n}');
+  return (
+    <>
+      {before}
+      <b>{value}</b>
+      {after}
+    </>
+  );
+}
 
 interface WikiGraphViewProps {
   kbId: string;
@@ -57,7 +70,7 @@ export function WikiGraphView({ kbId, onOpenPage }: WikiGraphViewProps) {
         setGraph(data);
         setCenter(nextCenter);
       } catch (e) {
-        message.error(`加载图谱失败：${(e as Error).message}`);
+        message.error(t('加载图谱失败：{msg}', { msg: (e as Error).message }));
       } finally {
         setLoading(false);
       }
@@ -149,14 +162,14 @@ export function WikiGraphView({ kbId, onOpenPage }: WikiGraphViewProps) {
       <div className="jx-wikiGraphToolbar">
         {center ? (
           <Button icon={<ArrowLeftOutlined />} onClick={() => void loadGraph('')}>
-            回到全局视图
+            {t('回到全局视图')}
           </Button>
         ) : (
-          <span className="jx-wikiGraphToolbarLabel">全局视图 · 关联最密集的枢纽概念</span>
+          <span className="jx-wikiGraphToolbarLabel">{t('全局视图 · 关联最密集的枢纽概念')}</span>
         )}
 
-        <div className="jx-wikiGraphBudget" role="group" aria-label="节点数量">
-          <span>节点</span>
+        <div className="jx-wikiGraphBudget" role="group" aria-label={t('节点数量')}>
+          <span>{t('节点')}</span>
           {NODE_BUDGETS.map((n) => (
             <button
               key={n}
@@ -174,7 +187,10 @@ export function WikiGraphView({ kbId, onOpenPage }: WikiGraphViewProps) {
 
         {meta?.truncated && metaTotal != null && (
           <span className="jx-wikiGraphTruncated">
-            共 {metaTotal.toLocaleString()} 个节点，已按关联度取前 {metaReturned}
+            {t('共 {total} 个节点，已按关联度取前 {n}', {
+              total: metaTotal.toLocaleString(),
+              n: metaReturned ?? '',
+            })}
           </span>
         )}
         <Button
@@ -182,7 +198,7 @@ export function WikiGraphView({ kbId, onOpenPage }: WikiGraphViewProps) {
           icon={<CompressOutlined />}
           onClick={() => graphRef.current?.fitToView()}
         >
-          适应屏幕
+          {t('适应屏幕')}
         </Button>
         <Button
           type="text"
@@ -190,7 +206,7 @@ export function WikiGraphView({ kbId, onOpenPage }: WikiGraphViewProps) {
           onClick={() => void loadGraph(center)}
           loading={loading}
         >
-          刷新
+          {t('刷新')}
         </Button>
       </div>
 
@@ -198,7 +214,7 @@ export function WikiGraphView({ kbId, onOpenPage }: WikiGraphViewProps) {
         <div className="jx-wikiGraphStageMain">
           {loading ? (
             <div className="jx-wikiGraphLoading">
-              <Spin tip="正在布局概念关系…" />
+              <Spin description={t('正在布局概念关系…')} />
             </div>
           ) : visibleGraph && visibleGraph.nodes.length ? (
             <ConceptGraph
@@ -211,7 +227,7 @@ export function WikiGraphView({ kbId, onOpenPage }: WikiGraphViewProps) {
               onClearSelect={() => setSelected(null)}
             />
           ) : (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无图谱数据" />
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('暂无图谱数据')} />
           )}
 
           {typesPresent.length > 0 && (
@@ -225,15 +241,15 @@ export function WikiGraphView({ kbId, onOpenPage }: WikiGraphViewProps) {
                     type="button"
                     className={`jx-wikiGraphLegendItem${off ? ' is-off' : ''}`}
                     onClick={() => toggleType(type)}
-                    title={off ? '点击显示' : '点击隐藏'}
+                    title={off ? t('点击显示') : t('点击隐藏')}
                   >
                     <i style={{ background: style?.fill, borderColor: style?.stroke }} />
-                    {style?.label || type}
+                    {style ? tCtx('wiki', style.label) : type}
                   </button>
                 );
               })}
               <span className="jx-wikiGraphLegendHint">
-                拖拽节点 · 滚轮缩放 · 单击看详情 · 双击以此展开
+                {t('拖拽节点 · 滚轮缩放 · 单击看详情 · 双击以此展开')}
               </span>
             </div>
           )}
@@ -244,26 +260,22 @@ export function WikiGraphView({ kbId, onOpenPage }: WikiGraphViewProps) {
                 <span
                   className={`jx-wikiTypeTag jx-wikiTypeTag--${selected.page_type}`}
                 >
-                  {GRAPH_TYPE_STYLE[selected.page_type]?.label || selected.page_type}
+                  {GRAPH_TYPE_STYLE[selected.page_type] ? tCtx('wiki', GRAPH_TYPE_STYLE[selected.page_type].label) : selected.page_type}
                 </span>
                 <h3 title={selected.title}>{selected.title}</h3>
                 <Button
                   type="text"
                   size="small"
                   icon={<CloseOutlined />}
-                  aria-label="关闭"
+                  aria-label={t('关闭')}
                   onClick={() => setSelected(null)}
                 />
               </div>
 
               <div className="jx-wikiGraphPanelMeta">
-                <span>
-                  关联 <b>{selected.link_count ?? neighbours.length}</b> 条
-                </span>
+                <span>{withBold(t('关联 {n} 条'), selected.link_count ?? neighbours.length)}</span>
                 {detail?.source_refs?.length ? (
-                  <span>
-                    来源 <b>{detail.source_refs.length}</b> 篇
-                  </span>
+                  <span>{withBold(t('来源 {n} 篇'), detail.source_refs.length)}</span>
                 ) : null}
               </div>
 
@@ -274,10 +286,10 @@ export function WikiGraphView({ kbId, onOpenPage }: WikiGraphViewProps) {
                   disabled={center === selected.slug}
                   onClick={() => void loadGraph(selected.slug)}
                 >
-                  以此为中心展开
+                  {t('以此为中心展开')}
                 </Button>
                 <Button size="small" onClick={() => onOpenPage(selected.slug)}>
-                  阅读全文
+                  {t('阅读全文')}
                 </Button>
               </div>
 
@@ -299,13 +311,15 @@ export function WikiGraphView({ kbId, onOpenPage }: WikiGraphViewProps) {
                     ) : null}
                   </>
                 ) : (
-                  <p className="jx-wikiGraphPanelSummary">未能加载该页面内容。</p>
+                  <p className="jx-wikiGraphPanelSummary">{t('未能加载该页面内容。')}</p>
                 )}
 
                 <div className="jx-wikiGraphPanelNeighbours">
-                  <h4>关联邻居（{neighbours.length}）</h4>
+                  <h4>{t('关联邻居（{n}）', { n: neighbours.length })}</h4>
                   {neighbours.length === 0 ? (
-                    <p className="jx-wikiGraphPanelSummary">当前视图里没有它的邻居，可展开看看。</p>
+                    <p className="jx-wikiGraphPanelSummary">
+                      {t('当前视图里没有它的邻居，可展开看看。')}
+                    </p>
                   ) : (
                     <div className="jx-wikiGraphNeighbourList">
                       {neighbours.slice(0, 30).map((n) => (

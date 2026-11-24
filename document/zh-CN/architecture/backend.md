@@ -156,7 +156,6 @@ src/backend/
 | `chat_run_executor.py` | 把 AI 工作流从 HTTP 连接解耦为后台 Run：启动、SSE 跟随、按偏移续播、崩溃恢复 |
 | `workflow.py` | 单轮流式编排主体：记忆注入 → 建 agent → 流式消费 → 引用提取 → meta 收尾 |
 | `streaming.py` | AgentScope 2.0 流式包装 `StreamingAgent`，产出标准化事件块 |
-| `strategy.py` | 路由策略：`ROUTER_STRATEGY=main_only`（默认）/ `llm_router`（占位，回落 main） |
 | `citations.py` | 工具结果 → `[ref:tool_name-N]` 引用项提取 |
 | `memory_integration.py` | SSE 主链路外的非阻塞记忆读写整合 |
 | `followups.py` | 独立追问问题生成器 |

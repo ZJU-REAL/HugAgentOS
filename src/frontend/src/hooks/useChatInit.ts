@@ -1,5 +1,6 @@
 import { useChatResourceRecovery } from './useChatResourceRecovery';
 import { useEffect,useRef } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { authFetch,chatTargetHeaders,checkSession,isHybridDual } from '../api';
 import { usePanel } from '../routing/usePanel';
 import { newDraftChatId } from '../storage';
@@ -9,24 +10,34 @@ import type { ChatItem,UpdateEntry } from '../types';
 import { preservedChatsOnRebuild } from '../utils/sessionRebuild';
 import { inflightMsgLoads,MSG_LOAD_MAX_RETRIES,msgLoadRetryCounts,reloadChatHistory } from './chatHistoryLoader';
 import { isLocalSidebarChat,mergeLocalSessions,sessionToChatItem } from './chatSessionMapping';
+import { API_BASE } from '../utils/apiBase';
 
 export { ensureFullMessages,loadOlderMessages,MESSAGE_PAGE_SIZE,reloadChatHistory } from './chatHistoryLoader';
 export { parseHistoryMessage } from './chatHistoryMessage';
-const effectiveApiUrl = (import.meta.env.VITE_API_BASE_URL as string || '').trim() || '/api';
+const effectiveApiUrl = API_BASE;
 /** 人在窗口前时「别处在跑」与新会话的对账间隔。 */
 const RUNNING_REFRESH_MS = 15_000;
 
 export function useChatInit() {
-  const { authUser, authExpiredUrl, authChecking, initAuth } = useAuthStore();
-  const { loadMemorySettings, loadOntologySettings } = useSettingsStore();
-  const { setFeatureUpdates } = useUIStore();
+  const { authUser, authExpiredUrl, authChecking, initAuth } = useAuthStore(useShallow((s) => ({
+    authUser: s.authUser, authExpiredUrl: s.authExpiredUrl, authChecking: s.authChecking, initAuth: s.initAuth,
+  })));
+  const loadMemorySettings = useSettingsStore((s) => s.loadMemorySettings);
+  const loadOntologySettings = useSettingsStore((s) => s.loadOntologySettings);
+  const setFeatureUpdates = useUIStore((s) => s.setFeatureUpdates);
   const {
     updateStore, adoptChatFromUrl, setChatsLoading, setToolDisplayNames,
     addBackendSessionId, clearBackendSessionIds,
     clearLoadedMsgIds,
     currentChatId, sessionLoadEpoch, bumpSessionLoadEpoch,
     hydrateForUser,
-  } = useChatStore();
+  } = useChatStore(useShallow((s) => ({
+    updateStore: s.updateStore, adoptChatFromUrl: s.adoptChatFromUrl, setChatsLoading: s.setChatsLoading,
+    setToolDisplayNames: s.setToolDisplayNames, addBackendSessionId: s.addBackendSessionId,
+    clearBackendSessionIds: s.clearBackendSessionIds, clearLoadedMsgIds: s.clearLoadedMsgIds,
+    currentChatId: s.currentChatId, sessionLoadEpoch: s.sessionLoadEpoch, bumpSessionLoadEpoch: s.bumpSessionLoadEpoch,
+    hydrateForUser: s.hydrateForUser,
+  })));
   const fetchCatalog = useCatalogStore((state) => state.fetchCatalog);
   const panel = usePanel();
 

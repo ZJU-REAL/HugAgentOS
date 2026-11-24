@@ -30,7 +30,7 @@ export function PluginAccountConnection({ connection }: { connection: string }) 
     />}
     <div className="jx-settings-card">
       {dual && target === 'local' && !localReady
-        ? <Alert type="info" showIcon message={t('本机服务尚未就绪，请稍候重试。')} />
+        ? <Alert type="info" showIcon title={t('本机服务尚未就绪，请稍候重试。')} />
         : <div key={target}>
           {connection === 'lark' && <LarkAppInitCard target={target} />}
           <Panel target={target} />

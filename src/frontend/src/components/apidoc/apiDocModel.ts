@@ -9,7 +9,7 @@ export interface SchemaDefinition {
   additionalProperties?: boolean | SchemaDefinition;
 }
 export interface ApiComponents { schemas?: Record<string, SchemaDefinition> }
-export interface ApiResponse { description?: string; content?: Record<string, { schema?: SchemaDefinition }> }
+interface ApiResponse { description?: string; content?: Record<string, { schema?: SchemaDefinition }> }
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export interface OpenApiSchema {
@@ -19,7 +19,7 @@ export interface OpenApiSchema {
   components?: ApiComponents;
 }
 
-export interface OperationObject {
+interface OperationObject {
   tags?: string[];
   summary?: string;
   description?: string;
@@ -64,6 +64,7 @@ export interface GroupBucket {
 
 // Order-sensitive: the first matching rule wins, so more specific prefixes (e.g. /v1/catalog/kb)
 // must come before broader prefixes (/v1/catalog). Path shapes follow the backend's real routes.
+// Group names are display labels translated at render (tCtx('apiGroup', name) in ApiDocPanel).
 // Group display order is derived from each group's first appearance in this array (see GROUP_ORDER); no manual ordinals needed.
 const CATEGORY_RULES: Array<{ test: RegExp; group: string }> = [
   { test: /^\/(login|register|logout)\b/,                    group: '认证与会话' },

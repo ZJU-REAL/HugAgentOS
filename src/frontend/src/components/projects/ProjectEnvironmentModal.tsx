@@ -7,6 +7,7 @@ import {
 import ProjectEnvironmentEditor from './ProjectEnvironmentEditor';
 import { t } from '../../i18n';
 import { LoadError } from '../common/LoadState';
+import { COMPACT_MODAL_PROPS } from '../common/modalLayout';
 
 export default function ProjectEnvironmentModal({ projectId, open, onClose }: {
   projectId: string; open: boolean; onClose: () => void;
@@ -41,10 +42,10 @@ export default function ProjectEnvironmentModal({ projectId, open, onClose }: {
     } finally { setSaving(false); }
   };
 
-  return <Modal title={t('绑定项目环境')} open={open} onCancel={onClose} width={640}
+  return <Modal title={t('绑定项目环境')} open={open} onCancel={onClose} width={720} {...COMPACT_MODAL_PROPS}
     onOk={() => void save()} okText={t('保存环境')} cancelText={t('取消')}
     confirmLoading={saving} okButtonProps={{ disabled: loading || !!error || !ready }}>
-    <p style={{ color: 'var(--color-text-secondary)' }}>
+    <p className="jx-projectEnvironment-intro">
       {t('所有项目对话共用此环境。正在执行的对话保持原环境，项目外对话不受影响。')}
     </p>
     {error ? <LoadError title={t('项目环境加载失败')} reason={error} onRetry={() => setRetry(v => v + 1)} /> :

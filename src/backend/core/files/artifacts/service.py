@@ -3,12 +3,12 @@
 import logging
 import os
 import uuid
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from core.files.artifacts.refs import infer_artifact_type, require_artifact_storage_key
 from core.db.models import Artifact as ArtifactModel
 from core.db.repository import ArtifactRepository
-from core.files.edition import artifact_scope_fields
+from core.files.edition import artifact_name_target, artifact_scope_fields
 from sqlalchemy.orm import Session
 
 if TYPE_CHECKING:
@@ -146,6 +146,40 @@ class ArtifactService:
 # Lives in core so tools and routing can persist artifacts without importing an API route.
 
 
+def _free_artifact_name(
+    db: Session, user_id: str, fields: dict, filename: str, batch: set, *, strict: bool = False
+) -> str:
+    """First free ``name`` / ``name (1).ext``… in the target folder.
+
+    A generated file that collides with an existing one is kept under a
+    numbered name, like personal uploads, instead of failing the whole run.
+    ``batch`` holds names already handed out in this call (not yet flushed).
+    The edition decides whether strict persistence must keep the requested name.
+    """
+    from fastapi import HTTPException
+    from core.db.personal_file_names import conflict, numbered_names
+
+    target = artifact_name_target(user_id, fields, strict)
+    if target is None:
+        return filename
+    owner, folder_id, check_name = target
+    for candidate in numbered_names(filename):
+        key = (check_name, owner, folder_id, candidate)
+        if key in batch:
+            continue
+        try:
+            check_name(db, owner, folder_id, candidate)
+        except HTTPException as error:
+            if error.status_code != 409:
+                raise
+            continue
+        batch.add(key)
+        if candidate != filename:
+            logger.info("artifact_name_renamed: %s -> %s", filename, candidate)
+        return candidate
+    raise conflict()
+
+
 def persist_artifacts(
     db: Session,
     user_id: str,
@@ -198,6 +232,7 @@ def persist_artifacts(
         if all_fids
         else set()
     )
+    batch_names: set = set()
     for art in collected:
         art_id = art.get("file_id", "")
         if not art_id or art_id in existing_ids:
@@ -207,14 +242,21 @@ def persist_artifacts(
             storage_key = (
                 require_artifact_storage_key(art_id, art.get("storage_key"))
             )
+            # The pin tool (strict) reports a team clash back to the model so it
+            # edits the existing team file; everywhere else a clash must not
+            # fail the run, so the new file takes the next free name.
+            filename = _free_artifact_name(
+                db, user_id, scope_fields, art.get("name", ""), batch_names,
+                strict=strict,
+            )
             db.add(
                 ArtifactModel(
                     artifact_id=art_id,
                     chat_id=chat_id,
                     user_id=user_id,
                     type=infer_artifact_type(mime),
-                    title=art.get("name", ""),
-                    filename=art.get("name", ""),
+                    title=filename,
+                    filename=filename,
                     size_bytes=max(art.get("size", 0) or 0, 1),
                     mime_type=mime,
                     storage_key=storage_key,
@@ -247,14 +289,3 @@ def persist_artifacts(
             db.rollback()
         else:
             raise
-
-
-def extend_collected_artifacts(collected: list, refs: List[dict]) -> None:
-    """Append new file refs to ``collected``, de-duplicating by file_id."""
-    existing_ids = {item.get("file_id") for item in collected if item.get("file_id")}
-    for ref in refs:
-        file_id = ref.get("file_id")
-        if not file_id or file_id in existing_ids:
-            continue
-        collected.append(ref)
-        existing_ids.add(file_id)

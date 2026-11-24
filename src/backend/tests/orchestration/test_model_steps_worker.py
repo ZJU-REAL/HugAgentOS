@@ -18,6 +18,7 @@ import core.runs.runtime as runtime
 import core.runs.tasks as tasks
 import core.chat.service as services_ChatService_module
 import pytest
+from tests.clock_support import eventually
 from core.db.models import ChatMessage
 from core.llm.runtime.model_steps import assistant_row_replay
 from core.chat.compaction.history import normalize_rows
@@ -223,7 +224,13 @@ async def test_tool_success_checkpoint_contains_canonical_result(
     start.set()
     try:
         await asyncio.wait_for(reached.wait(), 5)
-        await asyncio.sleep(2.5)
+
+        def persisted_steps():
+            with run_env() as db:
+                steps = db.get(ChatMessage, run.message_id).model_steps or []
+                return [s["kind"] for s in steps] == ["assistant", "tool_result"]
+
+        await eventually(persisted_steps)
         with run_env() as db:
             row = db.get(ChatMessage, run.message_id)
 

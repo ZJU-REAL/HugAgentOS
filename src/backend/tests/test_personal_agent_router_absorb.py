@@ -278,7 +278,7 @@ async def test_each_im_message_gets_the_segment_that_answers_it(sessions, monkey
     monkeypatch.setattr("integrations.channels.registry.get_adapter", lambda kind: adapter)
     with sessions() as db:
         svc = AgentContext(db, "owner"); svc.identity.ensure(); agent = svc.identity.agent()
-        agent.config = {**agent.config, "channel_ids": ["bot"], **listed_owner("bot", "alice")}
+        agent.config = {**agent.config, **listed_owner("bot", "alice")}
         db.commit()
     await channel_bridge.admit_inbound(CONN, inbound("帮我查天气", "m1"), adapter)
     turn_id, _ = claim()

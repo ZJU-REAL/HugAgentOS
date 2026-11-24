@@ -15,7 +15,7 @@ export function MoreModules({ entries, panel, onSelect, expanded = false, classN
   return <Dropdown open={open} onOpenChange={visible => {
     setOpen(visible);
     if (!visible) requestAnimationFrame(() => trigger.current?.focus());
-  }} overlayClassName="jx-moreModulesMenu" autoFocus trigger={['click']} placement="bottomLeft"
+  }} classNames={{ root: "jx-moreModulesMenu" }} autoFocus trigger={['click']} placement="bottomLeft"
     popupRender={menu => <div onKeyDownCapture={event => {
       if (event.key === 'Escape') {
         event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus();

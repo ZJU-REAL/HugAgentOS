@@ -1,8 +1,4 @@
-"""Shared low-level helpers for the LLM tool registrations.
-
-Extracted from core/llm/tool.py so per-tool modules and the remaining register_*
-functions share them. ``core.llm.tool`` re-exports these for compatibility.
-"""
+"""Shared low-level helpers for the LLM tool registrations."""
 
 import json
 import logging
@@ -13,17 +9,6 @@ from agentscope.tool._response import ToolChunk
 from core.config.settings import settings
 
 logger = logging.getLogger(__name__)
-
-
-
-
-
-
-
-
-
-
-
 
 
 def resp_json(payload: dict[str, Any]) -> ToolChunk:

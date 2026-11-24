@@ -5,23 +5,21 @@ import httpx
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from api.routes.v1 import audio
-from core.db.engine import Base, get_db
+from core.db.engine import get_db
 from core.db.models import UserShadow
 from core.models.repository import create_provider, assign_role, update_provider
 from core.chat.audio_transcription import resolve_audio_model
 from tests.services.test_audio_transcription import wav
 from tests.db_support import share_session
+from tests.db_support import memory_engine
 
 
 @pytest.fixture
 def setup(monkeypatch):
-    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-    Base.metadata.create_all(engine)
+    engine = memory_engine()
     with sessionmaker(bind=engine)() as db:
         db.add(UserShadow(user_id="owner", username="owner", extra_data={"can_use_voice": True}))
         db.commit()

@@ -8,6 +8,7 @@ import { t } from '../../i18n';
 import { useDesktopCapabilityStore } from '../../stores/desktopCapabilityStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
+import { COMPACT_MODAL_PROPS } from '../common/modalLayout';
 
 export function CapabilityChangesModal({ installId, onClose }: { installId: string; onClose: () => void }) {
   const [preview, setPreview] = useState<CapabilityChangePreview>();
@@ -53,17 +54,17 @@ export function CapabilityChangesModal({ installId, onClose }: { installId: stri
     } catch (e) { if (alive.current) setError(e instanceof Error ? e.message : String(e)); }
     finally { if (alive.current) setBusy(false); }
   };
-  return <Modal open title={t('能力文件变更')} width={860} onCancel={busy ? undefined : onClose}
-    closable={!busy} maskClosable={!busy} confirmLoading={busy}
+  return <Modal open title={t('能力文件变更')} width={860} {...COMPACT_MODAL_PROPS} onCancel={busy ? undefined : onClose}
+    closable={!busy} mask={{ closable: !busy }} confirmLoading={busy}
     okText={t('提交到云端')} cancelText={t('取消')} onOk={() => { void submit(); }}
     okButtonProps={{ disabled: !preview || !preview.changes.length || (needsFork ? !/^[a-z0-9][a-z0-9_-]{0,62}$/.test(forkKey) : !!unresolved)
       || (!!sensitive.length && !acknowledge) }}>
-    {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} />}
+    {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 12 }} />}
     {!preview && !error && <Spin />}
     {preview && <>
       {needsFork && <Input aria-label={t('私有云端副本标识')} placeholder={t('私有云端副本标识')}
         value={forkKey} onChange={(e) => setForkKey(e.target.value)} style={{ marginBottom: 12 }} />}
-      {!preview.changes.length && <Alert type="success" message={t('本地与云端内容一致')} />}
+      {!preview.changes.length && <Alert type="success" title={t('本地与云端内容一致')} />}
       <Collapse items={preview.changes.map((row) => ({
         key: row.path,
         label: <span style={{ overflowWrap: 'anywhere' }}>{row.path} {row.conflict && <Tag color="warning">{t('冲突')}</Tag>}</span>,
@@ -94,7 +95,7 @@ export function CapabilityChangesModal({ installId, onClose }: { installId: stri
         </>,
       }))} />
       {!!sensitive.length && <div style={{ marginTop: 12 }}>
-        <Alert type="warning" message={t('以下文件疑似包含敏感内容')}
+        <Alert type="warning" title={t('以下文件疑似包含敏感内容')}
           description={sensitive.join(', ')} />
         <Checkbox checked={acknowledge} onChange={(e) => setAcknowledge(e.target.checked)}>
           {t('我确认将这些文件一并上传到云端')}

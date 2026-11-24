@@ -11,6 +11,7 @@ from core.infra.time import utc_now
 from features.sites.edition import can_view_site, resolve_site_scope, site_listing_predicate, site_management_permission, site_scope_write_fields
 from features.sites.password import hash_access_password, verify_access_token
 from core.files.storage import get_storage
+from core.db.paging import apply_page
 
 
 class SiteManagementMixin:
@@ -24,10 +25,7 @@ class SiteManagementMixin:
         )
         total = query.count()
         return (
-            query.order_by(Site.updated_at.desc())
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-            .all(),
+            apply_page(query.order_by(Site.updated_at.desc()), page=page, page_size=page_size).all(),
             total,
         )
 

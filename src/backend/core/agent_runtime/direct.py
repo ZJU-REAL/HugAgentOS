@@ -26,6 +26,7 @@ import core.capabilities.catalog.resolver as catalog_resolver
 
 from core.agent_runtime import prepare_direct, stream_direct
 from core.agent_runtime.direct_state import DirectTurn
+from core.db.threads import run_db
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ async def _astream_subagent_direct(
     import time as _time
 
     turn.wf_start = _time.monotonic()
-    turn.user_agent = targets._load_direct_user_agent(
+    turn.user_agent = await run_db(targets._load_direct_user_agent,
         agent_id,
         str(turn.context.get("user_id", "")),
         {
@@ -155,7 +156,7 @@ async def _astream_subagent_direct(
         _mem0_chat_id = turn.context.get("chat_id") or turn.context.get("conversation_id")
         turn.memory_enabled = bool(turn.context.get("memory_enabled", False))
         _mem0_write_enabled = bool(turn.context.get("memory_write_enabled", False))
-        # Under a team project chats.py passes "team:<tid>"; personal/default spaces don't pass it and fall back to the real user_id
+        # A team project's scope sets "team:<tid>" (see request_context.py); personal/default spaces leave it unset and fall back to the real user_id
         _mem0_scope_user_id = str(
             turn.context.get("memory_scope_user_id", "") or turn.memory_user_id
         )
@@ -377,7 +378,7 @@ async def _astream_subagent_direct(
             "citations": turn.all_citations,
             "usage": _direct_usage,
             "context_usage": _direct_context_usage,
-            # Internal-only handoff consumed by chat_run_executor.  Its whitelist
+            # Internal-only handoff consumed by the chat run worker.  Its whitelist
             # intentionally keeps this prompt/tool surface out of SSE and message
             # metadata while allowing post-turn compaction to use the exact same
             # frozen inputs as pre-turn compaction.

@@ -1,6 +1,6 @@
 """Automation API routes — CRUD for scheduled tasks + notifications."""
 
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from croniter import croniter
 from fastapi import APIRouter, Depends, Query
@@ -299,20 +299,6 @@ def trigger_automation(
 
     svc.request_manual_trigger(task)
     return success_response(message="已触发执行")
-
-
-@router.post("/{task_id}/activate-sidebar", summary="侧边栏激活任务")
-def activate_sidebar(
-    task_id: str,
-    user: UserContext = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """将自动化任务标记为侧边栏已激活（幂等操作），任务不存在返回 404。"""
-    svc = AutomationService(db)
-    task = svc.activate_sidebar(task_id, user.user_id)
-    if not task:
-        raise _not_found("任务不存在")
-    return success_response(data=AutomationService.task_to_dict(task))
 
 
 @router.get("/{task_id}/runs", summary="自动化任务运行历史")
