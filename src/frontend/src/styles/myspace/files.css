@@ -136,14 +136,14 @@
   font-weight: 500;
 }
 
-.jx-mySpace-docTable-header .jx-mySpace-docTable-col--check .ant-checkbox-wrapper {
-  opacity: 0;
-  pointer-events: none;
+/* Select all stays visible so a selection can start from the header, not only from a hovered row. */
+.jx-mySpace-docTable-header .jx-mySpace-docTable-col--check .ant-checkbox-wrapper-disabled {
+  visibility: hidden;
 }
 
-.jx-mySpace-docTable--hasSelection .jx-mySpace-docTable-header .jx-mySpace-docTable-col--check .ant-checkbox-wrapper {
-  opacity: 1;
-  pointer-events: auto;
+/* Phone-only selection bar; the desktop table header carries select all. */
+.jx-mySpace-docSelectBar {
+  display: none;
 }
 
 .jx-mySpace-docRow {

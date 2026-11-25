@@ -32,7 +32,7 @@ def upload_document(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """上传文档到指定知识库空间并异步建立索引。仅空间所有者可上传；文件大小受 MAX_FILE_SIZE（100MB）限制，可选传入标题、元数据、索引配置及分块方法覆盖。上传成功后通过后台任务完成解析、分块与向量化，立即返回 indexing_status=processing。"""
+    """上传文档到指定知识库空间并异步建立索引。仅空间所有者可上传；个人知识库的单文件上限由权限配置的 personal_kb_upload_limit_mb 决定，公共知识库受 MAX_FILE_SIZE（200MB）限制，可选传入标题、元数据、索引配置及分块方法覆盖。上传成功后通过后台任务完成解析、分块与向量化，立即返回 indexing_status=processing。"""
     kb_service = KBService(db)
 
     from features.knowledge.repository import KBRepository
@@ -50,10 +50,13 @@ def upload_document(
     content = file.file.read()
     file_size = len(content)
 
-    if file_size > kb_state.MAX_FILE_SIZE:
+    if kb_space.visibility != "private" and file_size > kb_state.MAX_FILE_SIZE:
         raise FileTooLargeError(max_size=kb_state.MAX_FILE_SIZE, actual_size=file_size)
     if file_size == 0:
         raise BadRequestError(message="File is empty", data={"filename": file.filename})
+    from features.knowledge.quota import enforce_private_kb_upload
+
+    enforce_private_kb_upload(db, kb_space, file_size)
 
     _, mime_type = validate_kb_file(file.filename, content)
 

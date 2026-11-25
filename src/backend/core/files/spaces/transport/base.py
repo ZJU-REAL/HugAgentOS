@@ -61,8 +61,8 @@ class SpaceTransport:
         return Volume(name="space-" + fingerprint((grant,))[:24], mount_path=grant.mount_path,
                       read_only=not grant.writable, **source)
 
-    async def ensure(self, sandbox, actor, info, *, domain, api_key) -> None:
-        """Verify an existing sandbox still exposes the current grants."""
+    async def ensure(self, sandbox, actor, info, grants, *, domain, api_key) -> None:
+        """Verify the sandbox exposes ``grants``, which match its revision tag."""
 
     async def before_use(self, sandbox, actor, *, path=None) -> SyncReport:
         """Bring remote changes into the sandbox before code reads them.

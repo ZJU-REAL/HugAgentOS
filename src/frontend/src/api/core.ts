@@ -295,13 +295,12 @@ export function unwrapData<T>(payload: unknown): T {
 // User-friendly upload error messages.
 // Recognizes nginx 413 first (HTML response, not parseable as JSON), then
 // backend structured error codes.
-// Baked in at build time from the same UPLOAD_MAX_MB env var that feeds the
-// nginx client_max_body_size (see docker-compose.yml frontend build args).
-export const UPLOAD_MAX_MB = Number(import.meta.env.VITE_UPLOAD_MAX_MB) || 50;
-export const UPLOAD_MAX_BYTES = UPLOAD_MAX_MB * 1024 * 1024;
+// There is no fixed client-side size cap: per-file caps come from role / team / user
+// permissions and the backend names the applicable one in its 413 response.
 export function uploadErrorMessage(status: number, payload: unknown): string {
-  if (status === 413) {
-    return t('文件过大，单个文件不能超过 {n} MB', { n: UPLOAD_MAX_MB });
+  // A 413 from the backend names the cap or quota that applies; one from the proxy has no body.
+  if (status === 413 && !(payload && typeof payload === 'object' && (payload as JsonObject).code === 21001)) {
+    return readErrorMessage(payload, t('文件过大，超出允许的上传大小'));
   }
   if (payload && typeof payload === 'object') {
     const record = payload as JsonObject;
@@ -310,8 +309,9 @@ export function uploadErrorMessage(status: number, payload: unknown): string {
     if (code === 21001) {
       const data = (record.data ?? {}) as JsonObject;
       const max = typeof data.max_size === 'number' ? data.max_size : null;
-      const mb = max ? Math.floor(max / 1024 / 1024) : UPLOAD_MAX_MB;
-      return t('文件过大，单个文件不能超过 {n} MB', { n: mb });
+      return max
+        ? t('文件过大，单个文件不能超过 {n} MB', { n: Math.floor(max / 1024 / 1024) })
+        : t('文件过大，超出允许的上传大小');
     }
     if (code === 21002) {
       const data = (record.data ?? {}) as JsonObject;

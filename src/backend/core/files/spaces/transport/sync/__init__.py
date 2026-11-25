@@ -24,7 +24,7 @@ from datetime import datetime
 from core.files.spaces.access import grants_for
 from core.files.spaces.transport.base import SpaceTransport, SyncReport
 from core.files.spaces.transport.sync import sandbox_io
-from core.files.spaces.transport.sync.config import sync_limits
+from core.files.spaces.transport.sync.config import actor_file_limit_bytes, sync_limits
 from core.files.spaces.transport.sync.manifest import (
     Baseline, Base, Local, conflict_name, locally_changed, plan,
 )
@@ -105,7 +105,8 @@ class SyncTransport(SpaceTransport):
             grants = _containing(grants, actor, str(path))
         if not grants:
             return report
-        limits = sync_limits()
+        from dataclasses import replace
+        limits = replace(sync_limits(), max_file_bytes=await asyncio.to_thread(actor_file_limit_bytes, actor))
         from core.files.storage import get_storage
         from core.sandbox.providers.opensandbox.runtime import sandbox_lock
         storage = get_storage()

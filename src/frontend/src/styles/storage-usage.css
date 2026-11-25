@@ -1,0 +1,42 @@
+/* Storage usage line for My Space and private knowledge bases (StorageUsageMeter). */
+.jx-storageUsage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 12px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.jx-storageUsage-bar {
+  flex: 0 1 240px;
+  min-width: 120px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-fill);
+  overflow: hidden;
+}
+
+.jx-storageUsage-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-primary);
+  transform-origin: left center;
+  transition: transform var(--motion-duration-normal) var(--motion-ease-standard);
+}
+
+.jx-storageUsage.is-high .jx-storageUsage-fill { background: var(--color-warning); }
+.jx-storageUsage.is-full .jx-storageUsage-fill { background: var(--color-error); }
+.jx-storageUsage.is-full .jx-storageUsage-text { color: var(--color-error-text); }
+
+.jx-storageUsage-text {
+  min-width: 0;
+  font-family: var(--font-family-number);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jx-storageUsage-fill { transition: none; }
+}

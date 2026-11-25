@@ -27,10 +27,11 @@ def request():
 def test_space_file_and_command_entrypoints_reject_revoked_grants(monkeypatch, entry):
     provider = SpaceProvider.__new__(SpaceProvider)
     provider._service_loop = None
+    provider._sessions = {}
     provider._get_session_lock = AsyncMock(return_value=asyncio.Lock())
     session = SimpleNamespace(sandbox=SimpleNamespace(id="live", files=SimpleNamespace(read_bytes=AsyncMock())), user_id="owner")
     monkeypatch.setattr(_OpenSandboxBindingMixin, "_resolve_bound_session", AsyncMock(return_value=session))
-    async def denied(session):
+    async def denied(session, *, newly_bound):
         assert session_registry.claim_active()
         return False
     provider._grants_match = AsyncMock(side_effect=denied)
@@ -45,7 +46,7 @@ def test_space_file_and_command_entrypoints_reject_revoked_grants(monkeypatch, e
             else:
                 await CloudProcesses(provider)._spawn(request())
         assert caught.value.status_code == 409
-        provider._grants_match.assert_awaited_once_with(session)
+        provider._grants_match.assert_awaited_once_with(session, newly_bound=True)
         provider._destroy_session.assert_awaited_once_with("chat", session, reuse_sandbox=False)
         session.sandbox.files.read_bytes.assert_not_awaited()
     asyncio.run(scenario())

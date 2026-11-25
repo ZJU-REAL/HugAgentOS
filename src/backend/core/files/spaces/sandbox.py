@@ -3,14 +3,7 @@ import asyncio
 
 from fastapi import HTTPException
 from core.sandbox.processes.dispatch import _on_service_loop
-from core.files.spaces.access import resolve_grants
-from core.files.spaces.mounts import MOUNT_REVISION_TAG, mount_revision
-
-
-def current_revision(actor):
-    from core.db.engine import SessionLocal
-    with SessionLocal() as db:
-        return mount_revision(resolve_grants(db, actor))
+from core.files.spaces.mounts import MOUNT_REVISION_TAG, authorized_grants
 
 
 class SpaceSandboxMixin:
@@ -24,23 +17,19 @@ class SpaceSandboxMixin:
         from core.files.edition import session_entrypoint
         return session_entrypoint(super()._session_entrypoint(user_id), user_id)
 
-    async def _create_jupyter_sandbox(self, *, from_snapshot_id=None, user_id=None):
-        from core.files.spaces.leases import async_space_lock
-        if not user_id:
-            return await super()._create_jupyter_sandbox(from_snapshot_id=from_snapshot_id)
-        async with async_space_lock(user_id):
-            return await super()._create_jupyter_sandbox(
-                from_snapshot_id=from_snapshot_id, user_id=user_id,
-            )
+    async def _grants_match(self, session, *, newly_bound):
+        """Check the sandbox against current grants before every use.
 
-    async def _grants_match(self, session):
-        revision = await asyncio.to_thread(current_revision, session.user_id)
+        A newly bound sandbox may have been created during a permission change, so
+        its check waits for that change to commit (``authorized_grants``)."""
+        grants, revision = await asyncio.to_thread(
+            authorized_grants, session.user_id, ordered=newly_bound)
         info = await session.sandbox.get_info()
         if (info.metadata or {}).get(MOUNT_REVISION_TAG) != revision:
             return False
         from core.config.settings import settings
         from core.files.spaces.recovery import ensure_mounts
-        await ensure_mounts(session.sandbox, session.user_id, info,
+        await ensure_mounts(session.sandbox, session.user_id, info, grants,
             domain=settings.sandbox.opensandbox_domain,
             api_key=settings.sandbox.opensandbox_api_key)
         return True
@@ -49,8 +38,9 @@ class SpaceSandboxMixin:
         if not user_id:
             from core.infra.logging import user_id_var
             user_id = user_id_var.get() or None
+        previous = self._sessions.get(session_id)
         session = await super()._resolve_bound_session(session_id, user_id)
-        if user_id and not await self._grants_match(session):
+        if user_id and not await self._grants_match(session, newly_bound=session is not previous):
             await self._destroy_session(session_id, session, reuse_sandbox=False)
             raise HTTPException(409, "文件权限已变更，请重新打开沙盒")
         return session
@@ -60,7 +50,8 @@ class SpaceSandboxMixin:
         await self._get_or_create_session(session_id, user_id)
 
     async def _renew_in_background(self, session_id, session):
-        if session.user_id and (await asyncio.to_thread(current_revision, session.user_id)) != (
+        if session.user_id and (await asyncio.to_thread(
+            authorized_grants, session.user_id, ordered=False))[1] != (
             (await session.sandbox.get_info()).metadata or {}
         ).get(MOUNT_REVISION_TAG):
             await self._destroy_session(session_id, session, reuse_sandbox=False)

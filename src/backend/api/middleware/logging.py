@@ -115,19 +115,23 @@ class LoggingMiddleware:
 class RequestSizeLimitMiddleware:
     """Pure ASGI middleware to reject oversized request bodies.
 
-    Upload endpoints enforce their own per-file size limits (typically 50MB)
-    and are excluded here so the global JSON-body limit doesn't block them.
+    File-upload endpoints are excluded so the global JSON-body limit doesn't block them:
+    their size is governed by the per-file caps configured in role / team / user
+    permissions (My Space, private KB) or by the endpoint's own package limit.
     """
 
-    # File upload paths; these endpoints have their own size validation internally (typically 50MB)
-    _UPLOAD_PATH_SUFFIXES = ("/upload", "/files/upload")
+    _UPLOAD_PATH_SUFFIXES = ("/upload", "/documents")
+    # PUT bodies that carry raw file content: My Space writes and in-place file overwrites.
+    _UPLOAD_PUT_PATTERNS = (re.compile(r"/v1/myspace/content$"), re.compile(r"/v1/file/[^/]+$"))
 
     def __init__(self, app: ASGIApp, max_size: int) -> None:
         self.app = app
         self.max_size = max_size
 
-    def _is_upload_path(self, path: str) -> bool:
-        return any(path.endswith(s) for s in self._UPLOAD_PATH_SUFFIXES)
+    def _is_upload_path(self, method: str, path: str) -> bool:
+        if method == "POST" and path.endswith(self._UPLOAD_PATH_SUFFIXES):
+            return True
+        return method == "PUT" and any(p.search(path) for p in self._UPLOAD_PUT_PATTERNS)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -135,7 +139,7 @@ class RequestSizeLimitMiddleware:
             return
 
         request = Request(scope)
-        if request.method in ("POST", "PUT", "PATCH") and not self._is_upload_path(request.url.path):
+        if request.method in ("POST", "PUT", "PATCH") and not self._is_upload_path(request.method, request.url.path):
             content_length = request.headers.get("content-length")
             if content_length:
                 try:

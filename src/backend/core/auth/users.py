@@ -108,7 +108,14 @@ class UserService:
         # Imported lazily to avoid an import cycle during application startup.
         from core.memory.settings import MemorySettingsService
 
-        return MemorySettingsService(self.db).apply_effective_defaults(metadata)
+        result = MemorySettingsService(self.db).apply_effective_defaults(metadata)
+        if result["memory_enabled"] or result["memory_write_enabled"]:
+            from core.auth.capabilities import meta_has_capability
+
+            if not meta_has_capability(self.db, user_id, metadata, "can_use_evolution"):
+                # Without the evolution console the user has no long-term memory at all.
+                result["memory_enabled"] = result["memory_write_enabled"] = False
+        return result
 
     def update_user_metadata(self, user_id: str, patch: Dict[str, Any]) -> None:
         """Merge `patch` into users_shadow.metadata JSONB (shallow merge)."""

@@ -22,6 +22,19 @@ from pydantic import BaseModel, Field
 router = APIRouter(prefix="/v1/evolution", tags=["Evolution"])
 
 
+async def _require_evolution(user: UserContext = Depends(get_current_user)) -> None:
+    """403 unless the account holds the evolution-console permission (``can_use_evolution``)."""
+    from core.auth.capabilities import require_capability
+    from core.db.threads import run_in_session
+
+    await run_in_session(
+        require_capability, str(user.user_id), "can_use_evolution", "未开通进化控制台"
+    )
+
+
+_EVOLUTION_GATE = Depends(_require_evolution)
+
+
 @router.get("/turns/{message_id}", summary="查询某轮对话的进化结算结果")
 async def get_turn_settlement(
     message_id: str,
@@ -58,7 +71,7 @@ async def get_evolution_settings(user: UserContext = Depends(get_current_user)):
     return success_response(data=resolve_for_user(user.user_id))
 
 
-@router.patch("/settings", summary="更新本账号的进化参与设置")
+@router.patch("/settings", summary="更新本账号的进化参与设置", dependencies=[_EVOLUTION_GATE])
 async def update_evolution_settings(
     body: ContributionSettingRequest,
     user: UserContext = Depends(get_current_user),
@@ -72,7 +85,7 @@ async def update_evolution_settings(
         raise BadRequestError(str(exc))
 
 
-@router.get("/contributions", summary="查看本账号促成了哪些能力进化")
+@router.get("/contributions", summary="查看本账号促成了哪些能力进化", dependencies=[_EVOLUTION_GATE])
 async def get_contributions(user: UserContext = Depends(get_current_user)):
     """The chain from this user's episodes through to candidates.
 
@@ -85,7 +98,7 @@ async def get_contributions(user: UserContext = Depends(get_current_user)):
     return success_response(data=summarise_contributions(user.user_id))
 
 
-@router.get("/my-candidates", summary="待我审批的能力候选")
+@router.get("/my-candidates", summary="待我审批的能力候选", dependencies=[_EVOLUTION_GATE])
 async def list_my_candidates(user: UserContext = Depends(get_current_user)):
     """Candidates this user may accept for themselves.
 
@@ -104,7 +117,7 @@ async def list_my_candidates(user: UserContext = Depends(get_current_user)):
     )
 
 
-@router.post("/my-candidates/{candidate_id}/approve", summary="批准并为自己启用")
+@router.post("/my-candidates/{candidate_id}/approve", summary="批准并为自己启用", dependencies=[_EVOLUTION_GATE])
 async def approve_my_candidate(
     candidate_id: str,
     user: UserContext = Depends(get_current_user),
@@ -140,7 +153,7 @@ async def get_prefs(user: UserContext = Depends(get_current_user)):
     )
 
 
-@router.patch("/prefs", summary="更新我的进化配置")
+@router.patch("/prefs", summary="更新我的进化配置", dependencies=[_EVOLUTION_GATE])
 async def update_prefs_api(
     body: PrefsPatch,
     user: UserContext = Depends(get_current_user),
@@ -175,7 +188,7 @@ async def update_prefs_api(
         raise BadRequestError(str(exc))
 
 
-@router.post("/my-cycle", summary="立即为我运行一次进化")
+@router.post("/my-cycle", summary="立即为我运行一次进化", dependencies=[_EVOLUTION_GATE])
 async def run_my_cycle(user: UserContext = Depends(get_current_user)):
     """Run this user's own evolution pass now.
 

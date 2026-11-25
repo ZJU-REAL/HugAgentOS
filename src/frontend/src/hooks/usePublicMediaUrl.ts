@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
-import { authFetch, getApiUrl, UPLOAD_MAX_BYTES } from '../api';
+import { authFetch, getApiUrl } from '../api';
 import { isPublicChat } from '../publicChatTransport';
 import { readLimitedArrayBuffer } from '../utils/filePreviewSafety';
+
+// Memory guard for buffering public-chat media into a blob URL (a preview bound, not an upload cap).
+const PUBLIC_MEDIA_MAX_BYTES = 200 * 1024 * 1024;
 
 /** Media elements cannot carry the public visitor headers; use a bounded blob URL. */
 export function usePublicMediaUrl(src: string): { url: string; error?: string } {
@@ -14,7 +17,7 @@ export function usePublicMediaUrl(src: string): { url: string; error?: string } 
     void (async () => {
       const response = await authFetch(src, { signal: controller.signal });
       if (!response.ok) throw new Error('HTTP ' + response.status);
-      const bytes = await readLimitedArrayBuffer(response, UPLOAD_MAX_BYTES);
+      const bytes = await readLimitedArrayBuffer(response, PUBLIC_MEDIA_MAX_BYTES);
       if (controller.signal.aborted) return;
       blobUrl = URL.createObjectURL(new Blob([bytes], { type: response.headers.get('content-type') || 'application/octet-stream' }));
       setResult({ source: src, url: blobUrl });

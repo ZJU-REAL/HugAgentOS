@@ -188,6 +188,8 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
   // has nothing to grow from unless conversations are allowed to settle into
   // memory. Rather than let it run and quietly find nothing, the switch is
   // unavailable until both hold.
+  // Without the evolution-console permission the wizard neither shows nor writes memory/evolution.
+  const evolutionAllowed = user.can_use_evolution !== false;
   const memoryReady = memoryAvailable && embeddingAvailable && memoryEnabled;
   const evolutionAvailable = memoryReady && memoryWriteEnabled;
   const evolutionActive = evolutionAvailable && evolutionEnabled;
@@ -467,11 +469,13 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
         await saveServiceGroup(parserGroup);
       } else if (step === 4) {
         await Promise.all([
-          updateMemorySettings(memoryReady),
-          updateMemoryWriteSettings(memoryReady && memoryWriteEnabled),
-          // Written on every pass, including when it resolves to false, so the
-          // wizard is what decides this rather than the stored default.
-          updateEvolutionPrefs({ enabled: evolutionActive }),
+          ...(evolutionAllowed ? [
+            updateMemorySettings(memoryReady),
+            updateMemoryWriteSettings(memoryReady && memoryWriteEnabled),
+            // Written on every pass, including when it resolves to false, so the
+            // wizard is what decides this rather than the stored default.
+            updateEvolutionPrefs({ enabled: evolutionActive }),
+          ] : []),
         ]);
       } else {
         await completeFirstRunSetup();
@@ -883,6 +887,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
 
   const renderIntelligence = () => (
     <div className="jx-firstRun-featureGrid">
+      {evolutionAllowed && (
       <div className={`jx-firstRun-feature${memoryAvailable && embeddingAvailable && memoryEnabled
         ? ' jx-firstRun-feature--active'
         : ''}`}>
@@ -929,6 +934,7 @@ export function FirstRunSetup({ user, onComplete }: FirstRunSetupProps) {
           )}
         </div>
       </div>
+      )}
     </div>
   );
 

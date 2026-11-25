@@ -7,8 +7,6 @@ from datetime import timedelta
 
 from fastapi import HTTPException
 
-from core.files.spaces.leases import async_space_lock
-from core.files.spaces.mounts import MOUNT_REVISION_TAG, prepare_volumes
 from core.files.spaces.transport.k8s_mount import KubernetesMountTransport
 
 _CHECK_SCRIPT = """import json,os
@@ -41,22 +39,18 @@ class KubernetesSidecarTransport(KubernetesMountTransport):
             ossfs=OSSFS(bucket=bucket, endpoint=endpoint, version="1.0",
                 access_key_id="server-managed", access_key_secret="server-managed"))
 
-    async def ensure(self, sandbox, actor, info, *, domain, api_key):
+    async def ensure(self, sandbox, actor, info, grants, *, domain, api_key):
         """Check kernel mounts in the code container before every workspace use."""
         from opensandbox.models.execd import RunCommandOpts
-        async with async_space_lock(actor):
-            volumes, current = await asyncio.to_thread(prepare_volumes, actor)
-            if current[MOUNT_REVISION_TAG] != (info.metadata or {}).get(MOUNT_REVISION_TAG):
-                raise HTTPException(409, "文件权限已变更，挂载未恢复")
-            expected = [(v.mount_path, v.read_only) for v in volumes]
-            if not expected:
-                return
-            script = _CHECK_SCRIPT.replace("EXPECTED", repr(json.dumps(expected)))
-            try:
-                result = await asyncio.wait_for(sandbox.commands.run(
-                    "python3 -c " + shlex.quote(script),
-                    opts=RunCommandOpts(timeout=timedelta(seconds=8))), timeout=12)
-                if result.exit_code != 0:
-                    raise RuntimeError("Space filesystem is not mounted")
-            except Exception as exc:
-                raise HTTPException(503, "文件挂载未就绪，工作区已保留，请重试") from exc
+        expected = [(grant.mount_path, not grant.writable) for grant in grants]
+        if not expected:
+            return
+        script = _CHECK_SCRIPT.replace("EXPECTED", repr(json.dumps(expected)))
+        try:
+            result = await asyncio.wait_for(sandbox.commands.run(
+                "python3 -c " + shlex.quote(script),
+                opts=RunCommandOpts(timeout=timedelta(seconds=8))), timeout=12)
+            if result.exit_code != 0:
+                raise RuntimeError("Space filesystem is not mounted")
+        except Exception as exc:
+            raise HTTPException(503, "文件挂载未就绪，工作区已保留，请重试") from exc

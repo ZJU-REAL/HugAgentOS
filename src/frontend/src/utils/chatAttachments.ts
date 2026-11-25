@@ -1,4 +1,4 @@
-import { isHybridDual, chatUploadTarget, uploadFile, authFetch, LOCAL_TARGET_HEADER, UPLOAD_MAX_BYTES } from '../api';
+import { isHybridDual, chatUploadTarget, uploadFile, authFetch, LOCAL_TARGET_HEADER } from '../api';
 import { t } from '../i18n';
 import type { UploadedAttachment } from './fileParser';
 import type { ImportedSpaceFile } from '../stores/composerStore';
@@ -8,32 +8,10 @@ export interface ChatAttachment extends UploadedAttachment {
   mime_type: string;
 }
 
-/** Bound downloads even when a generated resource has no Content-Length header. */
+/** Read a referenced file for re-upload; the upload itself enforces the configured per-file cap. */
 async function readReferencedFile(response: Response, name: string): Promise<Blob> {
-  const tooLarge = () => new Error(t('文件过大，无法添加：{name}', { name }));
-  if (Number(response.headers.get('content-length')) > UPLOAD_MAX_BYTES) {
-    await response.body?.cancel();
-    throw tooLarge();
-  }
   if (!response.body) throw new Error(t('无法读取引用文件：{name}', { name }));
-  const reader = response.body.getReader();
-  const chunks: BlobPart[] = [];
-  let size = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > UPLOAD_MAX_BYTES) {
-        await reader.cancel();
-        throw tooLarge();
-      }
-      chunks.push(new Uint8Array(value));
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  return new Blob(chunks);
+  return response.blob();
 }
 
 /** Assemble attachments before committing a user message in either chat or plan mode. */

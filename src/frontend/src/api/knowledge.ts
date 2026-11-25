@@ -1,4 +1,4 @@
-import type { KBIndexMode, WikiConfig, KBWikiStatus, KBChunk, ChunkPreviewResult, WikiCapability, WikiStats, WikiPageBrief, WikiFolder, WikiIndexOverview, WikiPageDetail, WikiGraphData, WikiSourceChunk } from '../types';
+import type { KBIndexMode, StorageUsage, WikiConfig, KBWikiStatus, KBChunk, ChunkPreviewResult, WikiCapability, WikiStats, WikiPageBrief, WikiFolder, WikiIndexOverview, WikiPageDetail, WikiGraphData, WikiSourceChunk } from '../types';
 import { apiRequest, getApiUrl, type KBDocumentsResponse, type KBDocumentStatusCounts, type PaginatedData, throwIfSessionExpired, unwrapData, uploadErrorMessage } from './core';
 
 export interface KBDocumentItem {
@@ -443,4 +443,9 @@ export async function getWikiSourceChunks(
     ),
   );
   return { page: data.page as WikiPageDetail, chunks: data.chunks || [] };
+}
+
+/** Per-file cap, total quota and bytes used across the caller's private knowledge bases. */
+export async function getPrivateKbUsage(signal?: AbortSignal): Promise<StorageUsage> {
+  return unwrapData<StorageUsage>(await apiRequest<unknown>('/v1/catalog/kb/usage', { signal }));
 }

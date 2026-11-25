@@ -144,3 +144,11 @@ export interface OntologyTagOption {
   packs: OntologyTagPack[];
   workflows: OntologyTagWorkflow[];
 }
+
+/** Storage limits and usage for My Space or the private knowledge bases (MB; null = no limit). */
+export interface StorageUsage {
+  file_limit_mb: number | null;
+  quota_mb: number | null;
+  /** Bytes used; the backend may leave it null when no quota applies. */
+  used_bytes: number | null;
+}

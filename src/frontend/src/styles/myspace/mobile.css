@@ -92,8 +92,19 @@
     padding-top: 16px;
   }
 
-  .jx-mySpace-assetBar .jx-mySpace-filterTools {
+  .jx-mySpace-assetBar .jx-mySpace-filterTools,
+  .jx-mySpace-assetBar .jx-mySpace-assetLead {
     display: contents;
+  }
+
+  /* 手机上用量单独一行，放在 [分段控件][刷新][+] 之后、搜索栏（order 10）之前 */
+  .jx-mySpace-assetBar .jx-storageUsage {
+    flex: 1 0 100%;
+    order: 5;
+  }
+
+  .jx-mySpace-assetBar .jx-storageUsage-bar {
+    flex: 1 1 auto;
   }
 
   .jx-mySpace .jx-assetTypeSwitch {
@@ -118,6 +129,11 @@
     border: 0;
     border-radius: 8px;
     box-shadow: var(--shadow-card);
+  }
+
+  /* 手机上「返回上级」独占一行，文字始终显示（覆盖中等宽度时只留图标的规则） */
+  .jx-mySpace-assetBar .jx-mySpace-backBtn .jx-mySpace-toolLabel {
+    display: inline;
   }
 
   .jx-mySpace-assetBar .jx-mySpace-backBtn.ant-btn {
@@ -237,6 +253,49 @@
   .jx-mySpace-docRow .jx-mySpace-docTable-col--check,
   .jx-mySpace-docRow .jx-mySpace-docTable-col--source {
     display: none;
+  }
+
+  .jx-mySpace-docSelectBar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    min-height: 44px;
+    padding: 0 16px;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
+  }
+
+  .jx-mySpace-docSelectBar .ant-checkbox-wrapper {
+    margin-right: auto;
+    font-size: 15px;
+  }
+
+  .jx-mySpace-docSelectBar-toggle {
+    min-height: 44px;
+    padding: 0 4px;
+    border: 0;
+    background: none;
+    color: var(--color-primary);
+    font-size: 15px;
+  }
+
+  /* While selecting, the checkbox takes the icon's place at the start of each row. */
+  .jx-mySpace-docRow.jx-mySpace-docRow--anySelected .jx-mySpace-docTable-col--check {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 16px;
+    display: flex;
+    width: 32px;
+  }
+
+  .jx-mySpace-docRow.jx-mySpace-docRow--anySelected .jx-mySpace-docTable-col--check .ant-checkbox-wrapper {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .jx-mySpace-docRow.jx-mySpace-docRow--anySelected .jx-mySpace-docRow-icon {
+    visibility: hidden;
   }
 
   .jx-mySpace-docRow .jx-mySpace-docTable-col--name {

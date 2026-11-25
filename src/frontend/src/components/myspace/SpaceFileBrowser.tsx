@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Button, Dropdown, Empty, Input, Modal } from 'antd';
+import { Alert, Button, Dropdown, Empty, Input, Modal, message } from 'antd';
 import { ArrowLeftOutlined, DownOutlined, FolderAddOutlined, FolderOpenOutlined, PlusOutlined, ReloadOutlined, SafetyOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons';
 import { SidebarToggleIcon } from './SidebarToggleIcon';
 import type { PersonalFolderNode, ResourceItem } from '../../types';
@@ -15,7 +15,9 @@ import { useIsMobileViewport } from '../../hooks/useIsMobileViewport';
 import { SpaceDirectoryTree } from './SpaceDirectoryTree';
 import { useSpaceDirectory } from './useSpaceDirectory';
 import { useMySpaceStore } from '../../stores/mySpaceStore';
-import { createSpaceDirectory, deleteSpaceEntry, downloadSpaceFile, renameSpaceFile, uploadSpaceFile, type SpaceEntry } from './spaceFilesApi';
+import { createSpaceDirectory, deleteSpaceEntry, downloadSpaceFile, getMySpaceUsage, renameSpaceFile, uploadSpaceFile, type SpaceEntry } from './spaceFilesApi';
+import { StorageUsageMeter, storageRejection } from '../common/StorageUsageMeter';
+import type { StorageUsage } from '../../types';
 
 const joinPath = (parent: string, name: string) => parent ? parent + '/' + name : name;
 const imageName = /\.(png|jpe?g|gif|webp|bmp|svg|avif|ico)$/i;
@@ -53,7 +55,18 @@ export function SpaceFileBrowser({ kind }: { kind: 'personal' | 'team' }) {
     return () => window.removeEventListener('keydown', close);
   }, [drawerOpen]);
   const folderInput = useRef<HTMLInputElement>(null);
-  const entries = page?.entries ?? [];
+  // My Space limits set by the administrator; refreshed whenever the listing reloads.
+  const [usage, setUsage] = useState<StorageUsage | null>(null);
+  useEffect(() => {
+    if (kind !== 'personal') return;
+    const abort = new AbortController();
+    getMySpaceUsage(abort.signal).then(setUsage, () => undefined);
+    return () => abort.abort();
+  }, [kind, s.revision]);
+  // Rows being deleted leave the list at once; a failed one comes back, and the next listing replaces the set.
+  const [deleting, setDeleting] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => setDeleting(new Set()), [page]);
+  const entries = (page?.entries ?? []).filter(entry => !deleting.has(entry.path));
   const folders: PersonalFolderNode[] = entries.filter(entry => entry.is_directory).map(entry => ({
     folder_id: entry.path, parent_folder_id: path || null, name: entry.name, created_at: entry.modified_at, children: [],
   }));
@@ -68,12 +81,50 @@ export function SpaceFileBrowser({ kind }: { kind: 'personal' | 'team' }) {
     const entry = entryFor(id);
     if (entry && writable) { setName(entry.name); setDialog(entry); }
   }
-  function remove(id: string, confirm = false) {
-    const entry = entryFor(id);
-    if (!entry || !writable) return;
-    const run = () => perform(() => deleteSpaceEntry(selected, entry));
-    if (confirm) Modal.confirm({ title: t('确认删除'), content: entry.name, onOk: run });
-    else void run();
+  const entriesFor = (ids: string[]) => ids.map(entryFor).filter((entry): entry is SpaceEntry => !!entry);
+  // One pass for any number of items: a single busy state and reload, then one message saying what happened.
+  async function removeEntries(targets: SpaceEntry[]) {
+    if (!writable || !targets.length) return;
+    const key = 'space-delete';
+    setDeleting(prev => new Set([...prev, ...targets.map(entry => entry.path)]));
+    void message.loading({ key, content: t('正在删除 {n} 项…', { n: targets.length }), duration: 0 });
+    const failed: SpaceEntry[] = [];
+    let reason = '';
+    await perform(async () => {
+      for (const entry of targets) {
+        try {
+          await deleteSpaceEntry(selected, entry);
+        } catch (error) {
+          failed.push(entry);
+          reason ||= error instanceof Error ? error.message : String(error);
+        }
+      }
+    });
+    if (!failed.length) {
+      void message.success({ key, content: targets.length === 1 ? t('已删除「{name}」', { name: targets[0].name }) : t('已删除 {n} 项', { n: targets.length }) });
+      return;
+    }
+    setDeleting(prev => new Set([...prev].filter(path => !failed.some(entry => entry.path === path))));
+    const done = targets.length - failed.length;
+    void message.error({ key, duration: 6, content: done
+      ? t('已删除 {done} 项，{failed} 项未能删除：{reason}', { done, failed: failed.length, reason })
+      : t('删除失败：{reason}', { reason }) });
+  }
+  function confirmRemove(targets: SpaceEntry[]) {
+    if (!writable || !targets.length) return;
+    const folderCount = targets.filter(entry => entry.is_directory).length;
+    Modal.confirm({
+      title: targets.length === 1 ? t('确认删除') : t('确认删除 {n} 项', { n: targets.length }),
+      content: <>
+        <div>{targets.length === 1 ? targets[0].name
+          : !folderCount ? t('已选择 {n} 个文件', { n: targets.length })
+          : folderCount === targets.length ? t('已选择 {n} 个文件夹', { n: folderCount })
+          : t('已选择 {files} 个文件、{folders} 个文件夹', { files: targets.length - folderCount, folders: folderCount })}</div>
+        <div>{folderCount ? t('文件夹内的所有文件和子文件夹会一并删除，此操作不可撤销。') : t('此操作不可撤销。')}</div>
+      </>,
+      okText: t('删除'), cancelText: t('取消'), okButtonProps: { danger: true },
+      onOk: () => { void removeEntries(targets); },
+    });
   }
   function download(item: ResourceItem) {
     const entry = entryFor(item.id);
@@ -81,6 +132,8 @@ export function SpaceFileBrowser({ kind }: { kind: 'personal' | 'team' }) {
   }
   async function upload(files: File[]) {
     if (!writable || !files.length) return;
+    const rejected = kind === 'personal' ? storageRejection(files, usage) : null;
+    if (rejected) { void message.error(rejected); return; }
     setProgress({ done: 0, total: files.length });
     try {
       await perform(async () => {
@@ -151,22 +204,27 @@ export function SpaceFileBrowser({ kind }: { kind: 'personal' | 'team' }) {
       : !selected || (!files.length && (filter === 'image' || !folders.length)) ? <div className="jx-mySpace-empty"><Empty description={t('当前文件夹暂无文件')} /></div>
       : filter === 'image' ? <SpaceImageGrid items={files} onPreview={openFile} onDownload={download}
           onRename={writable && !busy ? item => rename(item.id) : undefined}
-          onDelete={writable && !busy ? item => remove(item.id, true) : undefined} />
+          onDelete={writable && !busy ? item => confirmRemove(entriesFor([item.id])) : undefined} />
       : <DocumentList key={selected + ':' + path} items={files} folders={folders}
           onEnterFolder={setPath} onPreview={openFile} onDownload={download}
           onRename={writable && !busy ? item => rename(item.id) : undefined}
-          onDelete={writable && !busy ? item => remove(item.id) : undefined}
+          // The row menu already asked before calling onDelete.
+          onDelete={writable && !busy ? item => void removeEntries(entriesFor([item.id])) : undefined}
+          onBulkDelete={writable && !busy ? ids => confirmRemove(entriesFor(ids)) : undefined}
           onRenameFolder={writable && !busy ? rename : undefined}
-          onDeleteFolder={writable && !busy ? id => remove(id, true) : undefined} />}
+          onDeleteFolder={writable && !busy ? id => confirmRemove(entriesFor([id])) : undefined} />}
     {page?.next_cursor && <div className="jx-mySpace-loadMore"><Button loading={loading} onClick={() => { setPagedAt(location); void loadMore(); }}>{t('加载更多')}</Button></div>}
     {page && !page.next_cursor && pagedAt === location && entries.length > 0 && <div className="jx-mySpace-noMore">{t('已加载全部内容')}</div>}
   </>;
   return <section aria-label={t('文件')} onDragOver={event => { if (writable) event.preventDefault(); }}
     onDrop={event => { if (writable) { event.preventDefault(); void upload(Array.from(event.dataTransfer.files)); } }}>
     <div className="jx-mySpace-assetBar">
-      <AssetTypeSwitch value={filter} onChange={setFilter} />
+      <div className="jx-mySpace-assetLead">
+        <AssetTypeSwitch value={filter} onChange={setFilter} />
+        {kind === 'personal' && <StorageUsageMeter usage={usage} label={t('我的空间')} />}
+      </div>
       <div className="jx-mySpace-filterTools">
-        {kind === 'personal' && path && <Button type="text" className="jx-mySpace-backBtn" icon={<ArrowLeftOutlined />} onClick={() => setPath(parts.slice(0, -1).join('/'))}>{t('返回上级')}</Button>}
+        {kind === 'personal' && path && <Button type="text" className="jx-mySpace-backBtn" icon={<ArrowLeftOutlined />} title={t('返回上级')} aria-label={t('返回上级')} onClick={() => setPath(parts.slice(0, -1).join('/'))}><span className="jx-mySpace-toolLabel">{t('返回上级')}</span></Button>}
         {kind === 'personal' && writable && isMobile && <Dropdown trigger={['click']} placement="bottomRight" classNames={{ root: "jx-mySpace-addMenu" }} menu={{ items: [
           { key: 'directory', icon: <FolderAddOutlined />, label: t('新建文件夹'), disabled: busy, onClick: () => { setName(''); setDialog('directory'); } },
           { key: 'file', icon: <UploadOutlined />, label: t(filter === 'image' ? '上传图片' : '上传文件'), disabled: busy, onClick: () => fileInput.current?.click() },
@@ -178,7 +236,7 @@ export function SpaceFileBrowser({ kind }: { kind: 'personal' | 'team' }) {
           </Button>
         </Dropdown>}
         {kind === 'personal' && writable && !isMobile && <>
-          <Button icon={<FolderAddOutlined />} disabled={busy} onClick={() => { setName(''); setDialog('directory'); }}>{t('新建文件夹')}</Button>
+          <Button icon={<FolderAddOutlined />} disabled={busy} title={t('新建文件夹')} aria-label={t('新建文件夹')} onClick={() => { setName(''); setDialog('directory'); }}><span className="jx-mySpace-toolLabel">{t('新建文件夹')}</span></Button>
           <Dropdown trigger={['click']} menu={{ items: [
             { key: 'file', label: t('上传文件'), onClick: () => fileInput.current?.click() },
             { key: 'folder', label: t('上传文件夹'), onClick: () => folderInput.current?.click() },

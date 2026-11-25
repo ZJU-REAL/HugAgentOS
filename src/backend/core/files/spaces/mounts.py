@@ -1,7 +1,6 @@
 """Create provider volumes from authorized space grants."""
 import os
 import base64
-from fastapi import HTTPException
 from core.files.spaces.access import fingerprint, resolve_grants
 
 MOUNT_REVISION_TAG = "hugagent-space-revision"
@@ -34,26 +33,41 @@ def provider_volume(grant):
     from core.files.spaces.transport import get_space_transport
     return get_space_transport().volume(grant)
 
-def prepare_volumes(actor):
+def volumes_for(grants):
+    return [v for v in map(provider_volume, grants) if v is not None]
+
+
+def authorized_grants(actor, *, ordered):
+    """The account's grants and their mount revision.
+
+    A permission change closes the account's sandboxes and commits its grants while
+    holding the account lock. A sandbox the controller already listed is closed by
+    it, so a reused sandbox needs no ordering. A sandbox that may have been created
+    during the change was missed by that listing; ``ordered=True`` reads under the
+    lock, so the read either precedes the change (which then closes the sandbox) or
+    sees its committed grants.
+    """
+    from contextlib import nullcontext
     from core.db.engine import SessionLocal
-    with SessionLocal() as db:
+    from core.files.spaces.leases import space_lock
+    with space_lock(actor) if ordered else nullcontext(), SessionLocal() as db:
         grants = resolve_grants(db, actor)
-        volumes = [provider_volume(grant) for grant in grants]
-        return [v for v in volumes if v is not None], {MOUNT_REVISION_TAG: mount_revision(grants)}
+    return grants, mount_revision(grants)
 
 
 def provision_volumes(actor):
-    """Initialize directory roots once, at sandbox creation."""
-    from core.files.storage import get_storage
-    volumes, metadata = prepare_volumes(actor)
-    # Grants are represented by the authorized volume specifications. Resolve
-    # writable prefixes once for initialization, then verify the same revision.
+    """Volumes for a new sandbox, tagged with the revision they were built from.
+
+    Runs without the account lock: the sandbox's first use checks it against
+    ``authorized_grants(actor, ordered=True)``.
+    """
     from core.db.engine import SessionLocal
+    from core.files.storage import get_storage
     with SessionLocal() as db:
         grants = resolve_grants(db, actor)
-        if mount_revision(grants) != metadata[MOUNT_REVISION_TAG]:
-            raise HTTPException(409, "Space permissions changed before provisioning")
-        for grant in grants:
-            if grant.writable or os.getenv("STORAGE_TYPE", "local").lower() == "local":
-                get_storage().make_directory(grant.prefix)
-    return volumes, metadata
+    volumes = volumes_for(grants)
+    local = os.getenv("STORAGE_TYPE", "local").lower() == "local"
+    for grant in grants:
+        if grant.writable or local:
+            get_storage().make_directory(grant.prefix)
+    return volumes, {MOUNT_REVISION_TAG: mount_revision(grants)}

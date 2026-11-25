@@ -240,7 +240,7 @@ Regular users (gated by the `can_add_skill` permission flag granted in the admin
 
 | Endpoint | Description |
 |---|---|
-| `POST /v1/me/skills/upload` | Upload a skill zip (50 MB cap, smaller than the admin's 200 MB) |
+| `POST /v1/me/skills/upload` | Upload a skill zip (200 MB cap, same as the admin upload) |
 | `POST /v1/me/skills` | Hand-written creation (SKILL.md content submitted directly) |
 | `GET /v1/me/skills/{id}` | Fetch for editing |
 | `PUT /v1/me/skills/{id}/icon` | Set an icon |

@@ -31,6 +31,7 @@ getKBDocumentDetail,
 getKBDocuments,
 getKBDocumentsWindow,
 getKBWikiStatus,
+getPrivateKbUsage,
 getWikiCapability,
 getWikiStats,
 polishKBDescription,
@@ -48,14 +49,14 @@ import { t } from '../../i18n';
 import { useKbTab } from '../../routing/subPages';
 import { useCatalogStore,useEditionStore,useKbStore } from '../../stores';
 import { useAuthStore } from '../../stores/authStore';
-import type { KBDocument,KBIndexMode,KBItem,WikiGranularity } from '../../types';
+import type { KBDocument,KBIndexMode,KBItem,StorageUsage,WikiGranularity } from '../../types';
 import { formatDateTime } from '../../utils/date';
 import { getFileIconSrc,getFolderIconSrc } from '../../utils/fileIcon';
 import { EASE,staggerStyle } from '../../utils/motionTokens';
 import { parseSeparators } from '../../utils/separators';
 import { KBChunkImages,WikiPanel } from '../kb';
 import IndexModePicker from '../kb/IndexModePicker';
-import { ContinuousLoadSentinel } from '../common';
+import { ContinuousLoadSentinel, StorageUsageMeter, storageRejection } from '../common';
 import { kbOriginalKindOf } from './kbOriginal';
 import { KbOriginalDownloadButton, KbOriginalPreview } from './KbOriginalPreview';
 import { MarkdownHtml } from '../common/MarkdownHtml';
@@ -367,6 +368,15 @@ export function CatalogPanel() {
     () => kbItems.find((item) => item.id === selectedId) || null,
     [kbItems, selectedId],
   );
+  // Private-KB limits set by the administrator, read each time the upload card opens.
+  const uploadIsPrivate = !!selectedItem && resolveVisibility(selectedItem) === 'private';
+  const [kbUsage, setKbUsage] = useState<StorageUsage | null>(null);
+  useEffect(() => {
+    if (!uploadDocModalOpen || !uploadIsPrivate) return;
+    const abort = new AbortController();
+    getPrivateKbUsage(abort.signal).then(setKbUsage, () => undefined);
+    return () => abort.abort();
+  }, [uploadDocModalOpen, uploadIsPrivate]);
 
   // Parent→child expansion (lazy-load + cache), shares the same hook as the public library
   const fetchChunkChildren = useCallback(
@@ -829,6 +839,11 @@ export function CatalogPanel() {
       return;
     }
     if (!selectedItem) return;
+    const rejected = uploadIsPrivate ? storageRejection(uploadDocFileList, kbUsage) : null;
+    if (rejected) {
+      message.error(rejected);
+      return;
+    }
 
     if (isPreview) {
       setChunkPreviewLoading(true);
@@ -878,12 +893,14 @@ export function CatalogPanel() {
 
     void (async () => {
       const failed: string[] = [];
+      let firstReason = '';
       for (const file of files) {
         try {
           await uploadKBDocument(kbId, file, undefined, idxCfg, chunkMethod);
         } catch (err) {
           // 一个文件失败不该连累后面的：继续传完，最后一次性报出来
           failed.push(file.name);
+          firstReason ||= err instanceof Error ? err.message : '';
           console.warn('KB document upload failed', file.name, err);
         }
         // 每传完一个就刷新一次列表，用户能看着行一条条冒出来（状态是「索引中」）
@@ -895,7 +912,7 @@ export function CatalogPanel() {
         }
       }
       if (failed.length) {
-        message.error(`${failed.length} ${t('个文档上传失败')}：${failed.slice(0, 3).join('、')}`);
+        message.error(`${failed.length} ${t('个文档上传失败')}：${failed.slice(0, 3).join('、')}${firstReason ? `（${firstReason}）` : ''}`);
       }
       void refreshCatalog();
     })();
@@ -1878,8 +1895,9 @@ export function CatalogPanel() {
             >
               <p className="ant-upload-drag-icon"><InboxOutlined /></p>
               <p className="ant-upload-text">{t('点击或拖拽文件到此区域')}</p>
-              <p className="ant-upload-hint">{t('支持 PDF、Word、Excel、TXT、Markdown、CSV、JSON、图片，单文件最大 100MB')}</p>
+              <p className="ant-upload-hint">{t('支持 PDF、Word、Excel、TXT、Markdown、CSV、JSON、图片，单文件最大 {n}MB', { n: Math.min(100, (uploadIsPrivate && kbUsage?.file_limit_mb) || 100) })}</p>
             </Upload.Dragger>
+            {uploadIsPrivate && <StorageUsageMeter usage={kbUsage} label={t('个人知识库')} />}
             <div className="jx-kbUploadMainRow">
               <div className="jx-kbUploadSection">
                 <div className="jx-kbUploadFieldLabel">{t('分块方法')}</div>

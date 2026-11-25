@@ -65,7 +65,8 @@ server {
     location /api/ {
         rewrite ^/api/(.*)$ /$1 break;
         proxy_pass http://$backend:${BACKEND_PORT};
-        client_max_body_size 50m;
+        # 不设固定上传上限：由后端按权限配置校验（非上传请求仍受 MAX_REQUEST_SIZE 约束）
+        client_max_body_size 0;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

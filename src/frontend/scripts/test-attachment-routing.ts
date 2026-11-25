@@ -129,20 +129,19 @@ await uploadFileToOSS(new File(['single'], 'single.txt'), '/custom/api', 'local-
 assert.deepEqual(requests, [{ url: '/custom/api/v1/file/upload', target: 'cloud' }]);
 console.log('PASS: missing-file, permission, authentication, cloud, and single-backend controls');
 
-// A generated cloud resource can exceed upload limits even though the picker accepts it.
+// No client-side size cap: a referenced file larger than the old fixed 50 MB is re-uploaded, and
+// the backend's configured per-file cap (role / team / user permissions) decides with its own reason.
 setHybridDual(true);
 target = 'local';
-let chunksRead = 0;
-let cancelled = false;
-globalThis.fetch = async () => new Response(new ReadableStream({
-  pull(controller) {
-    chunksRead++;
-    if (chunksRead > 100) controller.close();
-    else controller.enqueue(new Uint8Array(1024 * 1024));
-  },
-  cancel() { cancelled = true; },
-}));
-await assert.rejects(prepareChatAttachments([], new Map(), [imported], '/api', 'draft-chat'), /文件过大/);
-assert.ok(cancelled && chunksRead < 100, 'oversized downloads must stop before consuming the entire response');
+let uploadedBytes = 0;
+globalThis.fetch = async (input, init) => {
+  if (init?.method === 'POST' && String(input).endsWith('/v1/file/upload')) {
+    uploadedBytes = ((init.body as FormData).get('file') as File).size;
+    return Response.json({ code: 413, message: '文件过大：我的空间单个文件上传上限为 60 MB', data: {} }, { status: 413 });
+  }
+  return new Response(new Uint8Array(80 * 1024 * 1024));
+};
+await assert.rejects(prepareChatAttachments([], new Map(), [imported], '/api', 'draft-chat'), /上限为 60 MB/);
+assert.equal(uploadedBytes, 80 * 1024 * 1024, 'files above the old fixed cap must reach the backend check');
 globalThis.fetch = backendFetch;
-console.log('PASS: oversized imported files are cancelled during download');
+console.log('PASS: referenced files are bounded by the configured cap, not a fixed client limit');
