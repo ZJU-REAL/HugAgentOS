@@ -1,7 +1,14 @@
-"""Serialize file access, sandbox creation and permission changes per account."""
+"""Order an account's file operations and grant reads against its permission changes.
+
+The lock is a transaction-scoped database lock: its holder keeps a database
+transaction open, and other requests for the account wait on it. A permission
+change holds it from closing the account's sandboxes until its commit, so a grant
+read under the lock never falls in between. Sandbox creation, mount checks and
+controller requests for a sandbox run without it; only the grant read before a
+newly bound sandbox's first use takes it (``core.files.spaces.mounts.authorized_grants``).
+"""
 from __future__ import annotations
-from contextlib import contextmanager, asynccontextmanager
-import asyncio
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import timedelta
 from functools import wraps
@@ -83,22 +90,6 @@ def authorized_operation(method):
             self.db.expire_all()
             return method(self, *args, **kwargs)
     return run
-
-
-@asynccontextmanager
-async def async_space_lock(identity):
-    guard = space_lock(identity)
-    acquisition = asyncio.create_task(asyncio.to_thread(guard.__enter__))
-    try:
-        await asyncio.shield(acquisition)
-    except asyncio.CancelledError:
-        await acquisition
-        await asyncio.to_thread(guard.__exit__, None, None, None)
-        raise
-    try:
-        yield
-    finally:
-        await asyncio.to_thread(guard.__exit__, None, None, None)
 
 
 @dataclass

@@ -4,6 +4,7 @@ import {WorkspaceRuntime} from '../workbench/WorkspaceRuntime';
 import {ActivityPanel} from '../workbench/ActivityPanel';
 import {navigateTo} from '../routing/navigation';
 import { useLocation } from 'react-router';
+import { AnimatePresence } from 'motion/react';
 import { WorkspaceApplication } from '../workbench/WorkspaceApplication';
 import { ApplicationAccess } from '../workbench/ApplicationAccess';
 import { chatDraftKey } from '../stores/composerStore';
@@ -30,10 +31,11 @@ import { t } from '../i18n';
 
 /* styles loaded via styles/index.ts in main.tsx */
 import { useProjectStore } from '../stores/projectStore';
+import { useRunMonitorStore } from '../stores/runMonitorStore';
 import { resolvePlanModeActive } from '../utils/chatMode';
 import { TOPIC_TAG_COLORS } from '../utils/constants';
 import { RightSidebarPanel } from './canvas';
-import { RunMonitorRail } from './monitor';
+import { RunMonitorGlyph, RunMonitorRail } from './monitor';
 import { PromptHubPanel } from './chat';
 import { builtinPages } from '../applicationComposition';
 import { WorkbenchPage } from '../workbench/WorkbenchPage';
@@ -94,7 +96,12 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
   }, [panel]);
   const showProjectOverview = !generic && !!overviewProjectId;
   const { paneRef, hidden: paneHidden } = usePaneOcclusion(canvasOpen, canvasFullscreen);
-  const showRunMonitor = chatSurface && !isEmptyChat && !generic && !showProjectOverview;
+  const runMonitorAvailable = chatSurface && !isEmptyChat && !generic && !showProjectOverview;
+  const runMonitorOpen = useRunMonitorStore((s) => s.open);
+  const toggleRunMonitor = useRunMonitorStore((s) => s.toggle);
+  const showRunMonitor = runMonitorAvailable && runMonitorOpen;
+  // The rail only fits beside an unobstructed conversation column; with a side panel open it is hidden by layout.
+  const showRunMonitorToggle = runMonitorAvailable && !toolResultPanel && !promptHubOpen;
   return (
     <Layout className="jx-appShell" style={{ height: '100%' }}>
       <ChatSlot name="sidebar"><Sidebar
@@ -126,7 +133,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
       />
 
       <Layout className={`jx-appMainLayout${canvasFullscreen ? ' is-canvasFullscreen' : ''}`} style={{ overflow: 'hidden', background: 'var(--color-bg-base)', '--jx-canvas-preferred-width': canvasPanelWidth ? `${canvasPanelWidth}px` : undefined } as CSSProperties}>
-        <div ref={paneRef} inert={paneHidden} aria-hidden={paneHidden || undefined} className={`jx-primaryPane${canvasOpen ? ' is-canvasOpen' : ''}${chatSurface ? ' is-chatSurface' : ''}`}>
+        <div ref={paneRef} inert={paneHidden} aria-hidden={paneHidden || undefined} className={`jx-primaryPane${canvasOpen ? ' is-canvasOpen' : ''}${chatSurface ? ' is-chatSurface' : ''}${showRunMonitorToggle ? ' has-runMonitorToggle' : ''}`}>
           {!showChatHeader && (
             <header className="jx-mobileHeader">
               <button
@@ -148,6 +155,18 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
                 </button>
               )}
             </header>
+          )}
+          {showRunMonitorToggle && (
+            <Tooltip title={runMonitorOpen ? t('收起运行监控') : t('展开运行监控')} placement="bottomRight">
+              <Button
+                type="text"
+                className={`jx-rightSidebarToggle jx-runMonitorToggle${runMonitorOpen ? ' is-open' : ''}`}
+                icon={<RunMonitorGlyph />}
+                onClick={toggleRunMonitor}
+                aria-label={t('运行监控')}
+                aria-pressed={runMonitorOpen}
+              />
+            </Tooltip>
           )}
           {chatSurface && !isEmptyChat && !canvasOpen && (
             <Tooltip title={t('展开右侧面板')} placement="bottomRight">
@@ -268,7 +287,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
                   </ApplicationAccess>}
                 </div>
               </Content>
-              {showRunMonitor && <RunMonitorRail />}
+              <AnimatePresence initial={false}>{showRunMonitor && <RunMonitorRail key="runMonitor" />}</AnimatePresence>
             </div>
             {overviewProjectId && !canvasOpen && (
               <Suspense fallback={<ProjectWorkspaceRailSkeleton />}>

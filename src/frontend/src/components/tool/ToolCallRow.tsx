@@ -23,6 +23,8 @@ import { EDITION_STEP_ICONS, getEditionToolRowLabel } from '../../toolEdition';
 import { ToolIcon } from './toolIcons';
 import { toolIconKind } from '../../utils/toolActionLabel';
 import { databaseToolLabels, databaseToolSuffix } from '../../utils/databaseTools';
+import { INTENT_RECOGNITION_TOOL, parseIntentRoute } from '../../utils/intentRoute';
+import { IntentRecognitionBody } from './IntentRecognitionBody';
 
 import {
   resolvePluginToolLabel,
@@ -39,6 +41,11 @@ function getRowLabel(
   parsed: unknown,
   displayName: string,
 ): { prefix: string; value: string; count?: number } {
+  // 智能路由合成的那一步：标题固定，结果（进入的模式）跟在后面；运行中只有标题。
+  if (tool.name === INTENT_RECOGNITION_TOOL) {
+    const route = tool.status === 'running' ? null : parseIntentRoute(parsed);
+    return { prefix: t('用户意图识别'), value: route?.mode_name || '' };
+  }
   if (!tool.output || tool.status === 'running') return { prefix: displayName, value: '' };
 
   try {
@@ -240,6 +247,13 @@ function StandardToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
   );
 
   const hasOutput = !!tool.output;
+  const isIntent = tool.name === INTENT_RECOGNITION_TOOL;
+  const intentRoute = useMemo(() => (isIntent ? parseIntentRoute(parsed) : null), [isIntent, parsed]);
+  // 意图识别行尾：运行中写「识别中」，完成后写耗时
+  const intentNote = !isIntent ? ''
+    : running ? t('识别中')
+    : intentRoute?.latency_ms != null ? t('{s} 秒', { s: (intentRoute.latency_ms / 1000).toFixed(1) })
+    : '';
   // Command/code is viewable while running for code tools.
   const liveInputView = isLiveCode && !!liveCode?.code;
   // Sub-agent card: its internal thinking/tool/content sub-steps hang under this card and should be collapsible.
@@ -295,6 +309,8 @@ function StandardToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
     switch (tool.name) {
       case 'internet_search':
         return renderInternetSearchInline(parsed);
+      case INTENT_RECOGNITION_TOOL:
+        return <IntentRecognitionBody route={intentRoute} input={tool.input} />;
       default:
         return renderToolOutputBody(tool.name, parsed, setDetailModal);
     }
@@ -346,6 +362,8 @@ function StandardToolCallRow({ tool, isStreaming }: ToolCallRowProps) {
             没有这行，卡片上就只有一个转不完的菊花，用户判断不出是在跑还是已僵死 */}
         {running && tool.progressNote ? (
           <span className="jx-tcr-progress">{tool.progressNote}</span>
+        ) : intentNote ? (
+          <span className="jx-tcr-progress">{intentNote}</span>
         ) : null}
         {canExpand && (
           <span className={`jx-tcr-arrow${expanded ? ' jx-tcr-arrow--open' : ''}`} />

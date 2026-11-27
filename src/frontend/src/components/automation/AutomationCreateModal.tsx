@@ -1,13 +1,11 @@
-import { ClockCircleOutlined, LoadingOutlined } from '@ant-design/icons';
 import { Alert, Form, Input, Modal, Radio, Select, message } from 'antd';
-import { useEffect, useEffectEvent, useRef, useState } from 'react';
-import { createAutomation, getPlanApi, listChannelConversations, listPlans, type ChannelConversation } from '../../api';
+import { useEffect, useEffectEvent, useState } from 'react';
+import { createAutomation, listChannelConversations, type ChannelConversation } from '../../api';
 import { t } from '../../i18n';
 import { AdvancedFields, FormGrid } from '../common/FormLayout';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import { useProjectStore } from '../../stores/projectStore';
-import type { AutomationScheduleType, Plan } from '../../types';
-import { PlanCard, type PlanStepData } from '../chat/PlanCard';
+import type { AutomationScheduleType } from '../../types';
 import { ScheduleSelector } from './ScheduleSelector';
 import { availableTimezones, currentTimezone, defaultExecutionLocation, executionLocationError, type ExecutionLocation } from './automationLocation';
 import { channelConversationLabel } from './automationUtils';
@@ -26,17 +24,6 @@ function defaultSchedule(): ScheduleValue {
   return { schedule_type: 'recurring', cron_expression: '0 9 * * *' };
 }
 
-function toPlanStepData(plan: Plan): PlanStepData[] {
-  return plan.steps.map((s) => ({
-    step_order: s.step_order,
-    title: s.title,
-    description: s.description,
-    expected_tools: s.expected_tools,
-    expected_skills: s.expected_skills,
-    expected_agents: s.expected_agents,
-  }));
-}
-
 export function AutomationCreateModal({ open, onClose, onCreated, preset = null }: Props) {
   const [form] = Form.useForm();
   const [defaultTimezone] = useState(currentTimezone);
@@ -44,8 +31,6 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
   const deployment = useDeploymentModeStore();
   const { list: projects, currentProject, fetchProjects } = useProjectStore();
   const canChooseLocation = deployment.isDesktop && deployment.provisionMode === 'dual';
-  const resourceGeneration = useRef(0);
-  const planRequest = useRef(0);
   const [location, setLocation] = useState<ExecutionLocation>('cloud');
   const [projectId, setProjectId] = useState<string | undefined>();
   const project = projects.find(item => item.project_id === projectId) || (currentProject?.project_id === projectId ? currentProject : null);
@@ -56,26 +41,15 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
   const initializeForm = useEffectEvent(() => {
     setLocation(defaultExecutionLocation(deployment.provisionMode, currentProject?.kind));
     setProjectId(currentProject?.project_id);
-    setPlans([]); setPlansLoaded(false); setPlanCache({}); setSelectedPlan(null);
-    form.setFieldValue('plan_id', undefined);
     form.setFieldValue('timezone', defaultTimezone);
     void fetchProjects();
   });
   useEffect(() => {
-    resourceGeneration.current += 1;
     if (open) initializeForm();
   }, [open]);
 
   const [loading, setLoading] = useState(false);
-  const [taskType, setTaskType] = useState<'prompt' | 'plan'>('prompt');
   const [schedule, setSchedule] = useState<ScheduleValue>(defaultSchedule());
-  const [plans, setPlans] = useState<
-    Array<{ plan_id: string; title: string; total_steps: number }>
-  >([]);
-  const [plansLoaded, setPlansLoaded] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
-  const [planDetailLoading, setPlanDetailLoading] = useState(false);
-  const [planCache, setPlanCache] = useState<Record<string, Plan>>({});
   // Delivery target: 'inapp' (in-app/on-site, default) or a specific channel conversation `${channel_id}|${conversation_id}`
   const [convs, setConvs] = useState<ChannelConversation[]>([]);
   const [channelTarget, setChannelTarget] = useState<string>('inapp');
@@ -92,61 +66,13 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
   // 推荐任务预填：弹窗打开时把示例灌进表单（destroyOnClose 会重建 Form，所以要在 open 后再 set）。
   useEffect(() => {
     if (!open || !preset) return;
-    setTaskType('prompt');
     setSchedule({ schedule_type: 'recurring', cron_expression: preset.cron });
     form.setFieldsValue({ name: preset.name, prompt: preset.prompt });
   }, [open, preset, form]);
 
-  const loadPlans = async () => {
-    if (plansLoaded) return;
-    const generation = resourceGeneration.current;
-    try {
-      const result = await listPlans(location === "local" && deployment.provisionMode === "dual" ? "local" : undefined);
-      if (generation !== resourceGeneration.current) return;
-      setPlans(
-        result.map((p) => ({
-          plan_id: p.plan_id,
-          title: p.title,
-          total_steps: p.total_steps,
-        })),
-      );
-      setPlansLoaded(true);
-    } catch {
-      if (generation === resourceGeneration.current) message.error(t('加载计划列表失败'));
-    }
-  };
-
-  const handlePlanChange = async (planId: string) => {
-    const request = ++planRequest.current;
-    const generation = resourceGeneration.current;
-    const isCurrent = () => request === planRequest.current && generation === resourceGeneration.current;
-    if (!planId) {
-      setSelectedPlan(null);
-      return;
-    }
-    if (planCache[planId]) {
-      setSelectedPlan(planCache[planId]);
-      return;
-    }
-    setPlanDetailLoading(true);
-    setSelectedPlan(null);
-    try {
-      const plan = await getPlanApi(planId, undefined, location === 'local' && deployment.provisionMode === 'dual' ? 'local' : undefined);
-      if (!isCurrent()) return;
-      setPlanCache((prev) => ({ ...prev, [planId]: plan }));
-      setSelectedPlan(plan);
-    } catch {
-      if (isCurrent()) message.error(t('加载计划详情失败'));
-    } finally {
-      if (isCurrent()) setPlanDetailLoading(false);
-    }
-  };
-
   const resetAll = () => {
     form.resetFields();
-    setTaskType('prompt');
     setSchedule(defaultSchedule());
-    setSelectedPlan(null);
     setChannelTarget('inapp');
   };
 
@@ -176,12 +102,11 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
         ? convs.find((c) => `${c.channel_id}|${c.conversation_id}` === channelTarget)
         : undefined;
       await createAutomation({
-        task_type: taskType,
+        task_type: 'prompt',
         execution_location: location,
         project_id: projectId,
         timezone: values.timezone,
-        prompt: taskType === 'prompt' ? values.prompt?.trim() : undefined,
-        plan_id: taskType === 'plan' ? values.plan_id : undefined,
+        prompt: values.prompt?.trim(),
         cron_expression: schedule.cron_expression,
         schedule_type: schedule.schedule_type as AutomationScheduleType,
         name: values.name?.trim() || undefined,
@@ -225,12 +150,7 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
           <Form.Item label={t('执行位置')} required={canChooseLocation}>
             <div className="jx-automation-locationRow">
               {canChooseLocation ? (
-                <Radio.Group value={location} onChange={e => {
-                  resourceGeneration.current += 1;
-                  setPlans([]); setPlanDetailLoading(false);
-                  setLocation(e.target.value); setSelectedPlan(null); setPlansLoaded(false); setPlanCache({});
-                  form.setFieldValue('plan_id', undefined);
-                }}>
+                <Radio.Group value={location} onChange={e => setLocation(e.target.value)}>
                   <Radio.Button value="local">{t('本机')}</Radio.Button>
                   <Radio.Button value="cloud">{t('云端')}</Radio.Button>
                 </Radio.Group>
@@ -243,12 +163,6 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
                   : t('电脑关闭后仍可执行；无法直接访问本机文件')}
               </span>
             </div>
-          </Form.Item>
-          <Form.Item label={t('任务类型')} required>
-            <Radio.Group value={taskType} onChange={(e) => setTaskType(e.target.value)}>
-              <Radio.Button value="prompt">{t('提示词')}</Radio.Button>
-              <Radio.Button value="plan">{t('执行计划')}</Radio.Button>
-            </Radio.Group>
           </Form.Item>
           <Form.Item
             label={t('任务名称')}
@@ -271,58 +185,21 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
         </FormGrid>
         {locationError && <Alert type="error" showIcon title={t(locationError)} style={{ marginBottom: 16 }} />}
 
-        {taskType === 'prompt' && (
-          <Form.Item
-            label={t('提示词')}
-            name="prompt"
-            rules={[
-              { required: true, message: t('请输入提示词') },
-              { whitespace: true, message: t('提示词不能只包含空格') },
-            ]}
-          >
-            <Input.TextArea
-              placeholder={t('输入需要定时执行的提示词，如：帮我搜索今天的政策新闻并生成摘要')}
-              autoSize={{ minRows: 3, maxRows: 6 }}
-              maxLength={5000}
-              showCount
-            />
-          </Form.Item>
-        )}
-
-        {taskType === 'plan' && (
-          <>
-            <Form.Item
-              label={t('选择计划')}
-              name="plan_id"
-              rules={[{ required: true, message: t('请选择一个计划') }]}
-            >
-              <Select
-                placeholder={t('选择要定时执行的计划')}
-                onFocus={loadPlans}
-                onChange={handlePlanChange}
-                loading={!plansLoaded && taskType === 'plan'}
-                showSearch
-                optionFilterProp="label"
-                options={plans.map((p) => ({
-                  value: p.plan_id,
-                  label: p.title,
-                  data: p,
-                }))}
-                optionRender={(opt) => {
-                  const data = (opt.data as { data: typeof plans[number] }).data;
-                  return (
-                    <div className="jx-automation-planOption">
-                      <span className="jx-automation-planOption-title">{data.title}</span>
-                      <span className="jx-automation-planOption-steps">{t('{n} 步', { n: data.total_steps })}</span>
-                    </div>
-                  );
-                }}
-              />
-            </Form.Item>
-
-            <PlanPreviewFrame plan={selectedPlan} loading={planDetailLoading} />
-          </>
-        )}
+        <Form.Item
+          label={t('提示词')}
+          name="prompt"
+          rules={[
+            { required: true, message: t('请输入提示词') },
+            { whitespace: true, message: t('提示词不能只包含空格') },
+          ]}
+        >
+          <Input.TextArea
+            placeholder={t('输入需要定时执行的提示词，如：帮我搜索今天的政策新闻并生成摘要')}
+            autoSize={{ minRows: 3, maxRows: 6 }}
+            maxLength={5000}
+            showCount
+          />
+        </Form.Item>
 
         <Form.Item label={t('调度方式')} required>
           <ScheduleSelector value={schedule} onChange={setSchedule} timezone={selectedTimezone} />
@@ -357,47 +234,5 @@ export function AutomationCreateModal({ open, onClose, onCreated, preset = null 
         </AdvancedFields>
       </Form>
     </Modal>
-  );
-}
-
-interface PlanPreviewFrameProps {
-  plan: Plan | null;
-  loading: boolean;
-}
-
-function PlanPreviewFrame({ plan, loading }: PlanPreviewFrameProps) {
-  if (loading) {
-    return (
-      <div className="jx-automation-planFrame jx-automation-planFrame--loading">
-        <LoadingOutlined />
-        <span>{t('正在加载计划详情…')}</span>
-      </div>
-    );
-  }
-  if (!plan) return null;
-
-  const agentNameMap =
-    (plan as Plan & { agent_name_map?: Record<string, string> }).agent_name_map || undefined;
-
-  return (
-    <div className="jx-automation-planFrame">
-      <div className="jx-automation-planFrame-label">{t('计划预览')}</div>
-      <div className="jx-automation-planFrame-scroll">
-        <PlanCard
-          mode="preview"
-          title={plan.title}
-          description={plan.description}
-          steps={toPlanStepData(plan)}
-          agentNameMap={agentNameMap}
-          className="jx-plan-card--embed"
-          previewFooter={
-            <div className="jx-automation-planFrame-hint">
-              <ClockCircleOutlined />
-              <span>{t('到期触发时将按以上步骤顺序重新执行')}</span>
-            </div>
-          }
-        />
-      </div>
-    </div>
   );
 }

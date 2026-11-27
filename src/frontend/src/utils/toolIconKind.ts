@@ -9,4 +9,4 @@ export type ToolIconKind =
   | 'webSearch' | 'globe' | 'knowledge' | 'graph' | 'database'
   | 'skill' | 'plugin' | 'catalog' | 'agent' | 'ask' | 'job'
   | 'folderUp' | 'folderDown' | 'pin' | 'word' | 'table' | 'publish'
-  | 'chats' | 'notes' | 'compress' | 'thinking' | 'wrench';
+  | 'chats' | 'notes' | 'compress' | 'thinking' | 'wrench' | 'route';

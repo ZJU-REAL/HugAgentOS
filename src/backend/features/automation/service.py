@@ -66,7 +66,6 @@ class AutomationService:
         user_id: str,
         task_type: str,
         prompt: Optional[str] = None,
-        plan_id: Optional[str] = None,
         cron_expression: str,
         schedule_type: str = "recurring",
         name: Optional[str] = None,
@@ -104,7 +103,6 @@ class AutomationService:
             user_id=user_id,
             task_type=task_type,
             prompt=prompt,
-            plan_id=plan_id,
             cron_expression=cron_expression,
             recurring=recurring,
             schedule_type=schedule_type,
@@ -275,6 +273,9 @@ class AutomationService:
         task = self.get_task(task_id, user_id)
         if not task or task.status not in ("paused", "disabled"):
             return None
+        if task.task_type == "plan":
+            # Plan automations were retired (migration autonoplan01); they stay disabled.
+            return None
         if task.status == "disabled":
             task.consecutive_failures = 0
             task.last_error = None
@@ -377,9 +378,6 @@ class AutomationService:
     def task_to_dict(task: ScheduledTask) -> Dict[str, Any]:
         from features.automation.execution import instance_location, device_identity
         location = (task.extra_data or {}).get("execution_location") or instance_location()
-        plan_title = None
-        if task.plan_id and task.plan:
-            plan_title = task.plan.title
         return {
             **{key: (task.extra_data or {}).get(key) for key in (
                 "execution_location", "device_id", "device_name", "project_id",
@@ -391,8 +389,6 @@ class AutomationService:
             "user_id": task.user_id,
             "task_type": task.task_type,
             "prompt": task.prompt,
-            "plan_id": task.plan_id,
-            "plan_title": plan_title,
             "cron_expression": task.cron_expression,
             "schedule_type": task.schedule_type or "recurring",
             "timezone": task.timezone,

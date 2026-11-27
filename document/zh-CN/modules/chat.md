@@ -225,7 +225,7 @@ data: [DONE]
 不会被单独截断或丢弃；预算不足时先裁较早步骤的工具输出，再从最旧一端整步切除，
 本轮正在进行的步骤受保护，装不下时会在装配清单里标为 `over_budget` 而不是悄悄改写。
 
-工具的模型结果步骤先独立落库，再处理展示事件，界面过滤不会丢弃模型历史。计划更新仍显示在计划栏，其真实工具结果保留供后续轮次回放；结果落库重试后仍失败时，本轮停止，不宣告工具完成。历史回放在对应调用后补齐缺失结果：优先使用已有记录，否则明确说明结果未记录、执行状态未知；不改写数据库历史。跨供应商或模型回放时，formatter 会核对思考的来源供应商、模型和协议；兼容思考保留原始结构及签名，不兼容或来源不明的可读思考转换为带明确标记的历史参考文本，不作为目标模型的原生推理状态。当前 Anthropic 模型的思考若缺失签名，会明确报错。
+工具的模型结果步骤先独立落库，再处理展示事件，界面过滤不会丢弃模型历史。计划更新仍显示在计划卡片，其真实工具结果保留供后续轮次回放；结果落库重试后仍失败时，本轮停止，不宣告工具完成。历史回放在对应调用后补齐缺失结果：优先使用已有记录，否则明确说明结果未记录、执行状态未知；不改写数据库历史。跨供应商或模型回放时，formatter 会核对思考的来源供应商、模型和协议；兼容思考保留原始结构及签名，不兼容或来源不明的可读思考转换为带明确标记的历史参考文本，不作为目标模型的原生推理状态。当前 Anthropic 模型的思考若缺失签名，会明确报错。
 
 ## 引用系统（Citations · 证据锚点）
 
@@ -260,7 +260,7 @@ data: [DONE]
 
 - **生成**（`astream_generate_plan` / `POST /v1/plans/generate`）：以 `disable_tools=True` 的"裸模型"产出结构化 JSON 计划。系统提示词解析顺序：版本池 `plan_mode` 激活版本 → 旧版 `system/90_plan_mode` 分段 → 文件兜底 `prompts/prompt_text/plan_mode/plan_mode.system.md` → 硬编码最小提示。
 - **执行**（`astream_execute_plan` / `POST /v1/plans/{plan_id}/execute`）：每个步骤独立建 agent 顺序执行，支持步骤级 MCP/技能/子智能体绑定、取消（`is_run_cancelled` 轮询）；执行同样走 ChatRun + Redis Stream，可断线续播。
-- **前端呈现与标题**：手动计划模式的预览和执行进度统一显示在对话内的计划卡片，不再重复显示输入框上方的紧凑计划条（该计划条只服务普通对话中的模型 `update_plan`）；计划预览生成后即触发会话标题自动摘要，摘要完成前由首条任务生成临时标题。
+- **前端呈现与标题**：手动计划模式的预览和执行进度统一显示在对话内的计划卡片。普通对话中模型 `update_plan` 维护的清单显示在最新一条回复里、该回复的工具调用上方（`components/chat/AgentPlanCard.tsx`），以始终展开的步骤清单呈现；输入框上方和右侧运行监控栏都不再显示计划。运行监控栏的「能力绑定」卡片列出本轮用户指定的技能、插件、连接器，以及智能体本轮加载或调用的技能、插件、连接器；计划预览生成后即触发会话标题自动摘要，摘要完成前由首条任务生成临时标题。
 - **历史与当前模式解耦**：会话的 `planChat` 标记和 `plan_snapshot` 仅用于保留侧边栏类型及历史计划卡片；输入框是否继续走计划模式由独立的逐会话状态控制。用户关闭计划模式后仍能查看已有计划和报告，但后续消息（例如基于报告生成 PPT）按普通对话执行，刷新或重新进入会话也不会被历史计划自动重新开启。
 - **模型角色**：计划模式优先解析 `plan_agent` 角色，未配置降级 `main_agent`（`factory/runtime/model_selection.py` 的角色选择分支）。
 
@@ -326,6 +326,45 @@ Enter / Tab 确认和 Escape 返回或关闭。个人在能力中心关闭的技
   按任务需要调用
   `core/llm/subagents/tool.py` 注册的 `call_subagent`。子智能体在独立线程和事件循环中运行，结果
   回传给主智能体整合。这一路径适合多子智能体并行、任务拆分和跨领域汇总。
+
+## 智能路由（自动选择对话模式）
+
+模式菜单里的「智能路由」（线上 `mode_slug=auto`）不是一个真实模式：每轮先做一次「用户意图识别」，从候选模式里选一个，再完全按所选模式的原有链路执行（工具面、提示词、迭代上限都不变）。
+
+- **开启条件**：Config「系统配置 → 智能路由」的 `intent_router.enable` 打开，且用户在角色 / 团队 / 个人权限里有 `can_use_intent_router`（默认关闭）。两者都满足时，`GET /v1/chat-modes` 在列表最前面插入一个 `is_router: true` 的虚拟项（`slug="auto"`）。服务端每轮用 `resolve_user_capabilities` 重新校验；任一条件不满足时直接用回退模式，不调模型。
+- **候选模式**：用户可见的启用模式与 `intent_router.candidate_slugs` 取交集（留空 = 全部启用的官方模式），去掉 `auto` 和私有模式。本轮有斜杠技能、插件、连接器或 `@子智能体` 等显式呼唤时，再去掉「禁止手动呼唤」的模式；计划会话不路由。候选只剩一个时直接选它。`auto` 是保留 slug，不能用来建模式。
+- **策略**（`intent_router.strategy`）：`smart_keep`（默认，智能保持）每轮都识别，但只允许留在当前模式或换到不低于当前能力档的模式，模型给出降级结论（例如标准 → 极速）时按「保持」处理，以保住前缀缓存；`per_turn` 每轮自由选择；`first_turn` 只在首轮识别，之后沿用。「当前模式」取这段对话上一条助手消息元数据里的 `intent_route.mode_slug`。
+- **识别请求复用主请求前缀**：先按当前模式（首轮按回退模式）装配主智能体，用它自己的 `_prepare_model_input` 生成与主请求一字不差的系统提示词、工具列表、完整历史和本轮问题，再在末尾追加识别指令（提示词管理 `intent_router` 的策略正文 + 候选清单 + 当前模式 + 只输出 JSON）。不改 `tool_choice`，模型若调用工具按解析失败处理；识别时关闭思考。结论是保持当前模式就直接复用这个智能体，要切换才按新模式重新装配。
+- **识别模型**：模型管理里的 `intent_router` 角色；未指派时跟随这段对话实际使用的主模型（含用户切换过的模型，关闭思考），不回落 `summarizer`。指派了较小的独立模型时同样带完整上下文，超出其窗口时从最早的历史开始截掉。用量按 `intent_router` 来源记入运行用量账本。
+- **回退**：超时（`intent_router.timeout_ms`，默认 5000）、JSON 解析失败、slug 不在候选里、模型报错或调用工具时，一律使用 `intent_router.fallback_slug`（默认 `standard`），对话不中断。
+- **前端卡片与持久化**：识别开始时发出 `tool_name="intent_recognition"`、显示名「用户意图识别」的 `tool_call` 事件，结束后发出 `status="success"` 的 `tool_result`（`result` 含 `mode_slug / mode_name / reason / confidence / source / switched / previous_mode_slug / candidates / latency_ms / fallback_cause`，`source` 取 `llm / kept / single_candidate / first_turn_sticky / fallback`），两者都在任何模型输出之前。卡片按普通工具记录落库，刷新历史后仍在；助手消息元数据同时写入 `intent_route`。
+- **恢复、steer 与 handoff**：识别结果写进运行上下文的 `routed_mode_slug` / `intent_route`，并同步到运行恢复快照与请求载荷；恢复、steer、handoff 沿用它而不重新识别，任务监控也按 `routed_mode_slug` 显示模式。重新生成和编辑重发仍是 `auto` 时重新识别，前端显式选了某个模式时就用那个模式。
+
+相关源码：`core/chat/mode_router.py`、`core/chat/mode_route_decision.py`（领域规则）、`core/agent_runtime/intent_routing.py`（识别请求与前缀复用）、`core/config/store/intent_router_options.py`（配置读取）。
+
+## 评价判定（要不要请用户评价这条回答）
+
+会话评价默认对每条可评价的回答都显示评价卡（满意 / 需修改 / 不满意），只有定时任务、循环任务等后台运行除外（`core/chat/evaluation.py::is_evaluable`）。开启「评价判定」后，每条回答完成时后台再问一次轻量模型「这条回答要不要请用户评价」：寒暄与简单问答、同一会话里重复的追问、过程中的中间回合不再弹评价栏。
+
+- **开关**：Config「系统配置 → 评价判定」的 `evaluation_gate.enable`（默认关闭）与 `evaluation_gate.timeout_ms`（默认 5000）。关闭或配置读取出错时一切照旧：不调模型，已存的判定结果也一律忽略。只对开启后的新回答生效，历史回答不回溯。
+- **触发**：`core/chat/runtime/completion.py` 在完成本轮的那次写入里调用 `evaluation_gate.gate_expected`（开关开着且运行可评价，人工压缩回合除外）：结论为真时在同一次写入里给消息打上 `extra_data.evaluation_gate_pending = true`，落库后再与追问生成并列派发后台任务，不阻塞流式输出结束。派发与读取侧的 `gating` 只认这一个结论，计划执行、计划生成、快照恢复等不走这条路径的完成不会打标记，也就不会被当成「判定中」。
+- **判定输入**：从会话已存的历史重建，而不是复用主请求前缀——回合完成时聊天 worker 手里没有智能体对象，运行时在发出 `meta` 之前已经关闭了流式智能体，且落库的回答可能已被本体输出审查改写过，主请求的前缀无法可靠复现。输入是最近 30 条用户 / 助手消息（不含工具过程，每条只取开头，待判定的回答多取一些），旧回答旁标注「用户已评价：满意」或「已判定：无需评价」，让模型识别重复问题。系统提示是提示词管理 `evaluation_gate` 的判断原则，运行时再追加输出格式；超出模型窗口时从最早的历史开始截掉，本轮问答始终保留。
+- **模型**：模型管理里的 `evaluation_gate` 角色；未指派时跟随这段对话实际使用的主模型（`model_provider_id`），关闭思考。用量按 `evaluation_gate` 来源记入运行用量账本。
+- **输出与回退**：模型只输出 `{"need_evaluation": true/false, "reason": "20 字以内"}`，宽松解析。超时、模型报错、输出无法解析、模型调用工具时一律按需要评价处理（`source: "fallback"`，`cause` 记 `timeout / model_error / parse_error / tool_call`），对话不受影响。
+- **存储**：结果写在助手消息的 `extra_data.evaluation_gate`：`need_evaluation / reason / source（model | fallback）/ cause / latency_ms / decided_at`。重跑会复用同一条消息、写入新的 extra_data，旧结果随之清除并重新判定；旧运行的判定结果在新运行开始后不会再写上去。编辑重发产生新消息，同样重新判定；分叉不复制这个键。
+- **读取侧**（都按需推导，判定出结果之前什么都不写）：`GET /v1/chats/{chat_id}/feedback` 在 `items` / `excluded` 之外返回 `not_needed`（判定为无需评价的回答，不显示评价卡，用户仍可主动评价，`POST` 评价照常接受）和 `gating`（带「判定中」标记、已完成、还没有判定结果、交付时间在 `timeout_ms + 10s` 之内的回答，前端先不显示评价卡），以及本次响应所用的开关状态 `gate_enabled`；超出这个时间仍没有结果的回答按需要评价处理。开关关闭时两个列表都是 `[]`。`GET /v1/chats/evaluations/pending` 不提醒 `not_needed` 的回答，也暂不提醒还在判定中的回答。任务监控里这类未评价的回答状态为 `not_needed`（无需评价）：不算待评价、默认采纳或待抽检，不进抽检池的优先档，也不计入评价率的分母——分母本身以 `quality.asked`（`GET /v1/config/task-monitor/board` 的 `data.quality.asked` 与 `data.overview.quality.asked`）返回。判定、追问、意图识别这些辅助模型调用的 token 计入运行的用量，但不计入模型调用次数、失败与重试，也不会把任务抬到更高的复杂度档。
+- **写入安全**：追问和判定在本轮完成后几乎同时往同一条消息的 `extra_data` 合并各自的键，`ChatMessageRepository.update_extra_data` 用一条原子 UPDATE 做顶层合并（PostgreSQL `jsonb ||`，SQLite `json_set`），不会互相覆盖。判断原则读取失败或为空时记警告并改用随包的 `evaluation_gate.system.md`。
+
+相关源码：`core/chat/evaluation_gate.py`（领域规则与读取侧列表）、`core/agent_runtime/evaluation_gating.py`（后台任务与模型调用）、`core/config/store/evaluation_gate_options.py`（配置读取）。
+
+## 默认模式与模式切换权限
+
+管理员在权限配置（角色 / 团队 / 用户编辑器的「对话体验」分组）里给每个人设两样东西：
+
+- **默认模式**（`default_chat_mode`）：新对话进入的模式。可选「智能路由」或任一启用的官方模式，私有模式不能被指派。按「个人 → 角色 → 团队」第一个设了的为准，都没设即标准模式；同一层多个角色或团队设得不同时取能力最强的一个（智能路由 > 标准 > 极速 > 其他按 slug 字母序）。保存时校验模式存在且启用（`core/chat/mode_policy.py::validate_default_mode`）。
+- **模式切换**（`can_switch_chat_mode`，默认开）：关闭后输入框的模式位锁定，只显示默认模式和一把小锁，智能路由卡片里也不再提供「换个模式重答」。服务端在发送、重新生成、编辑重发三条入口都先调 `apply_mode_policy`，把请求里的 `mode_slug` 换成默认模式，再走项目初始化（`/init` 仍强制标准模式）和后续装配；所以锁定不依赖前端。迁移 `modeperm01` 给已有角色补上这一位，按角色配置的用户升级后不会被锁。
+
+实际生效的默认模式必须是用户能跑的：模式已停用或不存在、或默认是智能路由但用户没有 `can_use_intent_router` / 系统开关没开时，一律按标准模式（`effective_default_slug`）。`GET /v1/chat-modes` 在 `modes` 之外下发 `default_slug` 与 `can_switch`，前端模式位据此初始化新对话并决定是否锁定。
 
 ## 会话摘要与上下文压缩
 

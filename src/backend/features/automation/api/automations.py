@@ -29,9 +29,8 @@ router = APIRouter(prefix="/v1/automations", tags=["Automations"])
 # ── Request Schemas ────────────────────────────────────────────
 
 class CreateAutomationRequest(BaseModel):
-    task_type: str = Field(..., pattern=r"^(prompt|plan|loop)$")
+    task_type: str = Field(..., pattern=r"^(prompt|loop)$")
     prompt: Optional[str] = Field(None, max_length=5000)
-    plan_id: Optional[str] = None
     loop_id: Optional[str] = None  # task_type=loop: the autonomous loop advanced on schedule
     cron_expression: str = Field(..., min_length=9, max_length=100)
     schedule_type: Optional[str] = Field(None, pattern=r"^(recurring|once|manual)$")
@@ -79,7 +78,7 @@ def create_automation(
     user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """创建一个定时自动化任务。支持 prompt / plan 两种任务类型，需提供合法的 cron 表达式；plan 类型还需校验 plan_id 归属。"""
+    """创建一个定时自动化任务。支持 prompt / loop 任务类型，需提供合法的 cron 表达式；loop 类型还需校验 loop_id 归属。"""
     # Validate cron expression
     if not croniter.is_valid(req.cron_expression):
         raise BadRequestError("无效的 cron 表达式")
@@ -87,15 +86,6 @@ def create_automation(
     # Validate task content
     if req.task_type == "prompt" and not req.prompt:
         raise BadRequestError("提示词类型任务必须提供 prompt")
-    if req.task_type == "plan":
-        if not req.plan_id:
-            raise BadRequestError("计划类型任务必须提供 plan_id")
-        from core.chat.plans import PlanService
-        plan_svc = PlanService(db)
-        plan = plan_svc.get_plan(req.plan_id, user.user_id)
-        if not plan:
-            raise _not_found("计划不存在或无权访问")
-
     if req.task_type == "loop":
         if not req.loop_id:
             raise BadRequestError("循环类型任务必须提供 loop_id")
@@ -131,7 +121,6 @@ def create_automation(
         user_id=user.user_id,
         task_type=req.task_type,
         prompt=req.prompt,
-        plan_id=req.plan_id,
         cron_expression=req.cron_expression,
         schedule_type=schedule_type,
         name=req.name,

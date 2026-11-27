@@ -176,6 +176,18 @@
 
 .jx-modeSeatBtn.turbo .jx-modeSeatIcon{ color:var(--color-warning, var(--color-warning)); }
 
+/* 智能路由：标识走主色前景，和"锁在某个具体模式上"的暖色区分开 */
+
+.jx-modeSeatBtn.router .jx-modeSeatIcon{ color:var(--color-primary-text); }
+
+/* 没有「模式切换」权限：只读的模式位，不响应 hover，末尾一把小锁 */
+
+.jx-modeSeatBtn.locked{ cursor:default; }
+
+.jx-modeSeatBtn.locked:hover{ background:transparent; }
+
+.jx-modeSeatLock{ flex:none; font-size:11px; opacity:.5; }
+
 .jx-modeSeatBtn svg.jx-modeArrow{ color:currentColor; opacity:.45; transition:transform .16s ease, opacity .14s ease; }
 
 .jx-modeSeatBtn:hover svg.jx-modeArrow{ opacity:.65; }
@@ -206,6 +218,17 @@
 /* 模式描述是选择依据，不像模型名那样能省——允许折行 */
 
 .jx-modeSeatMenu .jx-menuOption-desc{ white-space:normal; }
+
+/* 智能路由排在最前，与具体模式之间隔一道细线：它是"替你挑"，不是又一个模式 */
+
+.jx-modeSeatOption--router .jx-menuOption-title{ color:var(--color-primary-text); }
+
+.jx-modeSeatDivider{
+  flex:none;
+  height:1px;
+  margin:4px 8px;
+  background:color-mix(in srgb, var(--color-text) 8%, transparent);
+}
 
 /* 私有模式的「我的」角标：和官方模式区分开，但不喧宾夺主 */
 

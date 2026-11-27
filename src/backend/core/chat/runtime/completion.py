@@ -8,11 +8,14 @@ import time
 import typing as _typing
 
 import core.chat.runtime.compaction as compaction
+import core.agent_runtime.evaluation_gating as evaluation_gating
 import core.chat.runtime.followups as followups
 import core.chat.runtime.handoff as handoff
 import core.runs.events.writer as writer
 import core.chat.service as services_ChatService_module
 from core.chat.context import now_iso
+from core.chat import evaluation_gate
+from core.chat.mode_router import route_metadata
 from core.infra.logging import get_logger
 from core.llm.runtime import workspace as _workspace_mod
 from core.files.artifacts.service import persist_artifacts as _persist_artifacts
@@ -64,6 +67,9 @@ async def complete_turn(turn, chunk):
         # Skeleton marker: settlement runs after the stream closes.
         "evolution_pending": chunk.get("evolution_pending"),
     }
+    _intent_route = route_metadata(turn.context)
+    if _intent_route is not None:
+        turn.metadata["intent_route"] = _intent_route
     await turn.emit(turn.metadata)
 
     # Persist: assistant message + artifacts
@@ -86,6 +92,9 @@ async def complete_turn(turn, chunk):
         _persist_extra["ontology_governance"] = turn.metadata["ontology_governance"]
     if turn.context.get("model_provider_id"):
         _persist_extra["model_provider_id"] = turn.context.get("model_provider_id")
+    if _intent_route is not None:
+        # 下一轮智能路由从这里读「当前模式」；刷新历史后前端也据此知道本轮走了哪个模式。
+        _persist_extra["intent_route"] = _intent_route
     turn.journal.save_snapshot(
         turn.run_id,
         owner=turn.owner,
@@ -111,6 +120,10 @@ async def complete_turn(turn, chunk):
 
     def _commit_output(db) -> None:
         chat_service = services_ChatService_module.ChatService(db)
+        # 评价判定：开关开着、运行可评价、不是人工压缩时，在完成本轮的同一次写入里打上
+        # 「判定中」标记；读取侧只把带标记的回答列进 gating，派发也只看这一个结论。
+        if not chunk.get("manual_compaction") and evaluation_gate.gate_expected(db, turn.run_id):
+            _persist_extra[evaluation_gate.PENDING_KEY] = True
         # The row already exists (created at admission, refreshed
         # while streaming); this is the final write that also drops
         # the in-flight marker because ``_persist_extra`` never
@@ -214,6 +227,14 @@ async def complete_turn(turn, chunk):
             user_msg=turn.latest_user_message,
             response=turn.full_response,
             msg_id=turn.current_message_id,
+        )
+    if _persist_extra.get(evaluation_gate.PENDING_KEY):
+        # 评价判定：问一次轻量模型这条回答要不要请用户评价；只派发，不等结果。
+        evaluation_gating.spawn(
+            run_id=turn.run_id,
+            chat_id=turn.chat_id,
+            message_id=turn.current_message_id,
+            provider_id=str(turn.context.get("model_provider_id") or ""),
         )
 
     # End-of-turn compaction: when real token usage crosses the

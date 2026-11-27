@@ -1,11 +1,14 @@
-import { Select } from 'antd';
+import { Select, Switch } from 'antd';
 import { getLang, setLang, t, type Lang } from '../../i18n';
 import { useUIStore } from '../../stores';
+import { useRunMonitorOpenByDefault, useRunMonitorStore } from '../../stores/runMonitorStore';
 import type { ThemeMode } from '../../theme';
 import { SidebarLayoutSetting } from './SidebarLayoutSetting';
 
 export function PageSettingsPanel() {
   const { themeMode, setThemeMode } = useUIStore();
+  const runMonitorOpenByDefault = useRunMonitorOpenByDefault();
+  const setRunMonitorOpenByDefault = useRunMonitorStore((s) => s.setUserPref);
   return (
         <section id="section-session" className="jx-settings-section">
         <h3 className="jx-settings-section-title">{t('页面设置')}</h3>
@@ -46,6 +49,22 @@ export function PageSettingsPanel() {
                 { value: 'dark', label: t('深色') },
               ]}
               onChange={(v) => setThemeMode(v as ThemeMode)}
+            />
+          </div>
+
+          <div className="jx-settings-divider" />
+
+          <div className="jx-settings-row">
+            <div className="jx-settings-rowLeft">
+              <span id="jx-runMonitorDefault-label" className="jx-settings-rowLabel">{t('默认展开运行监控')}</span>
+              <span className="jx-settings-rowDesc">
+                {t('打开对话时，右侧的上下文、文件、子智能体等卡片是否默认展开；可随时用对话右上角的按钮展开或收起')}
+              </span>
+            </div>
+            <Switch
+              checked={runMonitorOpenByDefault}
+              onChange={setRunMonitorOpenByDefault}
+              aria-labelledby="jx-runMonitorDefault-label"
             />
           </div>
         </div>

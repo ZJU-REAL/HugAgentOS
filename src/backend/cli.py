@@ -649,13 +649,13 @@ def cmd_onboard(args) -> int:
 
     interactive = not (args.username and args.password)
 
-    # Step 2 — chat model (the main model; assigned to all 7 chat roles)
+    # Step 2 — chat model (the main model; assigned to every chat role)
     if args.model_base_url and args.model_api_key and args.model_name:
         base_url, api_key, model_name = args.model_base_url, args.model_api_key, args.model_name
         context_length = args.model_context_length
     else:
         print("\n[2] 配置对话模型（主模型，OpenAI 兼容端点）")
-        print("  会指派给全部对话角色（主智能体 / 摘要 / 追问 / 记忆 / 计划 / 代码执行）")
+        print("  会指派给全部对话角色（主智能体 / 子智能体 / 摘要 / 追问 / 记忆 / 计划等）")
         print("  预设：" + " / ".join(_PRESETS))
         preset = _prompt("  选择预设或直接回车自定义", "").lower()
         pb, pm = _PRESETS.get(preset, ("", ""))

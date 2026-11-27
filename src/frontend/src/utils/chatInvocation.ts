@@ -151,8 +151,8 @@ export function chatInvocationMessageProps(invocation: ChatInvocationContext) {
       skillId: invocation.skill.id,
       skillName: invocation.skill.name,
     } : {}),
-    ...(invocation.plugin ? { pluginName: invocation.plugin.name } : {}),
-    ...(invocation.connector ? { connectorName: invocation.connector.name } : {}),
+    ...(invocation.plugin ? { pluginId: invocation.plugin.id, pluginName: invocation.plugin.name } : {}),
+    ...(invocation.connector ? { connectorId: invocation.connector.id, connectorName: invocation.connector.name } : {}),
     ...(invocation.mention ? { mentionName: invocation.mention.name } : {}),
   };
 }

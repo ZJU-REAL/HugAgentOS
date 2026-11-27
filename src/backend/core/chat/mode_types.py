@@ -39,6 +39,14 @@ SLUG_TURBO = "turbo"
 BUILTIN_SLUGS = (SLUG_STANDARD, SLUG_TURBO)
 
 
+#: 「智能路由」虚拟模式：不落 chat_modes 表，每轮先识别意图再落到某个真实模式上。
+#: 它是线上 ``mode_slug`` 的保留值，建模式时拒绝占用。
+SLUG_AUTO = "auto"
+
+
+RESERVED_SLUGS = (*BUILTIN_SLUGS, SLUG_AUTO)
+
+
 STANDARD_SPEC = ChatModeSpec(
     slug=SLUG_STANDARD,
     name="标准模式",

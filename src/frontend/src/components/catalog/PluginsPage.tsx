@@ -10,7 +10,7 @@ import {
 import { t } from '../../i18n';
 import { stripMarkdown } from '../../utils/markdown';
 import { DeviceCapabilityBadge } from './DeviceCapabilityBadge';
-import { useCatalogStore, useAuthStore, useEditionStore, usePluginStore, usePluginUiStore } from '../../stores';
+import { useCatalogStore, useAuthStore, usePluginStore, usePluginUiStore } from '../../stores';
 import { staggerStyle } from '../../utils/motionTokens';
 import { DRILL_IN_BACK, DRILL_IN_DETAIL } from '../../utils/motionVariants';
 import { usePanelHeader } from '../../hooks/usePageConfig';
@@ -38,8 +38,6 @@ export function PluginsPage() {
   const { manageQuery, setManageQuery, panelEntryNonce } = useCatalogStore();
   const canImportPlugin = useAuthStore((s) => s.authUser?.can_import_plugin === true);
   const canInstallMarketPlugin = useAuthStore((s) => s.authUser?.can_install_market_plugin === true);
-  // CE 无用户/管理员体系，全局安装的默认插件不标「管理员」
-  const isCE = useEditionStore((s) => s.edition === 'ce');
   const { title, subtitle } = usePanelHeader('plugins', {
     title: t(ABILITY_TAB_TITLE.plugins),
     subtitle: t('插件把成套的技能与连接器打包成一个整体，安装后即可整组启用。'),
@@ -261,7 +259,7 @@ export function PluginsPage() {
   }
 
   if (level === 'component' && component) return <PluginComponentDetail component={component} navDir={navDir} backToPlugin={backToPlugin} setToolDetail={setToolDetail} />;
-  if (level === 'plugin' && pluginDetail) return <PluginDetailView pluginDetail={pluginDetail} navDir={navDir} backToList={backToList} isCE={isCE} handleToggle={handleToggle} handleUninstall={handleUninstall} openComponent={openComponent} onUpgradeChanged={async () => { await afterChange(); setPluginDetail(await getInstalledPluginDetail(pluginDetail.install_id)); }} />;
+  if (level === 'plugin' && pluginDetail) return <PluginDetailView pluginDetail={pluginDetail} navDir={navDir} backToList={backToList} handleToggle={handleToggle} handleUninstall={handleUninstall} openComponent={openComponent} onUpgradeChanged={async () => { await afterChange(); setPluginDetail(await getInstalledPluginDetail(pluginDetail.install_id)); }} />;
 
   // ════════════ List (first level) ════════════
   return (
@@ -328,7 +326,6 @@ export function PluginsPage() {
                   <div className="jx-mcp-cardNameGroup">
                     <span className="jx-mcp-cardName">{p.name}</span>
                     <DeviceCapabilityBadge kind="plugin" runtimeName={p.slug} />
-                    {!isCE && p.is_global && <Tag color="gold">{t('管理员')}</Tag>}
                     {sourceLabel(p.source) && <Tag color="purple">{sourceLabel(p.source)}</Tag>}
                   </div>
                   {/* Users can enable/disable for themselves (global plugins are also a personal switch, not affecting each other);

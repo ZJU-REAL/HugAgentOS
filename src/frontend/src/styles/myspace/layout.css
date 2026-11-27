@@ -112,6 +112,53 @@
   flex-wrap: wrap;
 }
 
+/* 文件/图片切换 + 右侧的存储用量。
+   这一组只占右侧工具剩下的空间（flex-basis 0），所以用量永远不会把工具挤到下一行，
+   只有“切换 + 工具”本身放不下时才换行（换行后用量独占一行，进度条完整显示）。
+   空间不够时用量自己让步：先收起进度条，再截断文字，最后隐藏（悬停整组仍可看到完整数字）。 */
+.jx-mySpace-assetLead {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 16px;
+  min-width: max-content;
+}
+
+.jx-mySpace-assetLead .jx-assetTypeSwitch {
+  flex: none;
+}
+
+.jx-mySpace-assetLead .jx-storageUsage {
+  container-type: inline-size;
+  flex: 1 1 0;
+  flex-wrap: nowrap;
+  gap: 10px;
+  min-width: 0;
+  margin-top: 0;
+}
+
+.jx-mySpace-assetLead .jx-storageUsage-bar {
+  flex: 0 1 72px;
+  min-width: 40px;
+}
+
+/* 进度条还在时文字不缩；进度条收起后文字才开始截断 */
+.jx-mySpace-assetLead .jx-storageUsage-text {
+  flex: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@container (max-width: 164px) {
+  .jx-mySpace-assetLead .jx-storageUsage-bar { display: none; }
+  .jx-mySpace-assetLead .jx-storageUsage-text { flex: 0 1 auto; min-width: 0; }
+}
+
+@container (max-width: 72px) {
+  .jx-mySpace-assetLead .jx-storageUsage-text { display: none; }
+}
+
 .jx-mySpace-assetTabs {
   display: inline-flex;
   align-items: center;

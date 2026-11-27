@@ -16,19 +16,20 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 PROMPT_TEXT = BACKEND_ROOT / "prompts" / "prompt_text"
 
 
-def test_system_reminder_convention_has_a_markdown_file():
-    fp = PROMPT_TEXT / "default" / "system" / "05_system_reminder_convention.system.md"
+def test_system_reminder_convention_lives_in_code_exec_only():
+    fp = PROMPT_TEXT / "code_exec" / "system" / "40_system_reminder_convention.system.md"
     assert fp.is_file()
     assert "<system-reminder>" in fp.read_text(encoding="utf-8")
+    assert not (PROMPT_TEXT / "default" / "system" / "05_system_reminder_convention.system.md").exists()
 
 
-def test_system_part_sort_order_comes_from_the_filename_prefix():
+def test_concat_part_sort_order_comes_from_the_filename_prefix():
     by_id = {p["part_id"]: p["sort_order"] for p in prompt_files_module.read_fs_parts("system")}
     assert by_id["system/00_role"] == 0
-    # 新增的段落按文件名前缀落在 00_role 与 10_constraints 之间，不挤动相邻段。
-    assert by_id["system/05_system_reminder_convention"] == 5
     assert by_id["system/10_constraints"] == 10
     assert by_id["system/40_format"] == 40
+    code_ids = {p["part_id"]: p["sort_order"] for p in prompt_files_module.read_fs_parts("code_exec")}
+    assert code_ids["system/40_system_reminder_convention"] == 40
 
 
 def test_plan_tool_segment_is_rendered_from_its_markdown_file(monkeypatch):
@@ -79,9 +80,9 @@ def test_new_filesystem_part_is_backfilled_into_an_existing_default_version(monk
     result = prompt_versions_module.seed_from_filesystem()
 
     parts = {p["part_id"] for p in saved["payload"]["versions"][0]["parts"]}
-    assert "system/05_system_reminder_convention" in parts
+    assert "system/10_constraints" in parts
     assert "system/40_format" in parts
-    assert any("system/default:system/05_system_reminder_convention" in a for a in result["added"])
+    assert any("system/default:system/10_constraints" in a for a in result["added"])
 
 
 def test_no_prompt_body_is_hardcoded_in_python():

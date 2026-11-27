@@ -6,9 +6,8 @@ import { apiRequest, isHybridDual, registerLocalChat, unwrapData } from './core'
 interface CreateAutomationRequest {
   execution_location?: 'local' | 'cloud';
   project_id?: string;
-  task_type: 'prompt' | 'plan';
-  prompt?: string;
-  plan_id?: string;
+  task_type: 'prompt';
+  prompt: string;
   cron_expression: string;
   schedule_type?: 'recurring' | 'once' | 'manual';
   name?: string;

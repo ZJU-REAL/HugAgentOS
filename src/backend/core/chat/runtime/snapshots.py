@@ -14,6 +14,7 @@ import core.llm.runtime.model_steps as model_steps
 import core.runs.events.writer as writer
 import core.chat.service as services_ChatService_module
 from core.chat.context import now_iso
+from core.chat.mode_router import route_metadata
 from core.infra.text_bounds import bound_result_for_history
 from core.infra.logging import get_logger
 from core.llm.runtime import workspace as _workspace_mod
@@ -162,6 +163,9 @@ def _commit_cancelled_partial(turn) -> None:
     }
     if turn.context.get("model_provider_id"):
         _extra["model_provider_id"] = turn.context.get("model_provider_id")
+    _route = route_metadata(turn.context)
+    if _route is not None:
+        _extra["intent_route"] = _route
     from core.projects.edition import project_scope_from_context
 
     with engine.SessionLocal() as db:

@@ -82,6 +82,8 @@ export const PANELS_DICT: Record<string, string> = {
   '本体校验侧边栏': 'Ontology validation sidebar',
   '收起右侧面板': 'Collapse right panel',
   '展开右侧面板': 'Expand right panel',
+  '展开运行监控': 'Show run monitor',
+  '收起运行监控': 'Hide run monitor',
   '全屏': 'Full screen',
   '退出全屏': 'Exit full screen',
   '暂无本体校验结果': 'No ontology validation result yet',

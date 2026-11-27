@@ -57,7 +57,7 @@ class UserAgentBaseService:
 
     def list_for_user(self, user_id: str) -> List[Dict[str, Any]]:
         agents = self.repo.list_for_user(user_id)
-        rows = [self._serialize(a) for a in agents]
+        rows = self._apply_user_switches([self._serialize(a) for a in agents], user_id)
         if desktop_store():
             # Desktop: the bridged account's stored agents join the device's own;
             # a display-name clash is decided by the resolver, never by order.
@@ -79,7 +79,32 @@ class UserAgentBaseService:
             raise LookupError(f"Agent {agent_id} not found")
         if user_id and not self._is_accessible(agent, user_id):
             raise PermissionError("No access to this agent")
-        return self._serialize(agent)
+        row = self._serialize(agent)
+        return self._apply_user_switches([row], user_id)[0] if user_id else row
+
+    def _apply_user_switches(self, rows: List[Dict[str, Any]], user_id: str) -> List[Dict[str, Any]]:
+        """Admin-published agents are on for everyone; each user may switch them off for themselves."""
+        if not any(row.get("owner_type") == "admin" for row in rows):
+            return rows
+        from core.auth.users import UserService
+
+        disabled = UserService(self.db).get_disabled_admin_subagent_ids(str(user_id))
+        for row in rows:
+            if row.get("owner_type") == "admin" and row.get("agent_id") in disabled:
+                row["is_enabled"] = False
+        return rows
+
+    def set_admin_agent_enabled_for_user(
+        self, agent_id: str, user_id: str, enabled: bool
+    ) -> Dict[str, Any]:
+        """Switch an admin-published agent on/off for this user only (the admin's own state is untouched)."""
+        agent = self.repo.get_by_id(agent_id)
+        if not agent or agent.owner_type != "admin" or not self._is_accessible(agent, user_id):
+            raise LookupError(f"Admin agent {agent_id} not found")
+        from core.auth.users import UserService
+
+        UserService(self.db).set_admin_subagent_enabled(str(user_id), agent_id, enabled)
+        return self.get_by_id(agent_id, user_id=user_id)
 
     def get_raw_by_id(self, agent_id: str, user_id: Optional[str] = None) -> UserAgent:
         """Return the ORM object (for direct use by workflow/factory).

@@ -1,5 +1,6 @@
 import { apiRequest, authFetch, getApiUrl, LOCAL_TARGET_HEADER, unwrapData } from '../../api';
 import { saveBlob } from '../../utils/download';
+import type { StorageUsage } from '../../types';
 
 export interface SpaceRoot {
   space_id: string;
@@ -54,6 +55,8 @@ export async function renameSpaceFile(space: string, source: string, destination
 export async function deleteSpaceEntry(space: string, entry: SpaceEntry) {
   const query = spaceQuery(space, entry.path);
   query.set('directory', String(entry.is_directory));
+  // A folder goes with everything in it; the confirmation says so before this is called.
+  if (entry.is_directory) query.set('recursive', 'true');
   return request('/entries?' + query, { method: 'DELETE' });
 }
 
@@ -86,4 +89,7 @@ export async function searchSpaceFiles(keyword: string, limit = 20, signal?: Abo
     } while (cursor && found.length < limit);
   }
   return found;
+}
+export async function getMySpaceUsage(signal?: AbortSignal) {
+  return request<StorageUsage>('/usage', { signal });
 }

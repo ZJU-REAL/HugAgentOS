@@ -102,6 +102,32 @@ def test_builtin_switch_is_persisted_per_user_and_defaults_to_enabled(db_session
     assert service.get_disabled_builtin_subagent_ids("builtin-pref-user") == set()
 
 
+def test_admin_agent_switch_is_per_user_and_leaves_admin_state_alone(db_session):
+    from core.capabilities.agents.edition import UserAgentService
+    from core.db.models import UserAgent
+
+    for uid in ("admin-pref-a", "admin-pref-b"):
+        db_session.add(UserShadow(user_id=uid, username=uid, extra_data={}))
+    db_session.add(UserAgent(agent_id="admin-agent-1", owner_type="admin", name="Admin agent",
+                             system_prompt="", is_enabled=True))
+    db_session.commit()
+    service = UserAgentService(db_session)
+
+    def enabled_for(uid):
+        return {a["agent_id"]: a["is_enabled"] for a in service.list_for_user(uid)}["admin-agent-1"]
+
+    assert enabled_for("admin-pref-a") is True
+    row = service.set_admin_agent_enabled_for_user("admin-agent-1", "admin-pref-a", False)
+    assert row["is_enabled"] is False
+    assert enabled_for("admin-pref-a") is False
+    assert service.get_by_id("admin-agent-1", user_id="admin-pref-a")["is_enabled"] is False
+    assert enabled_for("admin-pref-b") is True
+    assert db_session.get(UserAgent, "admin-agent-1").is_enabled is True
+
+    service.set_admin_agent_enabled_for_user("admin-agent-1", "admin-pref-a", True)
+    assert enabled_for("admin-pref-a") is True
+
+
 def test_refresh_uses_parent_final_grants_without_adding_or_inventing_tools():
     stale = list_builtin_subagents(
         {

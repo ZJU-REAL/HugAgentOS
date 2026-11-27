@@ -108,7 +108,14 @@ class UserService:
         # Imported lazily to avoid an import cycle during application startup.
         from core.memory.settings import MemorySettingsService
 
-        return MemorySettingsService(self.db).apply_effective_defaults(metadata)
+        result = MemorySettingsService(self.db).apply_effective_defaults(metadata)
+        if result["memory_enabled"] or result["memory_write_enabled"]:
+            from core.auth.capabilities import meta_has_capability
+
+            if not meta_has_capability(self.db, user_id, metadata, "can_use_evolution"):
+                # Without the evolution console the user has no long-term memory at all.
+                result["memory_enabled"] = result["memory_write_enabled"] = False
+        return result
 
     def update_user_metadata(self, user_id: str, patch: Dict[str, Any]) -> None:
         """Merge `patch` into users_shadow.metadata JSONB (shallow merge)."""
@@ -160,4 +167,30 @@ class UserService:
 
         metadata = dict(user.extra_data or {})
         metadata["disabled_builtin_subagent_ids"] = sorted(disabled_ids)
+        self.repo.update(user_id, {"extra_data": metadata})
+
+    def get_disabled_admin_subagent_ids(self, user_id: str) -> Set[str]:
+        """Admin-published sub-agents this user switched off for themselves."""
+        user = self.repo.get_by_id(user_id)
+        if not user:
+            return set()
+        raw_ids = dict(user.extra_data or {}).get("disabled_admin_subagent_ids") or []
+        if not isinstance(raw_ids, list):
+            return set()
+        return {value.strip() for value in raw_ids if isinstance(value, str) and value.strip()}
+
+    def set_admin_subagent_enabled(self, user_id: str, agent_id: str, enabled: bool) -> None:
+        """Persist one user's switch for an admin-published sub-agent; defaults stay enabled."""
+        user = self.repo.get_by_id(user_id)
+        if not user:
+            raise LookupError(f"User {user_id} not found")
+
+        disabled_ids = self.get_disabled_admin_subagent_ids(user_id)
+        if enabled:
+            disabled_ids.discard(agent_id)
+        else:
+            disabled_ids.add(agent_id)
+
+        metadata = dict(user.extra_data or {})
+        metadata["disabled_admin_subagent_ids"] = sorted(disabled_ids)
         self.repo.update(user_id, {"extra_data": metadata})

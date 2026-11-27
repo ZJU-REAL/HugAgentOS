@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Button, Drawer, Form, Input, Modal, Popconfirm, Select, Space,
-  Switch, Table, Tabs, Tag, Tooltip, Upload, message,
+  Switch, Table, Tag, Tooltip, Upload, message,
 } from 'antd';
 import {
   CheckCircleTwoTone, CopyOutlined, DeleteOutlined, EditOutlined,
@@ -118,6 +118,7 @@ export function PromptVersionsEditor({
       : [{ key: 'system', label: t('系统提示词'), builtin: true }];
     return list.filter((k) => k.visible !== false);
   }, [kinds]);
+  const currentKind = visibleKinds.find((k) => k.key === kind);
 
   const createKind = async () => {
     const key = kindDraft.key.trim();
@@ -476,64 +477,96 @@ export function PromptVersionsEditor({
   return (
     <>
       <PromptPreviewModal data={desktopPreview} onClose={() => setDesktopPreview(null)} />
-      <Tabs
-        activeKey={kind}
-        onChange={(k) => setKind(k as Kind)}
-        items={visibleKinds.map((k) => ({
-          key: k.key,
-          label: (
-            <span>
-              {k.builtin ? t(k.label) : k.label}
-              {active[k.key] && <Tag color="blue" style={{ marginLeft: 8 }}>{active[k.key]}</Tag>}
-              {!k.builtin && (
-                <DeleteOutlined
-                  style={{ marginLeft: 8, opacity: 0.5 }}
-                  onClick={(e) => { e.stopPropagation(); removeKind(k); }}
-                />
-              )}
-            </span>
-          ),
-        }))}
-        tabBarExtraContent={(
-          <Button size="small" icon={<PlusOutlined />} onClick={() => setKindModalOpen(true)}>
+      <div className="jx-promptVersions">
+        <nav className="jx-promptVersions-nav" aria-label={t('提示词分类')}>
+          <div className="jx-promptVersions-navList" role="tablist" aria-orientation="vertical">
+            {visibleKinds.map((k) => {
+              const selected = k.key === kind;
+              return (
+                <div
+                  key={k.key}
+                  className={`jx-promptVersions-navItem${selected ? ' jx-promptVersions-navItem--active' : ''}`}
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    className="jx-promptVersions-navBtn"
+                    onClick={() => setKind(k.key)}
+                    title={k.builtin ? t(k.label) : k.label}
+                  >
+                    <span className="jx-promptVersions-navLabel">{k.builtin ? t(k.label) : k.label}</span>
+                    {active[k.key] && <span className="jx-promptVersions-navVersion">{active[k.key]}</span>}
+                  </button>
+                  {!k.builtin && (
+                    <Tooltip title={t('删除分类')}>
+                      <Button
+                        type="text"
+                        size="small"
+                        className="jx-promptVersions-navDelete"
+                        icon={<DeleteOutlined />}
+                        aria-label={t('删除分类「{name}」', { name: k.label })}
+                        onClick={() => removeKind(k)}
+                      />
+                    </Tooltip>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <Button
+            type="text"
+            block
+            className="jx-promptVersions-navAdd"
+            icon={<PlusOutlined />}
+            onClick={() => setKindModalOpen(true)}
+          >
             {t('新建分类')}
           </Button>
-        )}
-      />
+        </nav>
 
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-          {t('新建版本')}
-        </Button>
-        <Popconfirm
-          title={t('从代码重建默认版本？')}
-          description={t('仅补齐缺失的默认版本。已存在的版本不会被覆盖。')}
-          onConfirm={handleSeed}
-        >
-          <Button icon={<RollbackOutlined />}>{t('从代码重建默认')}</Button>
-        </Popconfirm>
-        <Tooltip title={t('导出全部提示词版本池（含所有 kind 与激活映射）与提示词广场为 JSON 快照')}>
-          <Button icon={<ExportOutlined />} onClick={handleExport}>{t('导出')}</Button>
-        </Tooltip>
-        <Tooltip title={t('从 JSON 快照导入并覆盖提示词版本池与提示词广场')}>
-          <Upload accept=".json" showUploadList={false} beforeUpload={handleImport}>
-            <Button icon={<ImportOutlined />}>{t('导入')}</Button>
-          </Upload>
-        </Tooltip>
-        <Button icon={<ReloadOutlined />} onClick={reload}>{t('刷新')}</Button>
-      </Space>
+        <section className="jx-promptVersions-main">
+          <div className="jx-promptVersions-head">
+            <div className="jx-promptVersions-title">
+              <h3>{currentKind ? (currentKind.builtin ? t(currentKind.label) : currentKind.label) : kind}</h3>
+              {currentKind?.description && <p>{currentKind.description}</p>}
+            </div>
+            <Space className="jx-promptVersions-actions" wrap>
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+                {t('新建版本')}
+              </Button>
+              <Popconfirm
+                title={t('从代码重建默认版本？')}
+                description={t('仅补齐缺失的默认版本。已存在的版本不会被覆盖。')}
+                onConfirm={handleSeed}
+              >
+                <Button icon={<RollbackOutlined />}>{t('从代码重建默认')}</Button>
+              </Popconfirm>
+              <Tooltip title={t('导出全部提示词版本池（含所有 kind 与激活映射）与提示词广场为 JSON 快照')}>
+                <Button icon={<ExportOutlined />} onClick={handleExport}>{t('导出')}</Button>
+              </Tooltip>
+              <Tooltip title={t('从 JSON 快照导入并覆盖提示词版本池与提示词广场')}>
+                <Upload accept=".json" showUploadList={false} beforeUpload={handleImport}>
+                  <Button icon={<ImportOutlined />}>{t('导入')}</Button>
+                </Upload>
+              </Tooltip>
+              <Button icon={<ReloadOutlined />} onClick={reload}>{t('刷新')}</Button>
+            </Space>
+          </div>
 
-      <Table
-        scroll={{ x: 1100 }}
-        rowKey="id"
-        columns={resizableColumns}
-        components={resizableComponents}
-        {...tableProps}
-        dataSource={items}
-        loading={loading}
-        pagination={false}
-        size="middle"
-      />
+          <Table
+            scroll={{ x: 1100 }}
+            rowKey="id"
+            columns={resizableColumns}
+            components={resizableComponents}
+            {...tableProps}
+            dataSource={items}
+            loading={loading}
+            pagination={false}
+            size="middle"
+          />
+        </section>
+      </div>
 
       {/* Edit Drawer */}
       <Drawer

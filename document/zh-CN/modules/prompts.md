@@ -72,7 +72,7 @@ Runtime Binder 把这份脱敏 Manifest 挂到本轮递归不可变的 Asset Bun
 - 每个版本含 `(kind, id, name, description, parts[])`，part 即 `{part_id, display_name, content, sort_order, is_enabled}`。
 - **API**：`list_versions / get_version / upsert_version（支持 from_id 克隆）/ delete_version（激活中禁删）/ activate_version`；激活后立即失效运行时缓存。
 - **Seed**：`seed_from_filesystem()` 首次冷启动把文件系统 markdown 读成默认版本，并幂等补齐 `subagents/default` 的三个角色 part；内置两个一次性迁移——`system/v4 → system/default` 改名、从各 system 版本抽出 `system/90_plan_mode` 生成 `plan_mode/default`。
-- 启动时还会幂等补种两个动态段到激活 system 版本：`system/05_system_reminder_convention`（教模型处理 `<system-reminder>` 带外信号）与项目模式段（`prompt_runtime.py::ensure_*_seeded`）。
+- 启动时还会幂等补种项目模式段到激活 system 版本（`prompt_runtime.py::ensure_project_mode_part_seeded`）；各内置 kind 的 `default` 版本也会补进新增的 md 文件。教模型处理 `<system-reminder>` 的约定段在 `code_exec/system/40_system_reminder_convention`，只随代码执行能力段装配。
 
 ### Config 管理台
 
@@ -97,6 +97,8 @@ Runtime Binder 把这份脱敏 Manifest 挂到本轮递归不可变的 Asset Bun
 | `distillation` | 技能蒸馏（`features/distillation/`，把对话轨迹蒸馏为可复用技能） | DB 激活版本 → `prompts/prompt_text/distillation/skill_distiller.system.md` |
 | `plan_mode` | 计划模式生成子智能体（`orchestration/plans/`） | DB `plan_mode` 激活版本 → 旧版 system 版本的 `system/90_plan_mode` 分段 → `prompts/prompt_text/plan_mode/plan_mode.system.md` → 硬编码兜底 |
 | `turbo` | 极速模式（对话模式选「极速」时，`factory/build.py` 以该提示词**整体替换**主系统提示词）。工具集由 Config「系统配置 → 极速模式」动态配置（`turbo.mcp_server_ids`，默认联网搜索/网页抓取/知识库检索三件套，**独立于能力目录的启停**）；用户显式呼唤的技能 / @子智能体 / 插件可临时入场（`turbo.manual_invoke_enable`）；迭代上限可配（`turbo.max_iters`，默认 4）。单一真源为 `prompt_version_service.render_turbo_system_prompt()` | DB `turbo` 激活版本 → `prompts/prompt_text/turbo/turbo.system.md` → 硬编码兜底 |
+| `intent_router` | 用户意图识别（智能路由 `mode_slug=auto` 每轮识别时追加在主请求末尾的策略正文：判断原则 + 「智能保持」原则）。候选清单、当前模式和只输出 JSON 的要求由 `core/chat/mode_route_decision.py` 运行时拼在后面 | DB `intent_router` 激活版本 → `prompts/prompt_text/intent_router/intent_router.system.md` |
+| `evaluation_gate` | 回答评价判定（评价判定开启时，每条回答完成后判断要不要请用户评价的判断原则）。本会话已评价 / 已判定过的回答标注和只输出 JSON 的要求由 `core/chat/evaluation_gate.py` 运行时追加 | DB `evaluation_gate` 激活版本 → `prompts/prompt_text/evaluation_gate/evaluation_gate.system.md` |
 
 子智能体不走版本池整版拼装：`prompt_runtime.py::build_subagent_system_prompt()` 以用户自定义 `system_prompt` 为核心，复用激活版本（或文件）的 `20_tools_policy` / `65_citations` / `60_format` 分段组装，详见 [对话与智能体编排](chat.md)。
 

@@ -17,11 +17,11 @@ Two tables (`core/db/models/`): `model_providers` (base_url / api_key / model_na
 | `subagent` | Shared subagent model (optional; follows the user's selection by default) | chat |
 | `summarizer` | Chat title summary + classification | chat |
 | `followup` | Follow-up question generation | chat |
+| `evaluation_gate` | Evaluation gate (unassigned: follows the chat's main model, thinking off) | chat |
 | `memory` | Memory extraction (mem0) | chat |
 | `embedding` | Text embeddings (KB / memory) | embedding |
 | `reranker` | Retrieval re-ranking | reranker |
 | `plan_agent` | Plan-mode reasoning (falls back to main_agent) | chat |
-| `code_exec` | Code-execution reasoning (optional ops override, unused by default) | chat |
 | `loop_reviewer` | Autonomous-loop review and planning (falls back to main_agent) | chat |
 | `kb_wiki` | Knowledge-base Wiki entity extraction (offline batch; a cheap model is usually the right choice) | chat |
 | `vision` | Image understanding (vision bridge) — see below | chat |

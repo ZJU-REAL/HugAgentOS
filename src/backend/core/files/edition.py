@@ -88,6 +88,9 @@ def project_location(db, project):
 def matches_scope(project, scope):
     return scope.kind == project.kind and scope.root_folder_id == project.linked_folder_id
 
+def organization_projects(query, project_model, owner_id):
+    return None
+
 def owner_space(column, owner):
     raise ValueError("Unsupported directory owner")
 

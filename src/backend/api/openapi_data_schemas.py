@@ -47,8 +47,11 @@ _CAPABILITY_FLAGS: Tuple[str, ...] = (
     "can_switch_model",
     "can_use_voice",
     "can_use_evaluation",
+    "can_use_evolution",
     "can_run_autonomous_loop",
     "can_manage_chat_modes",
+    "can_use_intent_router",
+    "can_switch_chat_mode",
     "can_use_personal_agent",
     "can_system_config",
     "can_content_manage",
@@ -320,6 +323,11 @@ DATA_COMPONENTS: Dict[str, Dict[str, Any]] = {
                 "description": "null = 全部已启用应用可见；数组 = 仅列出的应用可见",
             },
             **{flag: {"type": "boolean"} for flag in _CAPABILITY_FLAGS},
+            # Per-file upload caps in MB; null = no cap.
+            "my_space_upload_limit_mb": {"type": "integer", "nullable": True},
+            "personal_kb_upload_limit_mb": {"type": "integer", "nullable": True},
+            "my_space_quota_mb": {"type": "integer", "nullable": True},
+            "personal_kb_quota_mb": {"type": "integer", "nullable": True},
         },
     },
     "UserPreferencesResponse": {
@@ -514,6 +522,35 @@ DATA_SCHEMAS: Dict[Tuple[str, str], Dict[str, Any]] = {
         "type": "object",
         "additionalProperties": True,
         "description": "SSE 流式响应；事件结构同 /v1/agents/responses（stream=true）",
+    },
+    ("GET", "/v1/chats/{chat_id}/feedback"): {
+        "type": "object",
+        "properties": {
+            "gate_enabled": {
+                "type": "boolean",
+                "description": "本次响应所用的评价判定开关状态；为 false 时 not_needed / gating 恒为空",
+            },
+            "items": {
+                "type": "object",
+                "description": "当前用户对各条回答的评价，按 message_id 索引",
+                "additionalProperties": {"type": "object", "additionalProperties": True},
+            },
+            "excluded": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "定时任务 / 循环任务的回答（不参与评价）",
+            },
+            "not_needed": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "评价判定为无需评价的回答（不显示评价卡，仍可主动评价）；判定关闭时为空",
+            },
+            "gating": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "刚交付、评价判定结果还没出来的回答；判定关闭时为空",
+            },
+        },
     },
     ("POST", "/v1/chats/messages/{message_id}/feedback"): {
         "type": "object",

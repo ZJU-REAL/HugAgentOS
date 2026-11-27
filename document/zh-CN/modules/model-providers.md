@@ -17,11 +17,11 @@ HugAgentOS 通过 **OpenAI 兼容协议**接入任意大模型端点（vLLM、Ol
 | `subagent` | 子智能体统一模型（可选，默认跟随用户选择） | chat |
 | `summarizer` | 会话标题摘要 + 分类 | chat |
 | `followup` | 追问问题生成 | chat |
+| `evaluation_gate` | 评价判定（未配置跟随本段对话的主模型，关闭思考） | chat |
 | `memory` | 记忆抽取（mem0） | chat |
 | `embedding` | 文本向量化（KB / 记忆） | embedding |
 | `reranker` | 检索结果重排序 | reranker |
 | `plan_agent` | 计划模式推理（未配置降级 main_agent） | chat |
-| `code_exec` | 代码执行推理（可选运维覆盖，默认不引用） | chat |
 | `loop_reviewer` | 自主循环的评审与规划（未配置降级 main_agent） | chat |
 | `kb_wiki` | 知识库 Wiki 实体抽取（离线批处理，建议单配便宜模型） | chat |
 | `vision` | 图像理解（视觉桥）——见下节 | chat |

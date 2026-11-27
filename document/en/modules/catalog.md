@@ -93,7 +93,7 @@ See [Knowledge Base](knowledge-base.md).
 |---|---|
 | `POST /v1/me/mcp-servers` | Add a private remote MCP (only `streamable_http` / `sse`; **stdio is not supported** — users must not run arbitrary commands on the server). Connectivity is probed at creation; unreachable endpoints are rejected |
 | `DELETE /v1/me/mcp-servers/{id}` | Delete one's own private MCP |
-| `POST /v1/me/skills/upload` | Upload a private skill as a zip (≤50 MB, reusing the admin parsing pipeline) |
+| `POST /v1/me/skills/upload` | Upload a private skill as a zip (≤200 MB, reusing the admin parsing pipeline) |
 | `POST /v1/me/skills` | Create/update a private skill by hand (SKILL.md body + metadata) |
 | `GET/DELETE /v1/me/skills/{skill_id}`, `PUT .../icon` | Read for editing, delete, set icon |
 

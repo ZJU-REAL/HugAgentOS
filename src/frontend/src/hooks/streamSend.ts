@@ -43,7 +43,10 @@ export function createStreamSend(ctx: Pick<StreamingContext, 'abortControllersRe
 
 
   async function send(directMessage?: string, invocationOverride?: ChatInvocationContext) {
-    const { sending, addSendingChatId, removeSendingChatId, chatMode, modeSlug, currentChatId, updateStore, addBackendSessionId, addLoadedMsgId } = useChatStore.getState();
+    const { sending, addSendingChatId, removeSendingChatId, chatMode, modeSlug: pickedModeSlug, currentChatId, updateStore, addBackendSessionId, addLoadedMsgId } = useChatStore.getState();
+    // Without mode switching the server holds the user to their default mode anyway; send
+    // and record that mode so the composer, history and reruns all agree.
+    const modeSlug = useChatModeStore.getState().effectiveSlug(pickedModeSlug);
     const draft = readComposer(chatDraftKey(currentChatId));
     const { input, activeSkill, activePlugin, activeConnector, activeMention, activeCommand } = draft;
     // A queued replay owns its captured message, not the next turn currently being edited.

@@ -6,7 +6,7 @@ HugAgentOS ships two built-in mechanisms for turning a single instruction into r
 
 | Capability | One-liner | Backend entry |
 |---|---|---|
-| Scheduled automation | Run a prompt or a plan automatically on a cron schedule (or once / manually) | `features/automation/api/automations.py` + `orchestration/automations/automation_scheduler.py` |
+| Scheduled automation | Run a prompt automatically on a cron schedule (or once / manually) | `features/automation/api/automations.py` + `orchestration/automations/automation_scheduler.py` |
 | Plan mode | AI first decomposes a complex task into structured steps, then executes them after confirmation | `api/routes/v1/plans.py` + `orchestration/plans/` |
 
 ## Scheduled automation tasks
@@ -21,7 +21,7 @@ Tasks live in the `scheduled_tasks` table (`ScheduledTask` in `edition_ee/db/mod
 
 | Field | Description |
 |---|---|
-| `task_type` | `prompt` (run a prompt) or `plan` (run an existing plan; `plan_id` ownership is validated) |
+| `task_type` | Tasks created from the page are always `prompt` (run a prompt); `loop` is created by the autonomous-loop feature. The former `plan` type is retired: migration `autonoplan01` disables existing plan tasks and they cannot be resumed |
 | `cron_expression` | Standard cron expression, validated with `croniter.is_valid()` on create / update |
 | `schedule_type` | `recurring` / `once` / `manual` (manual tasks never fire automatically) |
 | `timezone` | Defaults to `Asia/Shanghai`; the next fire time is computed in that timezone and stored as UTC (`automation_service.py::compute_next_run`) |
@@ -49,7 +49,7 @@ Tasks live in the `scheduled_tasks` table (`ScheduledTask` in `edition_ee/db/mod
 - **Orphan recovery**: at startup and on every poll, a worker must acquire execution ownership before resuming observation of the linked durable conversation and saving its final outcome. Only orphan runs without a linked conversation are marked `failed`, with overdue schedules advanced and one-shot tasks finalized. Runtime never determines recovery. The lock renews every 15 seconds; its 60-second lease detects a disconnected worker and does not limit total runtime. Missed one-shot tasks also acquire ownership before firing.
 - **Execution lease shutdown**: shutdown signals stop, cancels renewal, waits at most 2 seconds, and always attempts token-checked deletion. Local ownership markers are removed even on cleanup errors. Renewal also stops when the execution Task finishes. Result delivery has a 60-second total wait budget; failures do not overwrite committed success and do not retry automatically. Running records carry an internal ownership token; completion requires both running status and a matching token. Recovery claims the record under its new token.
 
-Each execution creates and immediately links a **real conversation** through the shared ChatRun executor. Prompt runs stream text, thinking and tools; plan runs stream step progress. Opening a running conversation or refreshing the page follows and replays the same event stream as ordinary chat. Users can stop execution from the conversation; prompt runs also accept additional instructions through the durable steering queue at the next safe model boundary. Stopping does not increase consecutive failures, and loss of execution ownership or scheduler shutdown cancels the child run. Final messages, artifacts, citations and delivery remain owned by the shared executor and scheduler outcome handler. Conversation titles use the task name without an automation prefix. Older executions started before live-stream support cannot replay events that were never recorded.
+Each execution creates and immediately links a **real conversation** through the shared ChatRun executor. Runs stream text, thinking and tools. Opening a running conversation or refreshing the page follows and replays the same event stream as ordinary chat. Users can stop execution from the conversation; prompt runs also accept additional instructions through the durable steering queue at the next safe model boundary. Stopping does not increase consecutive failures, and loss of execution ownership or scheduler shutdown cancels the child run. Final messages, artifacts, citations and delivery remain owned by the shared executor and scheduler outcome handler. Conversation titles use the task name without an automation prefix. Older executions started before live-stream support cannot replay events that were never recorded.
 
 Scheduled prompts and ordinary conversations share admission, capability resolution, runtime context construction and the main agent execution loop. If a late instruction starts a successor through the main executor, the scheduled outcome waits for its final result. Loss of execution ownership or scheduler shutdown cancels the current successor.
 
@@ -72,7 +72,7 @@ Data model (`core/db/models/agent.py`): `Plan` (state machine `draft → approve
 
 REST API (`/v1/plans`, `api/routes/v1/plans.py`): `GET ""` list, `GET/PATCH/DELETE /{plan_id}` detail / edit (steps can be edited before confirmation) / delete, `POST /{plan_id}/cancel` cancel. The plan-mode system prompt supports DB version-pool management with a filesystem fallback at `prompts/prompt_text/plan_mode/plan_mode.system.md` — see [Prompt System](prompts.md).
 
-Plans can also be scheduled: after creating an automation task with `task_type=plan`, every trigger resets a completed / failed plan back to `approved`, clears step states, and reruns it from the top.
+Plans can no longer be scheduled; for recurring multi-step work, write the steps into the scheduled task's prompt.
 
 ## Typical scenarios
 
@@ -91,8 +91,6 @@ POST /v1/automations
 ```
 
 Every morning an Industry morning brief execution conversation is created. The sidebar keeps one task entry, while the right panel lets users choose results from different dates. Notifications appear in the bell.
-
-**Weekly report pipeline (plan automation)**: build and validate a three-step plan ("pull data → aggregate analysis → export Word") in plan mode, then create a task with `task_type=plan` and `cron_expression="0 17 * * 5"` to rerun the whole plan every Friday at 5 p.m.
 
 ## Source map
 

@@ -64,7 +64,9 @@ export interface ChatMessage {
   referencedChats?: ReferencedChatCard[];
   skillId?: string;
   skillName?: string;
+  pluginId?: string;
   pluginName?: string;
+  connectorId?: string;
   connectorName?: string;
   mentionName?: string;
   messageId?: string;   // backend message_id, used for feedback submission

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import { CheckCircleFilled, CloseCircleFilled, CloudOutlined, CodeOutlined, FolderOutlined, LaptopOutlined, LoadingOutlined, SettingOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { CloudOutlined, CodeOutlined, FolderOutlined, LaptopOutlined, LoadingOutlined, SettingOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { message, Tooltip } from 'antd';
+import { motion, useReducedMotion } from 'motion/react';
 import { t } from '../../i18n';
 import { useChatStore } from '../../stores/chatStore';
 import { fileTabId, subagentTabId, useCanvasStore } from '../../stores/canvasStore';
@@ -9,18 +10,20 @@ import { subagentStatus } from '../../utils/subagentView';
 import { formatClock } from '../../utils/elapsed';
 import { formatTokens } from '../../utils/contextUsage';
 import { parseServerTime } from '../../utils/date';
-import type { CommandTaskBrief, JobBrief } from '../../types';
+import { DUR, EASE } from '../../utils/motionTokens';
+import type { ChatMessage, CommandTaskBrief, JobBrief } from '../../types';
 import { AgentIcon } from '../agent/AgentIcon';
 import { ElapsedTimer } from '../common';
 import { CONTEXT_CATEGORIES, useContextUsageView } from '../chat/useContextUsageView';
-import { ProgressRing, StepIcon } from '../chat/PlanProgressStrip';
-import { usePlanView } from '../chat/usePlanView';
 import { SubagentStatus } from '../tool/SubagentCallRow';
 import { openSubagentTab } from '../tool/openSubagentTab';
+import { ToolCapabilityIcon } from '../tool/ToolCapabilityIcon';
+import { useToolCapabilityResolver } from '../../hooks/useToolCapability';
+import { useCatalogStore } from '../../stores/catalogStore';
 import { MonitorCard } from './MonitorCard';
 import { MonitorFileRow } from './MonitorFileRow';
 import { ScheduledTaskCard } from './ScheduledTaskCard';
-import { collectFiles, collectSubagents, countToolCalls, type MonitorSubagent } from './runMonitorData';
+import { cachePerTool, collectFiles, collectSubagents, collectTurnCapabilities, countToolCalls, type MonitorSubagent } from './runMonitorData';
 import { isLiveCommand, isLiveJob, useBackgroundTasks } from './useBackgroundTasks';
 import { useChatProject } from './useChatProject';
 import ProjectEnvironmentModal from '../projects/ProjectEnvironmentModal';
@@ -115,33 +118,38 @@ function BackgroundTasksCard({ chatId }: { chatId: string }) {
   );
 }
 
-/** The agent's update_plan checklist; replaces the plan strip above the composer. */
-function PlanCard({ chatId }: { chatId: string }) {
-  const view = usePlanView(chatId);
-  if (!view) return null;
-  const { title, steps, completed, failed, total, allDone, stopped } = view;
+const capabilityKindLabel = (kind: 'skill' | 'plugin' | 'connector') => (
+  kind === 'skill' ? t('技能') : kind === 'plugin' ? t('插件') : t('连接器')
+);
+
+/**
+ * Skills, plugins and connectors bound to the latest turn: the ones the user
+ * picked in the composer, then the ones the agent loaded or called.
+ */
+function CapabilityBindingCard({ messages }: { messages: ChatMessage[] }) {
+  const resolver = useToolCapabilityResolver();
+  const connectors = useCatalogStore((s) => s.catalog.mcp);
+  // Messages change on every streamed token; finished tool calls keep their
+  // object identity, so each one is resolved once per catalog/plugin change.
+  const resolveTool = useMemo(() => cachePerTool(resolver), [resolver]);
+  const items = useMemo(() => collectTurnCapabilities(messages, { resolveTool, connectors }), [messages, resolveTool, connectors]);
+  if (!items.length) return null;
   return (
-    <MonitorCard
-      title={title || t('任务计划')}
-      className="jx-runMonitor-plan"
-      summary={<>
-        {allDone
-          ? (failed > 0
-            ? <CloseCircleFilled className="jx-runMonitor-planDone" data-failed aria-hidden />
-            : <CheckCircleFilled className="jx-runMonitor-planDone" aria-hidden />)
-          : <ProgressRing completed={completed} total={total} />}
-        {stopped && <span>{t('已中断')}</span>}
-        <span className="jx-runMonitor-num">{completed}/{total}</span>
-      </>}
-    >
-      <ol className="jx-runMonitor-planSteps" aria-label={t('任务计划：{done}/{total} 步已完成', { done: completed, total })}>
-        {steps.map((s, i) => (
-          <li key={i} className="jx-runMonitor-planStep" data-status={s.status}>
-            <span className="jx-runMonitor-lead"><StepIcon status={s.status} stopped={stopped} /></span>
-            <span className="jx-runMonitor-planStepTitle">{s.title}</span>
-          </li>
-        ))}
-      </ol>
+    <MonitorCard title={t('能力绑定')} summary={<span className="jx-runMonitor-num">{items.length}</span>}>
+      {items.map((item) => {
+        const kind = capabilityKindLabel(item.kind);
+        return (
+          <div
+            key={`${item.kind}:${item.id}`}
+            className="jx-runMonitor-row"
+            title={item.explicit ? t('{kind}「{name}」：本轮手动指定', { kind, name: item.name }) : t('{kind}「{name}」：本轮由智能体调用', { kind, name: item.name })}
+          >
+            <span className="jx-runMonitor-lead"><ToolCapabilityIcon capability={item} size={20} /></span>
+            <span className="jx-runMonitor-name">{item.name}</span>
+            <span className="jx-runMonitor-meta">{item.explicit ? t('指定 · {kind}', { kind }) : kind}</span>
+          </div>
+        );
+      })}
     </MonitorCard>
   );
 }
@@ -263,7 +271,8 @@ function EnvironmentCard({ projectId }: { projectId: string }) {
 
 /**
  * Run monitor inside the conversation pane, right of the messages: one card per
- * concern (scheduled task runs, project environment, context, sub-agents, output and input files,
+ * concern (scheduled task runs, project environment, the latest turn's skills / plugins /
+ * connectors, context, sub-agents, output and input files,
  * background tasks).
  * Cards with nothing to show stay hidden. Rows open their sub-agent session or
  * file in the canvas; the rail hides when the pane is too narrow for both.
@@ -278,16 +287,26 @@ export function RunMonitorRail() {
   const subagents = useMemo(() => collectSubagents(messages), [messages]);
   const files = useMemo(() => collectFiles(messages, chatId || undefined), [messages, chatId]);
   const toolStats = useMemo(() => countToolCalls(messages), [messages]);
+  const reducedMotion = useReducedMotion();
 
   if (!chatId || !messages?.length) return null;
 
+  // Slides in from the right while the conversation makes room (RunMonitorRail.css);
+  // the parent's AnimatePresence keeps it mounted for the exit.
+  const offset = reducedMotion ? 0 : 24;
   return (
-    <aside className="jx-runMonitor" aria-label={t('运行监控')}>
+    <motion.aside
+      className="jx-runMonitor"
+      aria-label={t('运行监控')}
+      initial={{ opacity: 0, x: offset }}
+      animate={{ opacity: 1, x: 0, transition: { duration: DUR.slow, ease: EASE.brandOut } }}
+      exit={{ opacity: 0, x: offset, transition: { duration: DUR.normal * 0.7, ease: EASE.exit } }}
+    >
       {automationTaskId && <ScheduledTaskCard key={automationTaskId} taskId={automationTaskId} chatId={chatId} />}
 
       {projectId && <EnvironmentCard key={projectId} projectId={projectId} />}
 
-      <PlanCard chatId={chatId} />
+      <CapabilityBindingCard messages={messages} />
 
       <ContextCard toolCalls={toolStats.calls} toolFailed={toolStats.failed} />
 
@@ -321,6 +340,6 @@ export function RunMonitorRail() {
       )}
 
       <BackgroundTasksCard chatId={chatId} />
-    </aside>
+    </motion.aside>
   );
 }

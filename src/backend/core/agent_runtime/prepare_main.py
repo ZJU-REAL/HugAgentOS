@@ -12,6 +12,7 @@ import logging
 import typing as _typing
 
 import core.agent_runtime.budget as budget
+import core.agent_runtime.intent_routing as intent_routing
 import core.agent_runtime.skills as skills
 import core.agent_runtime.targets as targets
 import core.capabilities.catalog.resolver as catalog_resolver
@@ -31,71 +32,20 @@ def _load_subagent_visibility(db, user_id: str, *, evaluation: bool):
     return visible, UserService(db).get_disabled_builtin_subagent_ids(user_id)
 
 
-async def prepare_main(turn: MainTurn):
-    import time as _time
-
-    _wf_start = _time.monotonic()
-
-    yield {"type": "thinking", "message": "正在分析您的问题..."}
-    for ontology_event in turn.ontology_runtime.get("runtime_events", []):
-        yield dict(ontology_event)
-    turn.ontology_event_cursor = len(turn.ontology_runtime.get("runtime_events", []))
-
-    _stream_user_id = str(turn.context.get("user_id", ""))
-    _stream_model_name = str(turn.context.get("model_name", ""))
-    _stream_reranker = bool(turn.context.get("reranker_enabled", False))
+async def _assemble(turn: MainTurn, base_visible_subagents: list, plan_chat: bool) -> None:
+    """Build the main agent for the mode the context resolves to right now."""
     enabled_skill_ids = catalog_resolver.enabled_skill_ids_from_context(turn.context)
     enabled_kb_ids = catalog_resolver.enabled_kb_ids_from_context(turn.context)
     enabled_mcp_ids = catalog_resolver.enabled_mcp_ids_from_context(turn.context)
-
-    # ── Load visible sub-agents for main agent routing ──
-    turn.visible_subagents: list = []
-    turn.mentioned_ids: list = []
-    _explicit_command = turn.context.get("explicit_subagent_command")
-    _explicit_agent_id = (
-        str(_explicit_command.get("agent_id"))
-        if isinstance(_explicit_command, dict) and _explicit_command.get("agent_id")
-        else ""
-    )
-    _mention_agent_id = str(turn.context.get("mention_agent_id") or "")
-    try:
-        turn.visible_subagents, _disabled_builtin_ids = await run_in_session(
-            _load_subagent_visibility,
-            _stream_user_id,
-            evaluation=bool(turn.context.get("evaluation_session")),
-        )
-    except Exception as _exc:
-        logger.warning("[workflow] failed to load visible subagents: %s", _exc)
-        _disabled_builtin_ids = set()
-
-    turn.visible_subagents = targets._runtime_visible_subagents(
-        turn.visible_subagents,
-        {
-            "enabled_skill_ids": enabled_skill_ids or [],
-            "enabled_mcp_ids": enabled_mcp_ids or [],
-            "enabled_kb_ids": enabled_kb_ids or [],
-        },
-        _disabled_builtin_ids,
-        [_explicit_agent_id, _mention_agent_id],
-    )
-    # Prefer the structured per-turn target. Text parsing remains a
-    # compatibility fallback for callers that only include @name.
-    _delegated_agent_id = _explicit_agent_id or _mention_agent_id
-    if _delegated_agent_id and any(
-        str(item.get("agent_id") or "") == _delegated_agent_id for item in turn.visible_subagents
-    ):
-        turn.mentioned_ids = [_delegated_agent_id]
-    else:
-        turn.mentioned_ids = targets._parse_agent_mentions(
-            turn.user_message, turn.visible_subagents
-        )
-
-    # Create agent (with model-aware CompressionConfig + optional native LTM)
-    _plan_chat = bool(turn.context.get("plan_chat", False))
+    _stream_user_id = str(turn.context.get("user_id", ""))
+    _stream_model_name = str(turn.context.get("model_name", ""))
+    _stream_reranker = bool(turn.context.get("reranker_enabled", False))
+    _plan_chat = plan_chat
     # 极速模式：配置化检索工具集 + 独立 turbo 提示词 + 迭代硬上限。
     # plan 会话有自己的编排语义，不进入极速裁剪。
     _stream_mode_spec = await run_db(targets._resolve_mode_spec, turn.context)
     _turbo_chat = _stream_mode_spec is not None and _stream_mode_spec.restricted and not _plan_chat
+    turn.visible_subagents = list(base_visible_subagents)
     if _turbo_chat:
         # 收窄模式下子智能体不再只靠手动呼唤入场：模式自己圈定的那批常驻，
         # 本轮被 @/显式委派命中的那个并上去（系统提示词也就只渲染这几行）。
@@ -177,6 +127,77 @@ async def prepare_main(turn: MainTurn):
             and not _plan_chat
         ),
     )
+
+
+async def prepare_main(turn: MainTurn):
+    import time as _time
+
+    _wf_start = _time.monotonic()
+
+    yield {"type": "thinking", "message": "正在分析您的问题..."}
+    for ontology_event in turn.ontology_runtime.get("runtime_events", []):
+        yield dict(ontology_event)
+    turn.ontology_event_cursor = len(turn.ontology_runtime.get("runtime_events", []))
+
+    _stream_user_id = str(turn.context.get("user_id", ""))
+    _stream_model_name = str(turn.context.get("model_name", ""))
+    enabled_skill_ids = catalog_resolver.enabled_skill_ids_from_context(turn.context)
+    enabled_kb_ids = catalog_resolver.enabled_kb_ids_from_context(turn.context)
+    enabled_mcp_ids = catalog_resolver.enabled_mcp_ids_from_context(turn.context)
+
+    # ── Load visible sub-agents for main agent routing ──
+    turn.visible_subagents: list = []
+    turn.mentioned_ids: list = []
+    _explicit_command = turn.context.get("explicit_subagent_command")
+    _explicit_agent_id = (
+        str(_explicit_command.get("agent_id"))
+        if isinstance(_explicit_command, dict) and _explicit_command.get("agent_id")
+        else ""
+    )
+    _mention_agent_id = str(turn.context.get("mention_agent_id") or "")
+    try:
+        turn.visible_subagents, _disabled_builtin_ids = await run_in_session(
+            _load_subagent_visibility,
+            _stream_user_id,
+            evaluation=bool(turn.context.get("evaluation_session")),
+        )
+    except Exception as _exc:
+        logger.warning("[workflow] failed to load visible subagents: %s", _exc)
+        _disabled_builtin_ids = set()
+
+    turn.visible_subagents = targets._runtime_visible_subagents(
+        turn.visible_subagents,
+        {
+            "enabled_skill_ids": enabled_skill_ids or [],
+            "enabled_mcp_ids": enabled_mcp_ids or [],
+            "enabled_kb_ids": enabled_kb_ids or [],
+        },
+        _disabled_builtin_ids,
+        [_explicit_agent_id, _mention_agent_id],
+    )
+    # Prefer the structured per-turn target. Text parsing remains a
+    # compatibility fallback for callers that only include @name.
+    _delegated_agent_id = _explicit_agent_id or _mention_agent_id
+    if _delegated_agent_id and any(
+        str(item.get("agent_id") or "") == _delegated_agent_id for item in turn.visible_subagents
+    ):
+        turn.mentioned_ids = [_delegated_agent_id]
+    else:
+        turn.mentioned_ids = targets._parse_agent_mentions(
+            turn.user_message, turn.visible_subagents
+        )
+
+    # Create agent (with model-aware CompressionConfig + optional native LTM)
+    _plan_chat = bool(turn.context.get("plan_chat", False))
+    # 智能路由（mode_slug=auto）：识别开始就发卡片；先按当前模式（首轮按回退模式）装配，
+    # 识别请求复用这个 agent 的前缀，结论要换模式时才重新装配（见 intent_routing）。
+    _route = await intent_routing.start(turn)
+    if _route is not None:
+        yield intent_routing.call_event(_route)
+        if _route.settled:
+            yield intent_routing.result_event(_route)
+    _base_visible_subagents = list(turn.visible_subagents)
+    await _assemble(turn, _base_visible_subagents, _plan_chat)
 
     logger.info("[workflow] agent created in %.0fms", (_time.monotonic() - _wf_start) * 1000)
 
@@ -284,6 +305,22 @@ async def prepare_main(turn: MainTurn):
     # The final request assembler receives the full post-compaction
     # candidate set.  It is the only budget selector, and records every
     # included, truncated, or excluded item in the context manifest.
+
+    if _route is not None:
+        _provisional = _route.provisional_slug
+        _routed = await intent_routing.decide(turn, _route)
+        if not _route.settled:
+            yield intent_routing.result_event(_route)
+        if _routed != _provisional:
+            # 换模式：丢掉按当前模式装好的 agent，按新模式重装。历史、压缩与会话块不变。
+            from core.llm.mcp.manager import close_clients
+
+            await close_clients(turn.mcp_clients)
+            await _assemble(turn, _base_visible_subagents, _plan_chat)
+            allocator.attach_allocator(turn.agent, turn.anchor_allocator)
+            _actual_model, turn.ctx_window = budget._resolve_agent_model_runtime(
+                turn.agent, _stream_model_name
+            )
 
     turn.streaming_agent = streaming.StreamingAgent(turn.agent, turn.mcp_clients)
 

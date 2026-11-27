@@ -66,6 +66,8 @@
     "test:desktop-menu-update": "esbuild scripts/test-desktop-update.tsx scripts/test-desktop-folder.ts scripts/test-client-download.ts --bundle --platform=node --format=esm --jsx=automatic --packages=external --define:import.meta.env={} --outdir=node_modules/.tmp/desktop-menu-update --out-extension:.js=.mjs && node node_modules/.tmp/desktop-menu-update/test-desktop-update.mjs && node node_modules/.tmp/desktop-menu-update/test-desktop-folder.mjs && node node_modules/.tmp/desktop-menu-update/test-client-download.mjs",
     "test:attachment-routing": "esbuild scripts/test-attachment-routing.ts --bundle --platform=node --format=esm --define:import.meta.env={} --outfile=node_modules/.tmp/test-attachment-routing.mjs && node node_modules/.tmp/test-attachment-routing.mjs",
     "test:attachment-send": "esbuild scripts/test-attachment-send.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --alias:dayjs/plugin/utc=dayjs/plugin/utc.js --alias:dayjs/plugin/timezone=dayjs/plugin/timezone.js --loader:.css=empty --define:import.meta.env={} --outfile=node_modules/.tmp/test-attachment-send.mjs && node node_modules/.tmp/test-attachment-send.mjs",
+    "test:intent-router-browser": "node scripts/test-intent-router-browser.mjs",
+    "test:evaluation-gate-browser": "node scripts/test-evaluation-gate-browser.mjs",
     "test:chat-routing": "node scripts/test-chat-routing.mjs",
     "test:module-navigation": "node scripts/test-module-navigation.mjs",
     "test:workbench-registry": "esbuild scripts/test-workbench-registry.tsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --outfile=node_modules/.tmp/test-workbench-registry.mjs && node node_modules/.tmp/test-workbench-registry.mjs",

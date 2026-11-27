@@ -5,8 +5,6 @@ from core.files.spaces.leases import authorized_operation
 from core.files.spaces.search import search_directory
 from core.files.spaces.tree import ensure_parents, tree_entries, copy_tree, remove_tree
 
-MAX_TRANSFER_BYTES = 50 * 1024 * 1024
-
 class SpaceFiles:
     def __init__(self, db, actor, storage):
         self.db, self.actor, self.storage = db, actor, storage
@@ -42,8 +40,6 @@ class SpaceFiles:
         info = self.storage.stat_object(key)
         if info is None or info.is_directory:
             raise HTTPException(404, "File not found")
-        if info.size > MAX_TRANSFER_BYTES:
-            raise HTTPException(413, "File exceeds transfer limit")
         return self.storage.download_bytes(key), info
 
     def occupied(self, space, path):
@@ -62,22 +58,26 @@ class SpaceFiles:
         return {"path": path}
 
     @authorized_operation
-    def copy_from(self, space, path, source_key, size):
-        """Server-side copy of an object stored elsewhere (an upload snapshot); bytes never pass through us."""
-        key = self._file_target(space, path, size)
+    def copy_from(self, space, path, source_key, size, *, check_quota=True):
+        """Server-side copy of an object stored elsewhere (an upload snapshot); bytes never pass through us.
+
+        ``check_quota=False`` only for a caller that already ran ``ensure_space_quota``.
+        """
+        key = self._file_target(space, path, size, check_quota=check_quota)
         self.storage.copy_object(source_key, key)
         return {"path": path}
 
-    def _file_target(self, space, path, size):
+    def _file_target(self, space, path, size, *, check_quota=True):
         grant = self.grant(space, write=True)
         key = grant.key(path)
-        if size > MAX_TRANSFER_BYTES:
-            raise HTTPException(413, "File exceeds transfer limit")
         ensure_parents(self.storage, key)
         existing = self.storage.stat_object(key)
         marker = self.storage.stat_object(key + "/")
         if (existing and existing.is_directory) or (marker and marker.is_directory) or self.storage.list_directory(key + "/", limit=2).entries:
             raise HTTPException(409, "A directory exists at that path")
+        if check_quota:
+            from core.files.spaces.quota import ensure_space_quota
+            ensure_space_quota(self.db, self.storage, grant, size, replacing=existing.size if existing else 0)
         return key
 
     @authorized_operation
@@ -157,14 +157,39 @@ class SpaceFiles:
             raise HTTPException(409, "Destination exists")
         info = self.storage.stat_object(src)
         children = self.storage.list_directory(src + "/", limit=1).entries
+        from core.files.spaces.quota import ensure_space_quota
         if (info and info.is_directory) or self.storage.stat_object(src + "/") or children:
             entries = tree_entries(self.storage, src + "/")
+            ensure_space_quota(self.db, self.storage, target,
+                sum(item.size or 0 for item in entries if not item.is_directory))
             copy_tree(self.storage, src + "/", dst + "/", entries)
             return {"path": destination, "files": sum(not item.is_directory for item in entries)}
         if info is None:
             raise HTTPException(404, "Source file not found")
+        ensure_space_quota(self.db, self.storage, target, info.size or 0)
         self.storage.copy_object(src, dst)
         return {"path": destination, "files": 1}
+
+    @authorized_operation
+    def delete_directory(self, space, path):
+        """Delete a folder with everything in it, from the file manager.
+
+        A project's working folder is refused here: deleting the project removes it together
+        with the project's own records.
+        """
+        grant = self.grant(space, write=True)
+        key = grant.key(path)
+        prefix = key + "/"
+        from core.files.spaces.projects import project_using
+        project = project_using(self.db, grant, prefix)
+        if project is not None:
+            raise HTTPException(409, f"该文件夹是项目「{project.name}」的工作目录，请在项目中删除")
+        entries = tree_entries(self.storage, prefix)
+        marker = self.storage.stat_object(prefix) or self.storage.stat_object(key)
+        if not entries and (marker is None or not marker.is_directory):
+            raise HTTPException(404, "文件夹不存在")
+        remove_tree(self.storage, prefix, entries)
+        return sum(not item.is_directory for item in entries)
 
     @authorized_operation
     def delete_tree(self, space, path):

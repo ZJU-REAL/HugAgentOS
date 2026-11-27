@@ -97,12 +97,7 @@ export function AutomationDetailPage({ taskId, onBack }: Props) {
 
   const displayName = useMemo(() => {
     if (!task) return '';
-    return (
-      task.name ||
-      (task.task_type === 'prompt'
-        ? task.prompt?.slice(0, 40) || t('提示词任务')
-        : task.plan_title || t('计划任务'))
-    );
+    return task.name || task.prompt?.slice(0, 40) || t('提示词任务');
   }, [task]);
 
   // ─── Handlers (view mode) ───

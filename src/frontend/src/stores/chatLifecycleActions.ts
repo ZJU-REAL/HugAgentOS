@@ -31,7 +31,7 @@ export function createChatLifecycleActions({ set, get, initializeDraftRunTarget,
           currentPlanId: null,
           loopMode: false,
           ...applyDefaultChatMode(),
-          modeSlug: 'standard',
+          modeSlug: resolveModeSlug(),
         });
         initializeDraftRunTarget(id);
         if (project) get().bindChatProject(id, project.projectId, project.projectName);

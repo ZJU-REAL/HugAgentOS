@@ -9,6 +9,7 @@ import { AgentCursor } from './AgentCursor';
 import type { AgentMarkState } from '../common/AgentMark';
 import { InvocationBadges } from './InvocationBadges';
 import { PlanCard } from './PlanCard';
+import { AgentPlanCard } from './AgentPlanCard';
 import { MessageInheritedPlan } from './MessageInheritedPlan';
 import { UserMarkdownBlock } from './UserMarkdownBlock';
 import { CitationMarkdownBlock } from '../citation';
@@ -33,6 +34,18 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
   const toggleThinking = useChatStore((s) => s.toggleThinking);
   const chatMode = useChatStore((s) => s.chatMode);
   const conversationCitations = useConversationCitations(currentChatId, m, messageIndex);
+  // The agent's update_plan checklist belongs to the chat's latest turn: it shows
+  // in the newest reply, just above that reply's tool calls.
+  const hostsAgentPlan = useChatStore((s) => {
+    if (m.role !== 'assistant' || isForkedHistory(m)) return false;
+    const msgs = s.store.chats[currentChatId]?.messages;
+    if (!msgs) return false;
+    for (let i = msgs.length - 1; i >= 0; i -= 1) {
+      if (msgs[i].role === 'assistant') return msgs[i].uid === m.uid;
+    }
+    return false;
+  });
+  const agentPlan = hostsAgentPlan ? <AgentPlanCard key={`${m.uid}-agentPlan`} chatId={currentChatId} /> : null;
   // 视觉桥正在读图（模型还没开口）→ 轮级状态换成「图像理解中」，别让这几秒看起来
   // 像模型在发呆。识图结束由 chatStream 清空。
   const visionReadingCount = useChatStore(state => state.visionReading[currentChatId] ?? 0);
@@ -294,6 +307,10 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
                 return null;
               });
 
+              if (agentPlan) {
+                // Above the first tool run; with no tool run yet, at the top of the reply.
+                rendered.splice(firstRun ? firstRun.anchor : 0, 0, agentPlan);
+              }
               if (tail) {
                 rendered.push(
                   <TurnStatusIndicator
@@ -316,6 +333,7 @@ export function MessageBody({ m, messageIndex, currentChatId, send }: MessageBod
         ) : (
           /* Legacy rendering path */
           <>
+            {agentPlan}
             {m.toolCalls && m.toolCalls.length > 0 && (
               <div className="jx-toolCallsList">
                 <ToolRunShell

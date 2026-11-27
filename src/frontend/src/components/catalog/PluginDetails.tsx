@@ -104,8 +104,8 @@ export function PluginComponentDetail({component, navDir, backToPlugin, setToolD
 
 }
 
-export function PluginDetailView({pluginDetail, navDir, backToList, isCE, handleToggle, handleUninstall, openComponent, onUpgradeChanged}: {
-  pluginDetail: InstalledPluginDetail; navDir: NavDir; backToList: () => void; isCE: boolean;
+export function PluginDetailView({pluginDetail, navDir, backToList, handleToggle, handleUninstall, openComponent, onUpgradeChanged}: {
+  pluginDetail: InstalledPluginDetail; navDir: NavDir; backToList: () => void;
   handleToggle: (id: string, enabled: boolean) => Promise<void>;
   handleUninstall: (id: string, name: string) => Promise<void>;
   openComponent: (component: SelectedComponent) => void;
@@ -129,7 +129,6 @@ export function PluginDetailView({pluginDetail, navDir, backToList, isCE, handle
           <span className="jx-mcp-version" style={{ marginLeft: 4 }}>v{d.version}</span>
           {srcLabel && <Tag color="purple" style={{ marginLeft: 6 }}>{srcLabel}</Tag>}
           <div style={{ flex: 1 }} />
-          {!isCE && d.is_global && <Tag color="gold" style={{ marginRight: 8 }}>{t('管理员')}</Tag>}
           <span className="jx-mcp-enableLabel">{t('启用')}</span>
           <Switch
             checked={d.skills.some((s) => s.enabled) || d.mcp.some((m) => m.enabled)}

@@ -6,6 +6,7 @@ import XxxRepository`` keeps working unchanged.
 """
 from core.infra.time import utc_now
 
+import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -299,13 +300,45 @@ class ChatMessageRepository:
     def update_extra_data(
         self, message_id: str, patch: Dict[str, Any]
     ) -> Optional[ChatMessage]:
-        """Merge *patch* into the message's extra_data JSONB field."""
-        message = self.get_by_id(message_id)
-        if not message:
-            return None
-        merged = dict(message.extra_data or {})
-        merged.update(_strip_nul(patch))
-        message.extra_data = merged
+        """Merge *patch* into the message's extra_data JSONB field (top-level keys, like ``dict.update``).
+
+        The merge is one atomic UPDATE, not read-modify-write: background writers (follow-ups,
+        the evaluation gate) patch the same message right after a turn completes, and a stale read
+        would silently drop the other writer's key.
+        """
+        patch = _strip_nul(patch)
+        if not patch:
+            return self.get_by_id(message_id)
+        column = ChatMessage.__table__.c.metadata
+        dialect = self.db.get_bind().dialect.name
+        if dialect == "postgresql":
+            from sqlalchemy.dialects.postgresql import JSONB
+
+            merged = func.coalesce(column, sa.cast("{}", JSONB)).op("||")(
+                sa.bindparam("extra_patch", patch, type_=JSONB)
+            )
+        elif dialect == "sqlite":
+            args: List[Any] = []
+            for key, value in patch.items():
+                args += [f'$."{key}"', func.json(json.dumps(value, ensure_ascii=False))]
+            merged = func.json_set(func.coalesce(column, "{}"), *args)
+        else:
+            message = self.get_by_id(message_id)
+            if not message:
+                return None
+            message.extra_data = {**(message.extra_data or {}), **patch}
+            self.db.commit()
+            self.db.refresh(message)
+            return message
+        result = self.db.execute(
+            sa.update(ChatMessage.__table__)
+            .where(ChatMessage.__table__.c.message_id == message_id)
+            .values(metadata=merged)
+        )
         self.db.commit()
-        self.db.refresh(message)
+        if not result.rowcount:
+            return None
+        message = self.get_by_id(message_id)
+        if message is not None:
+            self.db.refresh(message)
         return message

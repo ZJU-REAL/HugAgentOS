@@ -147,6 +147,22 @@ KIND_SPECS: Dict[str, KindSpec] = {
         "极速模式（快速查询）系统提示词：仅联网搜索/网页抓取/知识库检索三类工具，"
         "1-2 轮并行调用后直接作答",
     ),
+    "intent_router": KindSpec(
+        ("intent_router",),
+        "single",
+        "用户意图识别",
+        "default - 用户意图识别",
+        "智能路由每轮的意图识别策略：判断本轮问题该进哪个模式，以及「智能保持」的切换原则。"
+        "候选模式清单、当前模式和输出格式由系统在运行时追加",
+    ),
+    "evaluation_gate": KindSpec(
+        ("evaluation_gate",),
+        "single",
+        "回答评价判定",
+        "default - 回答评价判定",
+        "每轮回答完成后判断是否需要请用户评价这条回答的判断原则。"
+        "本会话已评价 / 已判定过的回答和输出格式由系统在运行时追加",
+    ),
     "plan_mode": KindSpec(
         ("plan_mode",),
         "single",

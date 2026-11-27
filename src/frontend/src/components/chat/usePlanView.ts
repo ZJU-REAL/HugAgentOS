@@ -20,16 +20,14 @@ function derivePlanView(
   const total = steps.length;
   if (total === 0) return null;
   const completed = steps.filter((s) => s.status === 'completed').length;
-  const failed = steps.filter((s) => s.status === 'failed').length;
-  const current = steps.find((s) => s.status === 'in_progress');
-  const finished = completed + failed === total;
+  const finished = steps.every((s) => s.status === 'completed' || s.status === 'failed');
   const settled = finished || !!progress.done || (!running && !workflowChat);
   // Settled before every step finished: the run was stopped or ended early.
   const stopped = settled && !finished;
-  return { title: progress.title, steps, completed, failed, total, current, allDone: finished, stopped };
+  return { title: progress.title, steps, completed, total, stopped };
 }
 
-/** Agent-reported plan for a chat, with the derived counts both views need. */
+/** Agent-reported plan for a chat, with the derived counts the plan card needs. */
 export function usePlanView(chatId: string | null | undefined) {
   const progress = useChatStore((s) => (chatId ? s.planProgress[chatId] : undefined));
   const running = useChatStore((s) => !!chatId && (

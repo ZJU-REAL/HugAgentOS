@@ -8,6 +8,11 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+#: ``metadata["source"]`` of model calls made beside a turn rather than as its own work
+#: (follow-up suggestions, intent recognition, the evaluation gate). Their tokens are real spend,
+#: but they are not the task's model calls or retries.
+SIDE_CALL_SOURCES = frozenset({"followup", "intent_router", "evaluation_gate"})
+
 
 @dataclass(frozen=True)
 class AttemptUsage:

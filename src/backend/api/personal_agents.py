@@ -201,6 +201,27 @@ def get_agent(
     return success_response(data=agent)
 
 
+class AgentToggleRequest(BaseModel):
+    enabled: bool
+
+
+@router.put("/{agent_id}/toggle", summary="切换当前用户的管理员子智能体状态")
+def toggle_admin_agent_for_user(
+    agent_id: str,
+    body: AgentToggleRequest,
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """按用户启用或停用管理员发布的子智能体，只影响当前用户自己。"""
+    try:
+        agent = UserAgentService(db).set_admin_agent_enabled_for_user(
+            agent_id, str(user.user_id), body.enabled
+        )
+    except LookupError:
+        return error_response(code=404, message="Agent not found", status_code=404)
+    return success_response(data=agent)
+
+
 @router.post("", summary="创建个人子智能体")
 def create_agent(
     body: AgentCreateRequest,

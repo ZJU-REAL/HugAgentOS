@@ -127,7 +127,7 @@ export function AgentPanel() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const list = agents.filter((a) => (
-      a.is_enabled || a.owner_type === 'user' || a.owner_type === 'builtin'
+      a.is_enabled || a.owner_type === 'user' || a.owner_type === 'builtin' || a.owner_type === 'admin'
       || editionAgentPolicy.includeInLibrary(a)
     ));
     const matched = q ? list.filter((a) => a.name.toLowerCase().includes(q) || (a.description || '').toLowerCase().includes(q)) : list;
@@ -227,7 +227,7 @@ export function AgentPanel() {
 
   async function handleToggleEnabled(agent: UserAgentItem, enabled: boolean) {
     try {
-      if (agent.owner_type === 'builtin') {
+      if (agent.owner_type === 'builtin' || agent.owner_type === 'admin') {
         await toggleBuiltinAgent(agent.agent_id, enabled);
       } else {
         await updateAgent(agent.agent_id, { is_enabled: enabled });
@@ -358,7 +358,8 @@ export function AgentPanel() {
         >
           {pagedAgents.map((agent, idx) => {
             const canEdit = canEditAgent(agent);
-            const canToggle = canEdit || agent.owner_type === 'builtin';
+            // Built-in and admin-published agents: a personal on/off switch (doesn't affect other users)
+            const canToggle = canEdit || agent.owner_type === 'builtin' || agent.owner_type === 'admin';
             return (
               <div key={agent.agent_id} className="jx-agentCard jx-card-lift"
                 style={staggerStyle(idx)}

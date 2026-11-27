@@ -216,67 +216,6 @@ async def test_scheduler_waits_for_explicit_stop_without_execution_deadline(live
 
 
 @pytest.mark.asyncio
-async def test_scheduled_plan_exposes_steps_and_preserves_background_profile(live_env, monkeypatch):
-    factory, stream, _ = live_env
-    from core.chat.plans import PlanService
-
-    entered, release = asyncio.Event(), asyncio.Event()
-    observed = {}
-
-    async def plan_workflow(**kwargs):
-        observed.update(kwargs)
-        yield {"type": "plan_step_start", "step_id": "step-1", "title": "Research"}
-        entered.set()
-        await release.wait()
-        with factory() as db:
-            PlanService(db).update_plan(kwargs["plan_id"], status="completed", completed_steps=1)
-        yield {
-            "type": "plan_complete",
-            "result_text": "Plan report",
-            "completed_steps": 1,
-            "total_steps": 1,
-            "usage": {"total_tokens": 3},
-        }
-
-    monkeypatch.setattr('orchestration.plans.mode.astream_execute_plan', plan_workflow)
-    with factory() as db:
-        plan = PlanService(db).create_plan(
-            user_id="owner",
-            title="Report",
-            task_input="Research",
-            steps=[{"title": "Research", "step_id": "step-1"}],
-        )
-        task = AutomationService(db).create_task(
-            user_id="owner", task_type="plan", plan_id=plan.plan_id, cron_expression="0 18 * * *"
-        )
-        task_id = task.task_id
-    scheduler = AutomationScheduler()
-
-    async def noop(*args):
-        return None
-
-    monkeypatch.setattr("orchestration.automations.automation_delivery.notify_inapp", noop)
-    executing = asyncio.create_task(execute_queued(scheduler, task_id, "owner"))
-    try:
-        await asyncio.wait_for(entered.wait(), 5)
-        with factory() as db:
-            chat_id = AutomationService(db).get_task_runs(task_id, "owner")[0].chat_id
-        active = runtime.get_active_run_for_chat(chat_id, "owner")
-        assert active.request_payload["kind"] == "plan_execute"
-        assert observed["automation_run"] is True
-        assert any(evt["type"] == "plan_step_start" for _, evt in await stream.read(active.run_id))
-        release.set()
-        await asyncio.wait_for(executing, 5)
-        with factory() as db:
-            run = AutomationService(db).get_task_runs(task_id, "owner")[0]
-            assert run.status == "success" and run.result_summary == "Plan report"
-    finally:
-        release.set()
-        if not executing.done():
-            await asyncio.wait_for(executing, 5)
-
-
-@pytest.mark.asyncio
 async def test_scheduler_shutdown_and_admission_failure_release_locks(live_env, monkeypatch):
     _, _, task_id = live_env
     scheduler = AutomationScheduler()
@@ -301,54 +240,6 @@ async def test_scheduler_shutdown_and_admission_failure_release_locks(live_env, 
         await execute_queued(scheduler, task_id, "owner")
     assert released == []
     assert not scheduler._leases
-
-
-@pytest.mark.asyncio
-async def test_scheduled_plan_stop_settles_without_failure_increment(live_env, monkeypatch):
-    factory, stream, _ = live_env
-    from core.chat.plans import PlanService
-
-    entered = asyncio.Event()
-
-    async def plan_workflow(**kwargs):
-        yield {"type": "plan_step_start", "step_id": "step-1", "title": "Research"}
-        entered.set()
-        while not runtime.is_run_cancelled(kwargs["run_id"]):
-            await asyncio.sleep(0.01)
-        with factory() as db:
-            PlanService(db).update_plan(kwargs["plan_id"], status="cancelled")
-        yield {"type": "plan_complete", "completed_steps": 0, "total_steps": 1}
-
-    monkeypatch.setattr('orchestration.plans.mode.astream_execute_plan', plan_workflow)
-    with factory() as db:
-        plan = PlanService(db).create_plan(
-            user_id="owner",
-            title="Report",
-            task_input="Research",
-            steps=[{"title": "Research", "step_id": "step-1"}],
-        )
-        task = AutomationService(db).create_task(
-            user_id="owner", task_type="plan", plan_id=plan.plan_id, cron_expression="0 18 * * *"
-        )
-        task_id = task.task_id
-    scheduler = AutomationScheduler()
-
-    async def noop(*args):
-        return None
-
-    monkeypatch.setattr("orchestration.automations.automation_delivery.notify_inapp", noop)
-    executing = asyncio.create_task(execute_queued(scheduler, task_id, "owner"))
-    await asyncio.wait_for(entered.wait(), 5)
-    with factory() as db:
-        chat_id = AutomationService(db).get_task_runs(task_id, "owner")[0].chat_id
-    active = runtime.get_active_run_for_chat(chat_id, "owner")
-    await runtime.cancel_run(active.run_id, user_id="owner")
-    await asyncio.wait_for(executing, 5)
-    with factory() as db:
-        svc = AutomationService(db)
-        assert svc.get_task_runs(task_id, "owner")[0].status == "failed"
-        assert svc.get_task(task_id, "owner").consecutive_failures == 0
-    assert runtime.get_active_run_for_chat(chat_id, "owner") is None
 
 
 @pytest.mark.asyncio

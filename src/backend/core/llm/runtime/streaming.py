@@ -127,6 +127,7 @@ class StreamingAgent:
         if run_id:
             try:
                 from core.harness.ledger import HarnessUsageLedger
+                from core.harness.usage import SIDE_CALL_SOURCES
 
                 attempts = await asyncio.wait_for(
                     asyncio.to_thread(HarnessUsageLedger().attempts, run_id),
@@ -137,7 +138,8 @@ class StreamingAgent:
                     primary_attempts = tuple(
                         row
                         for row in model_attempts
-                        if row.metadata.get("source") not in {"vision", "compaction", "followup"}
+                        if row.metadata.get("source")
+                        not in {"vision", "compaction", *SIDE_CALL_SOURCES}
                     )
                     last = (primary_attempts or model_attempts)[-1]
                     return {

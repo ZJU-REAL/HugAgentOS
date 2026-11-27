@@ -38,46 +38,25 @@ export function AutomationTaskSections({ form, task, runs, isEditing, editSchedu
             <h3 className="jx-automation-detail-sectionTitle">{t('任务内容')}</h3>
           </div>
           <div className="jx-automation-detail-grid">
-            <div className="jx-automation-detail-field">
-              <div className="jx-automation-detail-fieldLabel">{t('任务类型')}</div>
-              <div className="jx-automation-detail-fieldValue">
-                {task.task_type === 'prompt' ? t('提示词') : t('执行计划')}
-                {isEditing && (
-                  <span className="jx-automation-detail-fieldValue is-muted" style={{ fontSize: 12, marginLeft: 8 }}>
-                    {t('(不可修改)')}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {task.task_type === 'prompt' ? (
-              <div className="jx-automation-detail-field is-multiline">
-                <div className="jx-automation-detail-fieldLabel">{t('提示词')}</div>
-                {isEditing ? (
-                  <Form.Item
-                    name="prompt"
-                    style={{ marginBottom: 0 }}
-                    rules={[
-                      { required: true, message: t('请输入提示词') },
-                      { whitespace: true, message: t('提示词不能只包含空格') },
-                    ]}
-                  >
-                    <Input.TextArea rows={5} maxLength={5000} showCount />
-                  </Form.Item>
-                ) : (
-                  <div className="jx-automation-detail-fieldValue">
-                    {task.prompt || <span className="is-muted">{t('（空）')}</span>}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="jx-automation-detail-field is-multiline">
-                <div className="jx-automation-detail-fieldLabel">{t('关联计划')}</div>
+            <div className="jx-automation-detail-field is-multiline">
+              <div className="jx-automation-detail-fieldLabel">{t('提示词')}</div>
+              {isEditing ? (
+                <Form.Item
+                  name="prompt"
+                  style={{ marginBottom: 0 }}
+                  rules={[
+                    { required: true, message: t('请输入提示词') },
+                    { whitespace: true, message: t('提示词不能只包含空格') },
+                  ]}
+                >
+                  <Input.TextArea rows={5} maxLength={5000} showCount />
+                </Form.Item>
+              ) : (
                 <div className="jx-automation-detail-fieldValue">
-                  {task.plan_title || task.plan_id || <span className="is-muted">{t('（未绑定）')}</span>}
+                  {task.prompt || <span className="is-muted">{t('（空）')}</span>}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
             <div className="jx-automation-detail-field is-multiline">
               <div className="jx-automation-detail-fieldLabel">{t('描述')}</div>

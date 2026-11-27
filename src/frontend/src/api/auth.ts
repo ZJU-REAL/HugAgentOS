@@ -55,6 +55,8 @@ export interface AuthUser extends EditionAuthUserFields {
   can_run_autonomous_loop?: boolean;
   /** Whether the user may create their own private chat modes (设置 → 模式选择, default false) */
   can_manage_chat_modes?: boolean;
+  /** 模式菜单出现「智能路由」（mode_slug=auto）。名单本身由 /v1/chat-modes 按此位下发。 */
+  can_use_intent_router?: boolean;
   /** Whether the user may create private knowledge bases (default false; visible only to the owner) */
   can_create_private_kb?: boolean;
   /** Whether the user may create public knowledge bases (default false; visible to everyone by default, can be further restricted by grants) */
@@ -63,11 +65,19 @@ export interface AuthUser extends EditionAuthUserFields {
   can_create_channel_bot?: boolean;
   /** Whether the user may switch the currently available model from the chat input box (default false) */
   can_switch_model?: boolean;
+  /** Pick the chat mode in the composer (default true); off = held to the default mode, see /v1/chat-modes */
+  can_switch_chat_mode?: boolean;
   can_use_voice?: boolean;
   /** 会话评价: evaluation card, the 温馨提醒 reminder and history marks (default false) */
   can_use_evaluation?: boolean;
   /** Whether the user may configure and use ontology validation (default false) */
   can_use_ontology_validation?: boolean;
+  /** 进化控制台: long-term memory, evolution prefs and personal approvals (default true; false hides and disables them) */
+  can_use_evolution?: boolean;
+  /** Per-file My Space upload cap in MB (null/undefined = no cap) */
+  my_space_upload_limit_mb?: number | null;
+  /** Per-file private knowledge base upload cap in MB (null/undefined = no cap) */
+  personal_kb_upload_limit_mb?: number | null;
   /** Whether Personal Agent is available: module enabled on the server and permission granted (default false) */
   can_use_personal_agent?: boolean;
   /** Whether the user may enter the /config system settings console without a token (default false) */

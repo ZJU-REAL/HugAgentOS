@@ -5,16 +5,27 @@
 
 /* The rail floats over the chat scroller's right side, so the scroller — and
    its scrollbar and message navigation — still reach the column's right edge.
-   The message column and composer shift left by --jx-runMonitor-reserve.
+   The message column and composer shift left by --jx-runMonitor-shift.
    It is anchored to .jx-conversationColumn, not the whole main row, so side
-   panels beside the column never end up under it. */
-.jx-conversationColumn--runMonitor {
+   panels beside the column never end up under it.
+   The geometry lives on every column (not only --runMonitor) so a closing rail
+   keeps its size while it plays its exit. */
+.jx-conversationColumn {
   --jx-runMonitor-width: 304px;
   /* Room on the right for the message navigation (32px + 8px) and the scrollbar. */
   --jx-runMonitor-edge: 48px;
   /* Rail + edge + 16px gap, less the 44px chat gutter the panel already keeps
      (--jx-chat-panel-inline-gutter is set on the panel, below this element). */
   --jx-runMonitor-reserve: calc(var(--jx-runMonitor-width) + var(--jx-runMonitor-edge) + 16px - 44px);
+}
+
+/* How far the conversation currently makes room for the rail. Registered so it
+   interpolates: opening or closing the rail slides the messages and composer
+   alongside the rail instead of snapping them over. */
+@property --jx-runMonitor-shift {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 0px;
 }
 
 .jx-runMonitor {
@@ -41,17 +52,31 @@
 .jx-runMonitor::-webkit-scrollbar { display: none; }
 
 @container conversation-column (min-width: 1120px) {
-  .jx-conversationColumn--runMonitor .jx-content .jx-panel:has(.jx-chatWrap) {
-    padding-right: calc(var(--jx-chat-panel-inline-gutter) + var(--jx-runMonitor-reserve));
+  /* The container query cannot style the column itself, so the shift sits on
+     its scroller and inherits down to the panel, viewport and composer. */
+  /* Closing: give the room back a little faster than it opened. */
+  .jx-conversationColumn > .jx-content {
+    transition: --jx-runMonitor-shift var(--motion-duration-normal) var(--motion-ease-standard);
+  }
+  .jx-conversationColumn--runMonitor > .jx-content {
+    --jx-runMonitor-shift: var(--jx-runMonitor-reserve);
+    transition: --jx-runMonitor-shift var(--motion-duration-slow) var(--motion-ease-brand-out);
+  }
+  .jx-conversationColumn .jx-content .jx-panel:has(.jx-chatWrap) {
+    padding-right: calc(var(--jx-chat-panel-inline-gutter) + var(--jx-runMonitor-shift));
   }
   /* The history viewport bleeds to the column edges; re-centre it on the column
      after the panel's extra right padding and keep the list out from under the rail. */
-  .jx-conversationColumn--runMonitor .jx-chatViewportFrame {
-    left: calc(var(--jx-runMonitor-reserve) / 2);
+  .jx-conversationColumn .jx-chatViewportFrame {
+    left: calc(var(--jx-runMonitor-shift) / 2);
   }
-  .jx-conversationColumn--runMonitor .jx-chatViewport {
-    --jx-chat-wrap-right: var(--jx-runMonitor-reserve);
+  .jx-conversationColumn .jx-chatViewport {
+    --jx-chat-wrap-right: var(--jx-runMonitor-shift);
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jx-conversationColumn > .jx-content { transition: none; }
 }
 
 /* The 760px message column keeps its width first; below that the rail drops
@@ -304,37 +329,4 @@ button.jx-runMonitor-row:disabled { cursor: default; }
   background: var(--color-primary);
   --ripple-color: var(--color-primary);
   --ripple-scale: 2.5;
-}
-
-/* ── Task plan (agent update_plan) ── */
-.jx-runMonitor-planDone { color: var(--color-success); font-size: 16px; }
-.jx-runMonitor-planDone[data-failed] { color: var(--color-error); }
-.jx-runMonitor-planSteps {
-  display: flex;
-  margin: 0;
-  padding: 0;
-  flex-direction: column;
-  list-style: none;
-}
-.jx-runMonitor-planStep {
-  display: flex;
-  min-width: 0;
-  padding: 6px 8px;
-  align-items: flex-start;
-  gap: 8px;
-  font-size: 13px;
-  line-height: 20px;
-}
-/* Long steps wrap instead of truncating, so the full step is readable. */
-.jx-runMonitor-planStepTitle {
-  min-width: 0;
-  color: var(--color-text-secondary);
-  overflow-wrap: anywhere;
-}
-.jx-runMonitor-planStep[data-status='in_progress'] .jx-runMonitor-planStepTitle { color: var(--color-text); font-weight: 500; }
-.jx-runMonitor-planStep[data-status='completed'] .jx-runMonitor-planStepTitle { color: var(--color-text-tertiary); }
-
-/* While the rail shows, the plan lives here, not in the strip above the composer. */
-@container conversation-column (min-width: 1120px) {
-  .jx-conversationColumn--runMonitor .jx-chatFooter .jx-planStrip { display: none; }
 }

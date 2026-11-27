@@ -4,6 +4,7 @@ import { closeHistory } from '@tiptap/pm/history';
 import { DOMSerializer } from '@tiptap/pm/model';
 import { composerExtensions } from './composerExtensions';
 import { insertClipboardContent } from './composerClipboard';
+import { CHAT_REFERENCE_MIME } from '../../utils/constants';
 
 const editors = new WeakMap<HTMLElement, Editor>();
 export function richEditor(element: HTMLElement): Editor | undefined { return editors.get(element); }
@@ -25,6 +26,11 @@ export function createRichEditor(element: HTMLElement, onUpdate: () => void): Ed
         event.preventDefault();
         insertClipboardContent(editor, data);
         return true;
+      },
+      // 侧边栏拖来的会话同时带着 text/plain（chat_id），由 InputArea 转成引用卡片；
+      // 编辑器不能再把这段纯文本插进正文。返回 true 会阻止默认插入，事件仍冒泡到外层落区。
+      handleDrop(_view, event) {
+        return Array.from(event.dataTransfer?.types ?? []).includes(CHAT_REFERENCE_MIME);
       },
       handleDOMEvents: {
         copy(view, event) {

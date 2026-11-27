@@ -106,10 +106,23 @@ export function MessageActions({ m, messageIndex, currentChatId, exportChatRecor
   // With the 会话评价 permission the answer gets the evaluation card; without it, the quick
   // like / dislike buttons record 满意 / 不满意.
   const evaluationEnabled = useAuthStore((s) => s.authUser?.can_use_evaluation === true);
+  // The evaluation gate let this answer go: no card, but the quick like / dislike stays so the
+  // user can still rate it. The server keeps `not_needed` and `excluded` disjoint.
+  // An answer already evaluated in detail (需修改, or with reasons) keeps its card: the quick
+  // buttons could only overwrite that evaluation. A plain note does not count — the quick dislike
+  // keeps and edits it.
+  const notNeeded = useEvaluationStore((s) => {
+    if (!m.messageId || !s.notNeeded[m.messageId]) return false;
+    const record = s.records[m.messageId];
+    return !record || (record.verdict !== 'revise' && record.reasons.length === 0);
+  });
+  // The gate has not decided yet: hold the card back until it does (or the wait times out).
+  const gating = useEvaluationStore((s) => !!m.messageId && !!s.gating[m.messageId]);
   // Scheduled and loop tasks have no evaluation at all: no card, no like / dislike.
   const excludedAnswer = useEvaluationStore((s) => !!m.messageId && !!s.excluded[m.messageId]);
   const scheduledChat = useChatStore((s) => isAutomationHistoryChat(s.store.chats[currentChatId]));
   const evaluable = !excludedAnswer && !scheduledChat;
+  const quickRating = evaluable && (!evaluationEnabled || notNeeded);
   const verdict = useEvaluationStore((s) => (m.messageId ? s.records[m.messageId]?.verdict : undefined));
   const storedComment = useEvaluationStore((s) => (m.messageId ? s.records[m.messageId]?.comment ?? '' : ''));
   const [isDisliking, setIsDisliking] = useState(false);
@@ -123,7 +136,7 @@ export function MessageActions({ m, messageIndex, currentChatId, exportChatRecor
   const setEditingMessageUid = useChatStore((s) => s.setEditingMessageUid);
   const [editText, setEditText] = useState('');
   const isEditing = editingMessageUid === m.uid;
-  const showEvaluationCard = evaluationEnabled && evaluable && m.role === 'assistant' && !m.isStreaming && !m.inFlight
+  const showEvaluationCard = evaluationEnabled && evaluable && !notNeeded && !gating && m.role === 'assistant' && !m.isStreaming && !m.inFlight
     && !m.error && !!m.messageId && !isEditing;
   const openDislike = () => {
     if (!m.messageId) return;
@@ -232,7 +245,7 @@ export function MessageActions({ m, messageIndex, currentChatId, exportChatRecor
               </button>
             )}
             {m.role === 'assistant' && (<>
-              {!evaluationEnabled && evaluable && (<>
+              {quickRating && (<>
                 <button className={`jx-msgActionBtn${liked ? ' active-like' : ''}`} title={t('有帮助')}
                   aria-label={t('有帮助')} aria-pressed={liked}
                   onClick={like}>

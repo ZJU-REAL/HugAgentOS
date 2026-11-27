@@ -10,6 +10,7 @@ import core.chat.service as chat_services_ChatService_module
 import core.auth.users as chat_services_UserService_module
 import core.chat.operations.admission_errors as chat_admission
 import core.chat.operations.agent_targets as chat_agent_targets
+import core.chat.mode_policy as chat_mode_policy
 import core.chat.operations.invocation as chat_invocation
 import core.chat.operations.request_context as chat_request_context
 import core.chat.operations.session_context as chat_session_context
@@ -102,6 +103,8 @@ def _resolve_user(db: Session, user: UserContext) -> str:
 
 def _resolve_targets(db: Session, request: ChatRequest, user_id: str, scope):
     """Target agent, explicit capability invocation, effective message and model."""
+    # Before project init, which may still force 标准模式 for /init on purpose.
+    chat_mode_policy.apply_mode_policy(db, request, user_id)
     if scope:
         # Admission already verified this exact DB-backed agent. Never
         # enumerate the owner's catalog or parse delegation commands here.

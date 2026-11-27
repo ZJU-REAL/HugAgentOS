@@ -8,7 +8,7 @@ export { DesignPickerCard } from './DesignPickerCard';
 export { AskUserQuestionComposer } from './AskUserQuestionComposer';
 export { PromptHubPanel } from './PromptHubPanel';
 export { PlanCard } from './PlanCard';
-export { PlanProgressStrip } from './PlanProgressStrip';
+export { AgentPlanCard } from './AgentPlanCard';
 export { JobProgressStrip } from './JobProgressStrip';
 export { EvolutionCard } from './EvolutionCard';
 export { ConversationNavigation } from './ConversationNavigation';

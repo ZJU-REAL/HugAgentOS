@@ -41,7 +41,7 @@ router = APIRouter(prefix="/v1/me", tags=["My Capabilities"])
 logger = logging.getLogger(__name__)
 
 # User skill zip cap (smaller than the admin's 200MB, to keep personal uploads from bloating the DB)
-USER_SKILL_MAX_BYTES = 50 * 1024 * 1024
+USER_SKILL_MAX_BYTES = 200 * 1024 * 1024
 
 # Per-file cap for user skills (online editing / single-file upload), kept an order of magnitude below the zip total cap
 USER_SKILL_FILE_MAX_BYTES = 10 * 1024 * 1024
@@ -206,7 +206,7 @@ def upload_my_skill(
 ):
     """以 zip 包上传一个仅自己可见可用的技能（含 SKILL.md）。
 
-    复用 admin 上传的解析链路，但打上 ``owner_user_id`` 并限 50MB。技能 id 取
+    复用 admin 上传的解析链路，但打上 ``owner_user_id`` 并限 200MB（与管理员技能包一致）。技能 id 取
     SKILL.md frontmatter ``name``，须全局唯一（与公共/他人技能冲突会被拒绝）。
     """
     if has_run_capabilities():

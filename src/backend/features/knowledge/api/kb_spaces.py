@@ -14,6 +14,26 @@ from fastapi import Depends, status
 from sqlalchemy.orm import Session
 from features.knowledge.api import kb_helpers
 
+@router.get("/usage", summary="个人知识库的存储用量与上限")
+def private_kb_usage(
+    user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Per-file cap, total quota (MB, ``null`` = no limit) and bytes used across your private KBs."""
+    from core.auth.capabilities import resolve_storage_limits
+    from features.knowledge.quota import private_kb_usage_bytes
+
+    user_id = str(user.user_id)
+    limits = resolve_storage_limits(db, user_id)
+    return success_response(
+        data={
+            "file_limit_mb": limits["personal_kb_upload_limit_mb"],
+            "quota_mb": limits["personal_kb_quota_mb"],
+            "used_bytes": private_kb_usage_bytes(db, user_id),
+        }
+    )
+
+
 @router.post("", status_code=status.HTTP_201_CREATED, summary="创建知识库空间")
 def create_kb_space(
     request: CreateKBSpaceRequest,

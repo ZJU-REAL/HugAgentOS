@@ -56,6 +56,11 @@
   background: rgba(18, 109, 255, 0.04);
 }
 
+.jx-mySpace-bulkBar-btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
 .jx-mySpace-bulkBar-btn--danger {
   color: var(--color-error);
 }

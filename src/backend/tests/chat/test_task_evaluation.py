@@ -172,6 +172,18 @@ def test_pending_route_requires_the_evaluation_permission(db, monkeypatch):
     assert data["chat_ids"] == ["chat_a"]
 
 
+def test_pending_route_reports_the_evaluation_gate_switch(db, monkeypatch):
+    # The frontend reads it at start-up so a brand-new chat's first answer is held for the gate too.
+    from core.config.store import evaluation_gate_options as gate_options
+
+    _answer(db, "a")
+    client = _client(db, monkeypatch)
+    assert client.get("/v1/chats/evaluations/pending").json()["data"]["gate_enabled"] is False
+    monkeypatch.setattr(gate_options, "evaluation_gate_options",
+                        lambda: gate_options.EvaluationGateOptions(enabled=True, timeout_ms=5000))
+    assert client.get("/v1/chats/evaluations/pending").json()["data"]["gate_enabled"] is True
+
+
 def test_chat_feedback_is_not_readable_by_strangers(db, monkeypatch):
     _answer(db, "a")
     assert _client(db, monkeypatch, user_id="u2").get("/v1/chats/chat_a/feedback").status_code == 404

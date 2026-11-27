@@ -19,6 +19,12 @@ export interface ToolMessageIdentity {
   messageUid?: string;
   /** 消息尚未落库（正在流式输出）时为空。 */
   messageId?: string;
+  /**
+   * 用另一个模式重答这一轮（智能路由的「换成」）：把这段对话的模式位设成 `modeSlug`
+   * ——即退出智能路由——再走现有的重新生成链路。只读历史、公开对话等没有重答能力的
+   * 场景不提供。
+   */
+  rerunWithMode?: (modeSlug: string) => void;
 }
 
 export const ToolMessageContext = createContext<ToolMessageIdentity | null>(null);

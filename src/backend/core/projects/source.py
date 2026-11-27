@@ -81,8 +81,6 @@ class ProjectSourceService:
         info = storage.stat_object(key)
         if info is None or info.is_directory:
             raise HTTPException(404, "源码文件不存在")
-        if info.size > 50 * 1024 * 1024:
-            raise HTTPException(413, "源码文件超过大小限制")
         return storage.download_bytes(key), path
 
     def read(self, project_id: str, actor: str, path: str) -> dict:
@@ -108,6 +106,7 @@ class ProjectSourceService:
             total = sum(entry["size_bytes"] for entry in entries)
             known = {entry["storage_key"]: entry["size_bytes"] for entry in entries}
             prepared, seen = [], set()
+            from core.auth.capabilities import enforce_upload_limit
             for path, data in files:
                 key = source_key(self.db, project, path)
                 from core.files.spaces.tree import ensure_parents
@@ -118,8 +117,8 @@ class ProjectSourceService:
                 if key in seen:
                     raise HTTPException(400, "源码包包含重复路径")
                 seen.add(key)
-                if len(data) > 50 * 1024 * 1024:
-                    raise HTTPException(413, "源码文件超过大小限制")
+                # Same per-file cap as the user's uploads (role / team / user permission).
+                enforce_upload_limit(self.db, actor, "my_space_upload_limit_mb", len(data), "项目源码")
                 if path == "AGENTS.md":
                     from core.projects.instructions import _decode
                     _decode(data)

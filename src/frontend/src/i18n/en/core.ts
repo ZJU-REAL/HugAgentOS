@@ -34,6 +34,7 @@ export const CORE_DICT: Record<string, string> = {
 
   // api.ts — upload error messages
   '文件过大，单个文件不能超过 {n} MB': 'File too large. Maximum file size is {n} MB.',
+  '文件过大，超出允许的上传大小': 'File too large. It exceeds the allowed upload size.',
   '不支持的文件格式，仅支持：{allowed}': 'Unsupported file format. Allowed types: {allowed}.',
   '不支持的文件格式': 'Unsupported file format.',
   '上传失败 ({status})': 'Upload failed ({status}).',
