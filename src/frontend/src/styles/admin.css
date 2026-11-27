@@ -178,3 +178,142 @@
 :root[data-theme='dark'] .admin-icon-cell:hover {
   border-color: var(--color-fill-deep);
 }
+
+/* ── Compact admin dialogs: one-line hint above a form (replaces tall info Alerts) ── */
+.jx-adminFormHint{
+  margin:0 0 12px;
+  color:var(--color-text-tertiary);
+  font-size:13px;
+  line-height:20px;
+}
+
+/* ── Compact admin dialogs (group B): label row with an inline action ── */
+.jx-kbAdmin-labelRow{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:space-between;
+  gap:4px 8px;
+  padding-bottom:4px;
+}
+.jx-kbAdmin-label{
+  color:var(--color-text);
+  font-size:14px;
+  line-height:22px;
+}
+.jx-adminFormHint-icon{
+  margin-left:4px;
+  color:var(--color-text-tertiary);
+  cursor:help;
+}
+/* Skill file editor: fill the centred dialog instead of a fixed 20 rows. */
+.jx-skillFileEditor.ant-input{
+  height:calc(100vh - 240px);
+  min-height:240px;
+  resize:vertical;
+  font-family:var(--font-family-mono);
+  font-size:13px;
+}
+/* PluginsEditor 插件配置: four or more fields → two columns. */
+.jx-pluginConfigGrid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  column-gap:16px;
+}
+@media (max-width:640px){
+  .jx-pluginConfigGrid{ grid-template-columns:minmax(0,1fr); }
+}
+
+/* Skill draft review: decision inputs pinned in the drawer footer. */
+.jx-draftReview{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.jx-draftReview-hint{
+  font-size:12px;
+}
+.jx-draftReview-row{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:flex-start;
+  gap:8px 12px;
+}
+.jx-draftReview-field{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  flex:none;
+}
+.jx-draftReview-comment.ant-input{
+  flex:1 1 280px;
+  min-width:0;
+}
+
+/* Admin review drawers: note + decision buttons pinned in the drawer footer. */
+.jx-adminDrawerFooter{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:flex-end;
+  gap:8px 12px;
+}
+.jx-adminDrawerFooter-note.ant-input,
+.jx-adminDrawerFooter-main{
+  flex:1 1 max(260px, 50%);
+  min-width:0;
+}
+.jx-adminDrawerFooter-actions{
+  flex:none;
+  flex-wrap:wrap;
+  max-width:100%;
+  margin-left:auto;
+}
+
+/* Correction ticket drawer: disposal fields pinned in the footer, long trail scrolls in place. */
+.jx-ticketDisposal{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.jx-ticketDisposal-row{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+  gap:8px 12px;
+}
+.jx-ticketDisposal-field{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+}
+.jx-ticketDisposal-field > span{
+  flex:none;
+  color:var(--color-text-secondary);
+}
+.jx-ticketDisposal-field > .ant-input,
+.jx-ticketDisposal-field > .ant-select{
+  flex:1 1 auto;
+  min-width:0;
+}
+.jx-ticketAdmin-steps--capped{
+  max-height:240px;
+  overflow-y:auto;
+}
+
+/* ── Prompt module editor (components/prompts/PromptsEditor.tsx): content box sized to the
+   drawer, original file content in its own tab instead of under the editor ── */
+.jx-promptsEditor-content.ant-input{
+  height:max(240px, calc(100vh - 360px));
+  font-family:monospace;
+  font-size:13px;
+}
+.jx-promptsEditor-original{
+  margin:0;
+  max-height:calc(100vh - 200px);
+  overflow:auto;
+  padding:12px;
+  border-radius:var(--radius-xs);
+  background:var(--color-bg-gray);
+  white-space:pre-wrap;
+  font-size:12px;
+}

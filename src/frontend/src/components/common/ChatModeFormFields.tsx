@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { Button, Form, InputNumber, Select, Switch, type FormInstance } from 'antd';
+import { Button, Form, InputNumber, Select, type FormInstance } from 'antd';
+
+import { FormGrid, ToggleField } from './FormLayout';
 
 import { MarketPickerModal, type MarketPickItem } from './MarketPickerModal';
 import {
@@ -24,9 +26,7 @@ const SCOPE_TEXT = {
     manualInvoke: '开启后，你本轮用 / 技能、@智能体、插件呼唤的能力仍可临时用上，不受上面清单限制。',
     codeExec: '开启后这个模式仍能执行代码、读写文件；关闭则纯检索问答，不执行代码。',
     maxIters: '留空表示不额外收紧。最小 2。',
-    maxItersWidth: 180,
     effort: '选中这个模式时，右侧的思考强度跟着切到这一档。',
-    effortWidth: 220,
     effortLocked: '锁定后这个模式下改不了强度。',
   },
   official: {
@@ -34,9 +34,7 @@ const SCOPE_TEXT = {
     manualInvoke: '开启后，用户本轮用 / 技能、@智能体、插件显式呼唤的能力可以临时装配进来，不受上面清单限制。',
     codeExec: '开启后这个模式仍带沙箱代码执行与文件读写工具（受系统配置的代码能力总开关约束）；关闭则纯检索问答，不执行代码——内置极速模式即如此。',
     maxIters: '这个模式的 ReAct 迭代硬上限，留空表示不额外收紧。最小 2——配成 1 会把回答那一轮也掐掉。',
-    maxItersWidth: 200,
     effort: '用户选中这个模式时，右侧的思考强度跟着切到这一档。',
-    effortWidth: 240,
     effortLocked: '锁定后用户改不了强度（极速模式即如此：那条链路本就不思考）。',
   },
 } as const;
@@ -96,77 +94,71 @@ export function ChatModeCapabilityFields({ form, scope, capabilities }: {
       placeholder={placeholder}
     />
   );
-  const marketLink = (field: MarketField, label: string, inline: boolean) => (
+  const marketLink = (field: MarketField, label: string) => (
     <Button
       type="link"
       size="small"
-      style={{ padding: inline ? '0 0 0 6px' : 0 }}
-      onClick={() => setMarketPicker(field)}
+      className="jx-chatModeForm-marketLink"
+      onClick={(e) => { e.preventDefault(); setMarketPicker(field); }}
     >
       {label}
     </Button>
   );
+  const labelWithMarket = (label: string, field: MarketField, linkLabel: string) => (
+    <span className="jx-chatModeForm-label">{label}{marketLink(field, linkLabel)}</span>
+  );
 
   return (
     <>
-      <Form.Item name="tool_scope" label={t('工具面')}>
-        <Select
-          options={[
-            { value: 'all', label: t(text.allScope) },
-            { value: 'restricted', label: t('只装配下面列出的能力') },
-          ]}
-        />
-      </Form.Item>
-      {restricted && (
-        <>
-          <Form.Item name="mcp_server_ids" label={t('连接器')} extra={t('市场里的连接器需要配置凭据或授权，请先在能力中心安装，装好后会出现在此清单。')}>
-            {capabilitySelect(capabilities.mcp, null, t('选择这个模式装配的连接器'))}
-          </Form.Item>
-          <Form.Item name="skill_ids" label={t('技能')} extra={marketLink('skill_ids', t('从市场选择技能…'), false)}>
-            {capabilitySelect(capabilities.skills, watched.skill_ids, t('选择这个模式装配的技能'))}
-          </Form.Item>
-          <Form.Item
-            name="agent_ids"
-            label={t('智能体')}
-            extra={(
-              <>
-                {t('这个模式下可被委派的智能体；留空则只有本轮被 @ 呼唤的那个能入场。')}
-                {marketLink('agent_ids', t('从市场选择智能体…'), true)}
-              </>
-            )}
-          >
-            {capabilitySelect(capabilities.agents, watched.agent_ids, t('选择这个模式可用的智能体'))}
-          </Form.Item>
-          <Form.Item
-            name="plugin_ids"
-            label={t('插件')}
-            extra={(
-              <>
-                {t('需要密钥的插件请先在能力中心安装，装好后出现在此清单。')}
-                {marketLink('plugin_ids', t('从市场选择插件…'), true)}
-              </>
-            )}
-          >
-            {capabilitySelect(capabilities.plugins, watched.plugin_ids, t('选择这个模式装配的插件'))}
-          </Form.Item>
-          <Form.Item name="manual_invoke_enabled" label={t('允许显式呼唤')} valuePropName="checked" extra={t(text.manualInvoke)}>
-            <Switch />
-          </Form.Item>
-          <Form.Item name="code_exec_enabled" label={t('保留代码执行')} valuePropName="checked" extra={t(text.codeExec)}>
-            <Switch />
-          </Form.Item>
-          <Form.Item name="max_iters" label={t('迭代上限')} extra={t(text.maxIters)}>
-            <InputNumber min={2} style={{ width: text.maxItersWidth }} placeholder={t('不限制')} />
-          </Form.Item>
-        </>
-      )}
-
-      <Form.Item name="default_effort" label={t('默认思考强度')} extra={t(text.effort)}>
-        <Select options={CHAT_MODE_EFFORT_OPTIONS.map((o) => ({ ...o, label: t(o.label) }))} style={{ width: text.effortWidth }} />
-      </Form.Item>
-      <Form.Item name="effort_locked" label={t('锁定思考强度')} valuePropName="checked" extra={t(text.effortLocked)}>
-        <Switch />
-      </Form.Item>
+      <FormGrid cols={3}>
+        <Form.Item name="tool_scope" label={t('工具面')} className="jx-formGrid-span2">
+          <Select
+            options={[
+              { value: 'all', label: t(text.allScope) },
+              { value: 'restricted', label: t('只装配下面列出的能力') },
+            ]}
+          />
+        </Form.Item>
+        <Form.Item name="default_effort" label={t('默认思考强度')} tooltip={t(text.effort)}>
+          <Select options={CHAT_MODE_EFFORT_OPTIONS.map((o) => ({ ...o, label: t(o.label) }))} />
+        </Form.Item>
+        {restricted && (
+          <>
+            <Form.Item name="mcp_server_ids" label={t('连接器')} tooltip={t('市场里的连接器需要配置凭据或授权，请先在能力中心安装，装好后会出现在此清单。')}>
+              {capabilitySelect(capabilities.mcp, null, t('选择这个模式装配的连接器'))}
+            </Form.Item>
+            <Form.Item name="skill_ids" label={labelWithMarket(t('技能'), 'skill_ids', t('从市场选择'))}>
+              {capabilitySelect(capabilities.skills, watched.skill_ids, t('选择这个模式装配的技能'))}
+            </Form.Item>
+            <Form.Item
+              name="agent_ids"
+              label={labelWithMarket(t('智能体'), 'agent_ids', t('从市场选择'))}
+              tooltip={t('这个模式下可被委派的智能体；留空则只有本轮被 @ 呼唤的那个能入场。')}
+            >
+              {capabilitySelect(capabilities.agents, watched.agent_ids, t('选择这个模式可用的智能体'))}
+            </Form.Item>
+            <Form.Item
+              name="plugin_ids"
+              label={labelWithMarket(t('插件'), 'plugin_ids', t('从市场选择'))}
+              tooltip={t('需要密钥的插件请先在能力中心安装，装好后出现在此清单。')}
+            >
+              {capabilitySelect(capabilities.plugins, watched.plugin_ids, t('选择这个模式装配的插件'))}
+            </Form.Item>
+            <Form.Item name="max_iters" label={t('迭代上限')} tooltip={t(text.maxIters)}>
+              <InputNumber min={2} style={{ width: '100%' }} placeholder={t('不限制')} />
+            </Form.Item>
+          </>
+        )}
+      </FormGrid>
+      <FormGrid cols={3}>
+        {restricted && (
+          <>
+            <ToggleField name="manual_invoke_enabled" label={t('允许显式呼唤')} tooltip={t(text.manualInvoke)} />
+            <ToggleField name="code_exec_enabled" label={t('保留代码执行')} tooltip={t(text.codeExec)} />
+          </>
+        )}
+        <ToggleField name="effort_locked" label={t('锁定思考强度')} tooltip={t(text.effortLocked)} />
+      </FormGrid>
 
       <MarketPickerModal
         open={marketPicker !== null}

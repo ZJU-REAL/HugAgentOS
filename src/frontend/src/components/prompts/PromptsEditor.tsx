@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { motion } from 'motion/react';
 import {
   Button, Drawer, Form, Input, Modal, Popconfirm,
   Space, Switch, Table, Tabs, Tag, Upload, Select, message,
@@ -15,6 +14,8 @@ import { PromptVersionsEditor } from './PromptVersionsEditor';
 import { useFlashKey } from '../../hooks/useFlash';
 import { useResizableColumns } from '../common/ResizableColumns';
 import { t, tCtx } from '../../i18n';
+import { FormGrid } from '../common/FormLayout';
+import { COMPACT_MODAL_PROPS } from '../common/modalLayout';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
 import { LOCAL_TARGET_HEADER, type RequestTarget } from '../../api';
 import { saveBlob } from '../../utils/download';
@@ -441,8 +442,8 @@ function PromptEditorContent({ token, fetchFn = adminFetch }: { token: string; f
               key: 'edit',
               label: t('编辑内容'),
               children: (
-                <>
-                  <Form form={form} layout="vertical">
+                <Form form={form} layout="vertical">
+                  <FormGrid cols={3}>
                     <Form.Item
                       name="display_name"
                       label={t('显示名称')}
@@ -456,45 +457,25 @@ function PromptEditorContent({ token, fetchFn = adminFetch }: { token: string; f
                     <Form.Item name="is_enabled" label={t('启用')} valuePropName="checked">
                       <Switch />
                     </Form.Item>
-                    <Form.Item
-                      name="content"
-                      label={t('内容 (Markdown)')}
-                      rules={[{ required: true, message: t('请输入内容') }]}
-                    >
-                      <Input.TextArea
-                        rows={18}
-                        style={{ fontFamily: 'monospace', fontSize: 13 }}
-                        placeholder={t('# 系统提示词模块内容...')}
-                      />
-                    </Form.Item>
-                  </Form>
-                  {fsContent !== null && (
-                    /* Async-loaded block expands via height 0→auto, to prevent the drawer content from jumping */
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      transition={{ duration: 0.25, ease: 'easeInOut' }}
-                      style={{ overflow: 'hidden' }}
-                    >
-                    <div style={{ marginTop: 16 }}>
-                      <h4 style={{ color: 'var(--color-text-tertiary)' }}>{t('文件系统原版内容（只读参考）')}</h4>
-                      <pre style={{
-                        background: 'var(--color-bg-gray)',
-                        padding: 12,
-                        borderRadius: 4,
-                        whiteSpace: 'pre-wrap',
-                        fontSize: 12,
-                        maxHeight: 300,
-                        overflow: 'auto',
-                      }}>
-                        {fsContent}
-                      </pre>
-                    </div>
-                    </motion.div>
-                  )}
-                </>
+                  </FormGrid>
+                  <Form.Item
+                    name="content"
+                    label={t('内容 (Markdown)')}
+                    rules={[{ required: true, message: t('请输入内容') }]}
+                  >
+                    <Input.TextArea
+                      className="jx-promptsEditor-content"
+                      placeholder={t('# 系统提示词模块内容...')}
+                    />
+                  </Form.Item>
+                </Form>
               ),
             },
+            ...(fsContent !== null ? [{
+              key: 'original',
+              label: t('文件系统原版内容（只读参考）'),
+              children: <pre className="jx-promptsEditor-original">{fsContent}</pre>,
+            }] : []),
           ]}
         />
       </Drawer>
@@ -507,26 +488,29 @@ function PromptEditorContent({ token, fetchFn = adminFetch }: { token: string; f
         onOk={handleCreate}
         okText={t('创建')}
         cancelText={t('取消')}
-        width={640}
+        width={720}
+        {...COMPACT_MODAL_PROPS}
       >
         <Form form={createForm} layout="vertical">
-          <Form.Item
-            name="part_id"
-            label="Part ID"
-            rules={[{ required: true, message: t('请输入 Part ID (如 system/99_custom)') }]}
-          >
-            <Input placeholder="system/99_custom" />
-          </Form.Item>
-          <Form.Item
-            name="display_name"
-            label={t('显示名称')}
-            rules={[{ required: true, message: t('请输入显示名称') }]}
-          >
-            <Input placeholder={t('自定义模块')} />
-          </Form.Item>
-          <Form.Item name="sort_order" label={t('排序')} initialValue={99}>
-            <Input type="number" />
-          </Form.Item>
+          <FormGrid cols={3}>
+            <Form.Item
+              name="part_id"
+              label="Part ID"
+              rules={[{ required: true, message: t('请输入 Part ID (如 system/99_custom)') }]}
+            >
+              <Input placeholder="system/99_custom" />
+            </Form.Item>
+            <Form.Item
+              name="display_name"
+              label={t('显示名称')}
+              rules={[{ required: true, message: t('请输入显示名称') }]}
+            >
+              <Input placeholder={t('自定义模块')} />
+            </Form.Item>
+            <Form.Item name="sort_order" label={t('排序')} initialValue={99}>
+              <Input type="number" />
+            </Form.Item>
+          </FormGrid>
           <Form.Item
             name="content"
             label={t('内容 (Markdown)')}

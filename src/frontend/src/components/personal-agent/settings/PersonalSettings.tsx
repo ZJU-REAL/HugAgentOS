@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Modal, Select, Tag, message } from 'antd';
+import { Modal, Select, Tabs, Tag, message } from 'antd';
 import {
   ClockCircleOutlined, FolderOpenOutlined, MailOutlined,
   RightOutlined, RobotOutlined, ThunderboltOutlined,
@@ -55,51 +55,51 @@ export function PersonalSettings({ open, monitor, name, onClose, onProfile, onCh
     ? thinkingLevels(policy).map(({ key }) => ({ value: key, label: t(effortLabels[key]) }))
     : [{ value: 'medium', label: t('思考模式') }])];
 
-  return <Modal open={open} title={t('{name} 设置', { name })} footer={null} onCancel={onClose} width={600} className="pa-settings-modal" destroyOnHidden>
+  // Sections as vertical tabs: only one group is on screen, so the dialog never needs its own scrollbar.
+  const sections = agent ? [
+    { key: 'capabilities', label: t('能力'), children: <SettingGroup title={t('能力')}>
+      <PersonalCapabilities agent={agent} onChange={onChange} />
+    </SettingGroup> },
+    { key: 'connectors', label: t('连接器'), children: <SettingGroup title={t('连接器')}>
+      <SettingRow icon={<FolderOpenOutlined />} label={t('我的空间')} description={t('可以搜索和读取“我的空间”中的文件，并把结果保存回去。')}
+        control={<Tag variant="filled" color="green">{t('已接入')}</Tag>} />
+      <SettingRow stacked icon={<MailOutlined />} label={t('邮箱')}
+        description={t('收信和读信直接执行；发送前是否需要你批准，由输入框里的操作权限决定。凭据只保存在服务端。')}
+        control={<EmailConnect compact target="cloud" onChange={() => void onChange()} />} />
+    </SettingGroup> },
+    { key: 'runtime', label: t('运行'), children: <SettingGroup title={t('运行')}>
+      <SettingRow stacked icon={<RobotOutlined />} label={t('模型')}
+        control={<div className="pa-set-model-options">
+          <Select aria-label={t('模型')} value={agent.config.model_provider_id || ''}
+            disabled={saving || modelOptions.length < 2} options={modelOptions.length ? modelOptions : [{ value: '', label: t('跟随系统默认') }]}
+            onChange={value => void save({ model_provider_id: value,
+              thinking_effort: normalizeThinkingEffort(agent.config.thinking_effort || 'fast', selectedReasoningPolicy(models, value || null)) })} />
+          <label className="pa-set-effort"><span>{t('思考程度')}</span>
+            <Select aria-label={t('思考程度')} disabled={saving} value={effort} options={effortOptions}
+              onChange={value => void save({ thinking_effort: value })} />
+          </label>
+        </div>} />
+      <SettingRow icon={<ThunderboltOutlined />} label={t('同时执行的任务数')} description={t('超出的任务排队等待。')}
+        control={<Select aria-label={t('同时执行的任务数')} style={{ width: 88 }} value={agent.config.concurrency || DEFAULT_CONCURRENCY}
+          options={Array.from({ length: MAX_CONCURRENCY }, (_, index) => ({ value: index + 1, label: String(index + 1) }))} onChange={value => void save({ concurrency: value })} />} />
+      <SettingRow icon={<ClockCircleOutlined />} label={t('时区')} description={t('定时任务和回复里的时间按这个时区计算。')}
+        control={<Select aria-label={t('时区')} showSearch style={{ width: 200 }} value={agent.config.timezone} options={zones} optionFilterProp="label"
+          onChange={value => void save({ timezone: value })} />} />
+    </SettingGroup> },
+    ...(monitor?.heartbeat ? [{ key: 'heartbeat', label: t('主动服务'), children: <SettingGroup title={t('主动服务')}>
+      <PersonalHeartbeat heartbeat={monitor.heartbeat} name={name} save={save} onChange={onChange} />
+    </SettingGroup> }] : []),
+    { key: 'memory', label: t('记忆'), children: <PersonalMemory status={monitor?.file_memory} /> },
+  ] : [];
+
+  return <Modal open={open} title={t('{name} 设置', { name })} footer={null} onCancel={onClose} width={820} centered className="pa-settings-modal" destroyOnHidden>
     {agent && <div className="pa-settings">
       <button type="button" className="pa-set-hero" onClick={onProfile}>
-        <PersonalAvatar avatar={agent.config.avatar} name={name} size={52} />
+        <PersonalAvatar avatar={agent.config.avatar} name={name} size={40} />
         <span className="pa-set-text"><strong>{name}</strong><span>{t('修改头像与名称')}</span></span>
         <RightOutlined />
       </button>
-
-      <SettingGroup title={t('能力')}>
-        <PersonalCapabilities agent={agent} onChange={onChange} />
-      </SettingGroup>
-
-      <SettingGroup title={t('连接器')}>
-        <SettingRow icon={<FolderOpenOutlined />} label={t('我的空间')} description={t('可以搜索和读取“我的空间”中的文件，并把结果保存回去。')}
-          control={<Tag variant="filled" color="green">{t('已接入')}</Tag>} />
-        <SettingRow stacked icon={<MailOutlined />} label={t('邮箱')}
-          description={t('收信和读信直接执行；发送前是否需要你批准，由输入框里的操作权限决定。凭据只保存在服务端。')}
-          control={<EmailConnect compact target="cloud" onChange={() => void onChange()} />} />
-      </SettingGroup>
-
-      <SettingGroup title={t('运行')}>
-        <SettingRow stacked icon={<RobotOutlined />} label={t('模型')}
-          control={<div className="pa-set-model-options">
-            <Select aria-label={t('模型')} value={agent.config.model_provider_id || ''}
-              disabled={saving || modelOptions.length < 2} options={modelOptions.length ? modelOptions : [{ value: '', label: t('跟随系统默认') }]}
-              onChange={value => void save({ model_provider_id: value,
-                thinking_effort: normalizeThinkingEffort(agent.config.thinking_effort || 'fast', selectedReasoningPolicy(models, value || null)) })} />
-            <label className="pa-set-effort"><span>{t('思考程度')}</span>
-              <Select aria-label={t('思考程度')} disabled={saving} value={effort} options={effortOptions}
-                onChange={value => void save({ thinking_effort: value })} />
-            </label>
-          </div>} />
-        <SettingRow icon={<ThunderboltOutlined />} label={t('同时执行的任务数')} description={t('超出的任务排队等待。')}
-          control={<Select aria-label={t('同时执行的任务数')} style={{ width: 88 }} value={agent.config.concurrency || DEFAULT_CONCURRENCY}
-            options={Array.from({ length: MAX_CONCURRENCY }, (_, index) => ({ value: index + 1, label: String(index + 1) }))} onChange={value => void save({ concurrency: value })} />} />
-        <SettingRow icon={<ClockCircleOutlined />} label={t('时区')} description={t('定时任务和回复里的时间按这个时区计算。')}
-          control={<Select aria-label={t('时区')} showSearch style={{ width: 200 }} value={agent.config.timezone} options={zones} optionFilterProp="label"
-            onChange={value => void save({ timezone: value })} />} />
-      </SettingGroup>
-
-      {monitor?.heartbeat && <SettingGroup title={t('主动服务')}>
-        <PersonalHeartbeat heartbeat={monitor.heartbeat} name={name} save={save} onChange={onChange} />
-      </SettingGroup>}
-
-      <PersonalMemory status={monitor?.file_memory} />
+      <Tabs className="pa-settings-tabs" tabPlacement="start" items={sections} />
     </div>}
   </Modal>;
 }

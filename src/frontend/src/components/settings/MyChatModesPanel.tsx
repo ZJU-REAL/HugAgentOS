@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Button, Empty, Form, Input, Modal, Space, Spin, Switch, Tag, Typography, message,
+  Button, Empty, Form, Input, Modal, Space, Spin, Tag, Typography, message,
 } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import {
@@ -9,6 +9,8 @@ import {
 } from '../../api';
 import { useChatModeStore } from '../../stores';
 import { ChatModeCapabilityFields } from '../common/ChatModeFormFields';
+import { FormGrid, ToggleField } from '../common/FormLayout';
+import { COMPACT_MODAL_PROPS } from '../common/modalLayout';
 import {
   CHAT_MODE_DEFAULTS, chatModeEffortLabel, useChatModeCapabilities,
   type ChatModeCapabilityOptions,
@@ -155,16 +157,19 @@ export function MyChatModesPanel() {
         onCancel={close}
         onOk={submit}
         confirmLoading={saving}
-        width={640}
+        width={760}
         destroyOnHidden
+        {...COMPACT_MODAL_PROPS}
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="name" label={t('模式名称')} rules={[{ required: true, message: t('请填写模式名称') }]}>
-            <Input placeholder={t('例如：我的研报模式')} maxLength={100} />
-          </Form.Item>
-          <Form.Item name="description" label={t('一句话说明')} extra={t('会显示在对话框上方的模式下拉里，提醒自己这个模式是干嘛的。')}>
-            <Input placeholder={t('例如：只带检索，输出带出处的要点清单')} maxLength={500} />
-          </Form.Item>
+        <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
+          <FormGrid cols={3}>
+            <Form.Item name="name" label={t('模式名称')} rules={[{ required: true, message: t('请填写模式名称') }]}>
+              <Input placeholder={t('例如：我的研报模式')} maxLength={100} />
+            </Form.Item>
+            <Form.Item name="description" label={t('一句话说明')} className="jx-formGrid-span2" tooltip={t('会显示在对话框上方的模式下拉里，提醒自己这个模式是干嘛的。')}>
+              <Input placeholder={t('例如：只带检索，输出带出处的要点清单')} maxLength={500} />
+            </Form.Item>
+          </FormGrid>
 
           <ChatModeCapabilityFields form={form} scope="private" capabilities={capabilities} />
 
@@ -173,14 +178,12 @@ export function MyChatModesPanel() {
           <Form.Item
             name="prompt_text"
             label={t('专属提示词')}
-            extra={t('这个模式下替换掉默认的系统提示词。留空则沿用默认装配，只按上面的工具面收窄。')}
+            tooltip={t('这个模式下替换掉默认的系统提示词。留空则沿用默认装配，只按上面的工具面收窄。')}
           >
-            <Input.TextArea rows={5} placeholder={t('例如：你是研报助手。先检索再作答，输出结构化要点并标注出处。')} />
+            <Input.TextArea rows={4} placeholder={t('例如：你是研报助手。先检索再作答，输出结构化要点并标注出处。')} />
           </Form.Item>
 
-          <Form.Item name="enabled" label={t('启用')} valuePropName="checked" extra={t('停用后它不出现在模式下拉里，但配置留着。')}>
-            <Switch />
-          </Form.Item>
+          <ToggleField name="enabled" label={t('启用')} description={t('停用后它不出现在模式下拉里，但配置留着。')} />
         </Form>
       </Modal>
 

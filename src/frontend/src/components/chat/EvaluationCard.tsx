@@ -23,7 +23,8 @@ interface EvaluationCardProps {
 
 /**
  * Evaluation card under an assistant answer: one click on 满意 / 需修改 / 不满意 records the
- * verdict; for 需修改 / 不满意 the user may then pick reason dimensions and add a note.
+ * verdict, and 不满意 then offers reason dimensions and a note. 需修改 asks for a note instead
+ * (required, no reason chips): the verdict is only saved together with that note.
  */
 export function EvaluationCard({ chatId, messageId }: EvaluationCardProps) {
   const record = useEvaluationStore((s) => s.records[messageId]);
@@ -32,6 +33,8 @@ export function EvaluationCard({ chatId, messageId }: EvaluationCardProps) {
   const [reasons, setReasons] = useState<EvaluationReason[]>([]);
   const [comment, setComment] = useState('');
   const [saving, setSaving] = useState(false);
+  /** 需修改 picked but not yet submitted: it needs the note first. */
+  const [draftVerdict, setDraftVerdict] = useState<EvaluationVerdict | null>(null);
   const detailRef = useRef<HTMLDivElement>(null);
 
   // Editing the details starts from what was saved.
@@ -68,6 +71,13 @@ export function EvaluationCard({ chatId, messageId }: EvaluationCardProps) {
 
   const pick = async (verdict: EvaluationVerdict) => {
     if (saving) return;
+    // 需修改 is worthless without saying what to change: open the note and save both at once.
+    if (verdict === 'revise' && record?.verdict !== 'revise') {
+      setDraftVerdict('revise');
+      setDetailOpen(true);
+      return;
+    }
+    setDraftVerdict(null);
     const keepDetails = record && record.verdict !== 'adopt' && verdict !== 'adopt';
     const ok = await save({
       verdict,
@@ -83,15 +93,26 @@ export function EvaluationCard({ chatId, messageId }: EvaluationCardProps) {
       : EVALUATION_REASONS.filter((r) => r === reason || current.includes(r))));
   };
 
+  const closeDetails = () => {
+    setDetailOpen(false);
+    setDraftVerdict(null);
+  };
+
   const saveDetails = async () => {
-    if (!record) return;
-    if (await save({ verdict: record.verdict, reasons, comment })) {
-      setDetailOpen(false);
+    const target = draftVerdict ?? record?.verdict;
+    if (!target || target === 'adopt') return;
+    if (target === 'revise' && !comment.trim()) return;
+    if (await save({ verdict: target, reasons: target === 'revise' ? [] : reasons, comment })) {
+      closeDetails();
       void message.success(t('已记录，我们会据此改进回答'));
     }
   };
 
   const verdict = record?.verdict;
+  /** What the buttons and the open details show: an unsaved 需修改 wins over the saved verdict. */
+  const shown = draftVerdict ?? verdict;
+  const isRevise = shown === 'revise';
+  const commentMissing = isRevise && !comment.trim();
   const summary = record && record.verdict !== 'adopt'
     ? [record.reasons.map((r) => REASON_LABELS[r]).join('、'), record.comment].filter(Boolean).join(' · ')
     : '';
@@ -113,8 +134,8 @@ export function EvaluationCard({ chatId, messageId }: EvaluationCardProps) {
             <button
               key={v}
               type="button"
-              className={`jx-evalCard-btn jx-evalCard-btn--${v}${verdict === v ? ' is-active' : ''}`}
-              aria-pressed={verdict === v}
+              className={`jx-evalCard-btn jx-evalCard-btn--${v}${shown === v ? ' is-active' : ''}`}
+              aria-pressed={shown === v}
               disabled={saving}
               onClick={() => { void pick(v); }}
             >
@@ -129,8 +150,9 @@ export function EvaluationCard({ chatId, messageId }: EvaluationCardProps) {
           )}
         </div>
       </div>
-      {detailOpen && verdict && verdict !== 'adopt' && (
+      {detailOpen && shown && shown !== 'adopt' && (
         <div ref={detailRef} className="jx-evalCard-detail jx-anim-fadeIn">
+          {!isRevise && (
           <div className="jx-evalCard-reasons" role="group" aria-label={t('主要问题（可多选）')}>
             <span className="jx-evalCard-label">{t('主要问题（可多选）')}</span>
             {EVALUATION_REASONS.map((r) => (
@@ -145,18 +167,37 @@ export function EvaluationCard({ chatId, messageId }: EvaluationCardProps) {
               </button>
             ))}
           </div>
-          <label className="jx-evalCard-label" htmlFor={`eval-comment-${messageId}`}>{t('具体说明（选填）')}</label>
+          )}
+          <label className="jx-evalCard-label" htmlFor={`eval-comment-${messageId}`}>
+            {isRevise ? (
+              <>
+                <span className="jx-evalCard-required" aria-hidden>*</span>
+                {t('具体说明')}
+              </>
+            ) : t('具体说明（选填）')}
+          </label>
           <Input.TextArea
             id={`eval-comment-${messageId}`}
             rows={2}
+            autoFocus={isRevise}
+            aria-required={isRevise}
             maxLength={2000}
             value={comment}
             onChange={(e) => setComment(e.target.value)}
-            placeholder={t('例如：编制数口径应以 2026 年批复为准')}
+            placeholder={isRevise ? t('请说明需要修改的地方，例如：编制数口径应以 2026 年批复为准') : t('例如：编制数口径应以 2026 年批复为准')}
           />
           <div className="jx-evalCard-detailActions">
-            <Button size="small" type="text" onClick={() => setDetailOpen(false)}>{t('跳过')}</Button>
-            <Button size="small" type="primary" loading={saving} onClick={() => { void saveDetails(); }}>{t('提交说明')}</Button>
+            <Button size="small" type="text" onClick={closeDetails}>{draftVerdict ? t('取消') : t('跳过')}</Button>
+            <Button
+              size="small"
+              type="primary"
+              loading={saving}
+              disabled={commentMissing}
+              title={commentMissing ? t('请填写具体说明') : undefined}
+              onClick={() => { void saveDetails(); }}
+            >
+              {t('提交说明')}
+            </Button>
           </div>
         </div>
       )}

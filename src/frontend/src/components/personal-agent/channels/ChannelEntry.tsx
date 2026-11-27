@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Button, Modal, message } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
+import { LeftOutlined, PlusOutlined } from '@ant-design/icons';
 import { ChannelBindingForm } from './ChannelBindingForm';
 import { listChannelBots, testChannelBot, type ChannelBot } from '../../../api';
 import './channel-binding.css';
@@ -95,17 +95,33 @@ export function ChannelEntry({ agentName, conversations = [], selectedChatId, on
     await refresh(true);
     setBinding(undefined);
   }
+  // The grid shows each channel's state; binding and allowed accounts open as a detail view in the same dialog.
+  const [detail, setDetail] = useState<ChannelType>();
+  const detailMeta = detail ? CHANNELS.find(item => item.type === detail) : undefined;
+  function back() { setBinding(undefined); setDetail(undefined); }
+  function close() { setOpen(false); back(); }
   return <>
     <div className="pa-side-channels">
       <button type="button" className="pa-side-chip pa-side-chip--wide" onClick={() => setOpen(true)} aria-label={t('接入频道')}>
         <PlusOutlined /><span>{t('接入频道')}</span>
       </button>
     </div>
-    <Modal open={open} width={600} footer={null} destroyOnHidden onCancel={() => { setOpen(false); setBinding(undefined); }}
+    <Modal open={open} width={880} centered footer={null} destroyOnHidden onCancel={close}
       title={t('接入频道')}>
-      <>
+      {detailMeta ? <div className="pa-channel-detail">
+        <div className="pa-channel-detail-head">
+          <Button type="text" size="small" icon={<LeftOutlined />} onClick={back}>{t('全部频道')}</Button>
+          <ChannelMark type={detailMeta.type} size={24} /><strong>{t(detailMeta.label)}</strong>
+        </div>
+        <div className="pa-channel-detail-body">
+          {binding === detailMeta.type
+            ? <ChannelBindingForm key={detailMeta.type} type={detailMeta.type} onBound={bound} onCancel={back} />
+            : bots.filter(bot => bot.channel_type === detailMeta.type).map(bot =>
+              <ChannelAllowed key={bot.channel_id} bot={bot} onChange={setBots} onRefresh={() => void refresh()} />)}
+        </div>
+      </div> : <>
         <p className="pa-hint">{t('在钉钉、飞书、微信、企业微信或 Slack 里直接给 {name} 发消息。回复会发回同一个会话。', { name: agentName })}</p>
-        <div className="pa-channel-grid">
+        <div className="pa-channel-grid pa-channel-grid--compact">
           {CHANNELS.map(meta => {
             const items = bots.filter(bot => bot.channel_type === meta.type);
             const connected = items.some(bot => bot.enabled && bot.status === 'connected' && !failures[bot.channel_id] && details.find(item => item.channel_id === bot.channel_id)?.device_online !== false);
@@ -117,25 +133,24 @@ export function ChannelEntry({ agentName, conversations = [], selectedChatId, on
               {unhealthy
                 // A failed binding shows only why it failed, then the rebind / retry buttons below.
                 ? reasons.map(reason => <Alert key={reason} type="error" title={reason} />)
-                : items.map(bot => <div key={bot.channel_id}>
-                  <ChannelAllowed bot={bot} onChange={setBots} onRefresh={() => void refresh()} />
-                  {onSelectChat && <div className="pa-channel-conversations">
-                    {conversations.filter(item => item.channel_id === bot.channel_id).map(item =>
-                      <Button key={item.chat_id} block type={selectedChatId === item.chat_id ? 'default' : 'text'}
-                        aria-current={selectedChatId === item.chat_id ? 'page' : undefined}
-                        onClick={() => { onSelectChat(item.chat_id); setOpen(false); setBinding(undefined); }}>
-                        {t('渠道会话')}
-                      </Button>)}
-                  </div>}
-                </div>)}
-              {open && binding === meta.type ? <ChannelBindingForm key={meta.type} type={meta.type} onBound={bound} onCancel={() => setBinding(undefined)} /> :
-                (!items.length || (unhealthy && meta.type === 'weixin')) && <Button size="small" type="dashed" icon={<PlusOutlined />} onClick={() => setBinding(meta.type)}>{items.length ? t('重新绑定') : t('绑定机器人')}</Button>}
-              {unhealthy && <Button size="small" loading={checking} onClick={() => void refresh(true)}>{t('重试')}</Button>}
+                : onSelectChat && items.map(bot => conversations.filter(item => item.channel_id === bot.channel_id).map(item =>
+                  <Button key={item.chat_id} block size="small" type={selectedChatId === item.chat_id ? 'default' : 'text'}
+                    className="pa-channel-conversation"
+                    aria-current={selectedChatId === item.chat_id ? 'page' : undefined}
+                    onClick={() => { onSelectChat(item.chat_id); close(); }}>
+                    {t('渠道会话')}
+                  </Button>))}
+              <div className="pa-channel-card-actions">
+                {(!items.length || (unhealthy && meta.type === 'weixin')) && <Button size="small" type="dashed" icon={<PlusOutlined />}
+                  onClick={() => { setBinding(meta.type); setDetail(meta.type); }}>{items.length ? t('重新绑定') : t('绑定机器人')}</Button>}
+                {!unhealthy && items.length > 0 && <Button size="small" onClick={() => setDetail(meta.type)}>{t('允许的账号')}</Button>}
+                {unhealthy && <Button size="small" loading={checking} onClick={() => void refresh(true)}>{t('重试')}</Button>}
+              </div>
             </section>;
           })}
         </div>
         {checkError && <Alert type="warning" title={checkError} action={<Button size="small" loading={checking} onClick={() => void refresh(true)}>{t('重试')}</Button>} />}
-      </>
+      </>}
     </Modal>
   </>;
 }

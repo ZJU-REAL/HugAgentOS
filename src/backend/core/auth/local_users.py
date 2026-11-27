@@ -442,6 +442,108 @@ class LocalUserService:
             "teams": list_account_scopes(self.db, user_id),
         }
 
+    # ── Admin profile edit ─────────────────────────────────────
+    def update_by_admin(
+        self,
+        user_id: str,
+        *,
+        nickname: Optional[str] = None,
+        email: Optional[str] = None,
+        real_name: Optional[str] = None,
+        phone: Optional[str] = None,
+        actor: Optional[str] = None,
+    ) -> LoginResult:
+        """Edit a user's basic info from the Config console (local and external SSO users).
+
+        A None field means leave unchanged; an empty string clears an optional field
+        (email / real name / phone). The nickname of a local account cannot be cleared.
+        The email is also a login identifier, so it is normalized to lower case and must
+        stay unique. External users have no ``local_users`` row: their edits are stored
+        in the shadow's ``admin_profile`` override, which also pins the email against
+        the next SSO sync (see :mod:`core.auth.user_profile`).
+        """
+        from core.auth import user_profile
+
+        shadow = self.user_repo.get_by_id(user_id)
+        if not shadow:
+            return LoginResult(False, "用户不存在")
+        local = self.local_repo.get(user_id)
+        current = user_profile.profile_fields(shadow, local)
+        updates: Dict[str, Optional[str]] = {}
+
+        if nickname is not None:
+            nn = nickname.strip() or None
+            if not nn and local is not None:
+                return LoginResult(False, "用户名不能为空")
+            if nn and len(nn) > 32:
+                return LoginResult(False, "用户名长度不能超过 32 位")
+            if nn != current["nickname"]:
+                updates["nickname"] = nn
+        if real_name is not None:
+            rn = real_name.strip() or None
+            if rn and len(rn) > 64:
+                return LoginResult(False, "真实姓名长度不能超过 64 位")
+            if rn != current["real_name"]:
+                updates["real_name"] = rn
+        if phone is not None:
+            ph = phone.strip() or None
+            if ph and len(ph) > 32:
+                return LoginResult(False, "联系方式长度不能超过 32 位")
+            if ph != current["phone"]:
+                updates["phone"] = ph
+        new_email: Optional[str] = None
+        email_changed = False
+        if email is not None:
+            new_email = email.strip().lower() or None
+            if new_email and not local_users_constants.EMAIL_PATTERN.match(new_email):
+                return LoginResult(False, "邮箱格式不正确")
+            if new_email != shadow.email:
+                if new_email and (
+                    self.db.query(UserShadow)
+                    .filter(UserShadow.email == new_email, UserShadow.user_id != user_id)
+                    .first()
+                    is not None
+                ):
+                    return LoginResult(False, "邮箱已被使用")
+                email_changed = True
+
+        if not updates and not email_changed:
+            return LoginResult(True, "未作修改", user_id=user_id)
+
+        if local is not None:
+            for field, value in updates.items():
+                setattr(local, field, value)
+            local.updated_at = utc_now()
+        else:
+            meta = dict(shadow.extra_data or {})
+            override = user_profile.admin_profile(meta)
+            override.update(updates)
+            if email_changed:
+                override["email"] = new_email
+            meta[user_profile.ADMIN_PROFILE_KEY] = override
+            shadow.extra_data = meta
+        if email_changed:
+            shadow.email = new_email
+        shadow.updated_at = utc_now()
+
+        changed = list(updates) + (["email"] if email_changed else [])
+        try:
+            self.audit_repo.create(
+                {
+                    "user_id": user_id,
+                    "action": "user.update_admin",
+                    "resource_type": "user",
+                    "resource_id": user_id,
+                    "details": {"updated_by": actor or "config_admin", "fields": changed},
+                    "status": "success",
+                }
+            )
+            self.db.commit()
+        except IntegrityError:
+            self.db.rollback()
+            return LoginResult(False, "邮箱已被使用")
+        return LoginResult(True, "已更新", user_id=user_id)
+
     # ── Profile update ─────────────────────────────────────────
     def update_profile(
         self,

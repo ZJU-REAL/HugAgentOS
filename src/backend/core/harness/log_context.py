@@ -69,14 +69,18 @@ def fetch_username(db: Session, user_id: str) -> Optional[str]:
         return None
     try:
         row = (
-            db.query(UserShadow.username, LocalUser.nickname, LocalUser.real_name)
+            db.query(UserShadow, LocalUser)
             .outerjoin(LocalUser, LocalUser.user_id == UserShadow.user_id)
             .filter(UserShadow.user_id == user_id)
             .one_or_none()
         )
         if not row:
             return None
-        return row.nickname or row.real_name or row.username
+        from core.auth.user_profile import profile_fields
+
+        shadow, local = row
+        profile = profile_fields(shadow, local)
+        return profile["nickname"] or profile["real_name"] or shadow.username
     except Exception as exc:  # noqa: BLE001
         logger.debug("username_lookup_failed", user_id=user_id, error=str(exc))
         return None

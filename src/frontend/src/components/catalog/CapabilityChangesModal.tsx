@@ -8,6 +8,7 @@ import { t } from '../../i18n';
 import { useDesktopCapabilityStore } from '../../stores/desktopCapabilityStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useDeploymentModeStore } from '../../stores/deploymentModeStore';
+import { COMPACT_MODAL_PROPS } from '../common/modalLayout';
 
 export function CapabilityChangesModal({ installId, onClose }: { installId: string; onClose: () => void }) {
   const [preview, setPreview] = useState<CapabilityChangePreview>();
@@ -53,7 +54,7 @@ export function CapabilityChangesModal({ installId, onClose }: { installId: stri
     } catch (e) { if (alive.current) setError(e instanceof Error ? e.message : String(e)); }
     finally { if (alive.current) setBusy(false); }
   };
-  return <Modal open title={t('能力文件变更')} width={860} onCancel={busy ? undefined : onClose}
+  return <Modal open title={t('能力文件变更')} width={860} {...COMPACT_MODAL_PROPS} onCancel={busy ? undefined : onClose}
     closable={!busy} mask={{ closable: !busy }} confirmLoading={busy}
     okText={t('提交到云端')} cancelText={t('取消')} onOk={() => { void submit(); }}
     okButtonProps={{ disabled: !preview || !preview.changes.length || (needsFork ? !/^[a-z0-9][a-z0-9_-]{0,62}$/.test(forkKey) : !!unresolved)

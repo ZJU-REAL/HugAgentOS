@@ -71,7 +71,9 @@ export function AgentMarketplaceModal({
     setLoading(true);
     try {
       const res = await fetchers.loadList();
-      setItems(res.items || []);
+      // Installed items go to the end (stable sort keeps backend order within each group);
+      // sorted on load only, so a card doesn't jump away right after it is installed.
+      setItems([...(res.items || [])].sort((a, b) => Number(!!a.installed) - Number(!!b.installed)));
       setCategories(res.categories || []);
     } catch (e) {
       message.error((e as Error).message || t('加载智能体市场失败'));

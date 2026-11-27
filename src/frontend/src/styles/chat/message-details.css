@@ -364,3 +364,19 @@
   color: var(--color-text-placeholder);
   font-size: 12px;
 }
+
+/* ── Local permissions: long lists scroll in place, policy rows in two columns ── */
+.jx-localPermList{
+  max-height:160px;
+  overflow-y:auto;
+  margin-bottom:8px;
+}
+.jx-localPermPolicyGrid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  column-gap:24px;
+}
+.jx-localPermPolicyGrid > .jx-localPermPolicyRow{ gap:8px; min-width:0; }
+@media (max-width:560px){
+  .jx-localPermPolicyGrid{ grid-template-columns:minmax(0,1fr); }
+}

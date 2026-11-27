@@ -143,44 +143,39 @@
   max-width:100%;
 }
 
-/* 温馨提醒：对话里是顶栏右侧的一枚胶囊（不压住消息）；新对话页浮在右上角（L2 材质）。 */
+/* 温馨提醒：右下角的浮动胶囊（L2 材质）。对话里贴在输入框上方的右侧，不压住输入框；
+   新对话页贴在页面右下角。 */
 .jx-evalReminder{
-  flex:none;
+  position:absolute;
+  z-index:12;
   display:flex;
   align-items:center;
+  max-width:calc(100% - 2 * var(--space-md));
   border-radius:999px;
-  --fadeInUp-distance:-4px;
-  animation:jx-kf-fadeInUp var(--motion-duration-normal) var(--motion-ease-brand-out) backwards;
-}
-
-.jx-evalReminder--topbar{
-  min-width:0;
-  background:color-mix(in srgb, var(--color-text) 4%, transparent);
-}
-
-.jx-evalReminder--topbar .jx-evalReminder-chip,
-.jx-evalReminder--topbar .jx-evalReminder-close{
-  height:28px;
-}
-
-.jx-evalReminder--topbar .jx-evalReminder-close{
-  width:28px;
-}
-
-.jx-evalReminder--welcome{
-  position:absolute;
-  top:var(--space-md);
-  right:var(--space-md);
-  z-index:12;
+  border:1px solid color-mix(in srgb, var(--color-primary) 22%, transparent);
   background:var(--material);
   backdrop-filter:blur(20px);
   -webkit-backdrop-filter:blur(20px);
   box-shadow:var(--shadow-floating);
+  --fadeInUp-distance:8px;
+  animation:jx-kf-fadeInUp var(--motion-duration-normal) var(--motion-ease-brand-out) backwards;
 }
 
-/* 窄屏顶栏：只留数量，把位置让给对话标题。 */
+.jx-evalReminder--chat{
+  right:var(--space-lg);
+  bottom:calc(12px + var(--jx-chat-footer-h, 0px));
+}
+
+.jx-evalReminder--welcome{
+  right:var(--space-lg);
+  bottom:var(--space-lg);
+}
+
+/* 窄屏：只留数量，少挡内容。 */
 @media (max-width: 640px){
-  .jx-evalReminder--topbar .jx-evalReminder-prefix{ display:none; }
+  .jx-evalReminder-prefix{ display:none; }
+  .jx-evalReminder--chat,
+  .jx-evalReminder--welcome{ right:var(--space-md); }
 }
 
 .jx-evalReminder-chip,
@@ -202,8 +197,19 @@
   border-radius:999px 0 0 999px;
 }
 
+.jx-evalReminder-chip{
+  color:var(--color-text);
+  font-weight:500;
+}
+
 .jx-evalReminder-chip .anticon{
   color:var(--color-primary-text);
+}
+
+.jx-evalReminder-label{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
 }
 
 .jx-evalReminder-close{
@@ -221,12 +227,6 @@
 
 .jx-evalReminder-panel{
   width:min(320px, calc(100vw - 48px));
-}
-
-.jx-evalReminder-hint{
-  margin:0 0 var(--space-sm);
-  font-size:12px;
-  color:var(--color-text-tertiary);
 }
 
 .jx-evalReminder-list{
@@ -315,4 +315,9 @@
   color:var(--color-primary-text);
   background:var(--color-primary-bg);
   white-space:nowrap;
+}
+
+.jx-evalCard-required{
+  margin-right:2px;
+  color:var(--color-error);
 }

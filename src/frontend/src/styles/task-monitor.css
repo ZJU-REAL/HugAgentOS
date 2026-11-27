@@ -282,3 +282,9 @@
 .jx-ticketAdmin-form { display: grid; grid-template-columns: 80px 1fr; gap: 12px 16px; align-items: center; }
 .jx-ticketAdmin-form label { color: var(--color-text-secondary); }
 .jx-ticketAdmin-form label[for="ticket-note"] { align-self: start; padding-top: 4px; }
+
+/* 纠错工单弹窗：执行轨迹步骤多时只占两行高度，其余在框内滚动 */
+.jx-tmTicketForm .jx-tmTrail{
+  max-height:48px;
+  overflow-y:auto;
+}

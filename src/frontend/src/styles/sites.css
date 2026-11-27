@@ -370,3 +370,16 @@
 @media (max-width: 768px) {
   .jx-sites-cardActions { opacity: 1; justify-content: flex-start; }
 }
+
+/* ── Compact MCP tool editor: hint line instead of an Alert, tighter tool cards ── */
+.jx-sites-toolHint{
+  margin:0 0 4px;
+  color:var(--color-text-secondary);
+  font-size:13px;
+}
+.jx-sites-toolHint .anticon{ color:var(--color-primary); margin-right:4px; }
+.jx-sites-manageModal .jx-sites-toolEditor{
+  margin-block:12px;
+  padding:12px 16px 0;
+}
+.jx-sites-settingsFooter{ display:flex; justify-content:flex-end; }

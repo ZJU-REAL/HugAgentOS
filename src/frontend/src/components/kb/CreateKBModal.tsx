@@ -5,6 +5,7 @@ import { createKBSpace } from '../../api';
 import type { KBIndexMode, WikiGranularity } from '../../types';
 import { t } from '../../i18n';
 import IndexModePicker from './IndexModePicker';
+import { COMPACT_MODAL_PROPS } from '../common/modalLayout';
 
 interface CreateKBModalProps {
   onCreated?: () => void;
@@ -47,6 +48,8 @@ export default function CreateKBModal({ onCreated }: CreateKBModalProps) {
       confirmLoading={createKBLoading}
       okText={t('创建')}
       cancelText={t('取消')}
+      width={600}
+      {...COMPACT_MODAL_PROPS}
       onOk={async () => {
         if (!createKBName.trim()) { triggerNameInvalid(); message.warning(t('请输入知识库名称')); return; }
         setCreateKBLoading(true);

@@ -62,16 +62,21 @@ def check_name(db, user_id, folder_id, filename, exclude_id=None, exclude_folder
             raise conflict()
 
 
+def numbered_names(filename, limit=1000):
+    """``a.pdf``, then ``a (1).pdf``, ``a (2).pdf``… up to ``limit`` candidates."""
+    stem, dot, ext = filename.rpartition(".")
+    if not stem:  # no extension, or a dotfile such as ".env"
+        stem, dot, ext = filename, "", ""
+    for index in range(limit):
+        yield filename if index == 0 else f"{stem} ({index}){dot}{ext}"
+
+
 def available_name(db, user_id, folder_id, filename, limit=1000, taken=None):
     """First free name in the folder: ``a.pdf``, then ``a (1).pdf``, ``a (2).pdf``…
 
     ``taken`` also rejects names already used outside the artifact table (the My Space directory).
     """
-    stem, dot, ext = filename.rpartition(".")
-    if not stem:  # no extension, or a dotfile such as ".env"
-        stem, dot, ext = filename, "", ""
-    for index in range(limit):
-        candidate = filename if index == 0 else f"{stem} ({index}){dot}{ext}"
+    for candidate in numbered_names(filename, limit):
         try:
             check_name(db, user_id, folder_id, candidate)
             if taken and taken(candidate):

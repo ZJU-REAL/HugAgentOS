@@ -533,3 +533,15 @@
   }
 }
 
+
+/* Chat-mode editor (ChatModeFormFields): "从市场选择" link sits after the field label. */
+.jx-chatModeForm-label{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+}
+.jx-chatModeForm-marketLink.ant-btn{
+  height:auto;
+  padding:0 0 0 4px;
+  font-size:12px;
+}

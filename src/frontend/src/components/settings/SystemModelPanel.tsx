@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Button, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Typography, message,
+  Button, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
 } from 'antd';
 import { PlusOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import {
@@ -21,6 +21,8 @@ import {
 } from '../../api';
 import { t } from '../../i18n';
 import { ReasoningEffortFields } from '../common/ReasoningEffortFields';
+import { FormGrid, ToggleField } from '../common/FormLayout';
+import { COMPACT_MODAL_PROPS } from '../common/modalLayout';
 import { reasoningFormValues, collectReasoningFields } from '../../utils/reasoningEffort';
 import { useModelCapabilitiesStore } from '../../stores';
 import { describeContextProbe } from '../../utils/contextUsage';
@@ -388,17 +390,15 @@ export function SystemModelPanel() {
         onOk={() => void handleSave()}
         confirmLoading={saving}
         destroyOnHidden
-        width={520}
+        width={720}
+        {...COMPACT_MODAL_PROPS}
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="display_name" label={t('显示名称')} rules={[{ required: true }]}>
-            <Input placeholder={t('如：DeepSeek 官方')} maxLength={100} />
-          </Form.Item>
-          <Space.Compact block>
-            <Form.Item name="provider" label={t('厂商 / 协议')} style={{ flex: 1 }} rules={[{ required: true }]}>
-              <Select options={providerOptions} showSearch optionFilterProp="label" />
+          <FormGrid>
+            <Form.Item name="display_name" label={t('显示名称')} rules={[{ required: true }]}>
+              <Input placeholder={t('如：DeepSeek 官方')} maxLength={100} />
             </Form.Item>
-            <Form.Item name="provider_type" label={t('用途')} style={{ width: 120, marginLeft: 8 }} rules={[{ required: true }]}>
+            <Form.Item name="provider_type" label={t('用途')} rules={[{ required: true }]}>
               <Select
                 onChange={value => {
                   const current = schemas.find(s => s.id === form.getFieldValue('provider'));
@@ -413,29 +413,25 @@ export function SystemModelPanel() {
                 ]}
               />
             </Form.Item>
-          </Space.Compact>
-          <Form.Item name="base_url" label="base_url">
-            <Input placeholder={selectedType === 'audio' ? 'http://<asr-host>:8000/v1' : 'https://api.deepseek.com'} />
-          </Form.Item>
-          <Form.Item
-            name="api_key"
-            label="API Key"
-            extra={editing ? t('留空表示不修改现有密钥') : undefined}
-            rules={editing ? [] : []}
-          >
-            <Input.Password placeholder={editing ? '••••••••' : 'sk-...'} autoComplete="new-password" />
-          </Form.Item>
-          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider_type !== cur.provider_type}>
-            {({ getFieldValue }) => getFieldValue('provider_type') === 'audio' && <Text type="secondary">{t('音频模型用于语音转文字；服务未部署时可留空地址。部署后填写兼容接口的 Base URL，并分配给「语音转文字」角色。')}</Text>}
-          </Form.Item>
-          <Form.Item name="model_name" label={t('模型名')} rules={[{ required: true }]}>
-            <Input placeholder={selectedType === 'audio' ? 'Qwen3-ASR-0.6B' : 'deepseek-chat'} />
-          </Form.Item>
-          <Space.Compact block>
+            <Form.Item name="provider" label={t('厂商 / 协议')} rules={[{ required: true }]}>
+              <Select options={providerOptions} showSearch optionFilterProp="label" />
+            </Form.Item>
+            <Form.Item name="model_name" label={t('模型名')} rules={[{ required: true }]}>
+              <Input placeholder={selectedType === 'audio' ? 'Qwen3-ASR-0.6B' : 'deepseek-chat'} />
+            </Form.Item>
+            <Form.Item name="base_url" label="base_url">
+              <Input placeholder={selectedType === 'audio' ? 'http://<asr-host>:8000/v1' : 'https://api.deepseek.com'} />
+            </Form.Item>
+            <Form.Item
+              name="api_key"
+              label="API Key"
+              tooltip={editing ? t('留空表示不修改现有密钥') : undefined}
+            >
+              <Input.Password placeholder={editing ? t('留空表示不修改现有密钥') : 'sk-...'} autoComplete="new-password" />
+            </Form.Item>
             <Form.Item
               name="context_length"
               label={t('上下文窗口（token，可选）')}
-              style={{ flex: 1 }}
               tooltip={t('模型真实的上下文长度，用于请求装配预算与自动压缩阈值。留空保存时系统会尝试自动探测（自建 vLLM 等会直接上报），探不到才需要手工填写。')}
               extra={probeHint || undefined}
             >
@@ -455,37 +451,32 @@ export function SystemModelPanel() {
                 }
               />
             </Form.Item>
-            <Form.Item name="is_active" label={t('启用')} valuePropName="checked" style={{ width: 90, marginLeft: 8 }}>
-              <Switch />
-            </Form.Item>
-          </Space.Compact>
-          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider_type !== cur.provider_type}>
-            {({ getFieldValue }) => getFieldValue('provider_type') === 'chat' && (
-              <>
-              <Form.Item
-                label={t('支持多档思考强度（reasoning_effort）')}
-                name="supports_reasoning_effort"
-                valuePropName="checked"
-                tooltip={t('开启后配置模型支持的档位、上游参数与默认档位。')}
-              >
-                <Switch />
-              </Form.Item>
+            <div className="jx-formGrid-alignField">
+              <ToggleField name="is_active" label={t('启用')} />
+            </div>
+          </FormGrid>
+          {selectedType === 'audio' && (
+            <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+              {t('音频模型用于语音转文字；服务未部署时可留空地址。部署后填写兼容接口的 Base URL，并分配给「语音转文字」角色。')}
+            </Text>
+          )}
+          {selectedType === 'chat' && (
+            <>
+              <FormGrid>
+                <ToggleField
+                  name="supports_vision"
+                  label={t('支持读图（多模态）')}
+                  tooltip={t('该模型本身能直接看图（如 qwen-vl / GLM-4V / gpt-4o / gemini）。开启后图片会原样送给模型；关闭时，若已为「图像理解（视觉桥）」角色指派了多模态模型，图片会先被转写成文字证据再送入。纯文本模型（DeepSeek、Qwen 文本版等）保持关闭。')}
+                />
+                <ToggleField
+                  name="supports_reasoning_effort"
+                  label={t('多档思考强度')}
+                  tooltip={t('开启后配置模型支持的档位、上游参数与默认档位。')}
+                />
+              </FormGrid>
               <ReasoningEffortFields providerId={editing?.provider_id} />
-              </>
-            )}
-          </Form.Item>
-          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider_type !== cur.provider_type}>
-            {({ getFieldValue }) => getFieldValue('provider_type') === 'chat' && (
-              <Form.Item
-                label={t('支持读图（多模态）')}
-                name="supports_vision"
-                valuePropName="checked"
-                tooltip={t('该模型本身能直接看图（如 qwen-vl / GLM-4V / gpt-4o / gemini）。开启后图片会原样送给模型；关闭时，若已为「图像理解（视觉桥）」角色指派了多模态模型，图片会先被转写成文字证据再送入。纯文本模型（DeepSeek、Qwen 文本版等）保持关闭。')}
-              >
-                <Switch />
-              </Form.Item>
-            )}
-          </Form.Item>
+            </>
+          )}
         </Form>
       </Modal>
     </div>

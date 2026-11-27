@@ -90,11 +90,12 @@ export default function LocalPermissionsModal({ open, onClose }: { open: boolean
   };
 
   return (
-    <Modal open={open} onCancel={onClose} title={t('本地权限')} footer={null} width={520} centered>
+    <Modal open={open} onCancel={onClose} title={t('本地权限')} footer={null} width={600} centered>
       <div className="jx-localPermSection">
         <div className="jx-localPermSectionTitle">{t('已授权目录')}</div>
         <div className="jx-localPermHint">{t('工作区权限随当前权限档；额外目录可分别授予只读或读写权限。')}</div>
         {grants.length === 0 && !loading && <div className="jx-localPermEmpty">{t('暂无授权目录')}</div>}
+        <div className="jx-localPermList">
         {grants.map((g) => (
           <div key={g.path} className="jx-localPermRow">
             <span className="jx-localPermPath" title={g.path}>
@@ -126,6 +127,7 @@ export default function LocalPermissionsModal({ open, onClose }: { open: boolean
             </Button>
           </div>
         ))}
+        </div>
         <Button
           size="small"
           icon={<PlusOutlined />}
@@ -141,6 +143,7 @@ export default function LocalPermissionsModal({ open, onClose }: { open: boolean
         <div className="jx-localPermSectionTitle">{t('可回滚的改动')}</div>
         <div className="jx-localPermHint">{t('agent 改动本地文件前会自动快照，可回滚到上一版。')}</div>
         {snaps.length === 0 && <div className="jx-localPermEmpty">{t('暂无可回滚的改动')}</div>}
+        <div className="jx-localPermList">
         {snaps.map((s) => (
           <div key={s.path} className="jx-localPermRow">
             <span className="jx-localPermPath" title={s.path}>
@@ -160,10 +163,12 @@ export default function LocalPermissionsModal({ open, onClose }: { open: boolean
             </Button>
           </div>
         ))}
+        </div>
       </div>
 
       <div className="jx-localPermSection">
         <div className="jx-localPermSectionTitle">{t('危险命令策略')}</div>
+        <div className="jx-localPermPolicyGrid">
         {CATEGORIES.map((c) => (
           <div key={c.key} className="jx-localPermPolicyRow">
             <span className="jx-localPermPolicyLabel">{c.label}</span>
@@ -177,6 +182,7 @@ export default function LocalPermissionsModal({ open, onClose }: { open: boolean
             />
           </div>
         ))}
+        </div>
       </div>
     </Modal>
   );

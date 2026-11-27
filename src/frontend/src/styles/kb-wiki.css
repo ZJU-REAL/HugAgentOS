@@ -799,9 +799,13 @@
 }
 
 .jx-idxModeAdvanced {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  display: grid;
+  /* Two requirement boxes side by side when the dialog is wide enough. */
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px 12px;
+}
+.jx-idxModeAdvanced > .jx-idxModeNote {
+  grid-column: 1 / -1;
 }
 
 .jx-idxModeField {

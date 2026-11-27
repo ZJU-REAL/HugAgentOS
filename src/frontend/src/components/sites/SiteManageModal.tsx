@@ -9,6 +9,7 @@ import { ApplicationDataPanel } from './ApplicationDataPanel';
 import { stablePublicOrigin } from '../../stores/deploymentModeStore';
 import { formatSize } from './siteFormatting';
 import { t } from '../../i18n';
+import { FormGrid } from '../common/FormLayout';
 import { formatDateTime } from '../../utils/date';
 
 /** Site management modal: settings, version rollback, application data and MCP */
@@ -86,6 +87,7 @@ export function SiteManageModal({
       keyboard={!applicationBusy}
       footer={null}
       width={720}
+      centered
       destroyOnHidden
     >
       <Tabs
@@ -95,40 +97,45 @@ export function SiteManageModal({
             label: t('设置'),
             children: (
               <Form form={form} layout="vertical">
-                {/* whitespace 校验：只敲空格时 required 是满足的（值非空串），
-                    过去要等提交后后端拒掉才报「保存失败」——校验放在输入框上。 */}
-                <Form.Item
-                  name="title"
-                  label={t('站点标题')}
-                  rules={[
-                    { required: true, message: t('请输入站点标题') },
-                    { whitespace: true, message: t('站点标题不能只包含空格') },
-                  ]}
-                >
-                  <Input maxLength={200} />
-                </Form.Item>
-                <Form.Item
-                  name="slug"
-                  label={t('访问地址')}
-                  extra={t('仅支持 3-50 位小写字母、数字、连字符；修改后旧链接会失效')}
-                  rules={[
-                    { required: true, message: t('请输入访问地址') },
-                    { pattern: /^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/, message: t('格式不正确') },
-                  ]}
-                >
-                  <Input addonBefore={`${stablePublicOrigin()}/site/`} addonAfter="/" />
-                </Form.Item>
-                <Form.Item name="visibility" label={t('可见性')}>
-                  <Select
-                    onChange={(v) => setVisibility(v)}
-                    options={getSiteVisibilityOptions()}
-                  />
-                </Form.Item>
-                <EditionSiteVisibilityFields visibility={visibility} />
-                <Form.Item label={t('访问密码')} extra={t('开启后访客需输入密码才能打开站点')}>
-                  <SitePasswordField site={site} onChanged={onChanged} />
-                </Form.Item>
-                <Button type="primary" onClick={handleSave} loading={saving}>{t('保存')}</Button>
+                <FormGrid>
+                  {/* whitespace 校验：只敲空格时 required 是满足的（值非空串），
+                      过去要等提交后后端拒掉才报「保存失败」——校验放在输入框上。 */}
+                  <Form.Item
+                    name="title"
+                    label={t('站点标题')}
+                    rules={[
+                      { required: true, message: t('请输入站点标题') },
+                      { whitespace: true, message: t('站点标题不能只包含空格') },
+                    ]}
+                  >
+                    <Input maxLength={200} />
+                  </Form.Item>
+                  <Form.Item name="visibility" label={t('可见性')}>
+                    <Select
+                      onChange={(v) => setVisibility(v)}
+                      options={getSiteVisibilityOptions()}
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="slug"
+                    label={t('访问地址')}
+                    className="jx-formGrid-full"
+                    tooltip={t('仅支持 3-50 位小写字母、数字、连字符；修改后旧链接会失效')}
+                    rules={[
+                      { required: true, message: t('请输入访问地址') },
+                      { pattern: /^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/, message: t('格式不正确') },
+                    ]}
+                  >
+                    <Input addonBefore={`${stablePublicOrigin()}/site/`} addonAfter="/" />
+                  </Form.Item>
+                  <EditionSiteVisibilityFields visibility={visibility} />
+                  <Form.Item label={t('访问密码')} tooltip={t('开启后访客需输入密码才能打开站点')}>
+                    <SitePasswordField site={site} onChanged={onChanged} />
+                  </Form.Item>
+                </FormGrid>
+                <div className="jx-sites-settingsFooter">
+                  <Button type="primary" onClick={handleSave} loading={saving}>{t('保存')}</Button>
+                </div>
               </Form>
             ),
           },
@@ -140,7 +147,7 @@ export function SiteManageModal({
                 size="small"
                 rowKey="version"
                 pagination={false}
-                scroll={{ x: 620 }}
+                scroll={{ x: 620, y: 'calc(100vh - 360px)' }}
                 dataSource={versions}
                 columns={[
                   {

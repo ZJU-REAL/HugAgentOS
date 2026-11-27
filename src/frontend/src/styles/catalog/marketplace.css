@@ -295,3 +295,19 @@
   font-size: 11px;
   margin: 0;
 }
+
+/* ── Add private MCP modal (AddPrivateMcpModal): one-line intro + help icon ── */
+.jx-addMcp-intro.ant-typography{
+  margin-bottom:12px;
+  font-size:12px;
+}
+.jx-addMcp-introHelp{
+  margin-left:4px;
+  color:var(--color-text-tertiary);
+  cursor:help;
+}
+
+/* MCP install dialog: one column until there are more than two credential inputs. */
+.jx-formGrid.jx-formGrid--single{
+  grid-template-columns:minmax(0,1fr);
+}

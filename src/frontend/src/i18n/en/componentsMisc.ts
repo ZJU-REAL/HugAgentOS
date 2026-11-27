@@ -161,4 +161,7 @@ export const COMPONENTS_MISC_DICT: Record<string, string> = {
   '把反复出现的做法整理成可复用技能': 'Turn recurring ways of working into reusable skills',
   '调整步骤顺序与流程策略': 'Adjust step order and workflow strategy',
   '用户批量导入模板.xlsx': 'user-import-template.xlsx',
+  // ── Compact dialogs (fork C3): agent API scope note ──
+  'API 模式限制': 'API mode limits',
+  '已停用，仍可 API 调用': 'Disabled, still callable via API',
 };

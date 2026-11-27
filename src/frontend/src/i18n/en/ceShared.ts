@@ -1,5 +1,6 @@
 /** English translations used by CE source but owned by mixed EE/CE dictionaries upstream. */
 export const CE_SHARED_DICT: Record<string, string> = {
+  '具体说明': "Details",
   '未知': 'Unknown',
   '快照': 'Snapshot',
   '后台任务': 'Background tasks',

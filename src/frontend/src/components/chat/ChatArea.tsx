@@ -450,6 +450,7 @@ export function ChatArea({
             </motion.button>
           )}
         </AnimatePresence>
+        {!publicChat && <EvaluationReminder placement="chat" />}
       </div>
       <div className="jx-chatFooter" ref={setFooterEl}>
         {!planMode && <PlanProgressStrip chatId={currentChatId} />}

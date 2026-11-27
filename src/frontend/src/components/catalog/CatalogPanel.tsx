@@ -1,13 +1,12 @@
 import {
 ArrowLeftOutlined,CloseOutlined,DeleteOutlined,EditOutlined,
-InboxOutlined,LoadingOutlined,PlusOutlined,
+InboxOutlined,LoadingOutlined,PlusOutlined,QuestionCircleOutlined,
 ReloadOutlined,
 SafetyCertificateOutlined,
 SearchOutlined,StarFilled,ThunderboltOutlined,UploadOutlined,
 } from '@ant-design/icons';
 import {
 Button,
-Collapse,
 Empty,Input,
 InputNumber,message,
 Modal,Pagination,Popconfirm,Radio,Select,Switch,Tag,Tooltip,Typography,
@@ -60,6 +59,8 @@ import { ContinuousLoadSentinel } from '../common';
 import { kbOriginalKindOf } from './kbOriginal';
 import { KbOriginalDownloadButton, KbOriginalPreview } from './KbOriginalPreview';
 import { MarkdownHtml } from '../common/MarkdownHtml';
+import { AdvancedFields, FormGrid } from '../common/FormLayout';
+import { COMPACT_MODAL_PROPS } from '../common/modalLayout';
 
 type KBTabKey = 'public' | 'private';
 
@@ -1415,8 +1416,9 @@ export function CatalogPanel() {
         open={kbEditorOpen}
         onCancel={closeKbEditor}
         mask={{ closable: false }}
-        width={520}
+        width={720}
         className="jx-kbEditorModal"
+        {...COMPACT_MODAL_PROPS}
         footer={(
           <div className="jx-kbEditorFooter">
             <Button onClick={closeKbEditor}>{t('取消')}</Button>
@@ -1427,6 +1429,7 @@ export function CatalogPanel() {
         )}
       >
         <div className="jx-kbEditorBody">
+          <div className="jx-kbEditorRow">
           {kbEditorMode === 'create' && canCreatePrivateKb && canCreatePublicKb && (
             <div className="jx-kbEditorField">
               <div className="jx-kbEditorLabel">{t('可见性')}</div>
@@ -1451,6 +1454,7 @@ export function CatalogPanel() {
               maxLength={255}
             />
           </div>
+          </div>
           <div className="jx-kbEditorField">
             <IndexModePicker
               value={kbEditorIndexModes}
@@ -1471,7 +1475,7 @@ export function CatalogPanel() {
                 value={kbEditorDesc}
                 onChange={(e) => setKbEditorDesc(e.target.value)}
                 placeholder={t('请输入知识库简介')}
-                autoSize={{ minRows: 4, maxRows: 6 }}
+                autoSize={{ minRows: 2, maxRows: 4 }}
                 maxLength={500}
                 className="jx-kbEditorTextarea"
               />
@@ -1837,8 +1841,9 @@ export function CatalogPanel() {
         open={uploadDocModalOpen}
         onCancel={() => closeUploadDocModal()}
         mask={{ closable: false }}
-        width={uploadStep === 'preview' ? 720 : 520}
+        width={720}
         className="jx-kbUploadModal"
+        {...COMPACT_MODAL_PROPS}
         footer={uploadStep === 'config' ? (
           <div className="jx-kbUploadModalFooter">
             <Button onClick={() => closeUploadDocModal()}>{t('取消')}</Button>
@@ -1864,7 +1869,7 @@ export function CatalogPanel() {
             transition={{ duration: 0.18, ease: EASE.standard }}
           >
             <Upload.Dragger
-              className="jx-kbUploadDragger"
+              className="jx-kbUploadDragger jx-kbUploadDragger--compact"
               multiple
               accept=".pdf,.docx,.doc,.txt,.md,.csv,.json,.xlsx,.xls,.png,.jpg,.jpeg,.webp,.gif"
               beforeUpload={(file) => { setUploadDocFileList((prev) => [...prev, file]); return false; }}
@@ -1875,125 +1880,107 @@ export function CatalogPanel() {
               <p className="ant-upload-text">{t('点击或拖拽文件到此区域')}</p>
               <p className="ant-upload-hint">{t('支持 PDF、Word、Excel、TXT、Markdown、CSV、JSON、图片，单文件最大 100MB')}</p>
             </Upload.Dragger>
-            <div className="jx-kbUploadSection">
-              <div className="jx-kbUploadFieldLabel">{t('分块方法')}</div>
-              <Select
-                value={uploadChunkMethod}
-                onChange={setUploadChunkMethod}
-                className="jx-kbUploadSelect"
-                classNames={{ popup: { root: "jx-kbUploadSelectDropdown" } }}
-                options={UPLOAD_CHUNK_METHOD_OPTIONS.map((option) => ({
-                  value: option.value,
-                  label: option.label,
-                  desc: option.desc,
-                  recommended: option.recommended,
-                }))}
-                optionRender={(option) => {
-                  const data = option.data as {
-                    label: string;
-                    desc?: string;
-                    recommended?: boolean;
-                  };
-                  return (
-                    <div className="jx-kbUploadOption">
-                      <div className="jx-kbUploadOptionTop">
-                        <span className="jx-kbUploadOptionTitle">{data.label}</span>
-                        {data.recommended && (
-                          <span className="jx-kbUploadOptionBadge">
-                            <StarFilled />
-                            <span>{t('推荐')}</span>
-                          </span>
-                        )}
+            <div className="jx-kbUploadMainRow">
+              <div className="jx-kbUploadSection">
+                <div className="jx-kbUploadFieldLabel">{t('分块方法')}</div>
+                <Select
+                  value={uploadChunkMethod}
+                  onChange={setUploadChunkMethod}
+                  className="jx-kbUploadSelect"
+                  classNames={{ popup: { root: "jx-kbUploadSelectDropdown" } }}
+                  options={UPLOAD_CHUNK_METHOD_OPTIONS.map((option) => ({
+                    value: option.value,
+                    label: option.label,
+                    desc: option.desc,
+                    recommended: option.recommended,
+                  }))}
+                  optionRender={(option) => {
+                    const data = option.data as {
+                      label: string;
+                      desc?: string;
+                      recommended?: boolean;
+                    };
+                    return (
+                      <div className="jx-kbUploadOption">
+                        <div className="jx-kbUploadOptionTop">
+                          <span className="jx-kbUploadOptionTitle">{data.label}</span>
+                          {data.recommended && (
+                            <span className="jx-kbUploadOptionBadge">
+                              <StarFilled />
+                              <span>{t('推荐')}</span>
+                            </span>
+                          )}
+                        </div>
+                        {data.desc && <div className="jx-kbUploadOptionDesc">{data.desc}</div>}
                       </div>
-                      {data.desc && <div className="jx-kbUploadOptionDesc">{data.desc}</div>}
-                    </div>
-                  );
-                }}
-              />
-            </div>
-            <div className="jx-kbUploadToggleRow">
-              <div className="jx-kbUploadToggleCopy">
-                <Typography.Text className="jx-kbUploadToggleTitle">{t('启用父子分块')}</Typography.Text>
-                <Typography.Text type="secondary" className="jx-kbUploadToggleDesc">
-                  {uploadParentChildIndexing ? t('父块存储完整上下文，子块用于向量检索') : t('关闭后仅按块索引，不拆分子块')}
-                </Typography.Text>
+                    );
+                  }}
+                />
               </div>
-              <Switch size="small" checked={uploadParentChildIndexing} onChange={setUploadParentChildIndexing} />
+              <div className="jx-kbUploadToggleRow">
+                <div className="jx-kbUploadToggleCopy">
+                  <Typography.Text className="jx-kbUploadToggleTitle">{t('启用父子分块')}</Typography.Text>
+                  <Typography.Text type="secondary" className="jx-kbUploadToggleDesc">
+                    {uploadParentChildIndexing ? t('父块存储完整上下文，子块用于向量检索') : t('关闭后仅按块索引，不拆分子块')}
+                  </Typography.Text>
+                </div>
+                <Switch size="small" checked={uploadParentChildIndexing} onChange={setUploadParentChildIndexing} aria-label={t('启用父子分块')} />
+              </div>
             </div>
-            <Collapse
-              className="jx-kbUploadCollapse"
-              ghost
-              items={[{
-                key: 'advanced',
-                label: <Typography.Text type="secondary" className="jx-kbUploadCollapseLabel">{t('高级索引设置')}</Typography.Text>,
-                children: (
-                  <div className="jx-kbUploadAdvanced">
-                    <div className="jx-kbUploadAdvancedRow">
-                      <div className="jx-kbUploadAdvancedCol">
-                        <div className="jx-kbUploadFieldLabel">{uploadParentChildIndexing ? t('父块大小（token）') : t('块大小（token）')}</div>
-                        <InputNumber min={256} max={4096} step={128} value={uploadParentChunkSize} onChange={(v) => setUploadParentChunkSize(v ?? 1024)} style={{ width: '100%' }} />
-                      </div>
-                      {uploadParentChildIndexing && (
-                        <div className="jx-kbUploadAdvancedCol">
-                          <div className="jx-kbUploadFieldLabel">{t('子块大小（token）')}</div>
-                          <InputNumber min={64} max={512} step={32} value={uploadChildChunkSize} onChange={(v) => setUploadChildChunkSize(v ?? 128)} style={{ width: '100%' }} />
-                        </div>
-                      )}
-                      {uploadParentChildIndexing && (
-                        <div className="jx-kbUploadAdvancedCol">
-                          <div className="jx-kbUploadFieldLabel">{t('重叠 token')}</div>
-                          <InputNumber min={0} max={100} value={uploadOverlapTokens} onChange={(v) => setUploadOverlapTokens(v ?? 20)} style={{ width: '100%' }} />
-                        </div>
-                      )}
-                    </div>
-                    <div className="jx-kbUploadAdvancedRow">
-                      <div className="jx-kbUploadAdvancedCol">
-                        <div className="jx-kbUploadFieldLabel">{t('自动关键词数（0=关闭）')}</div>
-                        <InputNumber min={0} max={10} value={uploadAutoKeywordsCount} onChange={(v) => setUploadAutoKeywordsCount(v ?? 0)} style={{ width: '100%' }} />
-                      </div>
-                      <div className="jx-kbUploadAdvancedCol">
-                        <div className="jx-kbUploadFieldLabel">{t('自动问题数（0=关闭）')}</div>
-                        <InputNumber min={0} max={10} value={uploadAutoQuestionsCount} onChange={(v) => setUploadAutoQuestionsCount(v ?? 0)} style={{ width: '100%' }} />
-                      </div>
-                    </div>
-                    <div className="jx-kbUploadAdvancedRow">
-                      <div className="jx-kbUploadAdvancedCol" style={{ flex: '1 1 100%' }}>
-                        <div className="jx-kbUploadFieldLabel">
-                          {uploadParentChildIndexing ? t('父分块分隔符（每行一个，留空用默认）') : t('自定义分隔符（每行一个，留空用默认）')}
-                        </div>
-                        <Input.TextArea
-                          value={uploadSeparators}
-                          onChange={(e) => setUploadSeparators(e.target.value)}
-                          autoSize={{ minRows: 2, maxRows: 6 }}
-                          placeholder={'\\n\\n\n。\n；'}
-                          spellCheck={false}
-                        />
-                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                          {t('「递归分块」以此为分块依据（相邻小片段会合并到父块大小）；语义分块仅超长时用它兜底。可用 \\n \\t 表示换行/制表符')}
-                        </Typography.Text>
-                      </div>
-                    </div>
-                    {uploadParentChildIndexing && (
-                      <div className="jx-kbUploadAdvancedRow">
-                        <div className="jx-kbUploadAdvancedCol" style={{ flex: '1 1 100%' }}>
-                          <div className="jx-kbUploadFieldLabel">{t('子分块分隔符（每行一个，留空用默认）')}</div>
-                          <Input.TextArea
-                            value={uploadChildSeparators}
-                            onChange={(e) => setUploadChildSeparators(e.target.value)}
-                            autoSize={{ minRows: 2, maxRows: 6 }}
-                            placeholder={'\\n\n。'}
-                            spellCheck={false}
-                          />
-                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                            {t('父块拆成子块时按这些分隔符切，再按子块大小打包；为空走定长滑窗。可用 \\n \\t 表示换行/制表符')}
-                          </Typography.Text>
-                        </div>
-                      </div>
-                    )}
+            <AdvancedFields title={t('高级索引设置')} hint={t('块大小、自动关键词、分隔符')}>
+              <div className="jx-kbUploadAdvanced">
+                <FormGrid cols={3}>
+                  <div className="jx-kbUploadAdvancedCol">
+                    <div className="jx-kbUploadFieldLabel">{uploadParentChildIndexing ? t('父块大小（token）') : t('块大小（token）')}</div>
+                    <InputNumber min={256} max={4096} step={128} value={uploadParentChunkSize} onChange={(v) => setUploadParentChunkSize(v ?? 1024)} style={{ width: '100%' }} />
                   </div>
-                ),
-              }]}
-            />
+                  {uploadParentChildIndexing && (
+                    <div className="jx-kbUploadAdvancedCol">
+                      <div className="jx-kbUploadFieldLabel">{t('子块大小（token）')}</div>
+                      <InputNumber min={64} max={512} step={32} value={uploadChildChunkSize} onChange={(v) => setUploadChildChunkSize(v ?? 128)} style={{ width: '100%' }} />
+                    </div>
+                  )}
+                  {uploadParentChildIndexing && (
+                    <div className="jx-kbUploadAdvancedCol">
+                      <div className="jx-kbUploadFieldLabel">{t('重叠 token')}</div>
+                      <InputNumber min={0} max={100} value={uploadOverlapTokens} onChange={(v) => setUploadOverlapTokens(v ?? 20)} style={{ width: '100%' }} />
+                    </div>
+                  )}
+                  <div className="jx-kbUploadAdvancedCol">
+                    <div className="jx-kbUploadFieldLabel">{t('自动关键词数（0=关闭）')}</div>
+                    <InputNumber min={0} max={10} value={uploadAutoKeywordsCount} onChange={(v) => setUploadAutoKeywordsCount(v ?? 0)} style={{ width: '100%' }} />
+                  </div>
+                  <div className="jx-kbUploadAdvancedCol">
+                    <div className="jx-kbUploadFieldLabel">{t('自动问题数（0=关闭）')}</div>
+                    <InputNumber min={0} max={10} value={uploadAutoQuestionsCount} onChange={(v) => setUploadAutoQuestionsCount(v ?? 0)} style={{ width: '100%' }} />
+                  </div>
+                </FormGrid>
+                <FormGrid>
+                  <div className={uploadParentChildIndexing ? 'jx-kbUploadAdvancedCol' : 'jx-kbUploadAdvancedCol jx-formGrid-full'}>
+                    <div className="jx-kbUploadFieldLabel">{uploadParentChildIndexing ? t('父分块分隔符（每行一个，留空用默认）') : t('自定义分隔符（每行一个，留空用默认）')}<Tooltip title={t('「递归分块」以此为分块依据（相邻小片段会合并到父块大小）；语义分块仅超长时用它兜底。可用 \\n \\t 表示换行/制表符')}><QuestionCircleOutlined className="jx-formToggle-help" aria-label={t('说明')} /></Tooltip></div>
+                    <Input.TextArea
+                      value={uploadSeparators}
+                      onChange={(e) => setUploadSeparators(e.target.value)}
+                      autoSize={{ minRows: 2, maxRows: 4 }}
+                      placeholder={'\\n\\n\n。\n；'}
+                      spellCheck={false}
+                    />
+                  </div>
+                  {uploadParentChildIndexing && (
+                    <div className="jx-kbUploadAdvancedCol">
+                      <div className="jx-kbUploadFieldLabel">{t('子分块分隔符（每行一个，留空用默认）')}<Tooltip title={t('父块拆成子块时按这些分隔符切，再按子块大小打包；为空走定长滑窗。可用 \\n \\t 表示换行/制表符')}><QuestionCircleOutlined className="jx-formToggle-help" aria-label={t('说明')} /></Tooltip></div>
+                      <Input.TextArea
+                        value={uploadChildSeparators}
+                        onChange={(e) => setUploadChildSeparators(e.target.value)}
+                        autoSize={{ minRows: 2, maxRows: 4 }}
+                        placeholder={'\\n\n。'}
+                        spellCheck={false}
+                      />
+                    </div>
+                  )}
+                </FormGrid>
+              </div>
+            </AdvancedFields>
           </motion.div>
         ) : (
           <motion.div

@@ -18,6 +18,7 @@ import { ABILITY_TAB_TITLE } from './abilityTabs';
 import { PluginIconPicker } from './PluginIconPicker';
 import { CardTail } from '../common/CardTail';
 import { sortCapabilitiesByCreation } from '../../utils/capabilityOrder';
+import { COMPACT_MODAL_PROPS } from '../common/modalLayout';
 import {
   listPlugins, getInstalledPluginDetail,
   installPlugin, importPlugin, uninstallPlugin, setPluginEnabled, setInstalledPluginMeta,
@@ -419,7 +420,7 @@ export function PluginsPage() {
       {/* Import report modal */}
       <Modal open={!!report} title={t('导入报告：{name}', { name: report?.name || '' })}
         onCancel={() => setReport(null)}
-        footer={<Button type="primary" onClick={() => setReport(null)}>{t('知道了')}</Button>} width={560}>
+        footer={<Button type="primary" onClick={() => setReport(null)}>{t('知道了')}</Button>} width={560} {...COMPACT_MODAL_PROPS}>
         {report && <ImportReportView report={report.report} />}
       </Modal>
     </motion.div>
@@ -444,7 +445,7 @@ function ReportGroup({ icon, title, rows }: { icon: React.ReactNode; title: stri
   return (
     <div style={{ marginBottom: 14 }}>
       <div style={{ fontWeight: 600, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>{icon}{title}（{rows.length}）</div>
-      <ul style={{ margin: 0, paddingLeft: 22, color: 'var(--color-text-secondary)', fontSize: 13 }}>
+      <ul style={{ margin: 0, paddingLeft: 22, color: 'var(--color-text-secondary)', fontSize: 13, maxHeight: 200, overflowY: 'auto' }}>
         {rows.map((r, i) => <li key={i}>{r}</li>)}
       </ul>
     </div>

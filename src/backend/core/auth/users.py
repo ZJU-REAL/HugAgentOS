@@ -41,6 +41,11 @@ class UserService:
         user = self.repo.get_by_user_center_id(user_center_id)
 
         if user:
+            # An email set by an admin in the Config console wins over the SSO value.
+            from core.auth.user_profile import email_pinned
+
+            if email_pinned(user.extra_data):
+                email = user.email
             if (
                 not refresh_unchanged
                 and user.username == username

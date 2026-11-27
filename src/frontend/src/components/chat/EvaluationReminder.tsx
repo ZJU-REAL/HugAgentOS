@@ -19,16 +19,17 @@ function readDismissed(key: string | null): boolean {
 }
 
 /**
- * 温馨提醒: a small chip over the conversation that lists the five most recent conversations
- * still waiting for an evaluation. "Non-essential, do not disturb": it only appears when
- * something is pending, stays out of the reading flow, and can be hidden for this session.
+ * 温馨提醒: a floating chip in the bottom-right corner that lists the five most recent
+ * conversations still waiting for an evaluation. It only appears when something is pending,
+ * sits beside (not over) the composer, and can be hidden for this session.
  */
 interface EvaluationReminderProps {
-  /** `topbar` sits inline in the chat header; `welcome` floats over the empty new-chat page. */
-  placement?: 'topbar' | 'welcome';
+  /** `chat` floats just above the composer of an open conversation; `welcome` sits in the
+   * bottom-right corner of the empty new-chat page. */
+  placement?: 'chat' | 'welcome';
 }
 
-export function EvaluationReminder({ placement = 'topbar' }: EvaluationReminderProps) {
+export function EvaluationReminder({ placement = 'chat' }: EvaluationReminderProps) {
   const enabled = useAuthStore((s) => s.authUser?.can_use_evaluation === true);
   const dismissKey = userScopedKey(DISMISS_KEY, useAuthStore((s) => s.authUser?.user_id));
   const items = useEvaluationStore((s) => s.pendingItems);
@@ -55,9 +56,6 @@ export function EvaluationReminder({ placement = 'topbar' }: EvaluationReminderP
 
   const content = (
     <div className="jx-evalReminder-panel">
-      <p className="jx-evalReminder-hint">
-        {t('最近还没评价的对话，点一下回到原处评价。更早的对话可在历史对话里补评。')}
-      </p>
       <ul className="jx-evalReminder-list">
         {items.map((item) => (
           <li key={item.chat_id}>
@@ -88,7 +86,7 @@ export function EvaluationReminder({ placement = 'topbar' }: EvaluationReminderP
         trigger="click"
         open={open}
         onOpenChange={setOpen}
-        placement="bottomRight"
+        placement="topRight"
         classNames={{ root: 'jx-evalReminder-popover' }}
       >
         <button type="button" className="jx-evalReminder-chip" aria-haspopup="dialog" aria-expanded={open}>

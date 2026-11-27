@@ -45,11 +45,13 @@ export default function ProjectEnvironmentEditor({ value, onChange, projectId, o
       {error && <Alert type="error" title={error}
         action={<Button onClick={() => void load()}>{t('重试')}</Button>} />}
       <Spin spinning={loading}>
+        <div className="jx-projectEnvironment-pickers">
         {fields.map(field => <ProjectEnvironmentResourcePicker key={field}
           field={field} value={value[field]} options={options?.[field]}
           dependencies={dependencies}
           onChange={ids => onChange({ ...value, [field]: ids })}
           onMarket={canInstallFromMarket(authUser, field) ? () => setMarket(field) : undefined} />)}
+        </div>
       </Spin>
       {previewError && <Alert type="error" title={previewError}
         action={<Button onClick={retryPreview}>{t('重试')}</Button>} />}

@@ -1,6 +1,9 @@
 import { useCallback, useRef, useState } from 'react';
-import { Collapse, Form, Input, Modal, Radio, Select, Typography, message } from 'antd';
+import { Form, Input, Modal, Radio, Select, Tooltip, Typography, message } from 'antd';
+import { QuestionCircleOutlined } from '@ant-design/icons';
 import { t } from '../../i18n';
+import { AdvancedFields, FormGrid } from '../common/FormLayout';
+import { COMPACT_MODAL_PROPS } from '../common/modalLayout';
 import { cancelMcpMarketOAuth, createMyMcpServer, startMyMcpOAuth } from '../../api';
 import { OAUTH_CANCELLED, runMcpOAuthPopup, type McpOAuthAttempt } from './mcpOAuthPopup';
 
@@ -109,40 +112,47 @@ export function AddPrivateMcpModal({ open, onClose, onAdded }: AddPrivateMcpModa
       cancelText={t('取消')}
       confirmLoading={adding}
       destroyOnHidden
+      width={720}
+      {...COMPACT_MODAL_PROPS}
     >
-      <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-        {t('支持公网 HTTP/HTTPS 的远程 HTTP/SSE MCP，添加时会执行地址安全检查和工具发现。HTTP 为明文传输，生产环境建议使用 HTTPS。该连接仅你自己可见可用，之后可申请上架市场。')}
+      <Typography.Paragraph type="secondary" className="jx-addMcp-intro">
+        {t('添加公网远程 HTTP/SSE MCP，仅你自己可见可用，之后可申请上架市场。')}
+        <Tooltip title={t('支持公网 HTTP/HTTPS 的远程 HTTP/SSE MCP，添加时会执行地址安全检查和工具发现。HTTP 为明文传输，生产环境建议使用 HTTPS。该连接仅你自己可见可用，之后可申请上架市场。')}>
+          <QuestionCircleOutlined className="jx-addMcp-introHelp" aria-label={t('说明')} />
+        </Tooltip>
       </Typography.Paragraph>
       {stage && OAUTH_STAGE_TEXT[stage] && (
         <Typography.Paragraph type="secondary">{t(OAUTH_STAGE_TEXT[stage])}</Typography.Paragraph>
       )}
       <Form form={form} layout="vertical" initialValues={{ transport: 'streamable_http', auth: 'none' }}>
-        <Form.Item name="display_name" label={t('名称')} rules={[{ required: true, message: t('请输入名称') }]}>
-          <Input placeholder={t('如「我的天气服务」')} maxLength={255} />
-        </Form.Item>
-        <Form.Item name="transport" label={t('类型')} rules={[{ required: true }]}>
-          <Select
-            options={[
-              { label: 'Streamable HTTP', value: 'streamable_http' },
-              { label: 'SSE', value: 'sse' },
-            ]}
-          />
-        </Form.Item>
-        <Form.Item name="url" label={t('服务地址 URL')} rules={[{ required: true, message: t('请输入 URL') }]}>
-          <Input placeholder={t('http://example.com:8080/mcp 或 https://example.com/mcp')} />
-        </Form.Item>
-        <Form.Item name="description" label={t('描述（可选）')}>
-          <Input.TextArea rows={2} maxLength={2000} placeholder={t('简单说明这个工具的用途')} />
-        </Form.Item>
-        <Form.Item name="auth" label={t('鉴权方式')}>
-          <Radio.Group>
-            <Radio value="none">{t('无需鉴权')}</Radio>
-            <Radio value="header">{t('请求头 / Token')}</Radio>
-            <Radio value="oauth">OAuth</Radio>
-          </Radio.Group>
-        </Form.Item>
+        <FormGrid>
+          <Form.Item name="display_name" label={t('名称')} rules={[{ required: true, message: t('请输入名称') }]}>
+            <Input placeholder={t('如「我的天气服务」')} maxLength={255} />
+          </Form.Item>
+          <Form.Item name="transport" label={t('类型')} rules={[{ required: true }]}>
+            <Select
+              options={[
+                { label: 'Streamable HTTP', value: 'streamable_http' },
+                { label: 'SSE', value: 'sse' },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item name="url" label={t('服务地址 URL')} rules={[{ required: true, message: t('请输入 URL') }]}>
+            <Input placeholder={t('http://example.com:8080/mcp 或 https://example.com/mcp')} />
+          </Form.Item>
+          <Form.Item name="auth" label={t('鉴权方式')}>
+            <Radio.Group optionType="button">
+              <Radio value="none">{t('无需鉴权')}</Radio>
+              <Radio value="header">{t('请求头 / Token')}</Radio>
+              <Radio value="oauth">OAuth</Radio>
+            </Radio.Group>
+          </Form.Item>
+          <Form.Item name="description" label={t('描述（可选）')} className="jx-formGrid-full">
+            <Input.TextArea autoSize={{ minRows: 1, maxRows: 3 }} maxLength={2000} placeholder={t('简单说明这个工具的用途')} />
+          </Form.Item>
+        </FormGrid>
         {auth === 'oauth' && (
-          <Typography.Paragraph type="secondary">
+          <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
             {t('点击授权并添加后，在新标签页登录并同意授权；令牌加密保存，只属于你。')}
           </Typography.Paragraph>
         )}
@@ -151,36 +161,30 @@ export function AddPrivateMcpModal({ open, onClose, onAdded }: AddPrivateMcpModa
             name="headers_text"
             label={auth === 'oauth' ? t('额外请求头（可选）') : t('请求头')}
             rules={auth === 'header' ? [{ required: true, message: t('请填写认证请求头') }] : []}
-            help={auth === 'oauth'
+            tooltip={auth === 'oauth'
               ? t('随每次请求额外发送的头，每行一个：Key=Value；一般无需填写。')
               : t('每行一个：Key=Value。需要鉴权的服务在此填认证头，如 Authorization=Bearer xxx')}
           >
-            <Input.TextArea rows={2} placeholder={auth === 'oauth' ? 'X-Tenant=acme' : 'Authorization=Bearer xxx'} />
+            <Input.TextArea autoSize={{ minRows: 1, maxRows: 4 }} placeholder={auth === 'oauth' ? 'X-Tenant=acme' : 'Authorization=Bearer xxx'} />
           </Form.Item>
         )}
         {auth === 'oauth' && (
-          <Collapse
-            ghost
-            size="small"
-            items={[{
-              key: 'advanced',
-              label: t('高级：Scopes 与自己的 OAuth App（可选）'),
-              children: (
-                <>
-                  <Form.Item name="scopes" label={t('Scopes（可选）')} extra={t('留空使用授权服务器默认权限。')}>
-                    <Select mode="tags" tokenSeparators={[' ', ',']} placeholder="read mcp" />
-                  </Form.Item>
-                  <Typography.Paragraph type="secondary">
-                    {t('仅当服务方不支持自动注册时需要。回调地址：{url}', { url: `${window.location.origin}/api/v1/mcp-market/oauth/callback` })}
-                  </Typography.Paragraph>
-                  <Form.Item name="oauth_client_id" label="OAuth Client ID"><Input autoComplete="off" /></Form.Item>
-                  <Form.Item name="oauth_client_secret" label="OAuth Client Secret">
-                    <Input.Password autoComplete="new-password" />
-                  </Form.Item>
-                </>
-              ),
-            }]}
-          />
+          <AdvancedFields title={t('高级：Scopes 与自己的 OAuth App（可选）')}>
+            <FormGrid cols={3}>
+              <Form.Item name="scopes" label={t('Scopes（可选）')} tooltip={t('留空使用授权服务器默认权限。')}>
+                <Select mode="tags" tokenSeparators={[' ', ',']} placeholder="read mcp" />
+              </Form.Item>
+              <Form.Item name="oauth_client_id" label="OAuth Client ID"><Input autoComplete="off" /></Form.Item>
+              <Form.Item name="oauth_client_secret" label="OAuth Client Secret">
+                <Input.Password autoComplete="new-password" />
+              </Form.Item>
+              <div className="jx-formGrid-full">
+                <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+                  {t('仅当服务方不支持自动注册时需要。回调地址：{url}', { url: `${window.location.origin}/api/v1/mcp-market/oauth/callback` })}
+                </Typography.Paragraph>
+              </div>
+            </FormGrid>
+          </AdvancedFields>
         )}
       </Form>
     </Modal>

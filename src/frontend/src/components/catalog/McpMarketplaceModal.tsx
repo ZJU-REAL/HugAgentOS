@@ -34,6 +34,8 @@ import {
 } from '../../api';
 import type { McpMarketItem } from '../../types';
 import { OAUTH_CANCELLED, runMcpOAuthPopup, type McpOAuthAttempt } from './mcpOAuthPopup';
+import { FormGrid } from '../common/FormLayout';
+import { COMPACT_MODAL_PROPS } from '../common/modalLayout';
 import { normalizeMcpIconUrl } from '../../utils/iconLibrary';
 
 const PAGE_SIZE = 10;
@@ -87,12 +89,25 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
     return method?.type === 'oauth2' ? method : undefined;
   }, [installTarget, selectedAuthMethod]);
   const oauthAttemptRef = useRef<McpOAuthAttempt | null>(null);
+  const installCredentialFields = useMemo(() => (
+    installTarget?.credentials_managed_by_admin ? [] : (installTarget?.auth_schema || []).filter((field) => (
+      !field.methods?.length || field.methods.includes(selectedAuthMethod || installTarget?.auth_config?.default_method)
+    ))
+  ), [installTarget, selectedAuthMethod]);
+  // More than two inputs: widen and pair them so the dialog stays one screen tall.
+  const installWide = installCredentialFields.length
+    + (selectedOAuthMethod?.client_id_required ? 1 : 0)
+    + (selectedOAuthMethod?.client_secret_required ? 1 : 0) > 2;
 
   const reload = useCallback(async () => {
     setLoading(true);
     try {
       const result = await getMcpMarketItems();
-      setItems(result.items || []);
+      // Order: not installed → installed → system-provided ("系统已提供", same condition as the
+      // disabled button) last; stable sort keeps backend order within each group. Sorted on load
+      // only, so a card doesn't jump away right after it is installed.
+      const rank = (m: McpMarketItem) => (m.system_provided && !m.requires_user_credentials ? 2 : m.installed ? 1 : 0);
+      setItems([...(result.items || [])].sort((a, b) => rank(a) - rank(b)));
       setCategories(result.categories || []);
     } catch (error) {
       message.error((error as Error).message || t('加载 MCP 市场失败'));
@@ -371,6 +386,8 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
 
       <Modal
         open={!!installTarget}
+        width={installWide ? 720 : 520}
+        {...COMPACT_MODAL_PROPS}
         title={installTarget ? t('安装「{name}」', { name: installTarget.display_name }) : ''}
         onCancel={cancelInstall}
         onOk={() => void submitInstall()}
@@ -401,8 +418,9 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
           </Typography.Paragraph>
         )}
         <Form form={installForm} layout="vertical">
+          <FormGrid cols={2} className={installWide ? undefined : 'jx-formGrid--single'}>
           {!installTarget?.credentials_managed_by_admin && (installTarget?.auth_config?.methods?.length || 0) > 1 && (
-            <Form.Item name="auth_method" label={t('认证方式')} rules={[{ required: true }]}>
+            <Form.Item name="auth_method" label={t('认证方式')} className="jx-formGrid-full" rules={[{ required: true }]}>
               <Select options={installTarget?.auth_config.methods.map((method) => ({
                 value: method.id,
                 label: method.label,
@@ -419,9 +437,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
               <Input.Password autoComplete="new-password" />
             </Form.Item>
           )}
-          {!installTarget?.credentials_managed_by_admin && (installTarget?.auth_schema || []).filter((field) => (
-            !field.methods?.length || field.methods.includes(selectedAuthMethod || installTarget?.auth_config?.default_method)
-          )).map((field) => (
+          {installCredentialFields.map((field) => (
             <Form.Item
               key={field.key}
               name={['credentials', field.key]}
@@ -439,6 +455,7 @@ export function McpMarketplaceModal({ open, canInstall, onClose, onInstalled }: 
                 : <Input placeholder={field.placeholder} />}
             </Form.Item>
           ))}
+          </FormGrid>
         </Form>
       </Modal>
     </>

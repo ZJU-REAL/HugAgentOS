@@ -184,8 +184,8 @@ button.pa-side-row:disabled{cursor:default}
 .pa-profile-option:hover{border-color:var(--color-border)}
 .pa-profile-option--active{border-color:var(--color-primary)}
 /* Settings: grouped rows, label and description left, control right. */
-.pa-settings-modal .ant-modal-body{max-height:min(72vh,720px);overflow-y:auto;margin-right:-12px;padding-right:12px}
-.pa-settings{display:flex;flex-direction:column;gap:20px;padding-top:4px}
+.pa-settings-modal .ant-modal-body{max-height:calc(100vh - 160px);overflow-y:auto;margin-right:-12px;padding-right:12px}
+.pa-settings{display:flex;flex-direction:column;gap:16px;padding-top:4px}
 .pa-set-hero{display:flex;align-items:center;gap:14px;width:100%;padding:12px 14px;border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-bg-container);color:var(--color-text);text-align:left;cursor:pointer;transition:background var(--motion-duration-fast) var(--motion-ease-standard)}
 .pa-set-hero:hover{background:var(--color-bg-layout)}
 .pa-set-hero>.anticon{color:var(--color-text-placeholder)}
@@ -291,3 +291,22 @@ button.pa-side-row:disabled{cursor:default}
 
 .pa-delivery-artifacts{margin-top:10px;min-width:0;max-width:100%}
 .pa-message[data-delivery]{width:100%}
+
+/* ── Settings dialog: sections as vertical tabs (one group on screen at a time) ── */
+.pa-settings-tabs{min-height:360px}
+.pa-settings-tabs .ant-tabs-nav{min-width:128px}
+.pa-settings-tabs .ant-tabs-content-holder{min-width:0}
+.pa-settings-tabs .pa-set-group h3{display:none}
+@media (max-width:640px){
+  .pa-settings-tabs .ant-tabs-nav{min-width:0}
+}
+
+/* ── Device sessions dialog: fixed-height panes so the dialog fits the window ── */
+.pa-device-session-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.pa-device-session-list{max-height:min(480px,calc(100vh - 280px));overflow-y:auto}
+.pa-device-session-pane{display:flex;flex-direction:column;gap:12px;min-width:0}
+.pa-device-session-row{display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px}
+.pa-device-session-row>.ant-input,.pa-device-session-row>textarea.ant-input{flex:1 1 240px;min-width:0}
+/* layout-ok: two buttons; the row wraps, so the group moves below the input */
+.pa-device-session-buttons{flex:none;max-width:100%;margin-left:auto}
+.pa-device-session-messages{max-height:min(320px,calc(100vh - 420px));overflow-y:auto}

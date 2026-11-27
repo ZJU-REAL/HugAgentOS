@@ -426,4 +426,7 @@ export const PERSONAL_AGENT_DICT: Record<string, string> = {
   '未知原因': "unknown reason",
   '已同步到 {name} 的工作区 · {time}': "Copied into {name}'s workspace · {time}",
   '{name} 已有同名技能，保留 {name} 自己的版本：{skills}': "{name} already has a skill with the same name and keeps its own version: {skills}",
+  // ── Channel dialog: compact grid + per-channel detail view ──
+  '全部频道': 'All channels',
+  '允许的账号': 'Allowed accounts',
 };

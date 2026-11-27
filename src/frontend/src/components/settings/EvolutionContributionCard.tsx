@@ -109,6 +109,7 @@ export function EvolutionContributionCard({ open, onClose }: Props) {
       onCancel={onClose}
       footer={null}
       width={640}
+      centered
       title={t('本账号促成的能力进化')}
       className="jx-evoContrib-modal"
     >

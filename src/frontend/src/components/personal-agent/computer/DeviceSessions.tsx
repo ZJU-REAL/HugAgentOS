@@ -70,24 +70,28 @@ export function DeviceSessions({ target, name, onClose }: { target: string; name
     if (all || signal.topics.includes(target)) void load(pageRef.current).catch(failed);
     if (selected && (all || signal.topics.includes(target + ':' + selected))) void refresh(selected).catch(failed);
   }), [target, load, refresh]);
-  return <Modal open title={name + ' · ' + t('会话管理')} onCancel={onClose} footer={null} width={840}>
-    {error && <Alert type="error" title={error} />}
-    <Space><Button disabled={busy} onClick={() => void act(async () => { const created = await operation('chat.create', { title: t('新对话') }) as Chat;await load();setChat(created); })}>{t('新建对话')}</Button>
-      <Button disabled={busy} onClick={() => void act(() => load(page))}>{t('刷新')}</Button><Button disabled={busy || page === 1} onClick={() => void act(() => load(page - 1))}>{t('上一页')}</Button><Button disabled={busy || !more} onClick={() => void act(() => load(page + 1))}>{t('下一页')}</Button></Space>
+  return <Modal open centered title={name + ' · ' + t('会话管理')} onCancel={onClose} footer={null} width={840}>
+    {error && <Alert type="error" title={error} style={{ marginBottom: 12 }} />}
+    <div className="pa-device-session-toolbar"><Button disabled={busy} onClick={() => void act(async () => { const created = await operation('chat.create', { title: t('新对话') }) as Chat;await load();setChat(created); })}>{t('新建对话')}</Button>
+      <Button disabled={busy} onClick={() => void act(() => load(page))}>{t('刷新')}</Button><Button disabled={busy || page === 1} onClick={() => void act(() => load(page - 1))}>{t('上一页')}</Button><Button disabled={busy || !more} onClick={() => void act(() => load(page + 1))}>{t('下一页')}</Button></div>
     <Spin spinning={busy}><div className="pa-device-session-grid">
-      <List dataSource={chats} renderItem={item => <List.Item><Button type={chat?.chat_id === item.chat_id ? 'primary' : 'text'} onClick={() => { setMessages([]);setRun(null);setChat(item); }}>{item.title}</Button></List.Item>} />
-      <div>{chat && <>
-        <Input aria-label={t('会话名称')} value={chat.title} onChange={event => setChat({ ...chat, title: event.target.value })} />
-        <Space><Button disabled={busy} onClick={() => void act(async () => { await operation('chat.update', { chat_id: chat.chat_id, title: chat.title });await load(); })}>{t('保存')}</Button>
-          <Button danger disabled={busy} onClick={() => Modal.confirm({ title: t('删除会话'), content: chat.title, onOk: () => act(async () => { await operation('chat.delete', { chat_id: chat.chat_id });setChat(null);setMessages([]);await load(); }) })}>{t('删除')}</Button></Space>
-        <div style={{ maxHeight: 420, overflowY: 'auto' }}>{messages.map(message => <div key={message.message_id}><strong>{message.role === 'user' ? t('你') : t('助手')}</strong><p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{message.content}</p></div>)}</div>
-        <Input.TextArea aria-label={t('发送消息')} value={text} onChange={event => setText(event.target.value)} />
-        <Space><Button disabled={busy || !text.trim()} onClick={() => void act(async () => {
-          if (run?.chatId === chat.chat_id) await operation('run.steer', { run_id: run.id, message: text, steer_id: crypto.randomUUID(), delivery_mode: 'followUp' });
-          else { const started = await operation('chat.send', { chat_id: chat.chat_id, message: text }) as { run_id: string };if (selectedId.current === chat.chat_id) setRun({ id: started.run_id, chatId: chat.chat_id }); }
-          setText('');await refresh(chat.chat_id);
-        })}>{run ? t('追加任务') : t('发送')}</Button>
-          {run && <Button danger disabled={busy} onClick={() => void act(async () => { await operation('run.cancel', { run_id: run.id });await refresh(chat.chat_id); })}>{t('停止')}</Button>}</Space>
+      <List className="pa-device-session-list" dataSource={chats} renderItem={item => <List.Item><Button type={chat?.chat_id === item.chat_id ? 'primary' : 'text'} onClick={() => { setMessages([]);setRun(null);setChat(item); }}>{item.title}</Button></List.Item>} />
+      <div className="pa-device-session-pane">{chat && <>
+        <div className="pa-device-session-row">
+          <Input aria-label={t('会话名称')} value={chat.title} onChange={event => setChat({ ...chat, title: event.target.value })} />
+          <Space className="pa-device-session-buttons"><Button disabled={busy} onClick={() => void act(async () => { await operation('chat.update', { chat_id: chat.chat_id, title: chat.title });await load(); })}>{t('保存')}</Button>
+            <Button danger disabled={busy} onClick={() => Modal.confirm({ title: t('删除会话'), content: chat.title, onOk: () => act(async () => { await operation('chat.delete', { chat_id: chat.chat_id });setChat(null);setMessages([]);await load(); }) })}>{t('删除')}</Button></Space>
+        </div>
+        <div className="pa-device-session-messages">{messages.map(message => <div key={message.message_id}><strong>{message.role === 'user' ? t('你') : t('助手')}</strong><p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{message.content}</p></div>)}</div>
+        <div className="pa-device-session-row">
+          <Input.TextArea aria-label={t('发送消息')} autoSize={{ minRows: 1, maxRows: 4 }} value={text} onChange={event => setText(event.target.value)} />
+          <Space className="pa-device-session-buttons"><Button disabled={busy || !text.trim()} onClick={() => void act(async () => {
+            if (run?.chatId === chat.chat_id) await operation('run.steer', { run_id: run.id, message: text, steer_id: crypto.randomUUID(), delivery_mode: 'followUp' });
+            else { const started = await operation('chat.send', { chat_id: chat.chat_id, message: text }) as { run_id: string };if (selectedId.current === chat.chat_id) setRun({ id: started.run_id, chatId: chat.chat_id }); }
+            setText('');await refresh(chat.chat_id);
+          })}>{run ? t('追加任务') : t('发送')}</Button>
+            {run && <Button danger disabled={busy} onClick={() => void act(async () => { await operation('run.cancel', { run_id: run.id });await refresh(chat.chat_id); })}>{t('停止')}</Button>}</Space>
+        </div>
       </>}</div>
     </div></Spin>
   </Modal>;

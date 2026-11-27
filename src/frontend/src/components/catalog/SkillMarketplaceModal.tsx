@@ -54,7 +54,11 @@ export function SkillMarketplaceModal({
     setLoading(true);
     try {
       const res = await fetchers.loadList();
-      setItems(res.items || []);
+      // Order: not installed → installed → built-in ("已内置") last; stable sort keeps the backend
+      // order within each group. Sorted on load only, so a card doesn't jump away right after the
+      // user installs it.
+      const rank = (s: MarketplaceSkill) => (s.builtin ? 2 : s.installed ? 1 : 0);
+      setItems([...(res.items || [])].sort((a, b) => rank(a) - rank(b)));
       setCategories(res.categories || []);
     } catch (e) {
       message.error((e as Error).message || t('加载技能市场失败'));
