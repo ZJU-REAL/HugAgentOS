@@ -68,6 +68,12 @@ export interface AuthUser extends EditionAuthUserFields {
   can_use_evaluation?: boolean;
   /** Whether the user may configure and use ontology validation (default false) */
   can_use_ontology_validation?: boolean;
+  /** 进化控制台: long-term memory, evolution prefs and personal approvals (default true; false hides and disables them) */
+  can_use_evolution?: boolean;
+  /** Per-file My Space upload cap in MB (null/undefined = no cap) */
+  my_space_upload_limit_mb?: number | null;
+  /** Per-file private knowledge base upload cap in MB (null/undefined = no cap) */
+  personal_kb_upload_limit_mb?: number | null;
   /** Whether Personal Agent is available: module enabled on the server and permission granted (default false) */
   can_use_personal_agent?: boolean;
   /** Whether the user may enter the /config system settings console without a token (default false) */

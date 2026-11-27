@@ -24,7 +24,7 @@ This reference is sourced from `.env.example` and `src/backend/core/config/setti
 | `DOCKER_GID` | `999` | Host docker group GID granting the backend container access to `/var/run/docker.sock` (find with `stat -c '%g' /var/run/docker.sock`) | CE |
 | `COMPOSE_PROFILES` | CE Docker: `opensandbox` | Compose profile selection (`script_runner` / `opensandbox`, append `,mem0` as needed); must match `SANDBOX_PROVIDER` | CE |
 | `COMPOSE_FILE` | (unset) | Compose overlay files; set `docker-compose.yml:docker/sandbox/compose.cube.yml` for CubeSandbox | CE |
-| `MAX_REQUEST_SIZE` | `52428800` (code default, 50 MB) | Maximum request body size (bytes) | CE |
+| `MAX_REQUEST_SIZE` | `52428800` (code default, 50 MB) | Maximum request body size (bytes) for non-upload requests; file uploads follow the per-file caps in role/team/user permissions | CE |
 | `DB_MIGRATION_RETRIES` / `DB_MIGRATION_RETRY_INTERVAL` | `20` / `2` (entrypoint defaults) | Startup migration retry count / interval (seconds) | CE |
 
 ### Logging and chat-run watchdog

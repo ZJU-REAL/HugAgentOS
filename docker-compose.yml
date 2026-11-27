@@ -413,13 +413,11 @@ services:
         VITE_EDITION: ${VITE_EDITION:-ce}
         VITE_DEFAULT_LANGUAGE: ${VITE_DEFAULT_LANGUAGE:-zh-CN}
         HUGAGENT_CHAT_CUSTOMIZATION: ${HUGAGENT_CHAT_CUSTOMIZATION:-}
-        VITE_UPLOAD_MAX_MB: ${UPLOAD_MAX_MB:-50}
     container_name: hugagent-frontend
     logging: *id001
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       BACKEND_PORT: ${BACKEND_PORT:-3001}
-      UPLOAD_MAX_MB: ${UPLOAD_MAX_MB:-50}
     ports:
     - ${FRONTEND_PORT:-3002}:80
     volumes:

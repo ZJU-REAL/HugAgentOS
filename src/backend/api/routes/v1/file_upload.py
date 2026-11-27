@@ -21,9 +21,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/file", tags=["file"])
 
-_MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
-
-
 @router.post("/upload", summary="上传用户文件到 OSS 持久存储")
 def upload_user_file(
     file: UploadFile = File(...),
@@ -48,14 +45,27 @@ def upload_user_file(
 
     from core.db.personal_file_names import validate_filename
     validate_filename(file.filename)
-    file_bytes = file.file.read(_MAX_UPLOAD_BYTES + 1)
+    # No fixed size cap here: the per-file cap is the role/team/user "my_space_upload_limit_mb"
+    # setting, enforced below once the target space is known.
+    file_bytes = file.file.read()
     if not file_bytes:
         raise HTTPException(status_code=400, detail="文件内容为空")
 
-    if len(file_bytes) > _MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="文件过大，最大支持 50 MB")
-
     user_id = str(user.user_id)
+    # Every upload, chat attachments included, also lands in My Space (root when no folder).
+    # Callers without a personal space (API keys, public-chat visitors) keep the artifact only.
+    from core.files.spaces.files import SpaceFiles
+    from core.files.spaces.projects import folder_path
+    space: Optional[SpaceFiles] = SpaceFiles(db, user_id, get_storage())
+    try:
+        personal = space.grant("personal", write=True)
+    except HTTPException:
+        space = None
+    if user.public_chat_visitor and not folder_id:
+        space = None
+    if space is not None:
+        from core.auth.capabilities import enforce_upload_limit
+        enforce_upload_limit(db, user_id, "my_space_upload_limit_mb", len(file_bytes), "我的空间")
 
     # A scoped key's chat id names its own session; create it on the first-turn upload.
     upload_meta = {}
@@ -81,6 +91,11 @@ def upload_user_file(
     # Serialize this user's uploads (before any folder lock) so the free-name pick below cannot race.
     from core.db.repository.folder import lock_folder_owner
     lock_folder_owner(db, UserShadow, "user_id", user_id)
+    if space is not None and not existing:
+        # Checked under the owner lock and before the artifact is stored, so a full space rejects
+        # the upload outright instead of leaving a stray snapshot. A retry is already counted.
+        from core.files.spaces.quota import ensure_space_quota
+        ensure_space_quota(db, space.storage, personal, len(file_bytes))
 
     # Verify folder_id must be a valid personal folder belonging to the current user
     db_folder_id: Optional[str] = None
@@ -100,17 +115,6 @@ def upload_user_file(
             raise HTTPException(status_code=400, detail="目标文件夹不存在")
         db_folder_id = folder_id
 
-    # Every upload, chat attachments included, also lands in My Space (root when no folder).
-    # Callers without a personal space (API keys, public-chat visitors) keep the artifact only.
-    from core.files.spaces.files import SpaceFiles
-    from core.files.spaces.projects import folder_path
-    space: Optional[SpaceFiles] = SpaceFiles(db, user_id, get_storage())
-    try:
-        space.grant("personal", write=True)
-    except HTTPException:
-        space = None
-    if user.public_chat_visitor and not db_folder_id:
-        space = None
     directory = folder_path(db, UserFolder, {"user_id": user_id}, db_folder_id) if space else ""
 
     def space_path(name: str) -> str:
@@ -150,7 +154,8 @@ def upload_user_file(
     if space:
         # Two copies on purpose: the artifact is the chat's immutable snapshot, the space file is
         # the editable working copy. Copy server-side instead of uploading the bytes a second time.
-        space.copy_from("personal", space_path(filename), artifact.storage_key, artifact.size_bytes)
+        space.copy_from("personal", space_path(filename), artifact.storage_key, artifact.size_bytes,
+            check_quota=False)
 
     return {
         "file_id": artifact.artifact_id,
@@ -174,8 +179,6 @@ def overwrite_file(
     file_bytes = file.file.read()
     if not file_bytes:
         raise HTTPException(status_code=400, detail="文件内容为空")
-    if len(file_bytes) > _MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="文件过大，最大支持 50 MB")
 
     from core.files.artifacts.local_reference import is_local_file_ref, overwrite_reference
     if is_local_file_ref(file_id):

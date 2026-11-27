@@ -48,8 +48,15 @@ def _client(db) -> TestClient:
 def test_payload_has_every_permission_field(db):
     payload = account_capability_payload(db, "u1")
 
+    limits = {
+        "my_space_upload_limit_mb",
+        "personal_kb_upload_limit_mb",
+        "my_space_quota_mb",
+        "personal_kb_quota_mb",
+    }
     expected = {"allowed_apps", *BOOL_CAPABILITY_DEFAULTS, *PAGE_ADMIN_FLAGS}
-    assert set(payload) == expected
+    assert set(payload) == expected | limits
+    assert all(payload[k] is None for k in limits)
     assert payload["allowed_apps"] == ["a1"]
     assert payload["can_use_api_key"] is True
     assert payload["can_add_skill"] is True

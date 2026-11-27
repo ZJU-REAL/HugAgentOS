@@ -230,7 +230,7 @@
 
 | 接口 | 说明 |
 |---|---|
-| `POST /v1/me/skills/upload` | 上传技能 zip 包（上限 50MB，小于管理员的 200MB） |
+| `POST /v1/me/skills/upload` | 上传技能 zip 包（上限 200MB，与管理员一致） |
 | `POST /v1/me/skills` | 手写新建（SKILL.md 内容直接提交） |
 | `GET /v1/me/skills/{id}` | 取回用于编辑 |
 | `PUT /v1/me/skills/{id}/icon` | 设置图标 |

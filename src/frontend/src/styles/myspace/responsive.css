@@ -155,3 +155,19 @@
     flex: 1 1 100%;
   }
 }
+
+/* 中等宽度：右侧工具收紧，把空间留给左侧的存储用量，避免工具被挤到下一行。
+   新建文件夹 / 返回上级 只留图标（悬停有提示），搜索框变窄。更窄（≤560px）时工具区本来就换成两行，不再收紧。 */
+@container myspace (min-width: 561px) and (max-width: 1040px) {
+  .jx-mySpace-filterTools .jx-mySpace-toolLabel {
+    display: none;
+  }
+
+  .jx-mySpace-filterTools .ant-btn:has(> .jx-mySpace-toolLabel) {
+    padding-inline: 11px;
+  }
+
+  .jx-mySpace-filterTools .jx-mySpace-search.ant-input-affix-wrapper {
+    width: 160px;
+  }
+}

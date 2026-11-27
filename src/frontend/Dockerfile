@@ -13,14 +13,10 @@ ARG VITE_DEFAULT_LANGUAGE=zh-CN
 ARG HUGAGENT_CHAT_CUSTOMIZATION=
 ENV HUGAGENT_CHAT_CUSTOMIZATION=$HUGAGENT_CHAT_CUSTOMIZATION
 ARG NODE_HEAP_MB=6144
-# Upload size hint baked into the JS bundle; keep in sync with the runtime
-# UPLOAD_MAX_MB below (compose feeds both from the same UPLOAD_MAX_MB env var)
-ARG VITE_UPLOAD_MAX_MB=50
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 ENV SSO_LOGIN_URL=$SSO_LOGIN_URL
 ENV VITE_EDITION=$VITE_EDITION
 ENV VITE_DEFAULT_LANGUAGE=$VITE_DEFAULT_LANGUAGE
-ENV VITE_UPLOAD_MAX_MB=$VITE_UPLOAD_MAX_MB
 ENV NODE_OPTIONS=--max-old-space-size=${NODE_HEAP_MB}
 
 # Copy package files
@@ -51,8 +47,6 @@ FROM nginx:1.27-alpine
 
 # Runtime port for nginx → backend proxy (overridden via docker-compose environment)
 ENV BACKEND_PORT=3001
-# nginx client_max_body_size for /api/ uploads, in MB (overridden via docker-compose)
-ENV UPLOAD_MAX_MB=50
 
 # Copy base nginx config (includes conf.d/)
 COPY src/frontend/nginx.conf /etc/nginx/nginx.conf
@@ -81,4 +75,4 @@ HEALTHCHECK --interval=30s --timeout=3s \
 EXPOSE 80
 
 # Render template with envsubst (only the listed vars are substituted; nginx $vars are left intact)
-CMD ["/bin/sh", "-c", "envsubst '$BACKEND_PORT $UPLOAD_MAX_MB' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
+CMD ["/bin/sh", "-c", "envsubst '$BACKEND_PORT' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]

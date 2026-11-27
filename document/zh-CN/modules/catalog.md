@@ -93,7 +93,7 @@ get_enabled_ids("mcp")                 # 某类全部启用 id
 |---|---|
 | `POST /v1/me/mcp-servers` | 添加私有远程 MCP（仅 `streamable_http` / `sse`，**不支持 stdio**——不允许在服务器执行任意命令）；创建即试连，连不上拒绝落库 |
 | `DELETE /v1/me/mcp-servers/{id}` | 删除自己的私有 MCP |
-| `POST /v1/me/skills/upload` | zip 包上传私有技能（≤50MB，复用 admin 解析链路） |
+| `POST /v1/me/skills/upload` | zip 包上传私有技能（≤200MB，复用 admin 解析链路） |
 | `POST /v1/me/skills` | 手写新建/更新私有技能（SKILL.md 正文 + 元数据） |
 | `GET/DELETE /v1/me/skills/{skill_id}`、`PUT .../icon` | 读取编辑、删除、设图标 |
 

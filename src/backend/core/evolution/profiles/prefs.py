@@ -97,16 +97,26 @@ def normalise(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def resolve_prefs(user_id: str) -> Dict[str, Any]:
-    """Read a user's preferences, falling back to defaults. Never raises."""
+    """Read a user's preferences, falling back to defaults. Never raises.
+
+    Without the evolution-console permission evolution reads as off, whatever is stored,
+    so granting the permission back restores the user's own earlier choice.
+    """
     if not user_id:
         return normalise(None)
     try:
+        from core.auth.capabilities import meta_has_capability
         from core.db.models import UserShadow
 
         with SessionLocal() as db:
             row = db.query(UserShadow).filter(UserShadow.user_id == user_id).first()
             metadata = (getattr(row, "extra_data", None) or {}) if row else {}
-        return normalise(metadata.get(PREFS_KEY))
+            prefs = normalise(metadata.get(PREFS_KEY))
+            if prefs["enabled"] and not meta_has_capability(
+                db, user_id, metadata, "can_use_evolution"
+            ):
+                prefs["enabled"] = False
+        return prefs
     except Exception as exc:
         logger.debug("[evo-prefs] read failed for %s: %s", user_id, exc)
         return normalise(None)

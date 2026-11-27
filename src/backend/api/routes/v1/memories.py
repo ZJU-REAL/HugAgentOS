@@ -116,6 +116,12 @@ def update_memory_settings(
         patch["memory_write_enabled"] = body.memory_write_enabled
     if body.reranker_enabled is not None:
         patch["reranker_enabled"] = body.reranker_enabled
+    if patch.get("memory_enabled") is True or patch.get("memory_write_enabled") is True:
+        from core.auth.capabilities import require_capability
+
+        require_capability(
+            db, str(user.user_id), "can_use_evolution", "未开通进化控制台，无法开启长期记忆"
+        )
     if patch:
         MemorySettingsService(db).validate_patch(patch)
         svc.update_user_metadata(user_id=str(user.user_id), patch=patch)
@@ -157,7 +163,12 @@ def _list_scope(db: Session, user_id: str, project_id: Optional[str]):
 
 def _graph_scope(db: Session, user_id: str, project_id: Optional[str]):
     if project_id:
+        from core.auth.capabilities import user_has_capability
         from core.projects.edition import project_memory_policy
+
+        # get_user_settings gates the personal branch; project policy needs the same gate.
+        if not user_has_capability(db, user_id, "can_use_evolution"):
+            return False, user_id
 
         return project_memory_policy(db, project_id, user_id) or (False, user_id)
     settings = UserService(db).get_user_settings(user_id)

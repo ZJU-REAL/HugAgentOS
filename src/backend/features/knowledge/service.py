@@ -459,6 +459,10 @@ class KBService:
                     "chunk_method": space.chunk_method or "semantic",
                 }
 
+        from features.knowledge.quota import enforce_private_kb_upload
+
+        enforce_private_kb_upload(self.db, space, artifact.size_bytes or 0)
+
         document_data = {
             "document_id": f"doc_{uuid.uuid4().hex[:16]}",
             "kb_id": kb_id,

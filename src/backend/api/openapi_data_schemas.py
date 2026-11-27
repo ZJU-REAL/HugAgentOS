@@ -47,6 +47,7 @@ _CAPABILITY_FLAGS: Tuple[str, ...] = (
     "can_switch_model",
     "can_use_voice",
     "can_use_evaluation",
+    "can_use_evolution",
     "can_run_autonomous_loop",
     "can_manage_chat_modes",
     "can_use_personal_agent",
@@ -320,6 +321,11 @@ DATA_COMPONENTS: Dict[str, Dict[str, Any]] = {
                 "description": "null = 全部已启用应用可见；数组 = 仅列出的应用可见",
             },
             **{flag: {"type": "boolean"} for flag in _CAPABILITY_FLAGS},
+            # Per-file upload caps in MB; null = no cap.
+            "my_space_upload_limit_mb": {"type": "integer", "nullable": True},
+            "personal_kb_upload_limit_mb": {"type": "integer", "nullable": True},
+            "my_space_quota_mb": {"type": "integer", "nullable": True},
+            "personal_kb_quota_mb": {"type": "integer", "nullable": True},
         },
     },
     "UserPreferencesResponse": {

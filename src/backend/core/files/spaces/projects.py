@@ -74,3 +74,26 @@ def project_entries(db, project, storage):
             if not cursor:
                 break
     return sorted(entries, key=lambda item: item["name"])
+
+
+def project_using(db, grant, prefix):
+    """The live project whose working folder is ``prefix`` or sits inside it, if any."""
+    from core.db.models import Project
+    query = db.query(Project).filter(Project.deleted_at.is_(None))
+    if grant.kind == "personal":
+        query = query.filter(Project.kind == "personal", Project.owner_user_id == grant.owner_id,
+            Project.linked_folder_id.isnot(None))
+    else:
+        from core.files.edition import organization_projects
+
+        query = organization_projects(query, Project, grant.owner_id)
+        if query is None:
+            return None
+    for project in query.all():
+        try:
+            root = project_location(db, project)[2]
+        except HTTPException:
+            continue  # a broken binding points at no folder, so there is nothing to protect
+        if root.startswith(prefix):
+            return project
+    return None

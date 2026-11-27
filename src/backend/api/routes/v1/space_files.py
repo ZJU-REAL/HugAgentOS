@@ -12,7 +12,7 @@ from core.db.engine import get_db
 from core.infra.responses import success_response
 from core.files.spaces.access import resolve_grants
 from core.files.spaces.mounts import mount_revision
-from core.files.spaces.files import MAX_TRANSFER_BYTES, SpaceFiles
+from core.files.spaces.files import SpaceFiles
 from core.files.storage import get_storage
 from core.infra.byte_range import byte_range_response
 
@@ -58,15 +58,46 @@ def download(request: Request, space: str, path: str, inline: bool = False,
 
 @router.put("/content")
 async def upload(request: Request, space: str, path: str, files: SpaceFiles = Depends(service)):
-    files.grant(space, write=True)
+    from starlette.concurrency import run_in_threadpool
+    from core.auth.capabilities import enforce_upload_limit, resolve_storage_limits
+
+    grant = files.grant(space, write=True)
+    # No fixed transfer cap: My Space uploads follow the configured "my_space_upload_limit_mb"
+    # (role / team / user). It is resolved up front so an oversized body stops streaming early.
+    limit_mb = None
+    if grant.kind == "personal":
+        limit_mb = (await run_in_threadpool(resolve_storage_limits, files.db, files.actor))["my_space_upload_limit_mb"]
     data = bytearray()
     async for chunk in request.stream():
-        if len(data) + len(chunk) > MAX_TRANSFER_BYTES:
-            raise HTTPException(413, "File exceeds transfer limit")
         data.extend(chunk)
-    from starlette.concurrency import run_in_threadpool
-    result = await run_in_threadpool(files.write, space, path, bytes(data))
-    return success_response(data=result)
+        if limit_mb and len(data) > limit_mb * 1024 * 1024:
+            raise HTTPException(413, f"文件过大：我的空间单个文件上传上限为 {limit_mb} MB")
+
+    def write():
+        if grant.kind == "personal":
+            enforce_upload_limit(files.db, files.actor, "my_space_upload_limit_mb", len(data), "我的空间")
+        return files.write(space, path, bytes(data))  # the total quota is checked inside write
+
+    return success_response(data=await run_in_threadpool(write))
+
+
+@router.get("/usage")
+def usage(user: UserContext = Depends(get_current_user), db: Session = Depends(get_db)):
+    """My Space storage: the account's per-file cap, total quota and (when a quota applies) bytes used."""
+    from core.auth.capabilities import resolve_storage_limits
+    from core.files.spaces.access import resolve_grants
+    from core.files.spaces.quota import personal_usage_bytes
+    user_id = str(user.user_id)
+    if not any(g.kind == "personal" for g in resolve_grants(db, user_id)):
+        raise HTTPException(404, "Space is not available")
+    limits = resolve_storage_limits(db, user_id)
+    quota_mb = limits["my_space_quota_mb"]
+    return success_response(data={
+        "file_limit_mb": limits["my_space_upload_limit_mb"],
+        "quota_mb": quota_mb,
+        # Walking the space costs a listing per directory, so it is measured only when it matters.
+        "used_bytes": personal_usage_bytes(get_storage(), user_id) if quota_mb else None,
+    })
 
 @router.post("/directories")
 def mkdir(body: PathBody, files: SpaceFiles = Depends(service)):
@@ -77,7 +108,11 @@ def move(body: MoveBody, files: SpaceFiles = Depends(service)):
     return success_response(data=files.move(body.space, body.source, body.destination))
 
 @router.delete("/entries")
-def delete(space: str, path: str, directory: bool = False, files: SpaceFiles = Depends(service)):
+def delete(space: str, path: str, directory: bool = False, recursive: bool = False,
+    files: SpaceFiles = Depends(service)):
+    """``recursive`` deletes a folder with its contents; without it only an empty folder can go."""
+    if directory and recursive:
+        return success_response(data={"path": path, "files": files.delete_directory(space, path)})
     files.delete(space, path, directory=directory)
     return success_response(data={"path": path})
 
