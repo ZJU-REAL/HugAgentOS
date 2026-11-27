@@ -12,7 +12,7 @@ from core.infra.exceptions import ResourceNotFoundError
 from core.capabilities.plugins.management import packages as plugin_packages
 from core.capabilities.plugins.packaging import definitions as plugin_definitions
 from core.capabilities.plugins.packaging import sources as plugin_sources
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 from sqlalchemy.orm.attributes import flag_modified
 
 logger = logging.getLogger(__name__)
@@ -122,7 +122,12 @@ def list_plugins(
             items.append(meta)
             seen_slugs.add(meta["slug"])
     # DB marketplace packages (admin-uploaded and published): skipped when the filesystem already has the same slug
-    for row in db.query(PluginMarketPackage).order_by(PluginMarketPackage.created_at.desc()).all():
+    for row in (
+        db.query(PluginMarketPackage)
+        .options(defer(PluginMarketPackage.package_b64))
+        .order_by(PluginMarketPackage.created_at.desc())
+        .all()
+    ):
         if row.slug in seen_slugs:
             continue
         items.append(plugin_packages.market_meta_dict(row))

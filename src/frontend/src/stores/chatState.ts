@@ -61,12 +61,6 @@ export interface ChatState {
   copiedMsg: string | null;
   /** Whether chats are loading from backend */
   chatsLoading: boolean;
-  /** Feedback map: 消息身份 → feedback type */
-  feedbackMap: Record<string, 'like' | 'dislike'>;
-  /** Message being disliked (for comment modal) */
-  dislikingUid: string | null;
-  /** Dislike comment text */
-  dislikeComment: string;
   /** Tool display names from backend */
   toolDisplayNames: Record<string, string>;
   /** Backend session IDs (tracks which chats exist on the server) */
@@ -163,9 +157,6 @@ export interface ChatState {
   setToolResultPanel: (panel: ChatState['toolResultPanel']) => void;
   setCopiedMsg: (uid: string | null) => void;
   setChatsLoading: (v: boolean) => void;
-  setFeedbackMap: (map: Record<string, 'like' | 'dislike'>) => void;
-  setDislikingUid: (uid: string | null) => void;
-  setDislikeComment: (comment: string) => void;
   setToolDisplayNames: (names: Record<string, string>) => void;
   addBackendSessionId: (id: string) => void;
   removeBackendSessionId: (id: string) => void;

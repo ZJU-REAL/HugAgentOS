@@ -3,8 +3,7 @@ import { create } from 'zustand';
 import { isHybridDual, isRegisteredLocalChat, setChatRoutingContext } from '../api';
 import { isHomePath, navigateTo, pathForChat, pathForProject, setChatPathResolver } from '../routing/navigation';
 import { standaloneFromPath } from '../routing/standalone';
-import { isDraftChatId, isNewDraftChatId, mergeChatStores, setStreamingIdsProvider, STORAGE_KEY, userScopedKey } from '../storage';
-import type { ChatStore as ChatStoreData } from '../types';
+import { isDraftChatId, isNewDraftChatId, setStreamingIdsProvider } from '../storage';
 import { usePluginStore } from './pluginStore';
 import { SITES_PLUGIN_SLUG, isAutomationEntry } from './chatSupport';
 import type { ChatState } from './chatState';
@@ -102,28 +101,6 @@ export const useChatStore = create<ChatState>((set,get)=> {
     ...createChatModeActions(context),
   };
 });
-
-// ── 跨标签页同步：另一个标签页写入会话数据时，把它按会话粒度合并进本页内存 ──
-// storage 事件只在"其他"标签页触发（写入方不触发），不会自激振荡；合并结果
-// 不回写磁盘（磁盘上已是并集），避免写风暴。本页正在流式输出的会话保留本页版本。
-if (typeof window !== 'undefined') {
-  window.addEventListener('storage', (e: StorageEvent) => {
-    const st = useChatStore.getState();
-    const uid = st.currentUserId;
-    if (!uid || !e.newValue) return;
-    if (e.key !== userScopedKey(STORAGE_KEY, uid)) return;
-    let incoming: ChatStoreData | null = null;
-    try {
-      const parsed = JSON.parse(e.newValue);
-      if (parsed && typeof parsed === 'object') {
-        incoming = { chats: parsed.chats || {}, order: parsed.order || [] };
-      }
-    } catch { /* 损坏的快照直接忽略 */ }
-    if (!incoming) return;
-    const merged = mergeChatStores(st.store, incoming, { preferAllIds: st.sendingChatIds });
-    useChatStore.setState({ store: merged, storeRef: merged });
-  });
-}
 
 setChatRoutingContext((chatId) => useChatStore.getState().store.chats[chatId]);
 

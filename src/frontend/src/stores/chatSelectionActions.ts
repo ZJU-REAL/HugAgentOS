@@ -9,7 +9,7 @@ import { pickEvictableChats, touchRecentChat, trimEvictedMessages } from '../uti
 
 
 export function createChatSelectionActions({ set, get, initializeDraftRunTarget, syncChatUrl, publishCurrentChatUrl }: ChatActionsContext): Pick<ChatState,
-  'setStore' | 'updateStore' | 'setCurrentChatId' | 'syncCurrentChatMode' | 'adoptChatFromUrl' | 'toggleThinking' | 'setChatMode' | 'setModeSlug' | 'setToolResultPanel' | 'setCopiedMsg' | 'setChatsLoading' | 'setFeedbackMap' | 'setDislikingUid' | 'setDislikeComment' | 'setToolDisplayNames' | 'addBackendSessionId' | 'removeBackendSessionId' | 'clearBackendSessionIds' | 'addLoadedMsgId' | 'removeLoadedMsgId' | 'clearLoadedMsgIds' | 'setMessagePaging' | 'applyToolCallOutput' | 'setShareSelectionMode' | 'toggleShareMessageUid' | 'clearShareSelection' | 'startShareSelectionWithAll' | 'setPendingScrollMessageTs' | 'setPlanMode' | 'setLoopMode' | 'setCurrentPlanId' | 'setEditingMessageUid' | 'bumpSessionLoadEpoch'
+  'setStore' | 'updateStore' | 'setCurrentChatId' | 'syncCurrentChatMode' | 'adoptChatFromUrl' | 'toggleThinking' | 'setChatMode' | 'setModeSlug' | 'setToolResultPanel' | 'setCopiedMsg' | 'setChatsLoading' | 'setToolDisplayNames' | 'addBackendSessionId' | 'removeBackendSessionId' | 'clearBackendSessionIds' | 'addLoadedMsgId' | 'removeLoadedMsgId' | 'clearLoadedMsgIds' | 'setMessagePaging' | 'applyToolCallOutput' | 'setShareSelectionMode' | 'toggleShareMessageUid' | 'clearShareSelection' | 'startShareSelectionWithAll' | 'setPendingScrollMessageTs' | 'setPlanMode' | 'setLoopMode' | 'setCurrentPlanId' | 'setEditingMessageUid' | 'bumpSessionLoadEpoch'
 > {
   // 把最近用过的会话挪到队尾；超出保留数的已加载会话把内存里的历史裁回"未加载"形态，
   // 否则长时间不刷新的标签页会把逛过的每个会话的全部消息和工具全文都攒在内存里。
@@ -138,9 +138,6 @@ export function createChatSelectionActions({ set, get, initializeDraftRunTarget,
     setToolResultPanel: (panel) => set({ toolResultPanel: panel }),
     setCopiedMsg: (uid) => set({ copiedMsg: uid }),
     setChatsLoading: (v) => set({ chatsLoading: v }),
-    setFeedbackMap: (map) => set({ feedbackMap: map }),
-    setDislikingUid: (uid) => set({ dislikingUid: uid }),
-    setDislikeComment: (comment) => set({ dislikeComment: comment }),
     setToolDisplayNames: (names) => set({ toolDisplayNames: names }),
     addBackendSessionId: (id) => set((s) => {
         const next = new Set(s.backendSessionIds);

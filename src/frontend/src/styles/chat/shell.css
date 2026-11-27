@@ -195,6 +195,8 @@
   height:100%;
   overflow:auto;
   overscroll-behavior-y:contain;
+  /* The footer floats over the viewport: scrollIntoView targets stop above it, not under it. */
+  scroll-padding-bottom:var(--jx-chat-footer-h, 0px);
   scrollbar-gutter:stable both-edges;
   padding-left:calc(var(--jx-chat-panel-inline-gutter, 24px) + var(--jx-chat-wrap-left, 0px));
   padding-right:calc(var(--jx-chat-panel-inline-gutter, 24px) + var(--jx-chat-wrap-right, 0px));

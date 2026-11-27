@@ -46,6 +46,7 @@ _CAPABILITY_FLAGS: Tuple[str, ...] = (
     "can_create_channel_bot",
     "can_switch_model",
     "can_use_voice",
+    "can_use_evaluation",
     "can_run_autonomous_loop",
     "can_manage_chat_modes",
     "can_use_personal_agent",
@@ -291,6 +292,7 @@ DATA_COMPONENTS: Dict[str, Dict[str, Any]] = {
             "lab_enabled": {"type": "boolean"},
             "sites_enabled": {"type": "boolean"},
             "can_use_voice": {"type": "boolean", "default": False},
+            "can_use_evaluation": {"type": "boolean", "default": False},
         },
     },
     "CurrentUserInfo": {
@@ -519,6 +521,8 @@ DATA_SCHEMAS: Dict[Tuple[str, str], Dict[str, Any]] = {
             "ok": {"type": "boolean"},
             "feedback_id": {"type": "string"},
             "rating": {"type": "string", "enum": ["like", "dislike"]},
+            "verdict": {"type": "string", "enum": ["adopt", "revise", "reject"]},
+            "reasons": {"type": "array", "items": {"type": "string"}},
         },
     },
     # ===== Chat Shares =====

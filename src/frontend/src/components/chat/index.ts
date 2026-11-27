@@ -12,3 +12,5 @@ export { PlanProgressStrip } from './PlanProgressStrip';
 export { JobProgressStrip } from './JobProgressStrip';
 export { EvolutionCard } from './EvolutionCard';
 export { ConversationNavigation } from './ConversationNavigation';
+export { EvaluationCard } from './EvaluationCard';
+export { EvaluationReminder } from './EvaluationReminder';

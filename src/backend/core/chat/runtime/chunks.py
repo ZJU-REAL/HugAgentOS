@@ -13,6 +13,7 @@ from core.chat.tool_log import (
     build_tool_call_start_event,
     build_tool_result_event,
 )
+from core.db.threads import run_db
 from core.infra.logging import get_logger
 
 
@@ -24,7 +25,8 @@ logger = get_logger(__name__)
 async def consume_chunk(turn, chunk):
     chunk_type = chunk.get("type")
     if chunk_type == "model_dispatch":
-        turn.journal.append_operation(
+        await run_db(
+            turn.journal.append_operation,
             turn.run_id,
             owner=turn.owner,
             operation_type="model_dispatch",

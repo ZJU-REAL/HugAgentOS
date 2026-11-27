@@ -141,7 +141,7 @@ def _collect_artifact_kb_usage(
 
     usage: Dict[str, List[Dict[str, str]]] = {artifact_id: [] for artifact_id in artifact_ids}
     rows = (
-        db.query(KBDocument, KBSpace)
+        db.query(KBDocument.extra_data, KBSpace.kb_id, KBSpace.name)
         .join(KBSpace, KBDocument.kb_id == KBSpace.kb_id)
         .filter(
             KBSpace.user_id == user_id,
@@ -152,15 +152,15 @@ def _collect_artifact_kb_usage(
     )
 
     artifact_id_set = set(artifact_ids)
-    for document, space in rows:
-        meta = document.extra_data if isinstance(document.extra_data, dict) else {}
+    for extra_data, kb_id, kb_name in rows:
+        meta = extra_data if isinstance(extra_data, dict) else {}
         source_artifact_id = meta.get("source_artifact_id")
         if not source_artifact_id or source_artifact_id not in artifact_id_set:
             continue
         usage.setdefault(source_artifact_id, []).append(
             {
-                "kb_id": space.kb_id,
-                "name": space.name,
+                "kb_id": kb_id,
+                "name": kb_name,
             }
         )
 

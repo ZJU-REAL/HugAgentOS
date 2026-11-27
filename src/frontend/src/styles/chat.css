@@ -8,6 +8,7 @@
 @import './chat/welcome.css';
 @import './chat/composer-layout.css';
 @import './chat/message-actions.css';
+@import './chat/evaluation.css';
 @import './chat/prompt-hub.css';
 @import './chat/prompt-library.css';
 @import './chat/composer-editor.css';

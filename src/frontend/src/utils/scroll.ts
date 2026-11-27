@@ -61,3 +61,16 @@ export function scrollElementToBottom(el: HTMLElement, smooth = false): void {
     el.scrollTop = el.scrollHeight;
   }
 }
+
+/** Replay the one-shot locate highlight (jx-anim-flash) on `el`: remove → reflow → add. */
+export function flashElement(el: HTMLElement): void {
+  el.classList.remove('jx-anim-flash');
+  void el.offsetWidth;
+  el.classList.add('jx-anim-flash');
+}
+
+/** Bring `el` into view (smooth unless reduced motion is on) and flash it. */
+export function scrollIntoViewAndFlash(el: HTMLElement, block: ScrollLogicalPosition = 'center'): void {
+  el.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block });
+  flashElement(el);
+}

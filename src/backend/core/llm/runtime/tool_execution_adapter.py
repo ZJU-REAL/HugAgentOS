@@ -9,6 +9,7 @@ from agentscope.message import ToolResultState
 from agentscope.tool._response import ToolChunk, ToolResponse
 from core.harness.tool_call_context import CURRENT_RUN_BINDING
 from core.llm.context.rendering import render_text_block
+from core.llm.runtime.tool_interrupt import interruptible
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,11 @@ class DurableToolDispatch:
             metadata=dict(raw.get("metadata") or {}),
         )
 
-    async def stream(self, agent: Any, input_kwargs: dict, next_handler):  # noqa: ANN001
+    def _interruptible(self, tool_name: str) -> bool:
+        check = getattr(self._gateway, "interruptible", None)
+        return True if check is None else bool(check(tool_name))
+
+    async def stream(self, agent: Any, input_kwargs: dict, next_handler, *, interrupt=None):  # noqa: ANN001
         run_id = str(getattr(agent.state, "run_id", "") or "")
         run_owner = str(getattr(agent.state, "journal_owner", "") or "")
         tool_call = input_kwargs.get("tool_call")
@@ -85,6 +90,8 @@ class DurableToolDispatch:
         args = prepare_tool_arguments(tool_name, args, str(getattr(agent.state, "user_id", "") or ""),
                                       str(getattr(agent.state, "chat_id", "") or ""))
         live_chunks: asyncio.Queue = asyncio.Queue()
+        if interrupt is not None and not self._interruptible(tool_name):
+            interrupt = None
 
         async def _invoke():
             from core.harness.usage import (
@@ -113,7 +120,9 @@ class DurableToolDispatch:
                 invoke_kwargs = {**input_kwargs, "tool_call": adapter_call}
             try:
                 outcome_unknown = False
-                async for item in next_handler(**invoke_kwargs):
+                async for item in interruptible(
+                    lambda: next_handler(**invoke_kwargs), interrupt
+                ):
                     # Toolkit normally converts adapter exceptions into ordinary
                     # error responses. An ambiguous remote write must retain its
                     # ledger meaning across that conversion and stop this run.
@@ -130,6 +139,8 @@ class DurableToolDispatch:
                 usage_status = (
                     "success"
                     if final is not None and final.state == ToolResultState.SUCCESS
+                    else "cancelled"
+                    if final is not None and final.state == ToolResultState.INTERRUPTED
                     else "failed"
                 )
             except asyncio.CancelledError:

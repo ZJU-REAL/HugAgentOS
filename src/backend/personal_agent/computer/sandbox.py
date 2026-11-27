@@ -14,7 +14,7 @@ from core.sandbox.providers.opensandbox.provider import OpenSandboxProvider
 from core.sandbox.providers.opensandbox.models import SandboxSessionRecord as _Session
 from core.sandbox.errors import SandboxError
 from personal_agent.models import PersonalAgent
-from core.db.threads import off_loop
+from core.db.threads import off_loop, run_db
 from core.db.threads import run_in_session
 
 # Layout of the permanent computer image (docker/personal-agent/Dockerfile.personal-agent and its entrypoint).
@@ -125,7 +125,7 @@ class PersonalSandboxProvider(OpenSandboxProvider):
         yield await self._get_or_create_session(session_id, user_id)
 
     async def _get_or_create_session(self, session_id, user_id=None):
-        ident, sandbox_id, generation = self._binding(session_id, user_id)
+        ident, sandbox_id, generation = await run_db(self._binding, session_id, user_id)
         lock = await self._get_session_lock(session_id)
         async with lock:
             cached = self._sessions.get(session_id)
@@ -154,7 +154,7 @@ class PersonalSandboxProvider(OpenSandboxProvider):
                     if not _gone(exc): raise
                     if sandbox is not None: await sandbox.close()
                     await self._retire(ident, sandbox_id)
-                    _, _, generation = self._binding(session_id, user_id)
+                    _, _, generation = await run_db(self._binding, session_id, user_id)
                     sandbox = await self._provision(ident, session_id, user_id, generation)
             else:
                 sandbox = await self._provision(ident, session_id, user_id, generation)

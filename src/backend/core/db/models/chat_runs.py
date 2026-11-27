@@ -89,6 +89,8 @@ class ChatRun(Base):
         Index("idx_chat_runs_status_lease", "status", "lease_expires_at"),
         Index("idx_chat_runs_user_id", "user_id"),
         Index("idx_chat_runs_created_at", "created_at"),
+        Index("idx_chat_runs_message_id", "message_id"),
+        Index("idx_chat_runs_user_updated", "user_id", "updated_at"),
     )
 
 

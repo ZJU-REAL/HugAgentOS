@@ -18,7 +18,29 @@ class BaseProjectService:
     def __init__(self, db: Session):
         self.db = db
 
-    def _subtree_ids(self, root_id: str, user_id: str) -> List[str]:
+    def _folder_children(self, user_id: str) -> Dict[str, List[str]]:
+        """Map parent folder id → child folder ids for one user's live folders (one query)."""
+        children: Dict[str, List[str]] = {}
+        for folder_id, parent_folder_id in (
+            self.db.query(UserFolder.folder_id, UserFolder.parent_folder_id)
+            .filter(
+                UserFolder.user_id == user_id,
+                UserFolder.deleted_at.is_(None),
+            )
+            .all()
+        ):
+            if parent_folder_id is not None:
+                children.setdefault(parent_folder_id, []).append(folder_id)
+        return children
+
+    def _subtree_ids(
+        self,
+        root_id: str,
+        user_id: str,
+        children: Optional[Dict[str, List[str]]] = None,
+    ) -> List[str]:
+        if children is None:
+            children = self._folder_children(user_id)
         out: List[str] = []
         stack = [root_id]
         seen: set[str] = set()
@@ -28,22 +50,20 @@ class BaseProjectService:
                 continue
             seen.add(folder_id)
             out.append(folder_id)
-            children = (
-                self.db.query(UserFolder.folder_id)
-                .filter(
-                    UserFolder.user_id == user_id,
-                    UserFolder.parent_folder_id == folder_id,
-                    UserFolder.deleted_at.is_(None),
-                )
-                .all()
-            )
-            stack.extend(row[0] for row in children)
+            stack.extend(children.get(folder_id, ()))
         return out
 
-    def _file_count(self, project: Project) -> int:
+    def _file_count(
+        self,
+        project: Project,
+        children: Optional[Dict[str, List[str]]] = None,
+    ) -> int:
+        """``children`` must be ``_folder_children(project.owner_user_id)`` when given."""
         if not project.linked_folder_id:
             return 0
-        folder_ids = self._subtree_ids(project.linked_folder_id, project.owner_user_id)
+        folder_ids = self._subtree_ids(
+            project.linked_folder_id, project.owner_user_id, children
+        )
         return int(
             self.db.query(func.count(Artifact.artifact_id))
             .filter(
@@ -124,12 +144,14 @@ class BaseProjectService:
             if folder_ids
             else {}
         )
+        # Every listed project is owned by user_id, so one children map serves them all.
+        children = self._folder_children(user_id) if folder_ids else {}
         return [
             personal_summary.summarize(
                 project,
                 favorite=project.project_id in favorite_ids,
                 folder_name=folder_names.get(project.linked_folder_id),
-                file_count=self._file_count(project),
+                file_count=self._file_count(project, children),
                 chat_count=chat_counts.get(project.project_id, 0),
             )
             for project in projects

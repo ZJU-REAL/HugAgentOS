@@ -34,7 +34,7 @@ import { resolvePlanModeActive } from '../utils/chatMode';
 import { TOPIC_TAG_COLORS } from '../utils/constants';
 import { RightSidebarPanel } from './canvas';
 import { RunMonitorRail } from './monitor';
-import { PromptHubPanel } from './chat';
+import { EvaluationReminder, PromptHubPanel } from './chat';
 import { builtinPages } from '../applicationComposition';
 import { WorkbenchPage } from '../workbench/WorkbenchPage';
 import { AuthExpiredModal, ImagePreview } from './common';
@@ -206,6 +206,7 @@ export function AppWorkspace({ state }: { state: ReturnType<typeof useAppControl
               {chat?.businessTopic && (
                 <Tag className="jx-headerTopicTag" color={TOPIC_TAG_COLORS[chat.businessTopic] || 'default'}>{chat.businessTopic}</Tag>
               )}
+              <EvaluationReminder placement="topbar" />
               <button
                 type="button"
                 className="jx-mobileNewChatBtn"

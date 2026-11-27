@@ -8,6 +8,7 @@ from dataclasses import replace
 from typing import Any, Optional, cast
 
 from core.db.models import MemoryOutbox
+from core.db.threads import run_db
 from core.memory.context import MemoryContext
 from core.memory.extractors.router import ExtractorType
 
@@ -161,7 +162,7 @@ async def _process_pipeline(row: MemoryOutbox) -> dict[str, Any]:
             for extractor, data in results.items()
             if isinstance(data, dict) and data
         ]
-    child_ids = _checkpoint_pipeline_candidates(row, ctx, candidates)
+    child_ids = await run_db(_checkpoint_pipeline_candidates, row, ctx, candidates)
     return {"candidate_job_ids": child_ids}
 
 
@@ -201,7 +202,7 @@ async def _process_profile_edit(row: MemoryOutbox) -> dict[str, Any]:
     if ctx.message_id:
         from core.memory.settlement_port import memory_settlement
 
-        memory_settlement().update_entry_text(ctx.message_id, key, text)
+        await run_db(memory_settlement().update_entry_text, ctx.message_id, key, text)
     return {"key": key, "text": text, "applied": applied}
 
 
@@ -222,7 +223,7 @@ async def _process_memory_edit(row: MemoryOutbox) -> dict[str, Any]:
     if ctx.message_id:
         from core.memory.settlement_port import memory_settlement
 
-        memory_settlement().update_entry_text(ctx.message_id, memory_id, text)
+        await run_db(memory_settlement().update_entry_text, ctx.message_id, memory_id, text)
     return {"id": memory_id, "text": text}
 
 
@@ -250,7 +251,11 @@ def _report_settlement(
     )
 
 
-async def _process_settlement(row: MemoryOutbox) -> dict[str, Any]:
-    items, failed = _settlement_facts(row.message_id)
-    summary = _report_settlement(row.message_id, items=items, failed=failed)
+def _settle(message_id: str) -> dict[str, Any]:
+    items, failed = _settlement_facts(message_id)
+    summary = _report_settlement(message_id, items=items, failed=failed)
     return {"items": items, "failed": failed, "summary": summary}
+
+
+async def _process_settlement(row: MemoryOutbox) -> dict[str, Any]:
+    return await run_db(_settle, row.message_id)

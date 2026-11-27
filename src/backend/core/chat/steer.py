@@ -59,6 +59,10 @@ def _claim_batch(run_id: str, owner: str, max_items: int, max_chars: int, lease_
     )
 
 
+def _has_claimable(run_id: str) -> bool:
+    return SteerQueue(SessionLocal).has_claimable(run_id)
+
+
 def _cancel(run_id: str, steer_id: str) -> bool:
     return SteerQueue(SessionLocal).cancel(run_id, steer_id)
 
@@ -97,6 +101,11 @@ async def take_pending_steers(
         _claim_batch, run_id, owner or _claim_owner(), max_items, max_chars, lease_seconds
     )
     return [record.as_payload() for record in claimed]
+
+
+async def has_pending_steer(run_id: str) -> bool:
+    """Whether an accepted steer waits for this run, without leasing it."""
+    return await run_db(_has_claimable, run_id)
 
 
 async def remove_pending_steer(run_id: str, steer_id: str) -> bool:
@@ -141,6 +150,7 @@ def list_run_steers(run_id: str) -> list[Dict[str, Any]]:
 
 
 __all__ = [
+    "has_pending_steer",
     "list_run_steers",
     "put_pending_steer",
     "remove_pending_steer",

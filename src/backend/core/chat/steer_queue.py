@@ -533,6 +533,27 @@ class SteerQueue:
         db.expire_all()
         return _record(db.get(ChatSteerQueueItem, candidate.queue_id))
 
+    def has_claimable(self, target_run_id: str) -> bool:
+        """Whether a steer is waiting for this run's next boundary (read-only)."""
+        now = self._clock()
+        with self._sessions() as db:
+            row = (
+                db.query(ChatSteerQueueItem.queue_id)
+                .filter(
+                    ChatSteerQueueItem.target_run_id == target_run_id,
+                    ChatSteerQueueItem.delivery_mode == "steer",
+                    or_(
+                        ChatSteerQueueItem.status == "accepted",
+                        and_(
+                            ChatSteerQueueItem.status == "claimed",
+                            ChatSteerQueueItem.lease_expires_at <= now,
+                        ),
+                    ),
+                )
+                .first()
+            )
+            return row is not None
+
     def cancel(self, target_run_id: str, steer_id: str) -> bool:
         now = self._clock()
         with self._sessions() as db:

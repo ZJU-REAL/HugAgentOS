@@ -11,6 +11,7 @@ import {
   SCROLL_TO_BOTTOM_BTN_THRESHOLD,
   distanceFromBottom,
   scrollElementToBottom,
+  scrollIntoViewAndFlash,
 } from '../../utils/scroll';
 import { useChatStore, useUIStore, isLocalDraftChat } from '../../stores';
 import { loadOlderMessages } from '../../hooks/useChatInit';
@@ -26,6 +27,8 @@ const SCROLL_BTN_TRANSITION = { duration: 0.2, ease: EASE.brandOut };
 
 import { MessageBubble } from './MessageBubble';
 import { ConversationNavigation } from './ConversationNavigation';
+import { EvaluationReminder } from './EvaluationReminder';
+import { useEvaluationFocus, useEvaluationScope } from '../../hooks/useEvaluationScope';
 
 import { InputArea } from './InputArea';
 import { PlanProgressStrip } from './PlanProgressStrip';
@@ -114,6 +117,8 @@ export function ChatArea({
   }, [footerEl]);
 
   const chat = store.chats[currentChatId];
+  useEvaluationScope(publicChat ? '' : currentChatId);
+  useEvaluationFocus(currentChatId);
   useChatResultRead(currentChatId, chat?.messages || [], viewportEl, isPaneHidden || !!publicChat);
   const hasPendingUserQuestion = useUIStore(
     (state) => (state.pendingUserQuestions[currentChatId]?.length ?? 0) > 0,
@@ -224,15 +229,8 @@ export function ChatArea({
 
     const timer = window.setTimeout(() => {
       const target = document.querySelector<HTMLElement>(`[data-message-ts="${pendingScrollMessageTs}"]`);
-      if (target) {
-        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        // Locate-and-highlight: one-shot flash (jx-anim-flash primitive).
-        // Replay is done via remove → force reflow → add; a leftover class is harmless (the animation plays only once),
-        // so no animationend cleanup is needed.
-        target.classList.remove('jx-anim-flash');
-        void target.offsetWidth;
-        target.classList.add('jx-anim-flash');
-      }
+      // Locate-and-highlight: one-shot flash (jx-anim-flash primitive).
+      if (target) scrollIntoViewAndFlash(target);
       setPendingScrollMessageTs(null);
     }, 120);
 
@@ -280,11 +278,14 @@ export function ChatArea({
   }
 
   if (hasNoMessages) {
-    return <ChatSlot name="welcome"><ChatWelcome view={welcome} shareAccessLevel={shareAccessLevel}
-      send={send} abort={abort} activateQueuedMessage={activateQueuedMessage}
-      discardQueuedMessage={discardQueuedMessage} continueLoop={continueLoop}
-      handleFileSelect={handleFileSelect} removeFile={removeFile}
-      inputRef={inputRef} fileInputRef={fileInputRef} /></ChatSlot>;
+    return <>
+      {!publicChat && <EvaluationReminder placement="welcome" />}
+      <ChatSlot name="welcome"><ChatWelcome view={welcome} shareAccessLevel={shareAccessLevel}
+        send={send} abort={abort} activateQueuedMessage={activateQueuedMessage}
+        discardQueuedMessage={discardQueuedMessage} continueLoop={continueLoop}
+        handleFileSelect={handleFileSelect} removeFile={removeFile}
+        inputRef={inputRef} fileInputRef={fileInputRef} /></ChatSlot>
+    </>;
   }
 
   const handleCreateShare = async () => {
