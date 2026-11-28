@@ -7,6 +7,7 @@ import { useAutomationStore } from '../stores/automationStore';
 import { useCanvasStore } from '../stores/canvasStore';
 import { useDeploymentModeStore } from '../stores/deploymentModeStore';
 import { useMySpaceStore } from '../stores/mySpaceStore';
+import { useRunMonitorOpenByDefault, useRunMonitorStore } from '../stores/runMonitorStore';
 import { useAutomationConversations } from './useAutomationConversations';
 import { usePageConfigAll } from './usePageConfig';
 import { resolveDocumentFavicon, useDocumentFavicon } from './useDocumentFavicon';
@@ -106,6 +107,13 @@ export function useAppBootstrap(chatSurface: boolean) {
   useEffect(() => {
     resetRightSidebar();
   }, [panel, currentChatId, resetRightSidebar]);
+
+  // The run monitor rail starts each chat from the page setting (the user's own, else Config's
+  // 会话设置); a manual toggle lasts until the chat or that default changes.
+  const runMonitorDefault = useRunMonitorOpenByDefault();
+  useEffect(() => {
+    useRunMonitorStore.getState().resetForChat();
+  }, [currentChatId, runMonitorDefault]);
 
   useEffect(() => {
     if (!chatSurface) useChatStore.getState().setLoopMode(false);

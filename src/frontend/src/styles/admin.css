@@ -317,3 +317,126 @@
   white-space:pre-wrap;
   font-size:12px;
 }
+
+/* ── Prompt versions (components/prompts/PromptVersionsEditor.tsx): categories in a secondary
+   sidebar instead of a tab bar, so a growing list of custom kinds stays readable ── */
+.jx-promptVersions{
+  display:flex;
+  gap:24px;
+  align-items:flex-start;
+}
+.jx-promptVersions-nav{
+  flex:0 0 216px;
+  position:sticky;
+  top:0;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  padding:8px;
+  border-radius:var(--radius-sm);
+  background:var(--color-bg-gray);
+  max-height:calc(100vh - 160px);
+}
+.jx-promptVersions-navList{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  min-height:0;
+  overflow-y:auto;
+}
+.jx-promptVersions-navItem{
+  position:relative;
+  display:flex;
+  align-items:center;
+  border-radius:var(--radius-xs);
+}
+.jx-promptVersions-navItem:hover{ background:var(--state-hover); }
+.jx-promptVersions-navItem--active,
+.jx-promptVersions-navItem--active:hover{ background:var(--color-primary-bg); }
+.jx-promptVersions-navBtn{
+  flex:1 1 auto;
+  min-width:0;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  height:36px;
+  padding:0 12px;
+  border:0;
+  background:transparent;
+  color:var(--color-text);
+  font:inherit;
+  font-size:14px;
+  text-align:left;
+  cursor:pointer;
+  border-radius:var(--radius-xs);
+}
+.jx-promptVersions-navBtn:focus-visible{ outline:2px solid var(--color-primary); outline-offset:-2px; }
+.jx-promptVersions-navItem--active .jx-promptVersions-navBtn{
+  color:var(--color-primary-text);
+  font-weight:500;
+}
+.jx-promptVersions-navLabel{
+  flex:1 1 auto;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.jx-promptVersions-navVersion{
+  flex:none;
+  max-width:88px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:12px;
+  font-weight:400;
+  color:var(--color-text-tertiary);
+}
+.jx-promptVersions-navDelete{
+  flex:none;
+  margin-right:4px;
+  opacity:0;
+}
+.jx-promptVersions-navItem:hover .jx-promptVersions-navDelete,
+.jx-promptVersions-navDelete:focus-visible{ opacity:1; }
+.jx-promptVersions-navItem:hover .jx-promptVersions-navVersion{ display:none; }
+.jx-promptVersions-navAdd.ant-btn{
+  justify-content:flex-start;
+  color:var(--color-text-secondary);
+}
+.jx-promptVersions-main{
+  flex:1 1 0;
+  min-width:0;
+}
+.jx-promptVersions-head{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:flex-start;
+  gap:12px 16px;
+  margin-bottom:16px;
+}
+.jx-promptVersions-title{
+  flex:1 1 max(240px, 30%);
+  min-width:0;
+}
+.jx-promptVersions-title h3{
+  margin:0;
+  font-size:18px;
+  font-weight:600;
+  color:var(--color-text);
+}
+.jx-promptVersions-title p{
+  margin:4px 0 0;
+  font-size:13px;
+  color:var(--color-text-tertiary);
+}
+.jx-promptVersions-actions{
+  flex:none;
+  flex-wrap:wrap;
+  max-width:100%;
+  margin-left:auto;
+}
+@media (max-width: 900px){
+  .jx-promptVersions{ flex-direction:column; align-items:stretch; }
+  .jx-promptVersions-nav{ position:static; flex-basis:auto; max-height:none; }
+}

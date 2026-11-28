@@ -4,7 +4,7 @@ from core.infra.time import utc_now
 
 from datetime import datetime, timezone
 
-from core.db.models import Base, Plan, UserShadow
+from core.db.models import Base, UserShadow
 from sqlalchemy import JSON, Boolean, CheckConstraint, Column, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import INET, JSONB
 from sqlalchemy.orm import relationship
@@ -23,10 +23,10 @@ class ScheduledTask(Base):
         String(64), ForeignKey("users_shadow.user_id", ondelete="CASCADE"), nullable=False
     )
 
-    # Task content — either prompt or plan, one of the two
-    task_type = Column(String(20), nullable=False)  # "prompt" | "plan"
+    # Task content: "prompt" runs the prompt; "loop" advances extra_data.loop_id.
+    # "plan" survives only on legacy rows retired by migration autonoplan01.
+    task_type = Column(String(20), nullable=False)
     prompt = Column(Text)
-    plan_id = Column(String(64), ForeignKey("plans.plan_id", ondelete="SET NULL"))
 
     # Scheduling config
     cron_expression = Column(String(100), nullable=False)
@@ -66,7 +66,6 @@ class ScheduledTask(Base):
 
     # Relationships
     user = relationship(UserShadow)
-    plan = relationship(Plan)
     run_history = relationship(
         "ScheduledTaskRun",
         back_populates="task",

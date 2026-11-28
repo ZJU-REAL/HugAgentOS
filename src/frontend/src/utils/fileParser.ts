@@ -7,10 +7,9 @@ export async function uploadFileToOSS(
   file: File, apiUrl: string, chatId?: string, projectId?: string,
 ): Promise<UploadedAttachment> {
   if (!apiUrl) return { file_id: '', download_url: '' };
-  try {
-    return await uploadFile(file, chatId, undefined, { apiUrl, projectId });
-  } catch { /* The composer reports the failed upload and preserves the draft. */ }
-  return { file_id: '', download_url: '' };
+  // Errors propagate: the composer shows the server's reason (e.g. the per-file cap configured
+  // in role permissions) and preserves the draft.
+  return uploadFile(file, chatId, undefined, { apiUrl, projectId });
 }
 
 export function normalizeArtifactOutput(raw: unknown): Record<string, unknown> | null {

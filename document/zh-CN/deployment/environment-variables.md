@@ -24,7 +24,7 @@
 | `DOCKER_GID` | `999` | 宿主 docker 组 GID，授予 backend 容器读写 `/var/run/docker.sock`（`stat -c '%g' /var/run/docker.sock` 查询） | CE |
 | `COMPOSE_PROFILES` | CE Docker: `opensandbox` | compose profile 选择（`script_runner` / `opensandbox`，可叠加 `,mem0`），须与 `SANDBOX_PROVIDER` 一致 | CE |
 | `COMPOSE_FILE` | （未设） | 叠加 compose 文件；CubeSandbox 时设 `docker-compose.yml:docker/sandbox/compose.cube.yml` | CE |
-| `MAX_REQUEST_SIZE` | `52428800`（代码默认 50 MB） | 后端单请求体上限（字节） | CE |
+| `MAX_REQUEST_SIZE` | `52428800`（代码默认 50 MB） | 后端非上传请求的单请求体上限（字节）；文件上传按角色 / 团队 / 个人权限配置的单文件上限校验 | CE |
 | `DB_MIGRATION_RETRIES` / `DB_MIGRATION_RETRY_INTERVAL` | `20` / `2`（入口脚本默认） | 启动迁移重试次数 / 间隔秒 | CE |
 
 ### 日志与会话看门狗

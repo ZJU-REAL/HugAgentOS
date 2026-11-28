@@ -113,6 +113,8 @@ export default function SettingsPage() {
   const { authUser, doLogout, setAvatarUrl, setAuthUser, loggingOut } = useAuthStore();
   const apiKeyEnabled = authUser?.can_use_api_key === true;
   const channelBotEnabled = authUser?.can_create_channel_bot === true;
+  // 进化控制台 (long-term memory + evolution) is on unless an administrator turned it off.
+  const evolutionAllowed = authUser?.can_use_evolution !== false;
   const chatModesAllowed = authUser?.can_manage_chat_modes === true;
   // Organization management is exposed only when the edition capability is active.
   const multiTenancy = useEditionStore((s) => (s.loaded ? !!s.features.multi_tenancy : true));
@@ -144,7 +146,7 @@ export default function SettingsPage() {
     if (isCE && sysAccess) base = [...base, SYS_MODEL_SECTION, SYS_SERVICE_SECTION];
     if (isCE) base = [...base, MY_LOGS_SECTION];
     return base;
-  }, [apiKeyEnabled, channelBotEnabled, chatModesAllowed, multiTenancy, isCE, sysAccess]);
+  }, [apiKeyEnabled, channelBotEnabled, chatModesAllowed, evolutionAllowed, multiTenancy, isCE, sysAccess]);
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameDraft, setNicknameDraft] = useState('');
   const [savingNickname, setSavingNickname] = useState(false);
@@ -612,7 +614,7 @@ export default function SettingsPage() {
         )}
 
         {/* ── Memory settings ─────────────────────────────────── */}
-        {activeSection === 'memory' && (
+        {evolutionAllowed && activeSection === 'memory' && (
         <section id="section-memory" className="jx-settings-section">
         <h3 className="jx-settings-section-title">{t('进化控制台')}</h3>
         <div className="jx-settings-card">

@@ -35,9 +35,16 @@ def resolve_for_user(user_id: str) -> Dict[str, Any]:
     try:
         from core.db.models import UserShadow
 
+        from core.auth.capabilities import meta_has_capability
+
         with SessionLocal() as db:
             row = db.query(UserShadow).filter(UserShadow.user_id == user_id).first()
             metadata = (getattr(row, "extra_data", None) or {}) if row else {}
+            if is_contribution_enabled(metadata) and not meta_has_capability(
+                db, user_id, metadata, "can_use_evolution"
+            ):
+                # No evolution console → nothing of theirs feeds the loop.
+                metadata = {}
     except Exception as exc:
         logger.debug("[evo-settings] read failed for %s: %s", user_id, exc)
         metadata = {}

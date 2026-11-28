@@ -238,6 +238,71 @@ SEED_CONFIGS: list[tuple[str, str | None, str, str, str, bool]] = [
         "turbo",
         False,
     ),
+    # intent_router —— 智能路由（mode_slug=auto）。每轮先做一次「用户意图识别」，从候选
+    # 模式里选一个再走原有模式链路。还要用户有 can_use_intent_router 权限位才出现在模式菜单。
+    (
+        "intent_router.enable",
+        "false",
+        "启用智能路由",
+        "总开关。开启后，有「智能路由」权限的用户在模式菜单里可以选它："
+        "每次提问先识别意图，再进入合适的模式。关闭后已选智能路由的对话按回退模式继续。",
+        "intent_router",
+        False,
+    ),
+    (
+        "intent_router.strategy",
+        "smart_keep",
+        "识别策略",
+        "smart_keep（智能保持，默认）：每轮都识别，但只在当前模式答不了时往能力更强的模式切换，"
+        "不从标准切回极速，以保住前缀缓存；per_turn：每轮自由选择；"
+        "first_turn：只在对话第一轮识别，之后沿用。",
+        "intent_router",
+        False,
+    ),
+    (
+        "intent_router.candidate_slugs",
+        "",
+        "候选模式",
+        "参与识别的官方模式 slug（逗号分隔）。留空表示全部已启用的官方模式；私有模式不参与。",
+        "intent_router",
+        False,
+    ),
+    (
+        "intent_router.fallback_slug",
+        "standard",
+        "回退模式",
+        "识别超时、出错、结果无效或功能关闭时使用的模式 slug。",
+        "intent_router",
+        False,
+    ),
+    (
+        "intent_router.timeout_ms",
+        "5000",
+        "识别超时(毫秒)",
+        "单次意图识别的最长等待时间，超时即按回退模式继续，对话不中断。",
+        "intent_router",
+        False,
+    ),
+    # evaluation_gate —— 评价判定。每轮回答完成后异步问一次轻量模型「这条回答要不要请用户评价」，
+    # 简单问答、同会话重复追问、过程中的中间回合不再弹评价栏。关闭时所有可评价的回答照旧显示评价卡。
+    (
+        "evaluation_gate.enable",
+        "false",
+        "启用评价判定",
+        "总开关。开启后，每条回答完成时由模型判断是否需要用户评价：寒暄、简单问答、"
+        "同一会话里重复的追问和过程中的中间回合不再显示评价卡，也不进入待评价提醒。"
+        "只对开启后的新回答生效；判定失败或超时按需要评价处理。",
+        "evaluation_gate",
+        False,
+    ),
+    (
+        "evaluation_gate.timeout_ms",
+        "5000",
+        "判定超时(毫秒)",
+        "单次评价判定的最长等待时间，超时按需要评价处理，照常显示评价卡。",
+        "evaluation_gate",
+        False,
+    ),
 ] + EDITION_SEED_CONFIGS
 
 

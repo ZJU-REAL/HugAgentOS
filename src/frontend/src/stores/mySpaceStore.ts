@@ -72,7 +72,6 @@ function toTime(value?: string): number {
 function taskTitle(task: AutomationTask): string {
   const promptTitle = task.prompt?.trim();
   return task.name?.trim()
-    || task.plan_title?.trim()
     || (promptTitle ? promptTitle.slice(0, 48) : '')
     || t('定时任务');
 }
@@ -80,7 +79,6 @@ function taskTitle(task: AutomationTask): string {
 function taskPreview(task: AutomationTask): string {
   return task.description?.trim()
     || task.prompt?.trim()
-    || task.plan_title?.trim()
     || t('已执行 {n} 次', { n: task.run_count });
 }
 

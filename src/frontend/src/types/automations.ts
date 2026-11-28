@@ -8,7 +8,7 @@ export type MySpaceTab = 'assets' | 'kb' | 'favorites' | 'shares' | 'notificatio
 export type KbTabKey = 'public' | 'private';
 
 // ── Automation types ────────────────────────────────────────────
-export type AutomationTaskType = 'prompt' | 'plan';
+export type AutomationTaskType = 'prompt' | 'loop';
 
 export type AutomationStatus = 'active' | 'paused' | 'disabled' | 'completed' | 'expired';
 
@@ -26,8 +26,6 @@ export interface AutomationTask {
   project_local_path?: string;
   task_type: AutomationTaskType;
   prompt?: string;
-  plan_id?: string;
-  plan_title?: string;
   cron_expression: string;
   schedule_type: AutomationScheduleType;
   timezone: string;

@@ -137,6 +137,12 @@ DEFAULT_PAGE_CONFIG: dict[str, Any] = {
         # are rejected outright (not just hidden on the frontend).
         "allow_register": True,
     },
+    # 会话设置. Read by the frontend only (utils/pageConfigDefaults.ts keeps the same default).
+    "chat": {
+        # Whether the run monitor rail (context / files / sub-agents cards right of the
+        # messages) starts expanded in a chat. A user's own page setting overrides it.
+        "run_monitor_open_by_default": True,
+    },
 }
 
 

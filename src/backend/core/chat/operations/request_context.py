@@ -77,6 +77,10 @@ def build_ctx(
                     project_ctx.update(resolved_project_ctx)
                     memory_enabled = bool(project_ctx.pop("_memory_enabled", True))
                     memory_write_enabled = bool(project_ctx.pop("_memory_write_enabled", True))
+                    from core.auth.capabilities import user_has_capability
+
+                    if not user_has_capability(_db, str(db_user_id), "can_use_evolution"):
+                        memory_enabled = memory_write_enabled = False
         except HTTPException:
             raise
         except Exception:

@@ -41,7 +41,9 @@ assert.deepEqual(chatInvocationRequestFields(invocation), {
 assert.deepEqual(chatInvocationMessageProps(invocation), {
   skillId: 'skill-direct',
   skillName: '公文写作',
+  pluginId: 'office@user-1',
   pluginName: '办公插件',
+  connectorId: 'mcp-drive',
   connectorName: '云盘',
   mentionName: '审校智能体',
 });

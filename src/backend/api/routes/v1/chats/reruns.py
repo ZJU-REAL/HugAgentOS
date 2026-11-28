@@ -12,6 +12,7 @@ import core.chat.service as chat_services_ChatService_module
 import core.auth.users as chat_services_UserService_module
 import core.chat.operations.admission_errors as chat_admission
 import core.chat.operations.agent_targets as chat_agent_targets
+import core.chat.mode_policy as chat_mode_policy
 import core.chat.operations.invocation as chat_invocation
 import core.chat.operations.request_context as chat_request_context
 import core.chat.operations.schemas as chat_models
@@ -92,6 +93,8 @@ async def regenerate_message(
         regen_request = chat_invocation.resolve_explicit_capability_invocation(
             db, regen_request, db_user_id
         )
+        # Hold users without mode switching to their default; project init may still force 标准模式.
+        chat_mode_policy.apply_mode_policy(db, regen_request, db_user_id)
         from core.chat.project_init import resolve_project_init
 
         init_message = resolve_project_init(db, regen_request, db_user_id)
@@ -247,6 +250,8 @@ async def edit_and_resend(
                 target_msg,
             )
         )
+        # Hold users without mode switching to their default; project init may still force 标准模式.
+        chat_mode_policy.apply_mode_policy(db, edit_request, db_user_id)
         from core.chat.project_init import resolve_project_init
 
         init_message = resolve_project_init(db, edit_request, db_user_id)

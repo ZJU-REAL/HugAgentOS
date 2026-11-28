@@ -73,7 +73,7 @@ export function AgentDetailView({
   };
   const editionAgentPolicy = useEditionAgentPolicy();
     const isBuiltin = selectedAgent.owner_type === 'builtin';
-    const canToggle = canEdit || isBuiltin;
+    const canToggle = canEdit || isBuiltin || selectedAgent.owner_type === 'admin';
     const agentIdx = colorIndex;
     const skillNameMap = new Map((availableResources?.skills || []).map((item) => [item.id, item.name]));
     const mcpNameMap = new Map((availableResources?.mcp_servers || []).map((item) => [item.id, item.name]));

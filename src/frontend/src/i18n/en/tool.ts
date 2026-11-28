@@ -198,4 +198,16 @@ export const TOOL_DICT: Record<string, string> = {
   '正在分析结果…': 'Analyzing results…',
   '正在思考下一步…': 'Working out the next step…',
   '仍在等待模型响应…': 'Still waiting for the model…',
+  // Intent routing (mode_slug=auto): toolActionLabel.ts / ToolCallRow.tsx / IntentRecognitionBody.tsx
+  '用户意图识别': 'Intent recognition',
+  '正在识别意图': 'Recognizing intent',
+  '识别中': 'Recognizing',
+  '没有拿到识别结果': 'No recognition result was returned',
+  '问题': 'Question',
+  '结果': 'Result',
+  '换成': 'Switch to',
+  '进入「{mode}」': 'Routed to "{mode}"',
+  '进入「{mode}」（从「{from}」切换）': 'Routed to "{mode}" (switched from "{from}")',
+  '识别未完成，已使用「{mode}」': 'Recognition did not finish; used "{mode}"',
+  '用「{mode}」重新回答这一轮': 'Answer this turn again with "{mode}"',
 };

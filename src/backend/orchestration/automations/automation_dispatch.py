@@ -33,7 +33,6 @@ def _claimed(db, task_id, user_id, run_id, lease_token):
         "task_type": task.task_type,
         "task_name": task.name or "定时任务",
         "prompt": task.prompt,
-        "plan_id": task.plan_id,
         "consecutive_failures": task.consecutive_failures or 0,
         "max_failures": task.max_failures or 3,
         "capabilities": TaskCapabilities.of(task),
@@ -140,7 +139,6 @@ async def execute_task(task_id: str, user_id: str, *, run_id: str, lease_token: 
     from .automation_conversation import (
         ConversationStopped,
         execute_loop,
-        execute_plan,
         execute_prompt,
     )
     from .automation_delivery import deliver_result
@@ -187,16 +185,6 @@ async def execute_task(task_id: str, user_id: str, *, run_id: str, lease_token: 
                 user_id=user_id,
                 task_name=task_name,
                 prompt=task["prompt"],
-                task_id=task_id,
-                automation_run_id=run.run_id,
-                lease_token=lease_token,
-                capabilities=capabilities,
-            )
-        elif task_type == "plan":
-            chat_id, result_text, usage = await execute_plan(
-                user_id=user_id,
-                task_name=task_name,
-                plan_id=task["plan_id"],
                 task_id=task_id,
                 automation_run_id=run.run_id,
                 lease_token=lease_token,

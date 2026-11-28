@@ -1,6 +1,7 @@
 import {
   CopyOutlined,
   DeleteOutlined,
+  EditOutlined,
   DownloadOutlined,
   ExportOutlined,
   FolderOpenOutlined,
@@ -90,7 +91,7 @@ export function ResourceCard({
       onClick: () => onNavigate(item),
     });
   }
-  if (onRename) menuItems.push({ key: 'rename', label: t('重命名'), onClick: () => onRename(item) });
+  if (onRename) menuItems.push({ key: 'rename', icon: <EditOutlined />, label: t('重命名'), onClick: () => onRename(item) });
 
   if (onDelete) {
     if (menuItems.length > 0) menuItems.push({ type: 'divider' });

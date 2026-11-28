@@ -594,7 +594,7 @@ location / {
 # API 代理（支持 SSE）
 location /api/ {
   proxy_pass http://backend:${BACKEND_PORT}/;
-  client_max_body_size 50m;
+  client_max_body_size 0;  # 上传上限由后端按权限配置校验
   proxy_buffering off;      # SSE 必须关闭缓冲
   proxy_cache off;
   proxy_read_timeout 300s;

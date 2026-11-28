@@ -23,6 +23,7 @@ interface DocumentListProps {
   onEnterFolder?: (folderId: string) => void;
   onRenameFolder?: (folderId: string, currentName: string) => void;
   onDeleteFolder?: (folderId: string, name: string) => void;
+  onBulkDelete?: (ids: string[]) => void;
   onMoveToPersonalFolder?: (item: ResourceItem) => void;
   onBulkMoveToPersonalFolder?: (items: ResourceItem[]) => void;
   onCopyToPersonalFolder?: (item: ResourceItem) => void;
@@ -41,20 +42,36 @@ export function DocumentList({
   onEnterFolder,
   onRenameFolder,
   onDeleteFolder,
+  onBulkDelete,
   onMoveToPersonalFolder,
   onBulkMoveToPersonalFolder,
   onCopyToPersonalFolder,
   onBulkCopyToPersonalFolder,
 }: DocumentListProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selecting, setSelecting] = useState(false);
+  const folderRows = folders ?? [];
+  const selectableIds = [
+    ...(onBulkDelete ? folderRows.map((folder) => folder.folder_id) : []),
+    ...items.map((item) => item.id),
+  ];
+  const selectableKey = JSON.stringify(selectableIds);
 
   useEffect(() => {
-    setSelectedIds((previous) => new Set(items.filter((item) => previous.has(item.id)).map((item) => item.id)));
-  }, [items]);
+    const visible = new Set<string>(JSON.parse(selectableKey));
+    setSelectedIds((previous) => new Set([...previous].filter((id) => visible.has(id))));
+  }, [selectableKey]);
 
-  const allSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id));
-  const someSelected = items.some((item) => selectedIds.has(item.id));
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selectedIds.has(id));
+  const someSelected = selectableIds.some((id) => selectedIds.has(id));
+  const showChecks = someSelected || selecting;
   const selectedItems = items.filter((item) => selectedIds.has(item.id));
+  const selectAll = (checked: boolean) => setSelectedIds(checked ? new Set(selectableIds) : new Set());
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setSelecting(false);
+  };
+
   const handleSelect = useCallback((id: string, checked: boolean) => {
     setSelectedIds((previous) => {
       const next = new Set(previous);
@@ -63,10 +80,17 @@ export function DocumentList({
       return next;
     });
   }, []);
-  const folderRows = folders ?? [];
+  const handleInvertSelection = () => {
+    setSelectedIds((previous) => new Set(selectableIds.filter((id) => !previous.has(id))));
+  };
   if (items.length === 0 && folderRows.length === 0) return null;
 
   const handleBulkDelete = () => {
+    if (onBulkDelete) {
+      onBulkDelete(selectableIds.filter((id) => selectedIds.has(id)));
+      clearSelection();
+      return;
+    }
     if (!onDelete) return;
     Modal.confirm({
       title: t('确认删除 {n} 个文件', { n: selectedItems.length }),
@@ -83,13 +107,32 @@ export function DocumentList({
 
   return (
     <>
-      <div className={`jx-mySpace-docTable${someSelected ? ' jx-mySpace-docTable--hasSelection' : ''}`}>
+      <div className={`jx-mySpace-docTable${someSelected ? ' jx-mySpace-docTable--hasSelection' : ''}${selecting ? ' jx-mySpace-docTable--selecting' : ''}`}>
+        {selectableIds.length > 0 && (
+          <div className="jx-mySpace-docSelectBar">
+            {showChecks && (
+              <Checkbox
+                checked={allSelected}
+                indeterminate={someSelected && !allSelected}
+                onChange={(event) => selectAll(event.target.checked)}
+              >
+                {t('全选')}
+              </Checkbox>
+            )}
+            <button type="button" className="jx-mySpace-docSelectBar-toggle"
+              onClick={() => (showChecks ? clearSelection() : setSelecting(true))}>
+              {showChecks ? t('取消') : t('选择')}
+            </button>
+          </div>
+        )}
         <div className="jx-mySpace-docTable-header">
           <div className="jx-mySpace-docTable-col jx-mySpace-docTable-col--check">
             <Checkbox
               checked={allSelected}
               indeterminate={someSelected && !allSelected}
-              onChange={(event) => setSelectedIds(event.target.checked ? new Set(items.map((item) => item.id)) : new Set())}
+              disabled={!selectableIds.length}
+              aria-label={t('全选')}
+              onChange={(event) => selectAll(event.target.checked)}
             />
           </div>
           <div className="jx-mySpace-docTable-col jx-mySpace-docTable-col--name">{t('名称')}</div>
@@ -110,14 +153,20 @@ export function DocumentList({
               onClick: () => onDeleteFolder(folder.folder_id, folder.name),
             });
           }
+          const checked = selectedIds.has(folder.folder_id);
           return (
             <div
               key={folder.folder_id}
-              className="jx-mySpace-docRow jx-mySpace-docRow--folder"
+              className={`jx-mySpace-docRow jx-mySpace-docRow--folder${checked ? ' jx-mySpace-docRow--checked' : ''}${showChecks ? ' jx-mySpace-docRow--anySelected' : ''}`}
               onDoubleClick={() => onEnterFolder?.(folder.folder_id)}
               title={t('双击打开 {name}', { name: folder.name })}
             >
-              <div className="jx-mySpace-docTable-col jx-mySpace-docTable-col--check" />
+              <div className="jx-mySpace-docTable-col jx-mySpace-docTable-col--check">
+                {onBulkDelete && (
+                  <Checkbox checked={checked} aria-label={t('选择 {name}', { name: folder.name })}
+                    onChange={(event) => handleSelect(folder.folder_id, event.target.checked)} />
+                )}
+              </div>
               <div className="jx-mySpace-docTable-col jx-mySpace-docTable-col--name">
                 <img className="jx-mySpace-docRow-icon" src={getFolderIconSrc()} alt="" />
                 <span className="jx-mySpace-docRow-name">{folder.name}</span>
@@ -147,7 +196,7 @@ export function DocumentList({
               <ResourceCard
                 item={item}
                 checked={selectedIds.has(item.id)}
-                anySelected={someSelected}
+                anySelected={showChecks}
                 onCheck={(checked) => handleSelect(item.id, checked)}
                 onDownload={onDownload}
                 onNavigate={onNavigate}
@@ -162,7 +211,19 @@ export function DocumentList({
           ))}
         </AnimatePresence>
       </div>
-      <BulkActionBar open={someSelected} count={selectedItems.length}>
+      <BulkActionBar open={someSelected} count={selectableIds.filter((id) => selectedIds.has(id)).length}>
+        <button
+          type="button"
+          className="jx-mySpace-bulkBar-btn"
+          disabled={allSelected}
+          onClick={() => selectAll(true)}
+        >
+          {t('全选')}
+        </button>
+        <button type="button" className="jx-mySpace-bulkBar-btn" onClick={handleInvertSelection}>
+          {t('反选')}
+        </button>
+        <div className="jx-mySpace-bulkBar-divider" />
         {onAddToKb && (
           <button type="button" className="jx-mySpace-bulkBar-btn" onClick={() => onAddToKb(selectedItems.filter((item) => item.file_id))}>
             {t('加入知识库')}
@@ -181,13 +242,13 @@ export function DocumentList({
         <button type="button" className="jx-mySpace-bulkBar-btn" onClick={() => selectedItems.forEach(onDownload)}>
           {t('下载')}
         </button>
-        {onDelete && (
+        {(onBulkDelete || onDelete) && (
           <button type="button" className="jx-mySpace-bulkBar-btn jx-mySpace-bulkBar-btn--danger" onClick={handleBulkDelete}>
             {t('删除')}
           </button>
         )}
         <div className="jx-mySpace-bulkBar-divider" />
-        <button type="button" className="jx-mySpace-bulkBar-btn jx-mySpace-bulkBar-btn--cancel" onClick={() => setSelectedIds(new Set())}>
+        <button type="button" className="jx-mySpace-bulkBar-btn jx-mySpace-bulkBar-btn--cancel" onClick={clearSelection}>
           {t('取消')}
         </button>
       </BulkActionBar>

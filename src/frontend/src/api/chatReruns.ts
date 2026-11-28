@@ -9,9 +9,11 @@ export function requestChatRerun(
   signal: AbortSignal,
   newContent?: string,
 ): Promise<Response> {
-  const { chatMode, modeSlug } = useChatStore.getState();
+  const { chatMode } = useChatStore.getState();
   const caps = useModelCapabilitiesStore.getState();
-  const mode = useChatModeStore.getState().modeOf(modeSlug);
+  const modeStore = useChatModeStore.getState();
+  const modeSlug = modeStore.effectiveSlug(useChatStore.getState().modeSlug);
+  const mode = modeStore.modeOf(modeSlug);
   return authFetch(`${getApiUrl()}/v1/chats/${encodeURIComponent(chatId)}/${newContent === undefined ? 'regenerate' : 'edit'}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...chatTargetHeaders(chatId) },

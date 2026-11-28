@@ -110,7 +110,9 @@ export function createStreamEditing(ctx: Pick<StreamingContext, 'abortController
         ...(targetMsg?.quotedFollowUp ? { quotedFollowUp: targetMsg.quotedFollowUp } : {}),
         ...(targetMsg?.skillId ? { skillId: targetMsg.skillId } : {}),
         ...(targetMsg?.skillName ? { skillName: targetMsg.skillName } : {}),
+        ...(targetMsg?.pluginId ? { pluginId: targetMsg.pluginId } : {}),
         ...(targetMsg?.pluginName ? { pluginName: targetMsg.pluginName } : {}),
+        ...(targetMsg?.connectorId ? { connectorId: targetMsg.connectorId } : {}),
         ...(targetMsg?.connectorName ? { connectorName: targetMsg.connectorName } : {}),
         ...(targetMsg?.mentionName ? { mentionName: targetMsg.mentionName } : {}),
       };

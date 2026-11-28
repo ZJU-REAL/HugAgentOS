@@ -77,8 +77,11 @@ def _resolve_mode_spec(context: dict):
 
     线上字段是 ``mode_slug``；老客户端只发 ``chat_mode='turbo'``，按极速模式解析，
     所以升级期间新旧前端都能跑。解析失败返回 None（= 标准模式，不收窄）。
+    智能路由（``mode_slug=auto``）识别出的模式写在 ``routed_mode_slug``，优先于它。
     """
-    slug = str(context.get("mode_slug", "") or "").strip()
+    slug = str(context.get("routed_mode_slug", "") or "").strip() or str(
+        context.get("mode_slug", "") or ""
+    ).strip()
     if not slug and str(context.get("chat_mode", "") or "").lower() == "turbo":
         slug = "turbo"
     if not slug:

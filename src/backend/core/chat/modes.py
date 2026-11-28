@@ -115,7 +115,7 @@ class ChatModeService:
 
     def create(self, payload: Dict[str, Any], owner_user_id: Optional[str]) -> ChatMode:
         slug = mode_validation.normalize_slug(payload.get("slug"), payload.get("name"))
-        if slug in mode_types.BUILTIN_SLUGS:
+        if slug in mode_types.RESERVED_SLUGS:
             raise BadRequestError(f"slug「{slug}」是内置模式保留字，请换一个")
         clash = (
             self.db.query(ChatMode)

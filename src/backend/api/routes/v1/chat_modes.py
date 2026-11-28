@@ -15,12 +15,13 @@
 
 from typing import Any, Dict, List, Optional
 
-from api.deps import require_admin_or_config
+from api.deps import require_admin_or_config, require_config
 from core.auth.backend import UserContext, get_current_user
 from core.db.engine import get_db
 from core.db.models.chat_mode import ChatMode
 from core.infra.logging import get_logger
 from core.infra.responses import created_response, success_response
+from core.chat.mode_policy import ModePolicy, policy_for
 from core.chat.modes import ChatModeService
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -107,6 +108,36 @@ def _public_mode_to_dict(row: ChatMode) -> Dict[str, Any]:
     }
 
 
+def _router_mode_dict() -> Dict[str, Any]:
+    """「智能路由」虚拟项：字段与 ``_public_mode_to_dict`` 一致，另加 ``is_router``。"""
+    from core.chat.mode_types import SLUG_AUTO
+
+    return {
+        "slug": SLUG_AUTO,
+        "name": "智能路由",
+        "description": "每次提问自动识别意图，进入合适的模式",
+        "is_builtin": True,
+        "is_private": False,
+        "default_effort": "fast",
+        "effort_locked": False,
+        "is_router": True,
+    }
+
+
+def _router_visible(db: Session, user_id: str) -> bool:
+    """总开关开、且用户有 can_use_intent_router 时，模式菜单最前面出现智能路由。"""
+    from core.chat.mode_router import user_allowed
+    from core.config.store.intent_router_options import intent_router_enabled
+
+    if not intent_router_enabled():
+        return False
+    try:
+        return user_allowed(db, user_id)
+    except Exception:  # noqa: BLE001 — 读不到权限就不展示，不影响其余模式
+        logger.warning("intent router capability lookup failed user=%s", user_id, exc_info=True)
+        return False
+
+
 @router.get("", summary="当前用户可用的模式（对话框模式位数据源）")
 def list_modes(
     user: UserContext = Depends(get_current_user),
@@ -116,7 +147,23 @@ def list_modes(
     # 首次访问时补播内置行：老库升级上来不必额外跑脚本。
     service.ensure_builtins()
     rows = service.list_for_user(user.user_id)
-    return success_response(data={"modes": [_public_mode_to_dict(r) for r in rows]})
+    modes = [_public_mode_to_dict(r) for r in rows]
+    if _router_visible(db, str(user.user_id)):
+        modes.insert(0, _router_mode_dict())
+    # default_slug: the mode a new chat starts in; can_switch=false locks the composer to it
+    # (the server enforces the same lock per turn, see core/chat/mode_policy.py).
+    policy = _mode_policy(db, str(user.user_id))
+    return success_response(
+        data={"modes": modes, "default_slug": policy.default_slug, "can_switch": policy.can_switch}
+    )
+
+
+def _mode_policy(db: Session, user_id: str) -> ModePolicy:
+    try:
+        return policy_for(db, user_id)
+    except Exception:  # noqa: BLE001 — the menu still works with the old behaviour
+        logger.warning("chat mode policy lookup failed user=%s", user_id, exc_info=True)
+        return ModePolicy(default_slug="standard", can_switch=True)
 
 
 @router.get("/options/mine", summary="我建模式时可选的能力清单")
@@ -188,6 +235,22 @@ def delete_my_mode(
 
 
 # ── 官方模式（Config 台「模式选择」）──────────────────────────────────────
+
+
+@router.get("/assignable", summary="可指派为默认模式的官方模式（权限配置）")
+def list_assignable_modes(
+    _: None = Depends(require_config),
+    db: Session = Depends(get_db),
+):
+    """Enabled official modes for the 默认模式 picker in the role / team / user editors.
+
+    Guarded like those editors (CONFIG_TOKEN or a session with ``can_system_config``);
+    ``/official`` takes static tokens only, so a console opened by session would 401 there.
+    """
+    service = ChatModeService(db)
+    service.ensure_builtins()
+    modes = [{"slug": r.slug, "name": r.name} for r in service.list_official() if r.enabled]
+    return success_response(data={"modes": modes})
 
 
 @router.get("/official", summary="官方模式列表（Config 台）")

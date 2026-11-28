@@ -53,7 +53,7 @@ export function AutomationCard({ task, onClick }: Props) {
     }
   };
 
-  const displayName = task.name || (task.task_type === 'prompt' ? (task.prompt?.slice(0, 40) || t('提示词任务')) : (task.plan_title || t('计划任务')));
+  const displayName = task.name || task.prompt?.slice(0, 40) || t('提示词任务');
 
   return (
     <div className="jx-automation-card" onClick={onClick} role="button" tabIndex={0}>
@@ -66,9 +66,6 @@ export function AutomationCard({ task, onClick }: Props) {
         <div className="jx-automation-card-meta">
           {task.project_name && <span>{task.project_name}</span>}
           <span>{task.timezone}</span>
-          <span className="jx-automation-card-type">
-            {task.task_type === 'prompt' ? t('提示词') : t('计划')}
-          </span>
           <span className="jx-automation-card-sep" />
           <span className="jx-automation-card-schedule">
             {task.schedule_type === 'recurring' ? cronToHumanReadable(task.cron_expression) : t('单次执行')}

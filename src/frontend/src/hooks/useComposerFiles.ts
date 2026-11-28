@@ -1,7 +1,8 @@
 import type React from 'react';
 import { message } from 'antd';
 import { t } from '../i18n';
-import { UPLOAD_MAX_BYTES, UPLOAD_MAX_MB } from '../api';
+import { uploadErrorMessage } from '../api';
+import { ApiResponseError } from '../utils/apiError';
 import { uploadFileToOSS } from '../utils/fileParser';
 import { readComposer, useComposerStore } from '../stores/composerStore';
 import { useChatStore } from '../stores/chatStore';
@@ -20,18 +21,9 @@ export function useComposerFiles(effectiveApiUrl: string) {
   }
 
   function attachFiles(picked: readonly File[], draftKey = useComposerStore.getState().activeKey) {
-    // 超限的文件当场拦下并说明上限：以前既不校验、上传失败也被 catch 吞掉，
-    // 挑一个 90MB 的文件会「安静地」挂在输入框上，用户完全不知道它没传上去（问题 42）。
-    // 上限与 nginx 的 client_max_body_size 同一个来源（VITE_UPLOAD_MAX_MB）。
-    const oversized = picked.filter((f) => f.size > UPLOAD_MAX_BYTES);
-    const newFiles = picked.filter((f) => f.size <= UPLOAD_MAX_BYTES);
-    if (oversized.length > 0) {
-      message.error(
-        oversized.length === 1
-          ? t('「{name}」超过 {n} MB，无法上传', { name: oversized[0].name, n: UPLOAD_MAX_MB })
-          : t('{k} 个文件超过 {n} MB，已跳过', { k: oversized.length, n: UPLOAD_MAX_MB }),
-      );
-    }
+    // 不在前端写死大小上限：单文件上限来自后台权限配置（角色 / 团队 / 个人的「我的空间」上限），
+    // 由后端校验；超限时把后端给出的原因（含配置的 MB 数）显示在该文件上，而不是笼统的「上传失败」。
+    const newFiles = [...picked];
     if (newFiles.length === 0) return;
 
     const owner = readComposer(draftKey);
@@ -59,8 +51,13 @@ export function useComposerFiles(effectiveApiUrl: string) {
         }
         return result;
       })
-      .catch(() => {
-        if (current()) owner.setUploadError(file, t('上传失败，请重试'));
+      .catch((error: unknown) => {
+        if (current()) {
+          const tooLarge = error instanceof ApiResponseError && error.status === 413;
+          const reason = tooLarge ? uploadErrorMessage(413, error.payload) : t('上传失败，请重试');
+          owner.setUploadError(file, reason);
+          if (tooLarge) message.error(t('「{name}」上传失败：{reason}', { name: file.name, reason }));
+        }
         return { file_id: '', download_url: '' };
       })
       .finally(() => { if (current()) owner.removeUploadingFile(file); });

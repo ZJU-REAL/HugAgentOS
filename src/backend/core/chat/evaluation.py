@@ -52,6 +52,7 @@ REASON_LABELS: Dict[str, str] = {**REASONS, **LEGACY_REASONS}
 DEFAULT_ADOPT = "default_adopt"  # simple task, reminder window passed
 SPOT_CHECK = "spot_check"        # complex task, reminder window passed
 PENDING = "pending"              # still inside the reminder window
+NOT_NEEDED = "not_needed"        # the evaluation gate judged it not worth rating (switch on only)
 
 REMINDER_WORKING_DAYS = 3
 REMINDER_LIMIT = 5
@@ -172,8 +173,14 @@ def reminder_cutoff(now: Optional[datetime] = None) -> datetime:
 
 
 def unrated_state(delivered_at: Optional[datetime], *, complex_task: bool,
-                  now: Optional[datetime] = None) -> str:
-    """Derived state of an answer nobody rated: pending, default_adopt or spot_check."""
+                  now: Optional[datetime] = None, need_evaluation: bool = True) -> str:
+    """Derived state of an answer nobody rated: pending, default_adopt or spot_check.
+
+    ``need_evaluation=False`` (the evaluation gate said so, switch on) is ``not_needed``: never
+    reminded, never adopted by default, never sent to the spot check pool.
+    """
+    if not need_evaluation:
+        return NOT_NEEDED
     if delivered_at is None:
         return PENDING
     if working_days_between(delivered_at, now or utc_now()) <= REMINDER_WORKING_DAYS:
@@ -206,13 +213,23 @@ def pending_evaluations(db: Session, user_id: str, *, limit: int = REMINDER_LIMI
 
     ``items`` holds the ``limit`` most recent conversations with something to rate (each pointing
     at its latest unrated answer); ``chat_ids`` lists every such conversation so the history list
-    can mark them; ``total`` counts unrated answers.
+    can mark them; ``total`` counts unrated answers; ``gate_enabled`` is the evaluation gate
+    switch these lists were filtered with (read once, so the flag and the lists agree).
     """
+    from core.chat import evaluation_gate
+    from core.config.store import evaluation_gate_options as gate_options
+
+    gate = gate_options.evaluation_gate_options()
+    gating_start = evaluation_gate.gating_window_start(gate.timeout_ms, now)
     cutoff = reminder_cutoff(now)
     delivered = func.coalesce(ChatRun.completed_at, ChatRun.updated_at)
+    columns = [ChatRun.chat_id, ChatRun.message_id, delivered.label("delivered_at"),
+               ChatSession.title]
+    if gate.enabled:  # the gate's JSON is only worth extracting when it is applied
+        columns += [ChatMessage.extra_data[evaluation_gate.STORAGE_KEY].label("gate"),
+                    ChatMessage.extra_data[evaluation_gate.PENDING_KEY].label("gate_pending")]
     rows = db.execute(
-        select(ChatRun.chat_id, ChatRun.message_id, delivered.label("delivered_at"),
-               ChatSession.title)
+        select(*columns)
         .join(ChatSession, ChatSession.chat_id == ChatRun.chat_id)
         # The answer must still exist (edit-and-resend removes the old one).
         .join(ChatMessage, ChatMessage.message_id == ChatRun.message_id)
@@ -237,6 +254,12 @@ def pending_evaluations(db: Session, user_id: str, *, limit: int = REMINDER_LIMI
         if row.message_id in seen_messages:
             continue
         seen_messages.add(row.message_id)
+        # With the evaluation gate on, answers judged not worth rating are not chased, nor are
+        # answers whose decision is still being made (they may turn out not to need one).
+        if gate.enabled:
+            state = evaluation_gate.gate_state(row.gate, row.gate_pending)
+            if state.not_needed or state.gating("completed", row.delivered_at, gating_start):
+                continue
         total += 1
         entry = per_chat.get(row.chat_id)
         if entry is None:
@@ -254,4 +277,5 @@ def pending_evaluations(db: Session, user_id: str, *, limit: int = REMINDER_LIMI
         "items": ordered[:limit],
         "chat_ids": [item["chat_id"] for item in ordered],
         "total": total,
+        "gate_enabled": gate.enabled,
     }

@@ -70,6 +70,8 @@ const TOOL_ACTIONS: Record<string, ToolAction> = {
   publish_site: action(t('正在发布站点'), t('发布了站点'), 'publish'),
   list_related_chats: CHAT_HISTORY,
   read_chat: CHAT_HISTORY,
+  // 智能路由每轮回答前的那一步（后端合成的工具事件，不是模型调用的工具）
+  intent_recognition: action(t('正在识别意图'), t('用户意图识别'), 'route'),
   read_project_instructions: action(t('正在读取项目说明'), t('读取了项目说明'), 'notes'),
   save_project_instructions: action(t('正在更新项目说明'), t('更新了项目说明'), 'notes'),
 };

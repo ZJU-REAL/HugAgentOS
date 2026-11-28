@@ -70,6 +70,7 @@ def register_pin_to_workspace(
         Returns:
             JSON: ``{ok, pinned: [{file_id, name, already_pinned}], failed: [{file_id, error}], pinned_count}``。
             ``ok=false`` 表示本次没有成功交付文件；部分失败见 ``failed``。
+            ``space_failed`` 表示文件已交付到对话、但没能存进用户空间（如空间已满），需如实告知用户。
         """
         import json as _json
 
@@ -200,6 +201,8 @@ def register_pin_to_workspace(
                     "storage_key": item.get("storage_key"),
                     "url": f"/files/{fid}",
                     "tool_name": "pin_to_workspace",
+                    "src_path": (item.get("metadata") or {}).get("src_path"),
+                    "local_path": item.get("path"),
                 }
             )
 
@@ -211,6 +214,9 @@ def register_pin_to_workspace(
         # The deferred _persist_artifacts at run end dedups by artifact_id,
         # so this never double-inserts. A rejected write must not be reported
         # as pinned or retried silently at run finalization.
+        # Newly stored deliverables are then copied into the run's file space
+        # (My Space root or the project folder), which is what My Space lists.
+        space_failures: list[Dict[str, Any]] = []
         try:
             from core.infra.logging import chat_id_var, user_id_var
 
@@ -218,11 +224,27 @@ def register_pin_to_workspace(
             _cid = chat_id_var.get() or ""
             if _uid and to_persist:
                 from core.db.threads import run_in_session
-                from core.files.artifacts.service import persist_artifacts
+                from core.files.artifacts.service import (
+                    copy_deliverables_to_space,
+                    persist_artifacts,
+                )
 
-                await run_in_session(
+                inserted = await run_in_session(
                     persist_artifacts, _uid, _cid or None, to_persist, scope=scope, strict=True
                 )
+                if inserted:
+                    try:
+                        space_failures = await run_in_session(
+                            copy_deliverables_to_space, _uid, inserted, scope=scope
+                        )
+                    except Exception as exc:  # noqa: BLE001 - the chat card is still delivered
+                        logger.warning(
+                            "pin_to_workspace: space copy failed (%s)", type(exc).__name__
+                        )
+                        space_failures = [
+                            {"file_id": item["file_id"], "error": "保存到空间失败"}
+                            for item in inserted
+                        ]
         except Exception as exc:  # noqa: BLE001
             from fastapi import HTTPException
 
@@ -249,6 +271,9 @@ def register_pin_to_workspace(
         }
         if failed_results:
             result["failed"] = failed_results
+        if space_failures:
+            # Delivered in the chat, but not saved into the user's file space.
+            result["space_failed"] = space_failures
         return ToolChunk(
             content=[
                 TextBlock(

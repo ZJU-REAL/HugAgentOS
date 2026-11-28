@@ -81,7 +81,6 @@ from features.automation.models import ScheduledTask
 from sqlalchemy.orm import configure_mappers
 configure_mappers()
 assert ScheduledTask.user.property.mapper.class_.__name__ == "UserShadow"
-assert ScheduledTask.plan.property.mapper.class_.__name__ == "Plan"
 print("AUTOMATION_MODELS_OK")
 """
     result = subprocess.run(

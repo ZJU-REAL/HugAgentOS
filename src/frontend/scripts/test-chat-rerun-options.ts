@@ -33,5 +33,15 @@ try {
   await requestChatRerun('audit-chat', 1, signal);
   assert.equal(requests[2].body.model_provider_id, undefined);
   assert.ok(useChatModeStore.getState().modeOf('turbo').effort_locked);
+  // 智能路由（auto）：不锁强度，重答带用户自己的档位；名单里找不到的 slug 不会兜底到它
+  const fallbackModes = useChatModeStore.getState().modes;
+  useChatModeStore.setState({ modes: [{ slug: 'auto', name: '智能路由', description: '', is_builtin: true,
+    is_private: false, default_effort: 'fast', effort_locked: false, is_router: true }, ...fallbackModes] });
+  useChatStore.setState({ chatMode: 'high', modeSlug: 'auto' });
+  await requestChatRerun('audit-chat', 1, signal);
+  assert.equal(requests[3].body.mode_slug, 'auto');
+  assert.equal(requests[3].body.chat_mode, 'high');
+  assert.equal(useChatModeStore.getState().modeOf('missing').slug, 'standard');
+  useChatModeStore.setState({ modes: fallbackModes });
   console.log('chat rerun selection tests passed');
 } finally { globalThis.fetch = originalFetch; }

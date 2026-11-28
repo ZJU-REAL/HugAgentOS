@@ -8,7 +8,6 @@ import core.chat.runtime.admission as admission
 import core.chat.runtime.handoff as handoff
 import core.runs.runtime as runtime
 import orchestration.loops.admission as _orchestration_loops_admission
-import orchestration.plans.admission as _orchestration_plans_admission
 from core.chat.context import build_runtime_context, resolve_enabled_capabilities
 from core.config.settings import DEFAULT_CHAT_MODEL_ALIAS
 from core.db import engine as db_engine
@@ -179,34 +178,6 @@ def _abandon_run(db, run_id, reason):
     ChatSequencer(db).abandon_pending_run(run_id, reason=reason)
 
 
-def _approve_plan(db, task_id, user_id, plan_id):
-    """Check the task and plan, re-arm a finished plan; returns the plan title."""
-    from core.chat.plans import PlanService
-
-    task = AutomationService(db).get_task(task_id, user_id)
-    if task is None:
-        raise ValueError("任务不存在或无权访问")
-    task_execution_context(db, task)
-    service = PlanService(db)
-    plan = service.get_plan(plan_id, user_id)
-    if plan is None:
-        raise ValueError("计划不存在或无权访问")
-    title = plan.title
-    if plan.status in ("completed", "failed", "cancelled"):
-        service.update_plan(plan_id, status="approved", completed_steps=0)
-        for step in plan.steps:
-            service.update_step(
-                step.step_id,
-                status="pending",
-                result_summary=None,
-                ai_output=None,
-                error_message=None,
-            )
-    elif plan.status == "draft":
-        service.update_plan(plan_id, status="approved")
-    return title
-
-
 def _loop_target(db, user_id, task_name, loop_id, task_id):
     """Prepare the loop's chat; returns a skip notice, or (chat_id, goal_spec, budget, project_context)."""
     from features.automation.loops import LoopService
@@ -326,45 +297,6 @@ async def execute_prompt(
         await run_in_session(_abandon_run, accepted_run.run_id, str(exc) or type(exc).__name__)
         raise
 
-    return await _wait(run, automation_run_id=automation_run_id, lease_token=lease_token)
-
-
-async def execute_plan(
-    *,
-    user_id: str,
-    task_name: str,
-    plan_id: str,
-    task_id: str,
-    capabilities: TaskCapabilities,
-    automation_run_id: Optional[str] = None,
-    lease_token: Optional[str] = None,
-):
-    model = user_model_selection.resolve_effective_chat_model_name() or DEFAULT_CHAT_MODEL_ALIAS
-    title = await run_in_session(_approve_plan, task_id, user_id, plan_id)
-    content = f"自动化执行计划：{title}"
-    chat_id, _ = await run_db(
-        _prepare,
-        user_id,
-        task_id,
-        task_name,
-        content,
-        model,
-        automation_run_id,
-        {"plan_chat": True, "plan_id": plan_id},
-        lease_token=lease_token,
-    )
-    run = await _orchestration_plans_admission.start_plan_execute_run(
-        on_accept=_accept_link(automation_run_id, task_id, lease_token),
-        plan_id=plan_id,
-        chat_id=chat_id,
-        user_id=user_id,
-        enabled_mcp_ids=capabilities.mcp_ids,
-        enabled_skill_ids=capabilities.skill_ids,
-        enabled_kb_ids=capabilities.kb_ids,
-        enabled_agent_ids=capabilities.agent_ids,
-        session_messages=[{"role": "user", "content": content}],
-        model_name=model,
-    )
     return await _wait(run, automation_run_id=automation_run_id, lease_token=lease_token)
 
 

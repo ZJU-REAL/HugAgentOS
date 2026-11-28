@@ -2162,3 +2162,44 @@
 }
 
 .jx-tcr-capabilityIcon { display: inline-flex; flex: 0 0 22px; align-items: center; justify-content: center; }
+
+/* ── 「用户意图识别」展开内容：问题 / 结果 / 理由 / 换成，一行一项的键值 ── */
+.jx-intentRoute {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0 8px 24px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.jx-intentRoute-row {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+.jx-intentRoute-key {
+  flex: none;
+  min-width: 32px;
+  color: var(--color-text-tertiary);
+}
+.jx-intentRoute-val {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+.jx-intentRoute-options {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 4px;
+  min-width: 0;
+}
+.jx-intentRoute-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.jx-intentRoute-sep {
+  color: var(--color-text-tertiary);
+}

@@ -59,6 +59,11 @@ export interface PageConfig {
     /** Whether the login page shows the "register" entry (Tab + register sub-page); when disabled, only login remains */
     allow_register: boolean;
   };
+  /** 会话设置 */
+  chat: {
+    /** Whether the run monitor rail starts expanded in a chat; a user's own page setting overrides it. */
+    run_monitor_open_by_default: boolean;
+  };
 }
 
 /** Shell modules the sidebar can place. Applications and plugins never join this set. */
@@ -171,6 +176,9 @@ export const DEFAULT_PAGE_CONFIG: PageConfig = {
   auth: {
     allow_register: true,
   },
+  chat: {
+    run_monitor_open_by_default: true,
+  },
 };
 
 /** The login / first-run wordmark: its own image, or the sidebar logo when left empty (as the backend's resolve_login_branding). */
@@ -219,6 +227,9 @@ export function mergePageConfig(remote: Partial<PageConfig> | null | undefined):
     },
     texts: { ...DEFAULT_PAGE_CONFIG.texts, ...(remote.texts || {}) },
     auth: { ...DEFAULT_PAGE_CONFIG.auth, ...(remote.auth || {}) },
+    chat: {
+      run_monitor_open_by_default: remote.chat?.run_monitor_open_by_default !== false,
+    },
   };
 }
 

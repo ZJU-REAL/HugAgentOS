@@ -15,18 +15,17 @@ from core.db.threads import run_db
 import logging
 logger = logging.getLogger(__name__)
 
-async def stream(
-    self,
+def effective_session_messages(
     session_messages: List[Dict[str, Any]],
-    context: Dict[str, Any],
-    *,
     effective_user_message: Optional[str] = None,
-) -> AsyncIterator[Tuple[str, Any]]:
-    agent = self.agent
+) -> Tuple[List[Dict[str, Any]], str]:
+    """The rows this request sends, and the text of its latest user message.
 
-    # Commands keep their short spelling in persisted history, while this
-    # request must execute the expanded instructions. Copy the current row
-    # so neither stored history nor earlier user turns are rewritten.
+    Commands keep their short spelling in persisted history, while this
+    request must execute the expanded instructions. Copy the current row
+    so neither stored history nor earlier user turns are rewritten.
+    Shared with the intent-routing probe so both see the same input.
+    """
     if effective_user_message is not None:
         session_messages = list(session_messages)
         if session_messages and session_messages[-1].get("role") in ("user", "human"):
@@ -37,12 +36,70 @@ async def stream(
         else:
             session_messages.append({"role": "user", "content": effective_user_message})
 
-    _last_user_text = ""
-    if session_messages:
-        for _m in reversed(session_messages):
-            if _m.get("role") in ("user", "human"):
-                _last_user_text = str(_m.get("content") or "")
-                break
+    last_user_text = ""
+    for row in reversed(session_messages or []):
+        if row.get("role") in ("user", "human"):
+            last_user_text = str(row.get("content") or "")
+            break
+    return session_messages, last_user_text
+
+
+async def load_request_input(agent: Any, session_messages: List[Dict[str, Any]]) -> Optional[Msg]:
+    """Load history into ``agent.state.context`` and render the latest user input.
+
+    The last user message is excluded from the loaded history — reply_stream's
+    inputs carry it, avoiding duplication. The intent-routing probe calls this
+    on the same agent so its request prefix is the main request's prefix.
+    """
+    history = list(session_messages)
+    last_user_content = ""
+    last_user_row = None
+    if history and history[-1].get("role") in ("user", "human"):
+        last_user_row = history.pop()
+        last_user_content = last_user_row.get("content", "")
+    if history:
+        try:
+            agent.state.context.extend(await run_db(session_to_msgs, history))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[stream] load history failed: %s", exc)
+
+    if not last_user_content:
+        return None
+    request_seq = next_request_sequence(agent.state.context)
+    if isinstance((last_user_row or {}).get(SESSION_CONTEXT_META_KEY), dict):
+        return render_session_input(last_user_row, created_seq=request_seq)
+    return render_context_item(
+        ContextItem.create(
+            item_id=f"request:user_input:{request_seq}",
+            kind=KIND_USER_INPUT,
+            origin="user:chat",
+            trust="user",
+            visibility="model",
+            priority=1_000,
+            token_budget=100_000,
+            truncation_policy=POLICY_NEVER,
+            content=last_user_content,
+            cache_class="dynamic",
+            created_seq=request_seq,
+            render_role="user",
+            render_name="user",
+            message_group=f"request:user_input:{request_seq}",
+        )
+    )
+
+
+async def stream(
+    self,
+    session_messages: List[Dict[str, Any]],
+    context: Dict[str, Any],
+    *,
+    effective_user_message: Optional[str] = None,
+) -> AsyncIterator[Tuple[str, Any]]:
+    agent = self.agent
+
+    session_messages, _last_user_text = effective_session_messages(
+        session_messages, effective_user_message
+    )
 
     # ctx → agent.state (AgentRuntimeState, replaces the 1.x agent._jx_context = ModelContext)
     st = agent.state
@@ -63,43 +120,7 @@ async def stream(
     _log_ctx = LogContext(user_id=st.user_id or None, chat_id=st.chat_id or None)
     _log_ctx.__enter__()
 
-    # Load history into context (excluding the last user message — reply_stream's inputs carries it, avoiding duplication)
-    history = list(session_messages)
-    last_user_content = ""
-    last_user_row = None
-    if history and history[-1].get("role") in ("user", "human"):
-        last_user_row = history.pop()
-        last_user_content = last_user_row.get("content", "")
-    if history:
-        try:
-            agent.state.context.extend(await run_db(session_to_msgs, history))
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[stream] load history failed: %s", exc)
-
-    user_msg: Optional[Msg] = None
-    if last_user_content:
-        request_seq = next_request_sequence(agent.state.context)
-        if isinstance((last_user_row or {}).get(SESSION_CONTEXT_META_KEY), dict):
-            user_msg = render_session_input(last_user_row, created_seq=request_seq)
-        else:
-            user_msg = render_context_item(
-                ContextItem.create(
-                    item_id=f"request:user_input:{request_seq}",
-                    kind=KIND_USER_INPUT,
-                    origin="user:chat",
-                    trust="user",
-                    visibility="model",
-                    priority=1_000,
-                    token_budget=100_000,
-                    truncation_policy=POLICY_NEVER,
-                    content=last_user_content,
-                    cache_class="dynamic",
-                    created_seq=request_seq,
-                    render_role="user",
-                    render_name="user",
-                    message_group=f"request:user_input:{request_seq}",
-                )
-            )
+    user_msg = await load_request_input(agent, session_messages)
 
     # myspace write-confirmation gate (in-house ContextVar, distinct from 2.0 native HITL)
     from core.llm.tools import confirmation as _mc

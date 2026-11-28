@@ -25,6 +25,9 @@ _PUBLIC_CONTEXT_REFS = {
     "project_id",
     "chat_mode",
     "mode_slug",
+    # 智能路由识别出的模式：随运行上下文透传给恢复 / steer / handoff，不重新识别。
+    "routed_mode_slug",
+    "intent_route",
     "orchestration_profile_id",
     "workflow_policy_version",
 }

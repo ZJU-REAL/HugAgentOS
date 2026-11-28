@@ -200,6 +200,10 @@ export function parseHistoryMessage(m: any): ForkedHistoryMessage {
     ? m.metadata.plugin_name as string : undefined;
   const histConnectorName = m.role === 'user' && typeof m.metadata?.connector_name === 'string'
     ? m.metadata.connector_name as string : undefined;
+  const histPluginId = m.role === 'user' && typeof m.metadata?.plugin_id === 'string'
+    ? m.metadata.plugin_id as string : undefined;
+  const histConnectorId = m.role === 'user' && typeof m.metadata?.connector_id === 'string'
+    ? m.metadata.connector_id as string : undefined;
   const histMentionName = m.role === 'user' && typeof m.metadata?.mention_name === 'string'
     ? m.metadata.mention_name as string : undefined;
   // The @sub-agent routing prefix was written into the persisted body ("@name body"); when there's a mention badge, strip it,
@@ -233,7 +237,9 @@ export function parseHistoryMessage(m: any): ForkedHistoryMessage {
     ...(histSkillId && { skillId: histSkillId }),
     ...(histSkillName && { skillName: histSkillName }),
     ...(histPluginName && { pluginName: histPluginName }),
+    ...(histPluginId && { pluginId: histPluginId }),
     ...(histConnectorName && { connectorName: histConnectorName }),
+    ...(histConnectorId && { connectorId: histConnectorId }),
     ...(histMentionName && { mentionName: histMentionName }),
     ...(typeof m.message_id === 'string' && m.message_id && { messageId: m.message_id }),
     ...(m.role === 'assistant' && typeof m.metadata?.duration_ms === 'number' && m.metadata.duration_ms >= 0

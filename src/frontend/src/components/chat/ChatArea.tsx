@@ -31,7 +31,6 @@ import { EvaluationReminder } from './EvaluationReminder';
 import { useEvaluationFocus, useEvaluationScope } from '../../hooks/useEvaluationScope';
 
 import { InputArea } from './InputArea';
-import { PlanProgressStrip } from './PlanProgressStrip';
 import { JobProgressStrip } from './JobProgressStrip';
 import { FileConfirmBar } from './FileConfirmBar';
 import { DesignPickerCard } from './DesignPickerCard';
@@ -82,7 +81,7 @@ export function ChatArea({
     { value: 'permanent', label: t('长期') },
   ] as const;
   const {
-    store, currentChatId, planMode,
+    store, currentChatId,
     shareSelectionMode, selectedShareMessageUids,
     pendingScrollMessageTs, setPendingScrollMessageTs,
     clearShareSelection,
@@ -453,7 +452,6 @@ export function ChatArea({
         {!publicChat && <EvaluationReminder placement="chat" />}
       </div>
       <div className="jx-chatFooter" ref={setFooterEl}>
-        {!planMode && <PlanProgressStrip chatId={currentChatId} />}
         {/* 后台作业状态条：工作流模式下作业跑在后台，没有它就完全看不出在不在跑 */}
         {!publicChat && <JobProgressStrip chatId={currentChatId} />}
         <FileConfirmBar />

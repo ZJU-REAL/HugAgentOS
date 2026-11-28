@@ -17,6 +17,7 @@ import './form-layout.css';
 import './settings.css';
 import './mcp.css';
 import './myspace.css';
+import './storage-usage.css';
 import './team-folder.css';
 import './canvas.css';
 // 插件 UI 素材库自带样式（jx-pv-*），与宿主样式解耦，见 src/plugin-ui/README.md

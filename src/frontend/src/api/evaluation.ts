@@ -57,6 +57,8 @@ export interface PendingEvaluations {
   items: PendingEvaluationItem[];
   chat_ids: string[];
   total: number;
+  /** The evaluation gate switch (null: older server). Read at start-up so a new chat's first answer is held too. */
+  gateEnabled: boolean | null;
 }
 
 
@@ -97,28 +99,44 @@ export interface ChatEvaluations {
   records: Record<string, EvaluationRecord>;
   /** Answers from scheduled or loop tasks: they have no evaluation. */
   excluded: string[];
+  /** The evaluation gate decided these answers need no evaluation card (voluntary rating only). */
+  notNeeded: string[];
+  /** Answers delivered moments ago whose gate decision has not landed yet. */
+  gating: string[];
+  /** Whether the evaluation gate is switched on (null: the server does not say). */
+  gateEnabled: boolean | null;
+}
+
+function idList(raw: unknown): string[] {
+  return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string') : [];
 }
 
 export async function getChatEvaluations(chatId: string, signal?: AbortSignal): Promise<ChatEvaluations> {
   const payload = await apiRequest<unknown>(`/v1/chats/${encodeURIComponent(chatId)}/feedback`, {
     signal, headers: chatTargetHeaders(chatId),
   });
-  const data = unwrapData<{ items?: Record<string, unknown>; excluded?: unknown }>(payload);
+  const data = unwrapData<{
+    items?: Record<string, unknown>; excluded?: unknown; not_needed?: unknown; gating?: unknown; gate_enabled?: unknown;
+  }>(payload);
   const records: Record<string, EvaluationRecord> = {};
   for (const [messageId, raw] of Object.entries(data.items ?? {})) {
     const record = toRecord(raw);
     if (record) records[messageId] = record;
   }
-  const excluded = Array.isArray(data.excluded) ? data.excluded.filter((id): id is string => typeof id === 'string') : [];
-  return { records, excluded };
+  // Servers without the evaluation gate omit not_needed / gating: both read as empty.
+  return {
+    records, excluded: idList(data.excluded), notNeeded: idList(data.not_needed), gating: idList(data.gating),
+    gateEnabled: typeof data.gate_enabled === 'boolean' ? data.gate_enabled : null,
+  };
 }
 
 export async function getPendingEvaluations(signal?: AbortSignal): Promise<PendingEvaluations> {
   const payload = await apiRequest<unknown>('/v1/chats/evaluations/pending', { signal }, 'cloud');
-  const data = unwrapData<Partial<PendingEvaluations>>(payload);
+  const data = unwrapData<Partial<PendingEvaluations> & { gate_enabled?: unknown }>(payload);
   return {
     items: Array.isArray(data.items) ? data.items : [],
     chat_ids: Array.isArray(data.chat_ids) ? data.chat_ids : [],
     total: typeof data.total === 'number' ? data.total : 0,
+    gateEnabled: typeof data.gate_enabled === 'boolean' ? data.gate_enabled : null,
   };
 }

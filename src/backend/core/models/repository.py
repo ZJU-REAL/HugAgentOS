@@ -21,12 +21,16 @@ ROLE_DEFINITIONS: dict[str, dict] = {
     "subagent": {"label": "子智能体", "type": "chat"},
     "summarizer": {"label": "标题摘要 + 分类", "type": "chat"},
     "followup": {"label": "追问生成", "type": "chat"},
+    # 智能路由每轮的意图识别。未指派时跟随本段对话实际使用的主模型（含用户切换过的），
+    # 不回落 summarizer：识别请求要复用主请求的前缀缓存，换模型就复用不上了。
+    "intent_router": {"label": "用户意图识别", "type": "chat"},
+    # 每轮回答后判断要不要请用户评价。未指派时同样跟随本段对话的主模型（关闭思考）。
+    "evaluation_gate": {"label": "评价判定", "type": "chat"},
     "memory": {"label": "记忆提取 (mem0)", "type": "chat"},
     "audio_transcription": {"label": "语音转文字", "type": "audio"},
     "embedding": {"label": "文本向量化", "type": "embedding"},
     "reranker": {"label": "搜索结果重排序", "type": "reranker"},
     "plan_agent": {"label": "计划模式推理", "type": "chat"},
-    "code_exec": {"label": "代码执行推理", "type": "chat"},
     # 自主循环的评审员/规划器共用此角色（后台模型管理页可独立指定；未配置时回落 main_agent）。
     "loop_reviewer": {"label": "自主循环评审与规划", "type": "chat"},
     # 知识库 Wiki 生成（实体/概念抽取、引文标注、页面撰写）。这是纯离线批处理，
@@ -147,13 +151,18 @@ def delete_provider(db: Session, provider_id: str) -> bool:
 
 
 def provider_is_referenced(db: Session, provider_id: str) -> list[str]:
-    """Return role_keys that reference this provider."""
+    """Return role_keys that reference this provider.
+
+    Rows for retired roles (no longer in ``ROLE_DEFINITIONS``, e.g. ``code_exec``) are
+    invisible in the console and cannot be unassigned there, so they must not block
+    deleting the provider or changing its type; the FK cascade removes them on delete.
+    """
     rows = (
         db.query(ModelRoleAssignment.role_key)
         .filter(ModelRoleAssignment.provider_id == provider_id)
         .all()
     )
-    return [r.role_key for r in rows]
+    return [r.role_key for r in rows if r.role_key in ROLE_DEFINITIONS]
 
 
 def set_provider_test_result(db: Session, provider_id: str, success: bool) -> None:

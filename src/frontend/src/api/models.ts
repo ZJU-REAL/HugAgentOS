@@ -47,6 +47,11 @@ export interface ChatModeOption {
   default_effort: 'fast' | 'medium' | 'high' | 'max';
   /** 锁死则用户改不了强度（极速模式即如此） */
   effort_locked: boolean;
+  /**
+   * 智能路由（slug=auto）：不是一套装配，而是每轮先识别意图、再从其余候选模式里挑一个。
+   * 有 can_use_intent_router 且总开关开启时服务端才把它放在名单最前面。
+   */
+  is_router?: boolean;
 }
 
 /** 模式的完整可写形态（Config 台 / 用户设置页编辑用）。 */
@@ -68,9 +73,25 @@ export interface ChatModeDetail extends ChatModeOption {
 
 /** 当前用户可用的模式：启用的官方模式 + 本人私有模式。 */
 export async function listChatModes(): Promise<ChatModeOption[]> {
+  return (await getChatModeMenu()).modes;
+}
+
+/** 模式菜单 + 本人的模式策略：新对话的默认模式、能否切换（不能时服务端也会锁定）。 */
+export interface ChatModeMenu {
+  modes: ChatModeOption[];
+  defaultSlug: string;
+  canSwitch: boolean;
+}
+
+export async function getChatModeMenu(): Promise<ChatModeMenu> {
   const wrapped = await apiRequest<unknown>('/v1/chat-modes');
   const data = unwrapData<JsonObject>(wrapped);
-  return (Array.isArray(data?.modes) ? data.modes : []) as ChatModeOption[];
+  return {
+    modes: (Array.isArray(data?.modes) ? data.modes : []) as ChatModeOption[],
+    defaultSlug: typeof data?.default_slug === 'string' && data.default_slug ? data.default_slug : 'standard',
+    // 老后端不下发这一位：按可切换处理，行为不变。
+    canSwitch: data?.can_switch !== false,
+  };
 }
 
 /** 我自建的私有模式（需 can_manage_chat_modes）。 */

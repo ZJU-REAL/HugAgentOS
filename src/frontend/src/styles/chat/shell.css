@@ -104,6 +104,22 @@
   color:var(--color-text);
 }
 
+/* Run monitor rail toggle: sits left of the canvas toggle (or in its place while the canvas is open).
+   The rail itself drops out below a 1120px conversation column (RunMonitorRail.css), so the toggle
+   only shows where the rail can. */
+.jx-runMonitorToggle.ant-btn{
+  display:none;
+  right:48px;
+}
+.jx-primaryPane.is-canvasOpen .jx-runMonitorToggle.ant-btn{
+  right:12px;
+}
+@container conversation-pane (min-width: 1120px){
+  .jx-runMonitorToggle.ant-btn{ display:grid; }
+  .jx-primaryPane.has-runMonitorToggle .jx-chatTopbar{ padding-right:94px; }
+  .jx-primaryPane.is-canvasOpen.has-runMonitorToggle .jx-chatTopbar{ padding-right:58px; }
+}
+
 .jx-rightSidebarToggle.ant-btn:focus-visible{
   outline:2px solid var(--color-primary-disabled);
   outline-offset:2px;

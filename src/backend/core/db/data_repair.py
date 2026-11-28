@@ -140,6 +140,33 @@ def copy_permission_bits(conn: sa.engine.Connection, pairs) -> int:
     return changed
 
 
+def grant_bit_to_all_roles(conn: sa.engine.Connection, bit: str) -> int:
+    """Grant a new default-on capability bit to every existing role.
+
+    A user configured "by role" gets only what their roles grant, so a new bit whose
+    system default is on would otherwise switch off for them on upgrade. Roles that
+    already carry the key are left alone. Missing table (CE) is skipped.
+    """
+    import json
+
+    if "roles" not in set(sa.inspect(conn).get_table_names()):
+        return 0
+    roles = sa.table("roles", sa.column("role_id"), sa.column("permissions", sa.JSON))
+    changed = 0
+    for role_id, raw in conn.execute(sa.select(roles.c.role_id, roles.c.permissions)).fetchall():
+        value = json.loads(raw) if isinstance(raw, str) else raw
+        value = value if isinstance(value, dict) else {}
+        if bit in value:
+            continue
+        conn.execute(
+            roles.update()
+            .where(roles.c.role_id == role_id)
+            .values(permissions={**value, bit: True})
+        )
+        changed += 1
+    return changed
+
+
 def copy_lab_permission_to_sites(conn: sa.engine.Connection) -> int:
     """Seed the new ``sites_enabled`` bit from ``lab_enabled`` wherever lab was configured."""
     return copy_permission_bit(conn, "lab_enabled", "sites_enabled")
@@ -152,13 +179,17 @@ PLUGIN_AGENT_MARKET_SPLIT = (
 )
 # One marker per migration, so a database that already ran the first copy still runs the second.
 _MARKET_SPLIT_STEPS = (
-    ("data-repair:mktperm01", MARKET_PERMISSION_SPLIT),
-    ("data-repair:mktperm02", PLUGIN_AGENT_MARKET_SPLIT),
+    ("data-repair:mktperm01", lambda conn: copy_permission_bits(conn, MARKET_PERMISSION_SPLIT)),
+    ("data-repair:mktperm02", lambda conn: copy_permission_bits(conn, PLUGIN_AGENT_MARKET_SPLIT)),
+    ("data-repair:evoperm01", lambda conn: grant_bit_to_all_roles(conn, "can_use_evolution")),
+    ("data-repair:modeperm01", lambda conn: grant_bit_to_all_roles(conn, "can_switch_chat_mode")),
 )
 
 
 def copy_market_permissions_once(conn: sa.engine.Connection) -> bool:
-    """SQLite twin of migrations ``mktperm01`` and ``mktperm02`` (SQLite databases skip alembic).
+    """SQLite twin of migrations ``mktperm01``, ``mktperm02``, ``evoperm01`` and ``modeperm01``.
+
+    SQLite databases skip alembic.
 
     Each copy runs exactly once, recorded by a ``content_blocks`` marker: copying on every
     start would undo an administrator who later sets a market bit back to "follow".
@@ -174,10 +205,10 @@ def copy_market_permissions_once(conn: sa.engine.Connection) -> bool:
         sa.column("updated_at"), sa.column("updated_by"),
     )
     ran = False
-    for marker, pairs in _MARKET_SPLIT_STEPS:
+    for marker, step in _MARKET_SPLIT_STEPS:
         if conn.execute(sa.select(blocks.c.id).where(blocks.c.id == marker)).first():
             continue
-        copy_permission_bits(conn, pairs)
+        step(conn)
         # Two processes starting together may both get here; the copy is idempotent, so the
         # loser of the marker insert just carries on instead of failing startup.
         try:

@@ -2,7 +2,6 @@
 export const HOOKS_DICT: Record<string, string> = {
   '运行位置已变化，请重新发送。': 'The execution location changed. Please send again.',
   '无法读取引用文件：{name}': 'Cannot read the referenced file: {name}',
-  '文件过大，无法添加：{name}': 'The file is too large to attach: {name}',
   '文件上传失败，请重试': 'File upload failed. Please try again.',
   // useStreaming — file upload warnings
   '文件上传失败，请移除后重试：{names}': 'File upload failed. Remove and retry: {names}',

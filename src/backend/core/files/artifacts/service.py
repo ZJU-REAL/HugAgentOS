@@ -189,8 +189,11 @@ def persist_artifacts(
     scope: Optional["ProjectScope"] = None,
     commit: bool = True,
     strict: bool = False,
-) -> None:
+) -> list[dict]:
     """Batch-insert AI-generated artifacts into the Artifact DB table.
+
+    Returns the inputs that were newly inserted, each with ``filename`` set to the
+    name the row was stored under (already-known ids are skipped and not returned).
 
     Strict mode: callers MUST pass only the list of files the agent
     explicitly pinned via ``pin_to_workspace`` (e.g. the result of
@@ -217,7 +220,7 @@ def persist_artifacts(
     # Local project cards are live file references, not MySpace storage objects.
     collected = [a for a in collected if not is_local_file_ref(a.get("file_id", ""))]
     if not collected:
-        return
+        return []
 
     scope_fields = artifact_scope_fields(scope)
 
@@ -233,6 +236,7 @@ def persist_artifacts(
         else set()
     )
     batch_names: set = set()
+    inserted: list[dict] = []
     for art in collected:
         art_id = art.get("file_id", "")
         if not art_id or art_id in existing_ids:
@@ -266,6 +270,7 @@ def persist_artifacts(
                 )
             )
             existing_ids.add(art_id)
+            inserted.append({**art, "filename": filename, "storage_key": storage_key})
         except Exception as e:
             if strict:
                 if commit:
@@ -287,5 +292,86 @@ def persist_artifacts(
         logger.warning("artifact_db_commit_failed: %s", e)
         if commit:
             db.rollback()
+            return []
         else:
             raise
+    return inserted
+
+
+def _delivery_location(db: Session, scope: Optional["ProjectScope"]) -> tuple[str, str]:
+    """(space id, folder path) a run's deliverables belong in: the project folder, else My Space root."""
+    if scope is None:
+        return "personal", ""
+    from core.db.models.project import Project
+    from core.files.spaces.projects import project_location
+
+    project = db.get(Project, scope.project_id)
+    if project is None:
+        raise ValueError("项目不存在")
+    space, path, _ = project_location(db, project)
+    return space, path
+
+
+def copy_deliverables_to_space(
+    db: Session,
+    user_id: str,
+    delivered: list,
+    *,
+    scope: Optional["ProjectScope"] = None,
+) -> list[dict]:
+    """Put newly pinned deliverables into the file space, as uploads are.
+
+    Since My Space lists the space directory in object storage, an Artifact row alone
+    is only the chat's snapshot and never shows up there. Like ``/v1/file/upload``,
+    the space gets its own editable copy (server-side when the bytes are in object
+    storage). Skipped for desktop local mode (deliveries are live references to the
+    original), for files that already sit in a mounted space (written under
+    ``/myspace``/team mounts), and for callers without a personal space.
+    Returns ``[{file_id, error}]`` for deliverables that could not be copied.
+    """
+    from core.config.local_mode import local_mode_enabled
+
+    if not delivered or local_mode_enabled():
+        return []
+    from fastapi import HTTPException
+    from core.db.personal_file_names import numbered_names
+    from core.files.spaces.access import resolve_grants
+    from core.files.spaces.files import SpaceFiles
+    from core.files.storage import get_storage
+
+    try:
+        grants = resolve_grants(db, user_id)
+    except HTTPException:
+        return []
+    if not grants:
+        return []
+    mounts = tuple(g.mount_path.rstrip("/") + "/" for g in grants)
+    try:
+        space, directory = _delivery_location(db, scope)
+    except (HTTPException, ValueError) as exc:
+        logger.warning("deliverable_space_location_failed: %s", getattr(exc, "detail", exc))
+        return [{"file_id": a.get("file_id"), "error": "项目未绑定文件目录，未保存到空间"} for a in delivered]
+
+    files = SpaceFiles(db, user_id, get_storage())
+    failures: list[dict] = []
+    for art in delivered:
+        src_path = str(art.get("src_path") or "")
+        if src_path and src_path.startswith(mounts):
+            continue  # already a space file
+        try:
+            name = next(
+                candidate for candidate in numbered_names(art["filename"])
+                if not files.occupied(space, f"{directory}/{candidate}" if directory else candidate)
+            )
+            path = f"{directory}/{name}" if directory else name
+            local_path = art.get("local_path")
+            if local_path and os.path.isfile(local_path):
+                with open(local_path, "rb") as handle:
+                    files.write(space, path, handle.read())
+            else:
+                files.copy_from(space, path, art["storage_key"], max(art.get("size", 0) or 0, 1))
+        except (HTTPException, OSError, StopIteration, KeyError) as exc:
+            logger.warning("deliverable_space_copy_failed: %s", type(exc).__name__)
+            message = exc.detail if isinstance(exc, HTTPException) else "保存到空间失败"
+            failures.append({"file_id": art.get("file_id"), "error": message})
+    return failures

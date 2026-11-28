@@ -2,7 +2,7 @@ import { usePublicChat } from '../../public-chat/PublicChatContext';
 import { memo, useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { FileAttachmentCard } from '../file';
-import { ToolMessageContext } from '../tool/ToolMessageContext';
+import { ToolMessageContext, type ToolMessageIdentity } from '../tool/ToolMessageContext';
 import { EvolutionCard } from './EvolutionCard';
 import { MessageBody } from './MessageBody';
 import { MessageActions } from './MessageActions';
@@ -44,9 +44,19 @@ export const MessageBubble = memo(function MessageBubble({ m, messageIndex, curr
   const inherited = isForkedHistory(m);
   const [isFresh] = useState(() => hasMessageEntrance(m.uid));
   useEffect(() => { completeMessageEntrance(m.uid); }, [m.uid]);
-  const toolMessageIdentity = useMemo(
-    () => ({ chatId: currentChatId, messageId: m.messageId, messageUid: m.uid, readOnly: inherited }),
-    [currentChatId, m.messageId, m.uid, inherited],
+  const canRerun = m.role === 'assistant' && !inherited && !publicChat && !!regenerate;
+  const toolMessageIdentity = useMemo<ToolMessageIdentity>(
+    () => ({
+      chatId: currentChatId, messageId: m.messageId, messageUid: m.uid, readOnly: inherited,
+      ...(canRerun ? {
+        rerunWithMode: (modeSlug: string) => {
+          // 先把模式位落到这段对话上（重答请求读的就是它），再按原有链路重答这一轮。
+          useChatStore.getState().setModeSlug(modeSlug);
+          regenerate?.(messageIndex);
+        },
+      } : {}),
+    }),
+    [currentChatId, m.messageId, m.uid, inherited, canRerun, regenerate, messageIndex],
   );
 
   return (

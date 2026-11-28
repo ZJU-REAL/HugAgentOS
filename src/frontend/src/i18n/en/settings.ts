@@ -4,6 +4,9 @@ export const SETTINGS_DICT: Record<string, string> = {
   '切换配置目标？': 'Switch configuration target?',
   '配置目标': 'Configuration target',
   '新建分类': 'New category',
+  '提示词分类': 'Prompt categories',
+  '删除分类': 'Delete category',
+  '删除分类「{name}」': 'Delete category "{name}"',
   '请填写标识': 'Please enter a key',
   '新建提示词分类': 'New prompt category',
   '已新建提示词分类': 'Prompt category created',
@@ -657,11 +660,12 @@ export const SETTINGS_DICT: Record<string, string> = {
   '主智能体推理': 'Main Agent Reasoning',
   '标题摘要 + 分类': 'Title Summary + Classification',
   '追问生成': 'Follow-up Generation',
+  // Server-provided model role / config group label of the evaluation gate.
+  '评价判定': 'Evaluation Gate',
   '记忆提取 (mem0)': 'Memory Extraction (mem0)',
   '文本向量化': 'Text Embedding',
   '搜索结果重排序': 'Search Result Reranking',
   '计划模式推理': 'Plan Mode Reasoning',
-  '代码执行推理': 'Code Execution Reasoning',
   '搜索引擎密钥、文件解析等个人使用相关的服务配置；保存后约 30 秒内生效，无需重启。':
     'Personal service settings such as search engine keys and file parsing; changes take effect within ~30s, no restart needed.',
   '加载服务配置失败：{msg}': 'Failed to load service config: {msg}',
@@ -919,6 +923,8 @@ export const SETTINGS_DICT: Record<string, string> = {
   // ── 外观 / 深色模式 ──
   '外观': 'Appearance',
   '切换界面深浅配色，选择跟随系统时自动匹配系统外观': 'Switch between light and dark color schemes; "Follow system" matches your OS appearance automatically',
+  '默认展开运行监控': 'Show run monitor by default',
+  '打开对话时，右侧的上下文、文件、子智能体等卡片是否默认展开；可随时用对话右上角的按钮展开或收起': 'Whether the context, files and sub-agent cards on the right start expanded when you open a chat. Use the button in the top-right corner of the chat to show or hide them at any time.',
   '跟随系统': 'Follow system',
   '浅色': 'Light',
   '深色': 'Dark',

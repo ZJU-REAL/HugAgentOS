@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useChatStore } from '../stores';
 import { scrollIntoViewAndFlash } from '../utils/scroll';
 import { usePolling } from './usePolling';
@@ -30,6 +30,43 @@ export function useEvaluationScope(chatId: string) {
     if (userId && chatId) void loadChat(chatId);
   }, [userId, chatId, loadChat]);
 
+  // Leaving a chat forgets it: its gate decisions and anything that finished meanwhile are read
+  // again when it opens again.
+  useEffect(() => () => { if (chatId) useEvaluationStore.getState().stopGating(chatId); }, [chatId]);
+
+  // Only users with the evaluation card wait for the gate's decisions.
+  useEffect(() => { useEvaluationStore.getState().setGateActive(enabled); }, [enabled]);
+
+  // The moment an answer of this chat finishes streaming, hold its card back (gate on) until the
+  // re-read says what the gate decided. A layout effect, so the card never paints in between.
+  const lastAnswer = useChatStore((s) => {
+    const messages = s.store.chats[chatId]?.messages;
+    const last = messages?.[messages.length - 1];
+    if (last?.role !== 'assistant') return '';
+    return [last.uid, last.messageId ?? '', last.isStreaming || last.inFlight ? 'live' : 'done'].join('|');
+  });
+  const streamingUid = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const [uid, messageId, phase] = lastAnswer.split('|');
+    if (!uid) return;
+    if (phase === 'live') {
+      streamingUid.current = uid;
+    } else if (streamingUid.current === uid && messageId) {
+      streamingUid.current = null;
+      useEvaluationStore.getState().expectGate(chatId, messageId);
+    }
+  }, [lastAnswer, chatId]);
+  useEffect(() => { streamingUid.current = null; }, [chatId]);
+
+  // Gate decisions landing can drop answers from the reminder list: refresh it once they are in.
+  const gatingAny = useEvaluationStore((s) => Object.keys(s.gating).length > 0);
+  const wasGating = useRef(gatingAny);
+  useEffect(() => {
+    const settled = wasGating.current && !gatingAny;
+    wasGating.current = gatingAny;
+    if (settled && enabled) void refreshPending();
+  }, [gatingAny, enabled, refreshPending]);
+
   // Fetch at once for each account; then poll, paused while the page is hidden and refreshed
   // when it becomes visible again.
   useEffect(() => {
@@ -46,6 +83,9 @@ export function useEvaluationScope(chatId: string) {
     if (!finished || !userId || !chatId) return;
     void loadChat(chatId, { force: true });
     if (!enabled) return;
+    // While the gate decides, the reminder would only list the answer to drop it moments later:
+    // the refresh once decisions land (above) covers it.
+    if (Object.keys(useEvaluationStore.getState().gating).length) return;
     const timer = window.setTimeout(() => { void refreshPending(); }, AFTER_RUN_MS);
     return () => window.clearTimeout(timer);
   }, [enabled, sending, refreshPending, loadChat, userId, chatId]);
